@@ -2238,6 +2238,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     if (linearizable) {
         KeyLength pKeyLen;
         const void* pKey = object.getKey(0, &pKeyLen);
+        respHdr->common.status = STATUS_OK;
         RpcRecord rpcRecord(
                 reqHdr->tableId, Key::getHash(reqHdr->tableId, pKey, pKeyLen),
                 reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,

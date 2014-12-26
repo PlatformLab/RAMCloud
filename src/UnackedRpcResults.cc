@@ -78,7 +78,7 @@ UnackedRpcResults::startCleaner()
  *      False if the \a rpcId has never been passed to this method
  *      for this client before.
  *
- * \throw StaleRpc
+ * \throw StaleRpcException
  *      The rpc with \a rpcId is already acknowledged by client, so we should
  *      not have received this request in the first place.
  */
@@ -120,7 +120,7 @@ UnackedRpcResults::checkDuplicate(uint64_t clientId,
     //   There are four cases to handle.
     if (rpcId <= client->maxAckId) {
         //StaleRpc: rpc is already acknowledged.
-        throw StaleRpc(HERE);
+        throw StaleRpcException(HERE);
     } else if (client->maxRpcId < rpcId) {
         //Beyond the window of maxAckId and maxRpcId.
         client->maxRpcId = rpcId;
@@ -180,7 +180,7 @@ UnackedRpcResults::shouldRecover(uint64_t clientId,
  * \param clientId
  *      RPC sender's id.
  * \param rpcId
- *      RPC's id to be checked.
+ *      Id of the RPC that just completed.
  * \param result
  *      The pointer to the result of rpc in log.
  */

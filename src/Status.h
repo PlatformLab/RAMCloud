@@ -127,10 +127,14 @@ typedef enum Status {
     /// It does not make sense to execute the RPC again. Most likely cause
     /// is a delayed network packet.
     STATUS_STALE_RPC                    = 31,
-    STATUS_MAX_VALUE                    = 31,
+
+    /// Indicates that the lease of a client is expired on the coordinator.
+    /// Master refused to execute the RPC with expired lease.
+    STATUS_EXPIRED_LEASE                = 32,
+    STATUS_MAX_VALUE                    = 32,
 
     //TODO(seojin): figure out why compile fails without this..
-    MULTIOP_UNDERWAY                    = 32,
+    MULTIOP_UNDERWAY                    = 33,
 
     // Note: if you add a new status value you must make the following
     // additional updates:

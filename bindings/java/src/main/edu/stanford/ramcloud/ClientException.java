@@ -97,6 +97,8 @@ public class ClientException extends RuntimeException {
                 throw new InvalidParameterException();
             case STATUS_STALE_RPC:
                 throw new StaleRpcException();
+            case STATUS_EXPIRED_LEASE:
+                throw new ExpiredLeaseException();
             default:
                 throw new UnrecognizedErrorException();
         }
@@ -145,6 +147,7 @@ public class ClientException extends RuntimeException {
     public static class UnknownIndexException extends ClientException {}
     public static class InvalidParameterException extends ClientException {}
     public static class StaleRpcException extends ClientException {}
+    public static class ExpiredLeaseException extends ClientException {}
 
     /**
      * Exception thrown when Java doesn't recognize the status code

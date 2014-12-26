@@ -650,8 +650,8 @@ TEST_F(RamCloudTest, write) {
 
     // Checks rpcId was assigned for the linearizable write RPC
     // and acknowledged by this client.
-    EXPECT_EQ(1UL, ramcloud->clientContext->rpcTracker->ackId());
-    EXPECT_EQ(2UL, ramcloud->clientContext->rpcTracker->nextRpcId);
+    EXPECT_EQ(1UL, ramcloud->rpcTracker.ackId());
+    EXPECT_EQ(2UL, ramcloud->rpcTracker.nextRpcId);
 
     ObjectBuffer value;
     ramcloud->readKeysAndValue(tableId1, "0", 1, &value);

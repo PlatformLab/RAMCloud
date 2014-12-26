@@ -236,6 +236,9 @@ DEFINE_EXCEPTION(InvalidParameterException,
 DEFINE_EXCEPTION(StaleRpcException,
                  STATUS_STALE_RPC,
                  ClientException)
+DEFINE_EXCEPTION(ExpiredLeaseException,
+                 STATUS_EXPIRED_LEASE,
+                 ClientException)
 
 } // namespace RAMCloud
 

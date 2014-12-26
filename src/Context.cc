@@ -84,7 +84,6 @@ Context::Context(bool hasDedicatedDispatchThread)
     , coordinatorServerList(NULL)
     , tableManager(NULL)
     , recoveryManager(NULL)
-    , rpcTracker(NULL)
 {
     try {
 #if TESTING

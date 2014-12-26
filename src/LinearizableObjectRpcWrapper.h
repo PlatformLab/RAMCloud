@@ -30,7 +30,7 @@ namespace RAMCloud {
  *
  * To make an RPC linearizable, two things should be done.
  * 1) Inherit from this wrapper instead of ObjectRpcWrapper.
- * 2) Invoke #fillLinearizabilityHeader in constructor of the RPC.
+ * 2) Invoke #fillLinearizabilityHeader in the constructor of the RPC.
  */
 class LinearizableObjectRpcWrapper : public ObjectRpcWrapper {
   public:
@@ -44,7 +44,7 @@ class LinearizableObjectRpcWrapper : public ObjectRpcWrapper {
     void cancel();
 
     /**
-     * This flag allows user of linearizable RPC to specific whether to send
+     * This flag allows users of linearizable RPCs to specific whether to send
      * linearizable RPC or non-linearizable RPC.
      */
     const bool linearizabilityOn;

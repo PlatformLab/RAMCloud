@@ -49,9 +49,9 @@ TEST_F(LinearizableObjectRpcWrapperTest, destroy_rpc_in_progress) {
         WireFormat::Write::Request* reqHdr(
                 wrapper.allocHeader<WireFormat::Write>());
         wrapper.fillLinearizabilityHeader<WireFormat::Write::Request>(reqHdr);
-        EXPECT_EQ(0UL, ramcloud.clientContext->rpcTracker->ackId());
+        EXPECT_EQ(0UL, ramcloud.rpcTracker.ackId());
     }
-    EXPECT_EQ(1UL, ramcloud.clientContext->rpcTracker->ackId());
+    EXPECT_EQ(1UL, ramcloud.rpcTracker.ackId());
 }
 
 TEST_F(LinearizableObjectRpcWrapperTest, fillLinearizabilityHeader_writeRpc) {
@@ -80,11 +80,11 @@ TEST_F(LinearizableObjectRpcWrapperTest, rpcTracker_window_full_on_create) {
     resp->common.status = STATUS_OK;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
 
-    EXPECT_EQ(0UL, ramcloud.clientContext->rpcTracker->ackId());
+    EXPECT_EQ(0UL, ramcloud.rpcTracker.ackId());
     EXPECT_TRUE(wrapper.assignedRpcId);
 
     for (int i = 1; i < RpcTracker::windowSize; ++i) {
-        ramcloud.clientContext->rpcTracker->newRpcId(
+        ramcloud.rpcTracker.newRpcId(
             reinterpret_cast<LinearizableObjectRpcWrapper*>(1));
     }
     EXPECT_TRUE(wrapper.assignedRpcId);
@@ -97,7 +97,7 @@ TEST_F(LinearizableObjectRpcWrapperTest, rpcTracker_window_full_on_create) {
     EXPECT_EQ((uint64_t) (RpcTracker::windowSize + 1), wrapper2.assignedRpcId);
     EXPECT_EQ((uint64_t) (RpcTracker::windowSize + 1), reqHdr2.rpcId);
     EXPECT_EQ(1UL, reqHdr2.ackId);
-    EXPECT_EQ(1UL, ramcloud.clientContext->rpcTracker->ackId());
+    EXPECT_EQ(1UL, ramcloud.rpcTracker.ackId());
 
     wrapper.waitInternal(ramcloud.clientContext->dispatch);
 }
@@ -119,9 +119,9 @@ TEST_F(LinearizableObjectRpcWrapperTest, waitInternal) {
     EXPECT_EQ(1UL, reqHdr->rpcId);
     EXPECT_EQ(0UL, reqHdr->ackId);
 
-    EXPECT_EQ(0UL, ramcloud.clientContext->rpcTracker->ackId());
+    EXPECT_EQ(0UL, ramcloud.rpcTracker.ackId());
     wrapper.waitInternal(ramcloud.clientContext->dispatch);
-    EXPECT_EQ(1UL, ramcloud.clientContext->rpcTracker->ackId());
+    EXPECT_EQ(1UL, ramcloud.rpcTracker.ackId());
 
     //2. CANCELLED operation.
     LinearizableObjectRpcWrapper wrapper2(&ramcloud, true, 10, "abc", 3, 4);
@@ -134,9 +134,9 @@ TEST_F(LinearizableObjectRpcWrapperTest, waitInternal) {
     EXPECT_EQ(2UL, reqHdr->rpcId);
     EXPECT_EQ(1UL, reqHdr->ackId);
 
-    EXPECT_EQ(1UL, ramcloud.clientContext->rpcTracker->ackId());
+    EXPECT_EQ(1UL, ramcloud.rpcTracker.ackId());
     wrapper2.cancel();
-    EXPECT_EQ(2UL, ramcloud.clientContext->rpcTracker->ackId());
+    EXPECT_EQ(2UL, ramcloud.rpcTracker.ackId());
 }
 
 }  // namespace RAMCloud

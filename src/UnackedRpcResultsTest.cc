@@ -94,7 +94,7 @@ TEST_F(UnackedRpcResultsTest, checkDuplicate) {
 
     //2. Stale Rpc.
     EXPECT_THROW(results.checkDuplicate(1, 4, 3, 1, &result),
-                 UnackedRpcResults::StaleRpc);
+                 StaleRpcException);
 
     //3. Fast-path new RPC (rpcId > maxRpcId == true).
     EXPECT_EQ(10UL, results.clients[1]->maxRpcId);

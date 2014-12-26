@@ -32,18 +32,20 @@ RpcTracker::~RpcTracker() {
  */
 void
 RpcTracker::rpcFinished(uint64_t rpcId) {
-    assert(rpcs[rpcId % windowSize]);
-    //rpcs[rpcId % windowSize] = true;
-    rpcs[rpcId % windowSize] = NULL;
+    assert(rpcs[rpcId & indexMask]);
+    rpcs[rpcId & indexMask] = NULL;
     if (firstMissing == rpcId) {
         firstMissing++;
-        while (!rpcs[firstMissing % windowSize] && firstMissing < nextRpcId)
+        while (!rpcs[firstMissing & indexMask] && firstMissing < nextRpcId)
             firstMissing++;
     }
 }
 
 /**
  * Gets a unique RPC id for new linearizable RPC.
+ *
+ * \param ptr
+ *      Pointer to LinearizableObjectRpcWrapper to which we assign a new rpcId.
  *
  * \return
  *      The id for new RPC.
@@ -53,17 +55,18 @@ uint64_t
 RpcTracker::newRpcId(LinearizableObjectRpcWrapper* ptr) {
     assert(ptr != NULL);
     if (firstMissing + windowSize == nextRpcId) {
+        RAMCLOUD_CLOG(NOTICE, "Waiting for response of RPC with id: %ld",
+                      firstMissing);
         return 0;
     }
     assert(firstMissing + windowSize > nextRpcId);
-    //rpcs[nextRpcId % windowSize] = false;
-    rpcs[nextRpcId % windowSize] = ptr;
+    rpcs[nextRpcId & indexMask] = ptr;
     return nextRpcId++;
 }
 
 /**
  * Gets the current acknowledgment id, which indicates RPCs with id smaller
- * than this number are all received results.
+ * than this number have all received results.
  *
  * \return
  *      The ackId value to be sent with new RPC.
@@ -80,8 +83,8 @@ RpcTracker::ackId() {
  */
 LinearizableObjectRpcWrapper*
 RpcTracker::oldestOutstandingRpc() {
-    assert(rpcs[firstMissing % windowSize]);
-    return rpcs[firstMissing % windowSize];
+    assert(rpcs[firstMissing & indexMask]);
+    return rpcs[firstMissing & indexMask];
 }
 
 } // namespace RAMCloud

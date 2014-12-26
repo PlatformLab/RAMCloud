@@ -3591,9 +3591,9 @@ writeDistRandom()
     printf("\n");
 }
 
-// Write or overwrite randomly-chosen objects from a large table (so that there
-// will be cache misses on the hash table and the object) and compute a
-// cumulative distribution of write times.
+// With linearizable RPC, write or overwrite randomly-chosen objects from a
+// large table (so that there will be cache misses on the hash table and the
+// object) and compute a cumulative distribution of write times.
 void
 linearizableWriteDistRandom()
 {
@@ -3648,7 +3648,7 @@ linearizableWriteDistRandom()
     printf("\n");
 }
 
-// Random read and write times for objects of different sizes
+// Random linearizable write times for objects of different sizes
 void
 linearizableRpc()
 {

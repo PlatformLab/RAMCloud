@@ -404,6 +404,7 @@ def writeDist(name, options, cluster_args, client_args):
           "#---------------------------"
           % (options.size, name))
     print_cdf_from_log()
+
 #-------------------------------------------------------------------
 #  End of driver functions.
 #-------------------------------------------------------------------

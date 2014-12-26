@@ -2193,10 +2193,10 @@ TEST_F(MasterServiceTest, write_linearizable) {
     EXPECT_EQ(2U, respHdr.version);
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
 
-    // StaleRpc exception test.
+    // StaleRpcException test.
     ramcloud->write(1, "key0", 4, "item2", 5, NULL, NULL, false, true);
-    service->write(reqHdr, &respHdr, &rpc);
-    EXPECT_EQ(STATUS_STALE_RPC, respHdr.common.status);
+    EXPECT_THROW(service->write(reqHdr, &respHdr, &rpc),
+                 StaleRpcException);
 }
 
 /**

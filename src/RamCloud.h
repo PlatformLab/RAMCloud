@@ -199,7 +199,7 @@ class RamCloud {
   public: // public for now to make administrative calls from clients
     ClientLease clientLease;
     ObjectFinder objectFinder;
-    RpcTracker realRpcTracker;
+    RpcTracker rpcTracker;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);

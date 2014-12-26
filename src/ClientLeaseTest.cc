@@ -98,7 +98,7 @@ TEST_F(ClientLeaseTest, getLease_shouldSyncRenew) {
 }
 
 TEST_F(ClientLeaseTest, handleTimerEvent) {
-    lease.ramcloud->realRpcTracker.nextRpcId = 2;
+    lease.ramcloud->rpcTracker.nextRpcId = 2;
     lease.localTimestampCycles = 0;
     Cycles::mockTscValue = Cycles::fromNanoseconds(5000);
     EXPECT_EQ(0U, lease.lease.leaseId);
@@ -117,7 +117,7 @@ TEST_F(ClientLeaseTest, handleTimerEvent) {
     EXPECT_EQ(Cycles::fromNanoseconds(5000), lease.localTimestampCycles);
     EXPECT_TRUE(lease.isRunning());
     lease.stop();
-    lease.ramcloud->realRpcTracker.firstMissing = 2;
+    lease.ramcloud->rpcTracker.firstMissing = 2;
     lease.handleTimerEvent();
     EXPECT_TRUE(lease.renewLeaseRpc);
     EXPECT_TRUE(lease.isRunning());
