@@ -909,6 +909,8 @@ InfRcTransport::getServiceLocator()
  * scatter-gather entry limit and buffers that mix registered and
  * non-registered chunks.
  *
+ * \param nonce
+ *      Unique RPC identifier to transmit before message.
  * \param message
  *      Buffer containing the message that should be transmitted
  *      to the endpoint listening on #session.
@@ -916,14 +918,14 @@ InfRcTransport::getServiceLocator()
  *      Queue pair on which to transmit the message.
  */
 void
-InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp)
+InfRcTransport::sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp)
 {
     const bool allowZeroCopy = true;
     uint32_t lastChunkIndex = message->getNumberChunks() - 1;
     ibv_sge isge[MAX_TX_SGE_COUNT];
 
-    uint32_t currentChunk = 0;
-    uint32_t currentSge = 0;
+    uint32_t chunksUsed = 0;
+    uint32_t sgesUsed = 0;
     BufferDescriptor* bd = getTransmitBuffer();
 
     // The variables below allow us to collect several chunks from the
@@ -932,6 +934,9 @@ InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp)
     // must go into the next sge.
     char* unaddedStart = bd->buffer;
     char* unaddedEnd = bd->buffer;
+
+    *(reinterpret_cast<uint64_t*>(unaddedStart)) = nonce;
+    unaddedEnd += sizeof(nonce);
 
     Buffer::Iterator it(message);
     while (!it.isDone()) {
@@ -951,28 +956,28 @@ InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp)
             // for this zero-copy chunk, 1 for more unadded data up to the
             // last chunk, and one for a final zero-copy chunk), or this is
             // the last chunk (in which there better be at least 2 sge's left).
-            (currentSge <= MAX_TX_SGE_COUNT - 4 ||
-             currentChunk == lastChunkIndex) &&
+            (sgesUsed <= MAX_TX_SGE_COUNT - 4 ||
+             chunksUsed == lastChunkIndex) &&
             addr >= logMemoryBase &&
             (addr + it.getLength()) <= (logMemoryBase + logMemoryBytes) &&
             it.getLength() > 500)
         {
             if (unaddedStart != unaddedEnd) {
-                isge[currentSge] = {
+                isge[sgesUsed] = {
                     reinterpret_cast<uint64_t>(unaddedStart),
                     downCast<uint32_t>(unaddedEnd - unaddedStart),
                     bd->mr->lkey
                 };
-                ++currentSge;
+                ++sgesUsed;
                 unaddedStart = unaddedEnd;
             }
 
-            isge[currentSge] = {
+            isge[sgesUsed] = {
                 addr,
                 it.getLength(),
                 logMemoryRegion->lkey
             };
-            ++currentSge;
+            ++sgesUsed;
         } else {
             CycleCounter<RawMetric>
                 copyTicks(&metrics->transport.transmit.copyTicks);
@@ -980,15 +985,15 @@ InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp)
             unaddedEnd += it.getLength();
         }
         it.next();
-        ++currentChunk;
+        ++chunksUsed;
     }
     if (unaddedStart != unaddedEnd) {
-        isge[currentSge] = {
+        isge[sgesUsed] = {
             reinterpret_cast<uint64_t>(unaddedStart),
             downCast<uint32_t>(unaddedEnd - unaddedStart),
             bd->mr->lkey
         };
-        ++currentSge;
+        ++sgesUsed;
         unaddedStart = unaddedEnd;
     }
 
@@ -998,7 +1003,7 @@ InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp)
     txWorkRequest.wr_id = reinterpret_cast<uint64_t>(bd);// stash descriptor ptr
     txWorkRequest.next = NULL;
     txWorkRequest.sg_list = isge;
-    txWorkRequest.num_sge = currentSge;
+    txWorkRequest.num_sge = sgesUsed;
     txWorkRequest.opcode = IBV_WR_SEND;
     txWorkRequest.send_flags = IBV_SEND_SIGNALED;
 
@@ -1008,7 +1013,7 @@ InfRcTransport::sendZeroCopy(Buffer* message, QueuePair* qp)
     if ((message->size()) <= Infiniband::MAX_INLINE_DATA)
         txWorkRequest.send_flags |= IBV_SEND_INLINE;
 
-    metrics->transport.transmit.iovecCount += currentSge;
+    metrics->transport.transmit.iovecCount += sgesUsed;
     metrics->transport.transmit.byteCount += message->size();
     if (!transmitCycleCounter) {
         transmitCycleCounter.construct();
@@ -1100,14 +1105,11 @@ InfRcTransport::ServerRpc::sendReply()
                     t->getMaxRpcSize()));
     }
 
-    replyPayload.emplacePrepend<Header>(nonce);
     if (!t->transmitCycleCounter) {
         t->transmitCycleCounter.construct();
     }
-    t->sendZeroCopy(&replyPayload, qp);
+    t->sendZeroCopy(nonce, &replyPayload, qp);
     interval.stop();
-
-    replyPayload.truncateFront(sizeof(Header)); // for politeness
 
     // Restart port watchdog for this server port
 
@@ -1191,9 +1193,7 @@ InfRcTransport::ClientRpc::sendOrQueue()
         ++metrics->transport.transmit.messageCount;
         ++metrics->transport.transmit.packetCount;
 
-        request->emplacePrepend<Header>(nonce);
-        t->sendZeroCopy(request, session->qp);
-        request->truncateFront(sizeof(Header)); // for politeness
+        t->sendZeroCopy(nonce, request, session->qp);
 
         t->outstandingRpcs.push_back(*this);
         session->sessionAlarm.rpcStarted();

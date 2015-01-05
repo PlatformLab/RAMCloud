@@ -58,7 +58,7 @@ void
 PcapFile::append(const char* const rawPacket, const uint32_t length)
 {
     Buffer buffer;
-    buffer.appendExternal(rawPacket, length);
+    buffer.append(rawPacket, length);
     append(buffer);
 }
 

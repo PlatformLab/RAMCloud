@@ -205,7 +205,7 @@ if options.startEvent:
     outputInfo.sort(key=lambda item: item[0])
     print('%-*s      Time   Median      Min      Max  Average' % (nameLength,
             "Event"))
-    print('----------------------------------------------------'
-            '---------------------')
+    print('%s----------------------------------------------' %
+            ('-' * nameLength))
     for message in outputInfo:
         print(message[1])

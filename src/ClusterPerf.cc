@@ -1229,13 +1229,12 @@ void
 createTables(std::vector<uint64_t> &tableIds, int objectSize, const void* key,
         uint16_t keyLength)
 {
-    assert(static_cast<int>(tableIds.size()) == numTables);
     // Create the tables in backwards order to reduce possible correlations
     // between clients, tables, and servers (if we have 60 clients and 60
     // servers, with clients and servers colocated and client i accessing
     // table i, we wouldn't want each client reading a table from the
     // server on the same machine).
-    for (int i = numTables-1; i >= 0;  i--) {
+    for (int i = downCast<int>(tableIds.size())-1; i >= 0;  i--) {
         char tableName[20];
         snprintf(tableName, sizeof(tableName), "table%d", i);
         cluster->createTable(tableName);
@@ -2596,7 +2595,7 @@ multiReadThroughput()
 {
     const uint16_t keyLength = 30;
     const int numObjects = 2000000;
-#define MRT_BATCH_SIZE 70
+#define MRT_BATCH_SIZE 80
     if (clientIndex == 0) {
         // This is the master client. Fill in the table, then measure
         // throughput while gradually increasing the number of workers.
@@ -3705,6 +3704,9 @@ try
             }
         }
     }
+
+    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
+    cluster->clientContext->timeTrace->printToLog();
 }
 catch (std::exception& e) {
     RAMCLOUD_LOG(ERROR, "%s", e.what());

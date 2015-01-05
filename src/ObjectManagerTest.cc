@@ -1479,7 +1479,6 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectAlive) {
     }
     EXPECT_TRUE(success);
     EXPECT_EQ(oldType, oldType2);
-    EXPECT_EQ(oldBuffer.getStart<uint8_t>(), oldBuffer2.getStart<uint8_t>());
 
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
@@ -1503,8 +1502,6 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectAlive) {
     EXPECT_NE(oldReference, newReference);
     EXPECT_NE(newBuffer.getStart<uint8_t>(),
               oldBuffer.getStart<uint8_t>());
-    EXPECT_EQ(newBuffer.getStart<uint8_t>() + 38,
-              newBuffer2.getStart<uint8_t>());
 }
 
 TEST_F(ObjectManagerTest, objectRelocationCallback_objectDeleted) {

@@ -158,8 +158,8 @@ DropIndexletOwnershipRpc::DropIndexletOwnershipRpc(Context* context,
     reqHdr->indexId = indexId;
     reqHdr->firstKeyLength = firstKeyLength;
     reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
-    request.appendExternal(firstKey, firstKeyLength);
-    request.appendExternal(firstNotOwnedKey, firstNotOwnedKeyLength);
+    request.append(firstKey, firstKeyLength);
+    request.append(firstNotOwnedKey, firstNotOwnedKeyLength);
     send();
 }
 
@@ -275,7 +275,7 @@ InsertIndexEntryRpc::InsertIndexEntryRpc(
     reqHdr->indexId = indexId;
     reqHdr->indexKeyLength = indexKeyLength;
     reqHdr->primaryKeyHash = primaryKeyHash;
-    request.appendExternal(indexKey, indexKeyLength);
+    request.append(indexKey, indexKeyLength);
     send();
 }
 
@@ -584,7 +584,7 @@ RecoverRpc::RecoverRpc(Context* context, ServerId serverId,
     reqHdr->partitionId = partitionId;
     reqHdr->tabletsLength = serializeToRequest(&request, recoveryPartition);
     reqHdr->numReplicas = numReplicas;
-    request.appendExternal(replicas,
+    request.append(replicas,
             downCast<uint32_t>(sizeof(replicas[0])) * numReplicas);
     send();
 }
@@ -638,7 +638,7 @@ RemoveIndexEntryRpc::RemoveIndexEntryRpc(
     reqHdr->indexId = indexId;
     reqHdr->indexKeyLength = indexKeyLength;
     reqHdr->primaryKeyHash = primaryKeyHash;
-    request.appendExternal(indexKey, indexKeyLength);
+    request.append(indexKey, indexKeyLength);
     send();
 }
 
@@ -841,8 +841,8 @@ TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
     reqHdr->backingTableId = backingTableId;
     reqHdr->firstKeyLength = firstKeyLength;
     reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
-    request.appendExternal(firstKey, firstKeyLength);
-    request.appendExternal(firstNotOwnedKey, firstNotOwnedKeyLength);
+    request.append(firstKey, firstKeyLength);
+    request.append(firstNotOwnedKey, firstNotOwnedKeyLength);
     send();
 }
 

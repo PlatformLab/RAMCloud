@@ -90,11 +90,19 @@ class MultiOp {
         Transport::SessionRef session;
 
         /// Information about all of the objects that are being requested
-        /// in this RPC.
+        /// in this RPC. Note: the batch size used to be larger than this,
+        /// but one of the biggest the performance benefits comes from
+        /// issuing multiple RPCs that can be pipelined. Thus, it's
+        /// better to have a smaller batch size so that pipelining kicks
+        /// in for fewer total objects. If the total size of the multi-op
+        /// request is huge (thousands?) then this approach is slightly
+        /// slower (as of 12/2014) but smaller batch sizes are faster as
+        /// long as the total number of objects in the multi-op request
+        /// is a few hundred or less.
 #ifdef TESTING
         static const uint32_t MAX_OBJECTS_PER_RPC = 3;
 #else
-        static const uint32_t MAX_OBJECTS_PER_RPC = 75;
+        static const uint32_t MAX_OBJECTS_PER_RPC = 20;
 #endif
         MultiOpObject* requests[MAX_OBJECTS_PER_RPC];
 
