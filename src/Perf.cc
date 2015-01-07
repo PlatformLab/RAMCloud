@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -43,6 +43,7 @@
 #include "CycleCounter.h"
 #include "Dispatch.h"
 #include "Fence.h"
+#include "LockTable.h"
 #include "Memory.h"
 #include "MurmurHash3.h"
 #include "Object.h"
@@ -734,6 +735,20 @@ double lockNonDispThrd()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of acquiring and releasing a lock in a LockTable (assuming
+// the lock is free and the LockTable is basically empty).
+double lockTable() {
+    int count = 1000000;
+    LockTable lockTable(1024);
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        lockTable.acquireLock(42);
+        lockTable.releaseLock(42);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of copying a given number of bytes with memcpy.
 double memcpyShared(size_t size)
 {
@@ -1301,6 +1316,8 @@ TestInfo tests[] = {
      "Acquire/release Dispatch::Lock (in dispatch thread)"},
     {"lockNonDispThrd", lockNonDispThrd,
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
+    {"lockTable", lockTable,
+     "Acquire/release lock in LockTable"},
     {"memcpy100", memcpy100,
      "Copy 100 bytes with memcpy"},
     {"memcpy1000", memcpy1000,

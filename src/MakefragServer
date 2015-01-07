@@ -3,6 +3,7 @@ SERVER_SRCFILES := \
 		   src/BackupService.cc \
 		   src/BackupStorage.cc \
 		   src/InMemoryStorage.cc \
+		   src/LockTable.cc \
 		   src/PriorityTaskQueue.cc \
 		   src/RecoverySegmentBuilder.cc \
 		   src/Server.cc \
