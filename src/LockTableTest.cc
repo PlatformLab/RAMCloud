@@ -69,6 +69,14 @@ TEST_F(LockTableTest, acquireLock) {
     EXPECT_EQ(1UL, lockTable.buckets[1].entries[1]);
 }
 
+TEST_F(LockTableTest, isLockAcquired) {
+    EXPECT_EQ(0UL, lockTable.buckets[1].next->entries[1]);
+    EXPECT_FALSE(lockTable.isLockAcquired(1));
+    lockTable.buckets[1].next->entries[1] = 1;
+    EXPECT_EQ(1UL, lockTable.buckets[1].next->entries[1]);
+    EXPECT_TRUE(lockTable.isLockAcquired(1));
+}
+
 TEST_F(LockTableTest, releaseLock_basic) {
     lockTable.buckets[0].entries[2] = 2;
     lockTable.buckets[1].entries[1] = 1;

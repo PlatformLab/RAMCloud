@@ -82,6 +82,45 @@ LockTable::acquireLock(uint64_t lockId)
 }
 
 /**
+ * Check if lock with the provided lockId is currently acquired.
+ *
+ * \param lockId
+ *      ID of lock to be acquired.  ID must not be zero.
+ * \return
+ *      TRUE if the lock is currently acquired, FALSE otherwise.
+ */
+bool
+LockTable::isLockAcquired(uint64_t lockId)
+{
+    // Find the right bucket.
+    uint64_t bucketIndex = (lockId & bucketIndexHashMask);
+    CacheLine* cacheLine = &buckets[bucketIndex];
+
+    // Lock the bucket
+    BucketLock* bucketLock =
+            reinterpret_cast<BucketLock*>(&cacheLine->entries[0]);
+    std::lock_guard<BucketLock> lock(*bucketLock);
+
+    // The zeroth entry in the first CacheLine is the BucketLock so start the
+    // index at 1.
+    uint32_t entryIndex = 1;
+    while (true) {
+        for (; entryIndex < ENTRIES_PER_CACHE_LINE; entryIndex++) {
+            if (cacheLine->entries[entryIndex] == lockId) {
+                return true;
+            }
+        }
+        if (cacheLine->next != NULL) {
+            entryIndex = 0;
+            cacheLine = cacheLine->next;
+        } else {
+            break;
+        }
+    }
+    return false;
+}
+
+/**
  * Releases the lock with the provided lockId.
  *
  * \param lockId
@@ -139,6 +178,8 @@ LockTable::tryAcquireLock(uint64_t lockId)
             reinterpret_cast<BucketLock*>(&cacheLine->entries[0]);
     std::lock_guard<BucketLock> lock(*bucketLock);
 
+    int overflowCacheLineCnt = 0;
+
     // If there is an empty entry slot, store its address here.
     Entry* entryPtr = NULL;
 
@@ -156,6 +197,7 @@ LockTable::tryAcquireLock(uint64_t lockId)
         if (cacheLine->next != NULL) {
             entryIndex = 0;
             cacheLine = cacheLine->next;
+            overflowCacheLineCnt++;
         } else {
             break;
         }
@@ -163,6 +205,10 @@ LockTable::tryAcquireLock(uint64_t lockId)
 
     // We need another CacheLine
     if (entryPtr == NULL) {
+        overflowCacheLineCnt++;
+        RAMCLOUD_CLOG(NOTICE, "Allocating overflow cache line %d for index %lu",
+                    overflowCacheLineCnt, bucketIndex);
+
         void *buf = Memory::xmemalign(HERE, sizeof(CacheLine),
                                       sizeof(CacheLine));
         memset(buf, 0, sizeof(CacheLine));
