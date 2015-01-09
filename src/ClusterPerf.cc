@@ -3548,11 +3548,7 @@ writeDistRandom()
 
     // Dump both time and cache traces. This amounts to almost a no-op if there
     // are no traces, and we do not currently expect traces in production code.
-    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
     cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
-
-    // Dump client side time trace
-    cluster->clientContext->timeTrace->printToLog();
 
     // Output the times (several comma-separated values on each line).
     int valuesInLine = 0;
