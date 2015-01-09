@@ -58,7 +58,11 @@ namespace RAMCloud {
  * additional overflow cache lines are allocated (outside the array of buckets)
  * and chained together.  Cache lines are never removed from buckets; lock
  * acquisition performance in a particular bucket degrades as more cache lines
- * are added.  See constructor docs for recommended parameters for performance.
+ * are added.
+ *
+ * For best performance, the number of buckets should be set large enough so
+ * that overflow cache lines are almost never needed but small enough that the
+ * entire structure might fit in CPU cache.
  */
 class LockTable {
   PUBLIC:
@@ -66,6 +70,7 @@ class LockTable {
     virtual ~LockTable();
 
     void acquireLock(uint64_t lockId);
+    bool isLockAcquired(uint64_t lockId);
     void releaseLock(uint64_t lockId);
     bool tryAcquireLock(uint64_t lockId);
 
