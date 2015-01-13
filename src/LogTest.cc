@@ -125,6 +125,14 @@ TEST_F(LogTest, enableCleaner_and_disableCleaner) {
     EXPECT_EQ("", TestLog::get());
 }
 
+TEST_F(LogTest, getHead) {
+    EXPECT_EQ(l.getHead(),
+            Log::Position(l.head->id, l.head->getAppendedLength()));
+    Log::Position oldPos = l.getHead();
+    l.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
+    EXPECT_LT(oldPos, l.getHead());
+}
+
 static bool
 syncFilter(string s)
 {

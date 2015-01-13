@@ -41,16 +41,39 @@ namespace RAMCloud {
  */
 class LogIterator {
   PUBLIC:
-    explicit LogIterator(Log& log);
+    explicit LogIterator(Log& log, bool lockHead = true);
     ~LogIterator();
 
     bool isDone();
     void next();
     bool onHead();
+    Log::Position getPosition();
+    Log::Reference getReference();
+    void setPosition(Log::Position position);
+
+    // Renew the segmentList with the latest updates from the log.
+    // If we reach the head segment, and do not lock the head, our current
+    // SegmentIterator will cache the length of the segment at the time of its
+    // own construction. 
+    //
+    // Meanwhile, the log can continue to grow because its
+    // appendLock is still free.
+    //
+    // We call refresh() to force a reconstruction of the SegmentIterator,
+    // allowing us to continue iterating past the former head position of the
+    // log.
+    void refresh() {
+        setPosition(getPosition());
+    }
     LogEntryType getType();
     uint32_t getLength();
     uint32_t appendToBuffer(Buffer& buffer);
     uint32_t setBufferTo(Buffer& buffer);
+
+    // Set whether the head should be locked when the head segment is reached.
+    void setLockHead(bool flag) {
+        lockHead = flag;
+    }
 
   PRIVATE:
     /**
@@ -82,6 +105,19 @@ class LogIterator {
 
     /// Indication that the head is locked and must be unlocked on destruction.
     bool headLocked;
+
+    /// A flag indicating whether we will lock the head when we reach it.
+    bool lockHead;
+
+    /// A flag indicating whether we have reached the head segment while
+    /// iterating.
+    ///
+    /// If this flag is set, it means that at some point the iterator referred
+    /// to the log's head. If lockHead is also set, then the log head is now
+    /// locked, so it is guaranteed still to be head. If lockHead is not set,
+    /// it is possible that the head advanced to a new segment after we  reached
+    /// it, in which case the iterator might not be referring to the  log head.
+    bool headReached;
 
     DISALLOW_COPY_AND_ASSIGN(LogIterator);
 };

@@ -36,6 +36,7 @@
 #include "Transport.h"
 #include "Tub.h"
 #include "WallTime.h"
+#include "ServerRpcPool.h"
 
 namespace RAMCloud {
 
@@ -742,6 +743,126 @@ MasterService::lookupIndexKeys(
 }
 
 /**
+ * Helper function to avoid code duplication in migrateTablet which copies a log
+ * entry to a segment for migration if it is a living object or a tombstone.
+ *
+ * If the segment is full, it will send the segment to the target of the
+ * migration, destroy the segment, and create a new one.
+ *
+ * It returns 0 on success (either the entry is ignored because it is neither
+ * object nor tombstone or successfully added to the segmetn) and 1 on failure
+ * (an object or tombstone could not be successfully appended to an empty
+ * segment).
+ * If there is an error, this method will set the status code of the response
+ * to the client to be an error.
+ *
+ * \param it
+ *      The iterator that points at the object we are attempting to migrate.
+ * \param[out] transferSeg
+ *      Segment object that we append objects to, and possibly send when it gets full.
+ * \param[out] totalObjects
+ *      The total number of objects copied into segments for transfer thus far,
+ *      which we increment whenever we append an object to a transfer segment.
+ * \param[out] totalTombstones
+ *      The total number of tombstones copied into segments for transfer thus
+ *      far, which we increment whenever we append a tombstones to a transfer
+ *      segment.
+ * \param[out] totalBytes
+ *      The total number of bytes copied into segments for transfer thus
+ *      far, which we add to whenever we append any entry to a transfer
+ *      segment.
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains parameters
+ *      for this operation.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ */
+int
+MasterService::migrateSingleObject(
+        LogIterator& it,
+        Tub<Segment>& transferSeg,
+        uint64_t& totalObjects,
+        uint64_t& totalTombstones,
+        uint64_t& totalBytes,
+        const WireFormat::MigrateTablet::Request* reqHdr,
+        WireFormat::MigrateTablet::Response* respHdr)
+{
+
+    uint64_t tableId = reqHdr->tableId;
+    uint64_t firstKeyHash = reqHdr->firstKeyHash;
+    uint64_t lastKeyHash = reqHdr->lastKeyHash;
+    ServerId newOwnerMasterId(reqHdr->newOwnerMasterId);
+
+    LogEntryType type = it.getType();
+    if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
+        // We aren't interested in any other types.
+        return 0;
+    }
+
+    Buffer buffer;
+    it.appendToBuffer(buffer);
+    Key key(type, buffer);
+
+    // Skip if not applicable.
+    if (key.getTableId() != tableId)
+        return 0;
+
+    if (key.getHash() < firstKeyHash || key.getHash() > lastKeyHash)
+        return 0;
+
+    if (type == LOG_ENTRY_TYPE_OBJ) {
+        // Only send objects when they're currently in the hash table.
+        // Otherwise they're dead.
+        if (!objectManager.keyPointsAtReference(key, 
+                    it.getReference())) {
+            return 0;
+        }
+
+        totalObjects++;
+    } else {
+        // We must always send tombstones, since an object we may have sent
+        // could have been deleted more recently. We could be smarter and
+        // more selective here, but that'd require keeping extra state to
+        // know what we've already sent.
+
+        // Note that we can do better. The stupid way
+        // is to track each object or tombstone we've sent. The smarter
+        // way is to just record the Log::Position when we started
+        // iterating and only send newer tombstones.
+
+        totalTombstones++;
+    }
+
+    totalBytes += buffer.size();
+
+    if (!transferSeg)
+        transferSeg.construct();
+    // If we can't fit it, send the current buffer and retry.
+    if (!transferSeg->append(type, buffer)) {
+        transferSeg->close();
+        LOG(DEBUG, "Sending migration segment");
+        MasterClient::receiveMigrationData(context, newOwnerMasterId,
+                tableId, firstKeyHash, transferSeg.get());
+
+        transferSeg.destroy();
+        transferSeg.construct();
+
+        // If it doesn't fit this time, we're in trouble.
+        if (!transferSeg->append(type, buffer)) {
+            LOG(ERROR, "Tablet migration failed: could not fit object "
+                    "into empty segment (obj bytes %u)",
+                    buffer.size());
+            respHdr->common.status = STATUS_INTERNAL_ERROR;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/**
  * Top-level server method to handle the MIGRATE_TABLET request.
  *
  * This is used to manually initiate the migration of a tablet (or piece of a
@@ -800,80 +921,45 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     uint64_t totalTombstones = 0;
     uint64_t totalBytes = 0;
 
-    // Hold on to the iterator since it locks the head Segment, avoiding any
-    // additional appends once we've finished iterating.
-    LogIterator it(*objectManager.getLog());
-    for (; !it.isDone(); it.next()) {
-        LogEntryType type = it.getType();
-        if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
-            // We aren't interested in any other types.
-            continue;
+    LogIterator it(*objectManager.getLog(), false);
+    // Scan the log from oldest to newest entries until we reach the head
+    for (; !it.onHead(); it.next()) {
+        int error = migrateSingleObject(
+                it, transferSeg, totalObjects, totalTombstones, totalBytes,
+                reqHdr, respHdr);
+        if (error) return;
+    }
+
+    // Phase 2 block new writes and let current writes finish
+    if (it.onHead()) {
+        tabletManager.changeState(tableId, firstKeyHash, lastKeyHash,
+                TabletManager::NORMAL, TabletManager::LOCKED_FOR_MIGRATION);
+
+        // Increment the current epoch and save the last epoch any
+        // currently running RPC could have been a part of
+        uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
+
+        // Increase our epoch nuumber to the current epoch number so we do not
+        // wait on ourselves
+        rpc->worker->rpc->epoch = epoch + 1;
+
+        // Wait for the remainder of already running writes to finish.
+        while (true) {
+            uint64_t earliestEpoch =
+                ServerRpcPool<>::getEarliestOutstandingEpoch(context);
+            if (earliestEpoch > epoch)
+                break;
         }
 
-        Buffer buffer;
-        it.appendToBuffer(buffer);
-        Key key(type, buffer);
+        // Now we mark the position and finish the migration
+        Log::Position position = objectManager.getLog()->getHead();
+        it.refresh();
 
-        // Skip if not applicable.
-        if (key.getTableId() != tableId)
-            continue;
-
-        if (key.getHash() < firstKeyHash || key.getHash() > lastKeyHash)
-            continue;
-
-        if (type == LOG_ENTRY_TYPE_OBJ) {
-            // Only send objects when they're currently in the hash table.
-            // Otherwise they're dead.
-            Buffer currentBuffer;
-            uint64_t currentVersion;
-            if (objectManager.readObject(key, &currentBuffer, 0,
-                    &currentVersion) != STATUS_OK) {
-                continue;
-            }
-
-            // Skip objects older than what is currently in the hash table.
-            Object iteratorObject(buffer);
-            if (iteratorObject.getVersion() < currentVersion)
-                continue;
-
-            totalObjects++;
-        } else {
-            // We must always send tombstones, since an object we may have sent
-            // could have been deleted more recently. We could be smarter and
-            // more selective here, but that'd require keeping extra state to
-            // know what we've already sent.
-
-            // Note that we can do better. The stupid way
-            // is to track each object or tombstone we've sent. The smarter
-            // way is to just record the Log::Position when we started
-            // iterating and only send newer tombstones.
-
-            totalTombstones++;
-        }
-
-        totalBytes += buffer.size();
-
-        if (!transferSeg)
-            transferSeg.construct();
-
-        // If we can't fit it, send the current buffer and retry.
-        if (!transferSeg->append(type, buffer)) {
-            transferSeg->close();
-            LOG(DEBUG, "Sending migration segment");
-            MasterClient::receiveMigrationData(context, newOwnerMasterId,
-                    tableId, firstKeyHash, transferSeg.get());
-
-            transferSeg.destroy();
-            transferSeg.construct();
-
-            // If it doesn't fit this time, we're in trouble.
-            if (!transferSeg->append(type, buffer)) {
-                LOG(ERROR, "Tablet migration failed: could not fit object "
-                        "into empty segment (obj bytes %u)",
-                        buffer.size());
-                respHdr->common.status = STATUS_INTERNAL_ERROR;
-                return;
-            }
+        for (; it.getPosition() < position; it.next()) {
+            int error = migrateSingleObject(
+                    it, transferSeg, totalObjects, totalTombstones, totalBytes,
+                    reqHdr, respHdr);
+            if (error) return;
         }
     }
 
@@ -2099,7 +2185,7 @@ MasterService::recover(uint64_t recoveryId, ServerId masterId,
                                     ReplicatedSegment::recoveryStart),
                             task->replica.segmentId, responseLen);
                 }
-                objectManager.replaySegment(&sideLog, it, highestBTreeIdMap);
+                objectManager.replaySegment(&sideLog, it, &highestBTreeIdMap);
                 usefulTime += Cycles::rdtsc() - startUseful;
                 TEST_LOG("Segment %lu replay complete",
                          task->replica.segmentId);

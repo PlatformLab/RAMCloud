@@ -68,11 +68,12 @@ class ObjectManager : public LogEntryHandlers {
                 uint64_t* outVersion, Buffer* removedObjBuffer = NULL);
     void removeOrphanedObjects();
     void replaySegment(SideLog* sideLog, SegmentIterator& it,
-                std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap);
+                std::unordered_map<uint64_t, uint64_t>* highestBTreeIdMap);
     void replaySegment(SideLog* sideLog, SegmentIterator& it);
     void syncChanges();
     Status writeObject(Object& newObject, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer = NULL);
+    bool keyPointsAtReference(Key& k, AbstractLog::Reference oldReference);
 
     /**
      * The following three methods are used when multiple log entries

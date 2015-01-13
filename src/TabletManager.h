@@ -58,6 +58,8 @@ class TabletManager {
     enum TabletState {
         NORMAL = ProtoBuf::Tablets_Tablet_State_NORMAL,
         RECOVERING = ProtoBuf::Tablets_Tablet_State_RECOVERING,
+        LOCKED_FOR_MIGRATION =
+            ProtoBuf::Tablets_Tablet_State_LOCKED_FOR_MIGRATION,
     };
 
     /**

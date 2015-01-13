@@ -78,8 +78,14 @@ TabletManager::checkAndIncrementReadCount(Key& key) {
     Lock guard(lock);
     TabletMap::iterator it = lookup(key.getTableId(), key.getHash(), guard);
 
-    if (it == tabletMap.end() || it->second.state != NORMAL)
+    if (it == tabletMap.end())
         return false;
+    if (it->second.state != NORMAL) {
+        if (it->second.state == TabletManager::LOCKED_FOR_MIGRATION)
+            throw RetryException(HERE, 1000, 2000, 
+                    "Tablet is currently locked for migration!");
+        return false;
+    }
 
     it->second.readCount++;
     return true;

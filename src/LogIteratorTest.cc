@@ -300,6 +300,57 @@ TEST_F(LogIteratorTest, next) {
     }
 }
 
+TEST_F(LogIteratorTest, getPosition_setPosition) {
+    l.sync();
+    LogIterator i(l, false);
+    Log::Position oldPos = i.getPosition();
+    i.next();
+    EXPECT_NE(oldPos, i.getPosition());
+    i.setPosition(oldPos);
+    EXPECT_EQ(oldPos, i.getPosition());
+
+    while (!i.headReached)
+        i.next();
+    uint32_t oldLength = i.currentIterator->certificate.segmentLength;
+    l.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
+    EXPECT_EQ(oldLength, i.currentIterator->certificate.segmentLength);
+    i.refresh();
+    EXPECT_NE(oldLength, i.currentIterator->certificate.segmentLength);
+}
+
+TEST_F(LogIteratorTest, refresh) {
+    // Unlocked head, explicit refresh
+    {
+        l.sync();
+        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data));
+        LogIterator i(l, false);
+        while (!i.isDone())
+            i.next();
+        i.refresh();
+        EXPECT_TRUE(i.isDone()); 
+        l.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
+        EXPECT_TRUE(i.isDone()); 
+        i.refresh();
+        EXPECT_FALSE(i.isDone()); 
+    }
+    // Locked head, implicit refresh
+    {
+        l.sync();
+        l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data));
+        LogIterator i(l, true);
+        while (!i.isDone())
+            i.next();
+        Log::Position oldPos = i.getPosition();
+        EXPECT_TRUE(i.headLocked);
+
+        l.appendLock.unlock();
+        l.rollHeadOver();
+        l.appendLock.lock();
+        i.next();
+        EXPECT_GT(i.getPosition(), oldPos);
+    }
+}
+
 TEST_F(LogIteratorTest, populateSegmentList) {
         l.sync();
         LogSegment* seg1 = segmentManager.allocHeadSegment();

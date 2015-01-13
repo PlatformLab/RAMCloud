@@ -183,6 +183,16 @@ TEST_F(SegmentIteratorTest, getLength) {
     it.next();
     EXPECT_EQ(5U, it.getLength());
 }
+TEST_F(SegmentIteratorTest, getOffset_setOffset) {
+    s.append(LOG_ENTRY_TYPE_OBJ, "hi", 3);
+    s.append(LOG_ENTRY_TYPE_OBJTOMB, "hihi", 5);
+    SegmentIterator it(s);
+    uint32_t oldOffset = it.getOffset();
+    it.next();
+    EXPECT_LE(oldOffset, it.getOffset());
+    it.setOffset(oldOffset);
+    EXPECT_EQ(oldOffset, it.getOffset());
+}
 
 TEST_F(SegmentIteratorTest, appendToBuffer) {
     s.append(LOG_ENTRY_TYPE_OBJ, "this is the content", 20);

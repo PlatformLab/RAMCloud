@@ -13,9 +13,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "TestUtil.h"
 #include "Common.h"
 #include "BitOps.h"
 #include "Service.h"
+#include "ServerRpcPool.h"
+#include "ServiceManager.h"
 #include "TransportManager.h"
 
 #ifndef RAMCLOUD_BINDTRANSPORT_H
@@ -29,6 +32,21 @@ namespace RAMCloud {
  * directly into a Service instance's #dispatch() method).
  */
 struct BindTransport : public Transport {
+    /**
+     * The following class mirrors the ServerRpc class defined in other
+     * transports, and allows unit testing of functions that expect a subclass
+     * of Transport::ServerRpc to be available, such as
+     * MasterService::migrateTablet.
+     */
+    class ServerRpc : public Transport::ServerRpc {
+        public:
+            ServerRpc() {}
+            void sendReply() {}
+            string getClientServiceLocator() {return std::string();}
+        private:
+            DISALLOW_COPY_AND_ASSIGN(ServerRpc);
+    };
+
     // The following utility class keeps track of a collection of
     // services all associated with the same service locator (e.g.
     // the services that would be contained in a single server).
@@ -37,7 +55,8 @@ struct BindTransport : public Transport {
     };
 
     explicit BindTransport(Context* context, Service* service = NULL)
-        : context(context), services(), abortCounter(0), errorMessage()
+        : context(context), services(), abortCounter(0), errorMessage(),
+          serverRpcPool()
     {
         if (service)
             addService(*service, "mock:", WireFormat::MASTER_SERVICE);
@@ -103,7 +122,17 @@ struct BindTransport : public Transport {
             lastRequest = request;
             lastResponse = response;
             lastNotifier = notifier;
-            Service::Rpc rpc(NULL, request, response);
+
+            // The worker and ServerRpc are included to more fully simulate a
+            // real call to Service method, since they are public members of
+            // their respective classes.
+            ServerRpc* serverRpc = transport.serverRpcPool.construct();
+            ServerRpcPoolGuard<ServerRpc> serverRpcKiller(
+                    transport.serverRpcPool, serverRpc);
+            Worker w(NULL);
+            w.rpc = serverRpc;
+
+            Service::Rpc rpc(&w, request, response);
             if (transport.abortCounter > 0) {
                 transport.abortCounter--;
                 if (transport.abortCounter == 0) {
@@ -171,6 +200,11 @@ struct BindTransport : public Transport {
      * fail immediately.
      */
     string errorMessage;
+
+    /**
+     * This is used to create mock subclasses of Transport::ServerRpc.
+     */
+    ServerRpcPool<ServerRpc> serverRpcPool;
 
     DISALLOW_COPY_AND_ASSIGN(BindTransport);
 };

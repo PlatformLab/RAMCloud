@@ -599,7 +599,7 @@ TEST_F(ObjectManagerTest, replaySegment_highestBTreeIdMap) {
     it.construct(&seg[0], len, certificate);
     std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
     highestBTreeIdMap[0] = 0;
-    objectManager.replaySegment(&sl, *it, highestBTreeIdMap);
+    objectManager.replaySegment(&sl, *it, &highestBTreeIdMap);
     EXPECT_EQ(12345U, highestBTreeIdMap[0]);
     EXPECT_EQ("found=true tableId=0 byteCount=45 recordCount=1"
               , verifyMetadata(0));
@@ -1575,6 +1575,35 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectModified) {
     // contents of the tombstone and the new object.
     EXPECT_EQ("found=true tableId=0 byteCount=75 recordCount=2"
               , verifyMetadata(0));
+}
+
+TEST_F(ObjectManagerTest, keyPointsAtReference) {
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    Key key(0, "1", 1);
+    Buffer value;
+    Object obj(key, "hi", 2, 0, 0, value);
+
+    Buffer objBuffer;
+    obj.assembleForLog(objBuffer);
+    sl.append(LOG_ENTRY_TYPE_OBJ, objBuffer);
+    
+    it.construct(*sl.head);
+    while (it->getType() != LOG_ENTRY_TYPE_OBJ)
+        it->next();
+
+    Log::Reference reference = sl.head->getReference(it->getOffset());
+    EXPECT_FALSE(objectManager.keyPointsAtReference(
+                key, reference));
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        objectManager.replace(lock, key, reference);
+    }
+
+    EXPECT_TRUE(objectManager.keyPointsAtReference(
+                key, reference));
 }
 
 static bool

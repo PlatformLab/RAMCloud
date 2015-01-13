@@ -417,7 +417,7 @@ LogCleaner::doDiskCleaning()
     // counters and merge them into our global metrics afterwards to avoid
     // cache line ping-ponging in the hot path.
     LogSegmentVector survivors;
-    uint64_t entryBytesAppended = relocateLiveEntries(entries, survivors);
+    relocateLiveEntries(entries, survivors);
 
     uint32_t segmentsAfter = downCast<uint32_t>(survivors.size());
     uint32_t segletsAfter = 0;
@@ -425,11 +425,6 @@ LogCleaner::doDiskCleaning()
         segletsAfter += segment->getSegletsAllocated();
 
     TEST_LOG("used %u seglets and %u segments", segletsAfter, segmentsAfter);
-
-    // If this doesn't hold, then our statistics are wrong. Perhaps
-    // MasterService is issuing a log->free(), but is leaving a reference in
-    // the hash table.
-    assert(entryBytesAppended <= maxLiveBytes);
 
     uint32_t segmentsBefore = downCast<uint32_t>(segmentsToClean.size());
     assert(segletsBefore >= segletsAfter);

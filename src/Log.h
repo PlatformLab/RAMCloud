@@ -81,6 +81,7 @@ class Log : public AbstractLog {
 
     void enableCleaner();
     void disableCleaner();
+    Log::Position getHead();
     void getMetrics(ProtoBuf::LogMetrics& m);
     void sync();
     Log::Position rollHeadOver();

@@ -20,6 +20,7 @@
 #include "CoordinatorClient.h"
 #include "Log.h"
 #include "LogCleaner.h"
+#include "LogIterator.h"
 #include "HashTable.h"
 #include "MasterTableMetadata.h"
 #include "Object.h"
@@ -166,6 +167,13 @@ class MasterService : public Service {
     void lookupIndexKeys(const WireFormat::LookupIndexKeys::Request* reqHdr,
                 WireFormat::LookupIndexKeys::Response* respHdr,
                 Rpc* rpc);
+    int migrateSingleObject(LogIterator& it,
+                Tub<Segment>& transferSeg,
+                uint64_t& totalObjects,
+                uint64_t& totalTombstones,
+                uint64_t& totalBytes,
+                const WireFormat::MigrateTablet::Request* reqHdr,
+                WireFormat::MigrateTablet::Response* respHdr);
     void migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
                 WireFormat::MigrateTablet::Response* respHdr,
                 Rpc* rpc);

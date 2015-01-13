@@ -180,8 +180,12 @@ ObjectManager::readHashes(const uint64_t tableId, uint32_t reqNumHashes,
         TabletManager::Tablet tablet;
         if (!tabletManager->getTablet(tableId, pKHash, &tablet))
             return;
-        if (tablet.state != TabletManager::NORMAL)
+        if (tablet.state != TabletManager::NORMAL) {
+            if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+                throw RetryException(HERE, 1000, 2000, 
+                        "Tablet is currently locked for migration!");
             return;
+        }
 
         HashTable::Candidates candidates;
         objectMap.lookup(pKHash, candidates);
@@ -354,8 +358,12 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
     TabletManager::Tablet tablet;
     if (!tabletManager->getTablet(key, &tablet))
         return STATUS_UNKNOWN_TABLET;
-    if (tablet.state != TabletManager::NORMAL)
+    if (tablet.state != TabletManager::NORMAL) {
+        if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+            throw RetryException(HERE, 1000, 2000, 
+                    "Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
+    }
 
     LogEntryType type;
     Buffer buffer;
@@ -469,8 +477,7 @@ class DelayedIncrementer {
 void
 ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
 {
-  std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
-  replaySegment(sideLog, it, highestBTreeIdMap);
+  replaySegment(sideLog, it, NULL);
 }
 
 /**
@@ -503,7 +510,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
  */
 void
 ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
-    std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap)
+    std::unordered_map<uint64_t, uint64_t>* highestBTreeIdMap)
 {
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
     uint64_t startReplicationPostingWriteRpcTicks =
@@ -565,14 +572,16 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
 
             // If table is an BTree table,i.e., tableId exists in
             // highestBTreeIdMap, update highestBTreeId of its table.
-            std::unordered_map<uint64_t, uint64_t>::iterator iter
-                = highestBTreeIdMap.find(recoveryObj->tableId);
-            if (iter != highestBTreeIdMap.end()) {
-                const uint64_t *bTreeKey =
-                    reinterpret_cast<const uint64_t*>(primaryKey);
-                uint64_t bTreeId = *bTreeKey;
-                if (bTreeId > iter->second)
-                    iter->second = bTreeId;
+            if (highestBTreeIdMap) {
+                std::unordered_map<uint64_t, uint64_t>::iterator iter
+                    = highestBTreeIdMap->find(recoveryObj->tableId);
+                if (iter != highestBTreeIdMap->end()) {
+                    const uint64_t *bTreeKey =
+                        reinterpret_cast<const uint64_t*>(primaryKey);
+                    uint64_t bTreeId = *bTreeKey;
+                    if (bTreeId > iter->second)
+                        iter->second = bTreeId;
+                }
             }
 
             bool checksumIsValid = ({
@@ -653,14 +662,16 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
 
             // If table is an BTree table,i.e., tableId exists in
             // highestBTreeIdMap, update highestBTreeId of its table.
-            std::unordered_map<uint64_t, uint64_t>::iterator iter
-                = highestBTreeIdMap.find(key.getTableId());
-            if (iter != highestBTreeIdMap.end()) {
-                const uint64_t *bTreeKey =
-                    reinterpret_cast<const uint64_t*>(key.getStringKey());
-                uint64_t bTreeId = *bTreeKey;
-                if (bTreeId > iter->second)
-                    iter->second = bTreeId;
+            if (highestBTreeIdMap) {
+                std::unordered_map<uint64_t, uint64_t>::iterator iter
+                    = highestBTreeIdMap->find(key.getTableId());
+                if (iter != highestBTreeIdMap->end()) {
+                    const uint64_t *bTreeKey =
+                        reinterpret_cast<const uint64_t*>(key.getStringKey());
+                    uint64_t bTreeId = *bTreeKey;
+                    if (bTreeId > iter->second)
+                        iter->second = bTreeId;
+                }
             }
 
             ObjectTombstone recoverTomb(buffer);
@@ -873,8 +884,12 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     TabletManager::Tablet tablet;
     if (!tabletManager->getTablet(key, &tablet))
         return STATUS_UNKNOWN_TABLET;
-    if (tablet.state != TabletManager::NORMAL)
+    if (tablet.state != TabletManager::NORMAL) {
+        if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+            throw RetryException(HERE, 1000, 2000, 
+                    "Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
+    }
 
     LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
     Buffer currentBuffer;
@@ -1178,8 +1193,11 @@ ObjectManager::prepareForLog(Object& newObject, Buffer *logBuffer,
     TabletManager::Tablet tablet;
     if (!tabletManager->getTablet(key, &tablet))
         return STATUS_UNKNOWN_TABLET;
-    if (tablet.state != TabletManager::NORMAL)
+    if (tablet.state != TabletManager::NORMAL) {
+        if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+            DIE("Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
+    }
 
     LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
     Buffer currentBuffer;
@@ -1269,8 +1287,12 @@ ObjectManager::writeTombstone(Key& key, Buffer *logBuffer)
     TabletManager::Tablet tablet;
     if (!tabletManager->getTablet(key, &tablet))
         return STATUS_UNKNOWN_TABLET;
-    if (tablet.state != TabletManager::NORMAL)
+    if (tablet.state != TabletManager::NORMAL) {
+        if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+            throw RetryException(HERE, 1000, 2000, 
+                    "Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
+    }
 
     LogEntryType type;
     Buffer buffer;
@@ -1794,6 +1816,31 @@ ObjectManager::relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
                           key.getTableId(),
                           oldBuffer.size(),
                           1);
+}
+
+/**
+ * Returns true iff the given key still points at the given reference.
+ *
+ * \param key
+ *      The key to look up in the hash table.
+ * \param reference
+ *      The reference to verify for presence in the hash table.
+ */
+bool
+ObjectManager::keyPointsAtReference(Key& key, AbstractLog::Reference reference) {
+
+    HashTableBucketLock lock(*this, key);
+
+    HashTable::Candidates candidates;
+    objectMap.lookup(key.getHash(), candidates);
+    while (!candidates.isDone()) {
+        if (candidates.getReference() != reference.toInteger()) {
+            candidates.next();
+            continue;
+        }
+        return true;
+    }
+    return false;
 }
 
 /**

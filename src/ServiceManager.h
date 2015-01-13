@@ -130,11 +130,13 @@ class Worker {
                                        /// Service for the last request
                                        /// executed by this worker.
     Tub<std::thread> thread;           /// Thread that executes this worker.
+  public:
     Transport::ServerRpc* rpc;         /// RPC being serviced by this worker.
                                        /// NULL means the last RPC given to
                                        /// the worker has been finished and a
                                        /// response sent (but the worker may
                                        /// still be in POSTPROCESSING state).
+  PRIVATE:
     int busyIndex;                     /// Location of this worker in
                                        /// #busyThreads, or -1 if this worker
                                        /// is idle.
