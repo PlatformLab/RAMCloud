@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, coly, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,7 +16,9 @@
 #include <string>
 
 #include "LeaseManager.h"
+
 #include "ExternalStorage.h"
+#include "LeaseCommon.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -24,9 +26,6 @@ namespace RAMCloud {
 /// Defines the number of leases the preallocator should try to keep ahead of
 /// the lastIssuedLeaseId.
 const uint64_t PREALLOCATION_LIMIT = 1000;
-
-/// Defines the period of time that a lease will be extended upon renewal.
-const uint64_t LEASE_TERM_US = 300*1e6;      // 5 min = 300,000,000 us
 
 /// Defines the prefix for objects stored in external storage by this module.
 const std::string STORAGE_PREFIX = "leaseManager";
@@ -92,7 +91,7 @@ LeaseManager::recover()
         try {
             std::string name = object.name;
             uint64_t leaseId = std::stoull(name);
-            uint64_t leaseTerm = clock.getTime() + LEASE_TERM_US;
+            uint64_t leaseTerm = clock.getTime() + LeaseCommon::LEASE_TERM_US;
             leaseMap[leaseId] = leaseTerm;
             revLeaseMap[leaseTerm].insert(leaseId);
         } catch (std::invalid_argument& e) {
@@ -196,7 +195,8 @@ LeaseManager::LeaseCleaner::handleTimerEvent()
         stillCleaning = leaseManager->cleanNextLease();
     }
     // Run once per lease term as some will likely have expired by then.
-    this->start(Cycles::rdtsc()+Cycles::fromNanoseconds(LEASE_TERM_US * 1000));
+    this->start(Cycles::rdtsc() + Cycles::fromNanoseconds(
+            LeaseCommon::LEASE_TERM_US * 1000));
 }
 
 /**
@@ -284,7 +284,7 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
         clientLease.leaseId = ++lastIssuedLeaseId;
     }
 
-    clientLease.leaseTerm = clock.getTime() + LEASE_TERM_US;
+    clientLease.leaseTerm = clock.getTime() + LeaseCommon::LEASE_TERM_US;
     leaseMap[clientLease.leaseId] = clientLease.leaseTerm;
     revLeaseMap[clientLease.leaseTerm].insert(clientLease.leaseId);
 

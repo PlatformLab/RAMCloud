@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,6 +29,8 @@ class RamCloud;
  * leases are used to represent the lifetime of an active client so that per
  * client state stored on servers (e.g. linearizability data) can be garbage
  * collected when clients fail or become inactive.
+ *
+ * This class is not thread-safe.
  */
 class ClientLease : public Dispatch::Timer {
   public:
@@ -39,12 +41,13 @@ class ClientLease : public Dispatch::Timer {
   PRIVATE:
     /// Overall client state information.
     RamCloud* ramcloud;
+
     /// Latest ClientLease received from the coordinator.
     WireFormat::ClientLease lease;
 
-    /// The local time (in cycles) when the last ClientLease renewal was sent to
-    /// the coordinator.  Used to estimate when the lease term will elapse.
-    uint64_t localTimestampCycles;
+    /// The Cycles::rdtsc() value (in cycles) when the last ClientLease renewal
+    /// request was issued.  Used to estimate when the lease term will elapse.
+    uint64_t lastRenewalTimeCycles;
 
     /// If Cycles::rdtsc() returns a value larger than this value, the currently
     /// held lease may have (or will soon be) expired.  Used to determine
@@ -54,20 +57,6 @@ class ClientLease : public Dispatch::Timer {
     /// Holds a possibly outstanding RenewLeaseRpc so that this module can
     /// use asynchronous calls to the coordinator to maintain its lease.
     Tub<RenewLeaseRpc> renewLeaseRpc;
-
-    /// Defines the remaining lease time below which this module should starting
-    /// trying to renew.  During this period, the lease has probably not expired
-    /// so it is safe to perform the renewals asynchronously.  This value should
-    /// be set conservatively to around half the LeaseManager::LEASE_TERM_US.
-    static const uint64_t RENEW_THRESHOLD_US = 150*1e6;     // 2.5 min
-
-    /// Defines the remaining lease time below which this module should consider
-    /// the lease possibly expired.  In this case, the module must not return
-    /// the current lease until it as renewed.  This value should be set to a
-    /// value much larger than the time to complete a renewal.
-    static const uint64_t DANGER_THRESHOLD_US = 500;
-
-    void pollInternal();
 
     DISALLOW_COPY_AND_ASSIGN(ClientLease);
 };

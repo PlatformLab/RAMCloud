@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,6 +15,7 @@
 
 #include "TestUtil.h"       //Has to be first, compiler complains
 #include "ClientLease.h"
+#include "LeaseCommon.h"
 #include "MockCluster.h"
 
 
@@ -36,8 +37,8 @@ class ClientLeaseTest : public ::testing::Test {
         , cluster(&context, "mock:host=coordinator")
         , ramcloud(&context, "mock:host=coordinator")
         , lease(&ramcloud)
-        , RENEW_THRESHOLD_US(ClientLease::RENEW_THRESHOLD_US)
-        , DANGER_THRESHOLD_US(ClientLease::DANGER_THRESHOLD_US)
+        , RENEW_THRESHOLD_US(LeaseCommon::RENEW_THRESHOLD_US)
+        , DANGER_THRESHOLD_US(LeaseCommon::DANGER_THRESHOLD_US)
     {}
 
     ~ClientLeaseTest()
@@ -50,7 +51,7 @@ class ClientLeaseTest : public ::testing::Test {
 };
 
 TEST_F(ClientLeaseTest, getLease_basic) {
-    lease.localTimestampCycles = 0;
+    lease.lastRenewalTimeCycles = 0;
     Cycles::mockTscValue = Cycles::fromNanoseconds(5000);
     WireFormat::ClientLease l = {0, 0, 0};
     lease.lease = l;
@@ -62,7 +63,7 @@ TEST_F(ClientLeaseTest, getLease_basic) {
 }
 
 TEST_F(ClientLeaseTest, getLease_shouldAsyncRenew) {
-    lease.localTimestampCycles = 0;
+    lease.lastRenewalTimeCycles = 0;
     uint64_t leaseTerm = 300*1e6;
     uint64_t currentTimeUs = leaseTerm - RENEW_THRESHOLD_US + 1;
     lease.leaseTermElapseCycles = Cycles::fromNanoseconds(
@@ -80,7 +81,7 @@ TEST_F(ClientLeaseTest, getLease_shouldAsyncRenew) {
 }
 
 TEST_F(ClientLeaseTest, getLease_shouldSyncRenew) {
-    lease.localTimestampCycles = 0;
+    lease.lastRenewalTimeCycles = 0;
     uint64_t leaseTerm = 300*1e6;
     uint64_t currentTimeUs = leaseTerm - DANGER_THRESHOLD_US + 1;
     lease.leaseTermElapseCycles = Cycles::fromNanoseconds(
@@ -99,7 +100,7 @@ TEST_F(ClientLeaseTest, getLease_shouldSyncRenew) {
 
 TEST_F(ClientLeaseTest, handleTimerEvent) {
     lease.ramcloud->rpcTracker.nextRpcId = 2;
-    lease.localTimestampCycles = 0;
+    lease.lastRenewalTimeCycles = 0;
     Cycles::mockTscValue = Cycles::fromNanoseconds(5000);
     EXPECT_EQ(0U, lease.lease.leaseId);
     EXPECT_FALSE(lease.renewLeaseRpc);
@@ -107,14 +108,14 @@ TEST_F(ClientLeaseTest, handleTimerEvent) {
     lease.handleTimerEvent();
     EXPECT_EQ(0U, lease.lease.leaseId);
     EXPECT_TRUE(lease.renewLeaseRpc);
-    EXPECT_EQ(Cycles::fromNanoseconds(5000), lease.localTimestampCycles);
+    EXPECT_EQ(Cycles::fromNanoseconds(5000), lease.lastRenewalTimeCycles);
     Cycles::mockTscValue = Cycles::fromNanoseconds(15000);
     EXPECT_TRUE(lease.isRunning());
     lease.stop();
     lease.handleTimerEvent();
     EXPECT_EQ(1U, lease.lease.leaseId);
     EXPECT_FALSE(lease.renewLeaseRpc);
-    EXPECT_EQ(Cycles::fromNanoseconds(5000), lease.localTimestampCycles);
+    EXPECT_EQ(Cycles::fromNanoseconds(5000), lease.lastRenewalTimeCycles);
     EXPECT_TRUE(lease.isRunning());
     lease.stop();
     lease.ramcloud->rpcTracker.firstMissing = 2;
