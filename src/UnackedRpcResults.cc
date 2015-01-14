@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,11 +14,8 @@
  */
 
 #include "UnackedRpcResults.h"
+#include "LeaseCommon.h"
 #include "MasterService.h"
-
-//TODO(seojin): Make a single variable for this.
-// copied from LeaseManager.cc
-const uint64_t LEASE_TERM_US = 300*1e6;      // 5 min = 300,000,000 us
 
 namespace RAMCloud {
 
@@ -383,7 +380,8 @@ UnackedRpcResults::Cleaner::handleTimerEvent()
     unackedRpcResults->cleanByTimeout(context);
 
     // Run once per 1/10 of lease term to keep expected garbage ~ 5%.
-    this->start(Cycles::rdtsc()+Cycles::fromNanoseconds(LEASE_TERM_US * 100));
+    this->start(Cycles::rdtsc()+Cycles::fromNanoseconds(
+            LeaseCommon::LEASE_TERM_US * 100));
 }
 
 /**

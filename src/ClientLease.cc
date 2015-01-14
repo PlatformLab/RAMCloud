@@ -1,6 +1,6 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
- * Permission to use, coly, modify, and distribute this software for any
+ * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -14,6 +14,7 @@
  */
 
 #include "ClientLease.h"
+#include "LeaseCommon.h"
 #include "RamCloud.h"
 
 namespace RAMCloud {
@@ -25,7 +26,7 @@ ClientLease::ClientLease(RamCloud* ramcloud)
     : Dispatch::Timer(ramcloud->clientContext->dispatch)
     , ramcloud(ramcloud)
     , lease({0, 0, 0})
-    , localTimestampCycles(0)
+    , lastRenewalTimeCycles(0)
     , leaseTermElapseCycles(0)
     , renewLeaseRpc()
 {}
@@ -38,7 +39,9 @@ ClientLease::ClientLease(RamCloud* ramcloud)
 WireFormat::ClientLease
 ClientLease::getLease()
 {
-    // If the lease renewal timer is not running, schedule it.
+    // If the lease renewal timer is not running, schedule it.  The lease
+    // is normally renewed in the background in parallel with other operations
+    // if possible.
     if (!isRunning()) {
         start(0);
     }
@@ -52,19 +55,24 @@ ClientLease::getLease()
 }
 
 /**
- * This method implements a rules-based asynchronously algorithm (a "task") to
- * incrementally make progress to ensure there is a valid lease (the "goal").
- * After running, this method will schedule itself to be run again in the future
- * if additional work needs to be done to reach the goal of having a valid
- * lease.  This task will sleep (i.e. not reschedule itself) if it detects
- * that there are no unfinished rpcs that require a valid lease.  This task is
- * awakened by calls to getLease.
+ * This method incrementally ensures that a the lease is valid; i.e. repeatedly
+ * calling this method will ensure the lease is valid.  This method is called
+ * periodically in response to a timer expiring.
  */
 void
 ClientLease::handleTimerEvent()
 {
+    /**
+     * This method implements a rules-based asynchronously algorithm (a "task")
+     * to incrementally make progress to ensure there is a valid lease (the
+     * "goal").  After running, this method will schedule itself to be run again
+     * in the future if additional work needs to be done to reach the goal of
+     * having a valid lease.  This task will sleep (i.e. not reschedule itself)
+     * if it detects that there are no unfinished rpcs that require a valid
+     * lease.  This task is awakened by calls to getLease.
+     */
     if (!renewLeaseRpc) {
-        localTimestampCycles = Cycles::rdtsc();
+        lastRenewalTimeCycles = Cycles::rdtsc();
         renewLeaseRpc.construct(ramcloud->clientContext, lease.leaseId);
         start(0);
     } else {
@@ -75,20 +83,20 @@ ClientLease::handleTimerEvent()
             if (lease.leaseTerm > lease.timestamp) {
                 leaseTermLenUs = lease.leaseTerm - lease.timestamp;
             }
-            leaseTermElapseCycles = localTimestampCycles +
+            leaseTermElapseCycles = lastRenewalTimeCycles +
                                     Cycles::fromMicroseconds(
                                             leaseTermLenUs -
-                                            DANGER_THRESHOLD_US);
+                                            LeaseCommon::DANGER_THRESHOLD_US);
 
             // Only reschedule for lease renewal if there are
             // unfinished rpcs.
             if (ramcloud->rpcTracker.hasUnfinishedRpc()) {
                 uint64_t renewCycleTime = 0;
-                if (leaseTermLenUs > RENEW_THRESHOLD_US) {
+                if (leaseTermLenUs > LeaseCommon::RENEW_THRESHOLD_US) {
                     renewCycleTime = Cycles::fromMicroseconds(
-                            leaseTermLenUs - RENEW_THRESHOLD_US);
+                            leaseTermLenUs - LeaseCommon::RENEW_THRESHOLD_US);
                 }
-                start(localTimestampCycles + renewCycleTime);
+                start(lastRenewalTimeCycles + renewCycleTime);
             }
         } else {
             // Wait for rpc to become ready.
