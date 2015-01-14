@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,14 +21,19 @@ namespace RAMCloud {
 
 class CoordinatorClusterClockTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockExternalStorage storage;
     Tub<CoordinatorClusterClock> clock;
+    const uint64_t safeTimeIntervalUs;
+
 
     CoordinatorClusterClockTest()
-        : context()
+        : logEnabler()
+        , context()
         , storage(true)
         , clock()
+        , safeTimeIntervalUs(CoordinatorClusterClock::safeTimeIntervalUs)
     {
         context.externalStorage = &storage;
         clock.construct(&context);
@@ -50,7 +55,11 @@ TEST_F(CoordinatorClusterClockTest, getTime_stale) {
     EXPECT_EQ(0U, clock->safeClusterTimeUs);
     EXPECT_EQ(0U, clock->getTime());
     usleep(1000);
+    TestLog::reset();
     EXPECT_EQ(0U, clock->getTime());
+    EXPECT_EQ("getTime: "
+              "Returning stale time. SafeTimeUpdater may be running behind.",
+              TestLog::get());
 }
 
 TEST_F(CoordinatorClusterClockTest, startUpdater) {
@@ -58,12 +67,13 @@ TEST_F(CoordinatorClusterClockTest, startUpdater) {
     clock->startUpdater();
     EXPECT_TRUE(clock->updater.isRunning());
     for (int i = 0; i < 1000; i++) {
-        if (clock->safeClusterTimeUs >= clock->safeTimeIntervalUs) {
+        if (clock->safeClusterTimeUs >=
+                CoordinatorClusterClock::safeTimeIntervalUs) {
             break;
         }
         usleep(1000);
     }
-    EXPECT_GE(clock->safeClusterTimeUs, clock->safeTimeIntervalUs);
+    EXPECT_GE(clock->safeClusterTimeUs, safeTimeIntervalUs);
 }
 
 TEST_F(CoordinatorClusterClockTest, handleTimerEvent) {
@@ -75,7 +85,7 @@ TEST_F(CoordinatorClusterClockTest, handleTimerEvent) {
     EXPECT_EQ("set(UPDATE, coordinatorClusterClock)", storage.log);
     storage.getResults.push(storage.setData);
     uint64_t storedTime = clock->recoverClusterTime(context.externalStorage);
-    EXPECT_GT(storedTime, clock->safeTimeIntervalUs);
+    EXPECT_GT(storedTime, safeTimeIntervalUs);
     EXPECT_EQ(storedTime, clock->safeClusterTimeUs);
 }
 
@@ -105,7 +115,7 @@ TEST_F(CoordinatorClusterClockTest, recoverClusterTime_recoveredValue) {
     uint64_t storedTime = clock->recoverClusterTime(context.externalStorage);
     EXPECT_EQ("get(coordinatorClusterClock)", storage.log);
 
-    EXPECT_GT(storedTime, clock->safeTimeIntervalUs);
+    EXPECT_GT(storedTime, safeTimeIntervalUs);
     EXPECT_EQ(storedTime, clock->safeClusterTimeUs);
 }
 

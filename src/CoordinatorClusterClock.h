@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,19 +25,12 @@
 namespace RAMCloud {
 
 /**
- * The CoordinatorClusterClock controls the progression of Cluster Time and
- * maintains the follow properties:
+ * The CoordinatorClusterClock, a module that runs on the coordinator, controls
+ * the progression of Cluster Time and maintains the following properties:
  *  (1) The clock advances monotonically over the entire life of the cluster
  *      including across coordinator crashes.
  *  (2) The clock advances in sync with the coordinator's Cycles::rdtsc() during
  *      normal operations (see getTime() for degraded behavior).
- *
- * CoordinatorClusterClock, in conjuction with ClusterClock, maintains (1)
- * across all ClusterClocks by controlling what time values to externalize.
- * Non-coordinator server ClusterClocks can only take on values that have been
- * externalized by the CoordinatorClusterClock through a getTime() call; Cluster
- * Time as read from ClusterClocks on non-coordinator servers is always less
- * than or equal to the Cluster Time read from the CoordinatorClusterClock.
  *
  * CoordinatorClusterClock is thread-safe.
  */
@@ -66,7 +59,7 @@ class CoordinatorClusterClock {
         DISALLOW_COPY_AND_ASSIGN(SafeTimeUpdater);
     };
 
-    /// Monitor-style lock: Protects against concurrent access to internal
+    /// Monitor-style lock: Protects against concurrent accesses to internal
     /// variables to provide thread-safety between access to getTime() and from
     /// the SafeTimeUpdater.
     SpinLock mutex;
@@ -88,12 +81,12 @@ class CoordinatorClusterClock {
     const uint64_t startingSysTimeUs;
 
     /// Recovered safeClusterTime from externalStorage when the clock is
-    /// initialize (may be zero if cluster is new).  Used to calculate current
+    /// initialized (may be zero if cluster is new).  Used to calculate current
     /// cluster time.
     const uint64_t startingClusterTimeUs;
 
     /// The last cluster time stored in externalStorage.  Represents the
-    /// largest cluster time that is safe to externalize (see "getTime()").
+    /// largest cluster time that may be returned from getTime().
     uint64_t safeClusterTimeUs;
 
     SafeTimeUpdater updater;

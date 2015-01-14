@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1639,7 +1639,7 @@ TEST_F(ObjectManagerTest, getTable) {
     EXPECT_FALSE(tabletManager.getTablet(key2, 0));
 }
 
-TEST_F(ObjectManagerTest, objectRelocationCallback_objectAlive) {
+TEST_F(ObjectManagerTest, relocateObject_objectAlive) {
     Key key(0, "key0", 4);
 
     Buffer value;
@@ -1706,7 +1706,7 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectAlive) {
               newBuffer2.getStart<uint8_t>());
 }
 
-TEST_F(ObjectManagerTest, objectRelocationCallback_objectDeleted) {
+TEST_F(ObjectManagerTest, relocateObject_objectDeleted) {
     Key key(0, "key0", 4);
 
     Buffer value;
@@ -1739,7 +1739,7 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectDeleted) {
               , verifyMetadata(0));
 }
 
-TEST_F(ObjectManagerTest, objectRelocationCallback_objectModified) {
+TEST_F(ObjectManagerTest, relocateObject_objectModified) {
     Key key(0, "key0", 4);
 
     Buffer value;
@@ -1775,7 +1775,7 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectModified) {
               , verifyMetadata(0));
 }
 
-TEST_F(ObjectManagerTest, rpcResultRelocationCallback_relocateRecord) {
+TEST_F(ObjectManagerTest, relocateRpcRecord_relocateRecord) {
     uint64_t leaseId = 1;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
@@ -1838,7 +1838,7 @@ TEST_F(ObjectManagerTest, rpcResultRelocationCallback_relocateRecord) {
               reinterpret_cast<uint64_t>(result));
 }
 
-TEST_F(ObjectManagerTest, rpcResultRelocationCallback_cleanRecord) {
+TEST_F(ObjectManagerTest, relocateRpcRecord_cleanRecord) {
     uint64_t leaseId = 1;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
@@ -1904,7 +1904,7 @@ segmentExists(string s)
     return s == "segmentExists";
 }
 
-TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
+TEST_F(ObjectManagerTest, relocateTombstone_basics) {
     TestLog::Enable _(&segmentExists);
     Key key(0, "key0", 4);
 
@@ -1984,7 +1984,7 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_basics) {
     EXPECT_EQ(comparisonString, TestLog::get());
 }
 
-TEST_F(ObjectManagerTest, tombstoneRelocationCallback_cleanTombstone) {
+TEST_F(ObjectManagerTest, relocateTombstone_cleanTombstone) {
 //    TestLog::Enable _(&segmentExists);
     // Testing that cleaning a tombstone will update table metadata.
     Key key(0, "key0", 4);

@@ -40,7 +40,7 @@ TESTS_SRCFILES := \
 		  src/CRamCloudTest.cc \
 		  src/CommonTest.cc \
 		  src/ContextTest.cc \
-		  src/CoordinatorClusterClock.cc \
+		  src/CoordinatorClusterClockTest.cc \
 		  src/CoordinatorRpcWrapperTest.cc \
 		  src/CoordinatorServerListTest.cc \
 		  src/CoordinatorServiceTest.cc \

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,12 +22,14 @@ namespace RAMCloud {
 
 class LeaseManagerTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     Context context;
     MockExternalStorage storage;
     Tub<LeaseManager> leaseMgr;
 
     LeaseManagerTest()
-        : context()
+        : logEnabler()
+        , context()
         , storage(true)
         , leaseMgr()
     {
