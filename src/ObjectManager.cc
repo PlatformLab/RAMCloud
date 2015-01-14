@@ -20,7 +20,6 @@
 #include "EnumerationIterator.h"
 #include "IndexletManager.h"
 #include "LogEntryRelocator.h"
-#include "MasterService.h"
 #include "ObjectManager.h"
 #include "Object.h"
 #include "PerfStats.h"
@@ -31,6 +30,7 @@
 #include "Segment.h"
 #include "TimeTrace.h"
 #include "Transport.h"
+#include "UnackedRpcResults.h"
 #include "WallTime.h"
 
 namespace RAMCloud {
@@ -1985,12 +1985,11 @@ ObjectManager::keyPointsAtReference(Key& key, AbstractLog::Reference reference)
 
 
 /**
- * Callback used by the LogCleaner when it's cleaning a Segment and comes
- * across an RpcRecord.
+ * Method used by the LogCleaner when it's cleaning a Segment and comes across
+ * an RpcRecord.
  *
- * This callback will decide if the RpcRecord is still alive. If it is, it must
- * use the relocator to move it to a new location and atomically update the
- * hash table.
+ * This method will decide if the RpcRecord is still alive. If it is, it must
+ * move the record to a new location and update the UnackedRpcResults module.
  *
  * \param oldBuffer
  *      Buffer pointing to the RpcRecord's current location, which will soon be

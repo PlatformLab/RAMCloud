@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -47,10 +47,10 @@ class LeaseManager {
 
   PRIVATE:
     /**
-     * The LeasePreallocator is periodically invoked to allocated leaseId on
+     * The LeasePreallocator is periodically invoked to allocate a leaseId on
      * external storage.  The goal is that this preallocator will work ahead
      * of the issued leases so that a client does not have to wait for an
-     * external storage operations to complete a new lease request.  Every
+     * external storage operation to complete a new lease request.  Every
      * invocation of the preallocator should ensure that maxAllocatedLeaseId
      * runs ahead of lastIssuedLeaseId by the PREALLOCATION_LIMIT.  This batch
      * allocation process only blocks during each individual allocation; other
@@ -69,10 +69,10 @@ class LeaseManager {
 
     /**
      * The LeaseCleaner periodically wakes up to expire leases.  Every time it
-     * does a cleaning pass, it will attempt to clean as many lease as possible.
-     * The cleaning process only blocks during the cleaning of a single lease;
-     * other operations like lease renewal can safely interleave with cleaning
-     * during a cleaning pass.
+     * does a cleaning pass, it will attempt to clean as many leases as
+     * possible.  The cleaning process only blocks during the cleaning of a
+     * single lease; other operations like lease renewal can safely interleave
+     * with cleaning during a cleaning pass.
      */
     class LeaseCleaner : public WorkerTimer {
       public:

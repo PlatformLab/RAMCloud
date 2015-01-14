@@ -20,7 +20,8 @@ namespace RAMCloud {
 
 namespace LeaseCommon {
 
-/// Defines the period of time that a lease will be extended upon renewal.
+/// Defines the length of time (in nanoseconds) that a lease will be extended
+/// upon renewal.
 const uint64_t LEASE_TERM_US = 300*1e6;      // 5 min = 300,000,000 us
 
 /// Defines the remaining lease time below which a given lease should not be

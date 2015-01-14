@@ -1,6 +1,6 @@
 /* Copyright (c) 2014-2015 Stanford University
  *
- * Permission to use, coly, modify, and distribute this software for any
+ * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -50,7 +50,8 @@ LeaseManager::LeaseManager(Context* context)
  *      Id of the lease whose liveness you wish to check.
  * \return
  *      If the lease exists, return lease with its current lease term.  If not,
- *      the returned the lease id will be 0.
+ *      the returned the lease id will be 0 (an invalid lease id) signaling that
+ *      the requested lease has already expired.
  */
 WireFormat::ClientLease
 LeaseManager::getLeaseInfo(uint64_t leaseId)
@@ -67,7 +68,6 @@ LeaseManager::getLeaseInfo(uint64_t leaseId)
         clientLease.leaseId = 0;
         clientLease.leaseTerm = 0;
     }
-
 
     clientLease.timestamp = clock.getTime();
 
@@ -95,7 +95,7 @@ LeaseManager::recover()
             leaseMap[leaseId] = leaseTerm;
             revLeaseMap[leaseTerm].insert(leaseId);
         } catch (std::invalid_argument& e) {
-            LOG(WARNING, "Unable to recover lease: %s", object.name);
+            LOG(ERROR, "Unable to recover lease: %s", object.name);
         }
     }
 }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -189,7 +189,7 @@ CoordinatorClient::getBackupList(Context* context,
 
 /**
  * Return the lease information for a given leaseId.  Used by masters to check
- * for lease validity.  See LeaseManager::getLeaseInfo.
+ * for lease validity.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
@@ -227,7 +227,7 @@ GetLeaseInfoRpc::GetLeaseInfoRpc(Context* context, uint64_t leaseId)
 
 /**
  * Wait for a getLeaseInfo RPC to complete, and return the same results as
- * #RamCloud::getLeaseInfo.
+ * #CoordinatorClient::getLeaseInfo.
  *
  * \return
  *      ClientLease information for the lease requested.
@@ -642,9 +642,9 @@ RecoveryMasterFinishedRpc::wait()
 }
 
 /**
- * Request a valid lease renewing the lease with the provided leaseId if
- * possible.  Used by clients to maintain a valid ClientLease with the
- * coordinator. See LeaseManager::renewLease.
+ * Create a new lease or renew an existing one. This RPC is used internally by
+ * the RAMCloud client library to manage leases, which are used to ensure
+ * linearizability. It should not normally be invoked by application code.
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
@@ -682,7 +682,7 @@ RenewLeaseRpc::RenewLeaseRpc(Context* context, uint64_t leaseId)
 
 /**
  * Wait for a renewLease RPC to complete, and return the same results as
- * #RamCloud::renewLease.
+ * #CoordinatorClient::renewLease.
  *
  * \return
  *      Valid ClientLease.
