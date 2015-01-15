@@ -16,8 +16,7 @@
 #ifndef RAMCLOUD_LEASEMANAGER_H
 #define RAMCLOUD_LEASEMANAGER_H
 
-#include <map>
-#include <unordered_set>
+#include <set>
 #include <unordered_map>
 
 #include "Common.h"
@@ -120,12 +119,27 @@ class LeaseManager {
     typedef std::unordered_map<uint64_t, uint64_t> LeaseMap;
     LeaseMap leaseMap;
 
-    /// Maps from a leaseTerm to a set of leaseIds with that corresponding term.
-    /// This is used to more efficiently determine what leases should be expired
-    /// and cleaned.  This structure is updated whenever a lease is added,
-    /// renewed, or removed.
-    typedef std::map<uint64_t, std::unordered_set<uint64_t> > ReverseLeaseMap;
-    ReverseLeaseMap revLeaseMap;
+    /// Structure to define the entries in the ExpirationOrderSet.
+    struct ExpirationOrderElem {
+        uint64_t leaseTerm;     // ClusterTime after which the lease can expire.
+        uint64_t leaseId;       // Id of the lease.
+
+        /**
+         * The operator < is overridden to implement the
+         * correct comparison for the expirationOrder.
+         */
+       bool operator<(const ExpirationOrderElem& elem) const {
+           return leaseTerm < elem.leaseTerm ||
+               (leaseTerm == elem.leaseTerm && leaseId < elem.leaseId);
+       }
+    };
+
+    /// This ordered set keeps track of the order in which leases can expire.
+    /// This structure allows the module to quickly determine what leases can be
+    /// expired next.  This structure should always be updated to refect changes
+    /// to the LeaseMap structure when the LeaseMap is updated.
+    typedef std::set<ExpirationOrderElem> ExpirationOrderSet;
+    ExpirationOrderSet expirationOrder;
 
     LeasePreallocator preallocator;
     LeaseCleaner cleaner;
