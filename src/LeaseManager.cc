@@ -37,7 +37,7 @@ LeaseManager::LeaseManager(Context* context)
     , lastIssuedLeaseId(0)
     , maxAllocatedLeaseId(0)
     , leaseMap()
-    , revLeaseMap()
+    , expirationOrder()
     , preallocator(context, this)
     , cleaner(context, this)
 {}
@@ -93,7 +93,7 @@ LeaseManager::recover()
             uint64_t leaseId = std::stoull(name);
             uint64_t leaseTerm = clock.getTime() + LeaseCommon::LEASE_TERM_US;
             leaseMap[leaseId] = leaseTerm;
-            revLeaseMap[leaseTerm].insert(leaseId);
+            expirationOrder.insert({leaseTerm, leaseId});
         } catch (std::invalid_argument& e) {
             LOG(ERROR, "Unable to recover lease: %s", object.name);
         }
@@ -230,24 +230,13 @@ bool
 LeaseManager::cleanNextLease()
 {
     Lock lock(mutex);
-    ReverseLeaseMap::iterator it = revLeaseMap.begin();
-    while (it != revLeaseMap.end()) {
-        if (it->second.empty()) {
-            ReverseLeaseMap::iterator next = it;
-            ++next;
-            revLeaseMap.erase(it);
-            it = next;
-            continue;
-        }
-        if (it->first >= clock.getTime()) {
-            break;
-        }
-
-        uint64_t leaseId = *it->second.begin();
+    ExpirationOrderSet::iterator it = expirationOrder.begin();
+    if (it != expirationOrder.end() && it->leaseTerm < clock.getTime()) {
+        uint64_t leaseId = it->leaseId;
         std::string leaseObjName = STORAGE_PREFIX + "/"
                 + format("%lu", leaseId);
         context->externalStorage->remove(leaseObjName.c_str());
-        it->second.erase(it->second.begin());
+        expirationOrder.erase(it);
         leaseMap.erase(leaseId);
         return true;
     }
@@ -273,10 +262,10 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
     if (leaseEntry != leaseMap.end()) {
         // Simply renew the existing lease.
         clientLease.leaseId = leaseId;
-        revLeaseMap[leaseEntry->second].erase(leaseId);
+        expirationOrder.erase({leaseEntry->second, leaseId});
     } else {
         // Must issue a new lease as the old one has expired.
-        // If this id has not been preallocated, allocate it now.
+        // If this id has not been preallocated, allocate it now
         // This should only ever execute once if at all.
         while (maxAllocatedLeaseId <= lastIssuedLeaseId) {
             allocateNextLease(lock);
@@ -286,7 +275,7 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
 
     clientLease.leaseTerm = clock.getTime() + LeaseCommon::LEASE_TERM_US;
     leaseMap[clientLease.leaseId] = clientLease.leaseTerm;
-    revLeaseMap[clientLease.leaseTerm].insert(clientLease.leaseId);
+    expirationOrder.insert({clientLease.leaseTerm, clientLease.leaseId});
 
     clientLease.timestamp = clock.getTime();
 
