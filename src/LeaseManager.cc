@@ -87,16 +87,34 @@ LeaseManager::recover()
     vector<ExternalStorage::Object> objects;
     context->externalStorage->getChildren(STORAGE_PREFIX.c_str(), &objects);
 
+    // We can safely make the approximation that every allocated lease was
+    // issued with the exception of the largest allocated leaseId.
     foreach (ExternalStorage::Object& object, objects) {
         try {
             std::string name = object.name;
             uint64_t leaseId = std::stoull(name);
+
+            // Keep track of the largest allocated leaseId and only auto "renew"
+            // the other leaseIds.
+            if (maxAllocatedLeaseId == 0) {
+                maxAllocatedLeaseId = leaseId;
+                continue;
+            } else if (leaseId > maxAllocatedLeaseId) {
+                uint64_t temp = maxAllocatedLeaseId;
+                maxAllocatedLeaseId = leaseId;
+                leaseId = temp;
+            }
+
             uint64_t leaseTerm = clock.getTime() + LeaseCommon::LEASE_TERM_US;
             leaseMap[leaseId] = leaseTerm;
             expirationOrder.insert({leaseTerm, leaseId});
         } catch (std::invalid_argument& e) {
             LOG(ERROR, "Unable to recover lease: %s", object.name);
         }
+    }
+
+    if (maxAllocatedLeaseId > 0) {
+        lastIssuedLeaseId = maxAllocatedLeaseId - 1;
     }
 }
 
@@ -265,12 +283,15 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
         expirationOrder.erase({leaseEntry->second, leaseId});
     } else {
         // Must issue a new lease as the old one has expired.
-        // If this id has not been preallocated, allocate it now
+        clientLease.leaseId = ++lastIssuedLeaseId;
+
+        // The maxAllocatedLeaseId needs to always stay ahead of any issued
+        // leaseId.  If it is not, more leases need to be allocated.
         // This should only ever execute once if at all.
         while (maxAllocatedLeaseId <= lastIssuedLeaseId) {
             allocateNextLease(lock);
+            RAMCLOUD_CLOG(WARNING, "Lease pre-allocation is not keeping up.");
         }
-        clientLease.leaseId = ++lastIssuedLeaseId;
     }
 
     clientLease.leaseTerm = clock.getTime() + LeaseCommon::LEASE_TERM_US;
