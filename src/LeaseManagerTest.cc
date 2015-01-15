@@ -63,10 +63,7 @@ TEST_F(LeaseManagerTest, getLeaseInfo) {
     EXPECT_EQ(8888U, lease.leaseTerm);
 }
 
-TEST_F(LeaseManagerTest, recover) {
-    EXPECT_EQ(0U, leaseMgr->leaseMap.size());
-    EXPECT_EQ(0U, leaseMgr->expirationOrder.size());
-
+TEST_F(LeaseManagerTest, recover_basic) {
     EXPECT_EQ(0U, leaseMgr->leaseMap.size());
     EXPECT_EQ(0U, leaseMgr->expirationOrder.size());
 
@@ -81,7 +78,7 @@ TEST_F(LeaseManagerTest, recover) {
 
     leaseMgr->recover();
 
-    EXPECT_EQ(4U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(3U, leaseMgr->leaseMap.size());
     EXPECT_TRUE(leaseMgr->leaseMap.end() !=
                 leaseMgr->leaseMap.find(1));
     EXPECT_TRUE(leaseMgr->expirationOrder.end() !=
@@ -94,11 +91,21 @@ TEST_F(LeaseManagerTest, recover) {
                 leaseMgr->leaseMap.find(3));
     EXPECT_TRUE(leaseMgr->expirationOrder.end() !=
                 leaseMgr->expirationOrder.find({leaseMgr->leaseMap[3], 3}));
-    EXPECT_TRUE(leaseMgr->leaseMap.end() !=
-                leaseMgr->leaseMap.find(700000));
-    EXPECT_TRUE(leaseMgr->expirationOrder.end() !=
-                leaseMgr->expirationOrder.find(
-                        {leaseMgr->leaseMap[700000], 700000}));
+    EXPECT_EQ(699999UL, leaseMgr->lastIssuedLeaseId);
+    EXPECT_EQ(700000UL, leaseMgr->maxAllocatedLeaseId);
+}
+
+TEST_F(LeaseManagerTest, recover_empty) {
+    EXPECT_EQ(0U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(0U, leaseMgr->expirationOrder.size());
+
+    leaseMgr->recover();
+
+    EXPECT_EQ(0U, leaseMgr->leaseMap.size());
+    EXPECT_EQ(0U, leaseMgr->expirationOrder.size());
+
+    EXPECT_EQ(0UL, leaseMgr->lastIssuedLeaseId);
+    EXPECT_EQ(0UL, leaseMgr->maxAllocatedLeaseId);
 }
 
 TEST_F(LeaseManagerTest, renewLease) {
@@ -264,7 +271,7 @@ TEST_F(LeaseManagerTest, renewLeaseInternal_new) {
     EXPECT_TRUE(leaseMgr->expirationOrder.end() !=
                 leaseMgr->expirationOrder.find({leaseMgr->leaseMap[1], 1}));
     EXPECT_EQ(1U, leaseMgr->lastIssuedLeaseId);
-    EXPECT_EQ(1U, leaseMgr->maxAllocatedLeaseId);
+    EXPECT_EQ(2U, leaseMgr->maxAllocatedLeaseId);
 
     WireFormat::ClientLease lease2 = leaseMgr->renewLeaseInternal(0, lock);
     EXPECT_EQ(2U, lease2.leaseId);
@@ -273,13 +280,13 @@ TEST_F(LeaseManagerTest, renewLeaseInternal_new) {
     EXPECT_TRUE(leaseMgr->expirationOrder.end() !=
                 leaseMgr->expirationOrder.find({leaseMgr->leaseMap[2], 2}));
     EXPECT_EQ(2U, leaseMgr->lastIssuedLeaseId);
-    EXPECT_EQ(2U, leaseMgr->maxAllocatedLeaseId);
+    EXPECT_EQ(3U, leaseMgr->maxAllocatedLeaseId);
 
     leaseMgr->allocateNextLease(lock);
     leaseMgr->allocateNextLease(lock);
     leaseMgr->allocateNextLease(lock);
 
-    EXPECT_EQ(5U, leaseMgr->maxAllocatedLeaseId);
+    EXPECT_EQ(6U, leaseMgr->maxAllocatedLeaseId);
 
     WireFormat::ClientLease lease3 = leaseMgr->renewLeaseInternal(0, lock);
     EXPECT_EQ(3U, lease3.leaseId);
@@ -288,7 +295,29 @@ TEST_F(LeaseManagerTest, renewLeaseInternal_new) {
     EXPECT_TRUE(leaseMgr->expirationOrder.end() !=
                 leaseMgr->expirationOrder.find({leaseMgr->leaseMap[3], 3}));
     EXPECT_EQ(3U, leaseMgr->lastIssuedLeaseId);
-    EXPECT_EQ(5U, leaseMgr->maxAllocatedLeaseId);
+    EXPECT_EQ(6U, leaseMgr->maxAllocatedLeaseId);
+}
+
+TEST_F(LeaseManagerTest, renewLeaseInternal_allocatorNotKeepingUp) {
+    LeaseManager::Lock lock(leaseMgr->mutex);
+    EXPECT_EQ(0U, leaseMgr->lastIssuedLeaseId);
+    EXPECT_EQ(0U, leaseMgr->maxAllocatedLeaseId);
+
+    leaseMgr->lastIssuedLeaseId = 10;
+    EXPECT_EQ(10U, leaseMgr->lastIssuedLeaseId);
+    EXPECT_EQ(0U, leaseMgr->maxAllocatedLeaseId);
+
+    WireFormat::ClientLease lease = leaseMgr->renewLeaseInternal(0, lock);
+    EXPECT_EQ(11U, lease.leaseId);
+
+    EXPECT_EQ(11U, leaseMgr->lastIssuedLeaseId);
+    EXPECT_EQ(12U, leaseMgr->maxAllocatedLeaseId);
+
+    TestLog::Enable _("renewLeaseInternal");
+    TestLog::reset();
+    lease = leaseMgr->renewLeaseInternal(0, lock);
+    EXPECT_EQ("renewLeaseInternal: Lease pre-allocation is not keeping up.",
+              TestLog::get());
 }
 
 }  // namespace RAMCloud
