@@ -276,59 +276,30 @@ class MasterService : public Service {
                 Rpc* rpc);
 
     /**
-     * Helper function for handling linearizable RPCs. Checks whether we should
-     * not execute this RPC request and fills response header appropriately.
+     * Helper function for handling linearizable RPCs. Parse the log location
+     * for RpcResult log entry into actually saved RPC response.
      *
-     * \param reqHdr
-     *      Header from the incoming RPC request; contains all the
-     *      parameters for this operation except the key of the object.
-     * \param[out] respHdr
-     *      Header for the response that will be returned to the client.
-     *      The caller has pre-allocated the right amount of space in the
-     *      response buffer for this type of request, and has zeroed out
-     *      its contents (so, for example, status is already zero).
+     * \param result
+     *      Location of RPC result entry in log. Typically obtained from
+     *      UnackedRpcResults::checkDuplicate.
      *
      * \return
-     *      True if the RPC request is a duplicate request or has expired lease.
-     *      False if the RPC is normal and should be executed.
+     *      Saved response from original RPC. Rpc handled should respond with
+     *      this response without executing rpc.
      */
     template <typename LinearizableRpcType>
-    bool shouldReplyEarly(const typename LinearizableRpcType::Request* reqHdr,
-                          typename LinearizableRpcType::Response* respHdr) {
-        assert(reqHdr->rpcId > 0);
-        updateClusterTime(reqHdr->lease.timestamp);
+    typename LinearizableRpcType::Response parseRpcResult(void* result) {
+        if (!result) {
+            throw RetryException(HERE, 50, 50,
+                    "Duplicate RPC is in progress.");
+        }
 
-        // Check lease is expired.
-        if (reqHdr->lease.leaseTerm < clusterTime) {
-            //contact coordinator for lease expiration and clusterTime.
-            WireFormat::ClientLease lease =
-                CoordinatorClient::getLeaseInfo(context,
-                                                reqHdr->lease.leaseId);
-            updateClusterTime(lease.timestamp);
-            if (lease.leaseId == 0) {
-                respHdr->common.status = STATUS_EXPIRED_LEASE;
-                return true;
-            }
-        }
-        void* result;
-        if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
-                                             reqHdr->rpcId,
-                                             reqHdr->ackId,
-                                             reqHdr->lease.leaseTerm,
-                                             &result)) {
-            if (!result) {
-                throw RetryException(HERE, 50, 50,
-                        "Duplicate RPC is in progress.");
-            }
-            //Obtain saved result and reply back.
-            Buffer resultBuffer;
-            Log::Reference resultRef((uint64_t)result);
-            objectManager.getLog()->getEntry(resultRef, resultBuffer);
-            RpcRecord savedRec(resultBuffer);
-            *respHdr = *((WireFormat::Write::Response*)savedRec.getResp());
-            return true;
-        }
-        return false;
+        //Obtain saved RPC response from log.
+        Buffer resultBuffer;
+        Log::Reference resultRef((uint64_t)result);
+        objectManager.getLog()->getEntry(resultRef, resultBuffer);
+        RpcRecord savedRec(resultBuffer);
+        return *((typename LinearizableRpcType::Response*) savedRec.getResp());
     }
 
     /**
