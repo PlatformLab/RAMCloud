@@ -53,7 +53,7 @@ class UnackedRpcResults {
 
   PRIVATE:
     void resizeRpcList(uint64_t clientId, int size);
-    void cleanByTimeout(Context* context);
+    void cleanByTimeout();
 
     /**
      * Holds info about outstanding RPCs, which is needed to avoid re-doing
@@ -82,14 +82,15 @@ class UnackedRpcResults {
      */
     class Cleaner : public WorkerTimer {
       public:
-        explicit Cleaner(Context* context,
-                         UnackedRpcResults* unackedRpcResults);
+        explicit Cleaner(UnackedRpcResults* unackedRpcResults);
         virtual void handleTimerEvent();
 
-        Context* context;
         UnackedRpcResults* unackedRpcResults;
+
+        uint64_t nextClientToCheck;
+
         //TODO(seojin): do this optimization later
-        // const int maxIterPerPeriod = 10000;
+        static const int maxIterPerPeriod = 1000;
         static const uint32_t maxCheckPerPeriod = 100;
       private:
         DISALLOW_COPY_AND_ASSIGN(Cleaner);
@@ -110,6 +111,7 @@ class UnackedRpcResults {
         explicit Client(int size) : maxRpcId(0),
                                     maxAckId(0),
                                     leaseTerm(0),
+                                    numRpcsInProgress(0),
                                     rpcs(new UnackedRpc[size]()),
                                     len(size) {
         }
@@ -138,6 +140,14 @@ class UnackedRpcResults {
          * The lastest cache of leaseTerm value. Used in Cleaner for GC.
          */
         uint64_t leaseTerm;
+
+        /**
+         * The count for rpcIds in stage between checkDuplicate and
+         * recordCompletion (aka. in Progress).
+         * The count is used while cleanup to prevent removing client
+         * with rpcs in progress.
+         */
+        int numRpcsInProgress;
 
       PRIVATE:
         void resizeRpcs(int increment);
@@ -181,24 +191,14 @@ class UnackedRpcResults {
     std::mutex mutex;
     typedef std::lock_guard<std::mutex> Lock;
 
-    Cleaner cleaner;
-
-    /**
-     * True if garbage collection by timeout is sweeping #clients.
-     * Used to protect #clients from rehashing.
-     */
-    bool clientsSweepingInProgress;
-
-    /**
-     * Conditional variable to synchronize rehasing of #clients doesn't
-     * overlap with cleaning code.
-     */
-    std::condition_variable cv_clients;
-
     /**
      * This value is used as initial array size of each Client instance.
      */
     int default_rpclist_size;
+
+    Context* context;
+
+    Cleaner cleaner;
 
     DISALLOW_COPY_AND_ASSIGN(UnackedRpcResults);
 };

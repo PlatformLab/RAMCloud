@@ -1779,7 +1779,7 @@ TEST_F(ObjectManagerTest, relocateRpcRecord_relocateRecord) {
     uint64_t leaseId = 1;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
-    uint64_t leaseTerm = 1000;
+    uint64_t leaseTerm = 0;
 
     void* result;
     unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
@@ -1842,7 +1842,7 @@ TEST_F(ObjectManagerTest, relocateRpcRecord_cleanRecord) {
     uint64_t leaseId = 1;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
-    uint64_t leaseTerm = 1000;
+    uint64_t leaseTerm = 0;
 
     void* result;
     unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
@@ -1885,7 +1885,8 @@ TEST_F(ObjectManagerTest, relocateRpcRecord_cleanRecord) {
 
     EXPECT_FALSE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
     // Ack the rpc to make it available for cleaning.
-    unackedRpcResults.checkDuplicate(leaseId, rpcId + 1, rpcId, 1000, &result);
+    unackedRpcResults.checkDuplicate(leaseId, rpcId + 1, rpcId, leaseTerm,
+                                     &result);
     EXPECT_TRUE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
 
     bool keepRpcRecord = !unackedRpcResults.isRpcAcked(

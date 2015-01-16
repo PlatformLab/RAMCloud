@@ -232,20 +232,26 @@ TEST_F(UnackedRpcResultsTest, isRpcAcked) {
 
 TEST_F(UnackedRpcResultsTest, cleanByTimeout) {
     void* result;
-    results.cleanByTimeout(&context);
+    results.cleanByTimeout();
     EXPECT_EQ(1U, results.clients.size());
     results.checkDuplicate(2, 10, 5, 1, &result);
     results.checkDuplicate(3, 10, 5, 1, &result);
 
-    results.cleanByTimeout(&context);
+    results.cleanByTimeout();
     EXPECT_EQ(3U, results.clients.size());
 
     results.checkDuplicate(2, 11, 10, 2, &result);
 
     service->updateClusterTime(1);
 
-    results.cleanByTimeout(&context);
+    results.cleanByTimeout();
+    EXPECT_EQ(2U, results.clients.size());
+
+    //Complete in progress rpcs and try cleanup again.
+    results.recordCompletion(3, 10, &result);
+    results.cleanByTimeout();
     EXPECT_EQ(1U, results.clients.size());
+
     EXPECT_EQ(1U, service->clusterTime.load());
 
     //TODO(seojin): test with mock coordinator which returns

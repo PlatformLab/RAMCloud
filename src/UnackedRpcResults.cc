@@ -21,14 +21,17 @@ namespace RAMCloud {
 
 /**
  * Default constructor
+ *
+ * \param context
+ *      Overall information about the RAMCloud server and provides access to
+ *      the dispatcher and masterService.
  */
 UnackedRpcResults::UnackedRpcResults(Context* context)
     : clients(20)
     , mutex()
-    , cleaner(context, this)
-    , clientsSweepingInProgress(false)
-    , cv_clients()
     , default_rpclist_size(5)
+    , context(context)
+    , cleaner(this)
 {}
 
 /**
@@ -75,6 +78,10 @@ UnackedRpcResults::startCleaner()
  *      False if the \a rpcId has never been passed to this method
  *      for this client before.
  *
+ * \throw ExpiredLeaseException
+ *      The lease for \a clientId is already expired in coordinator.
+ *      Master rejects rpcs with expired lease, and client must obtain
+ *      brand-new lease from coordinator.
  * \throw StaleRpcException
  *      The rpc with \a rpcId is already acknowledged by client, so we should
  *      not have received this request in the first place.
@@ -90,17 +97,18 @@ UnackedRpcResults::checkDuplicate(uint64_t clientId,
     *result = NULL;
     Client* client;
 
+    if (leaseTerm && leaseTerm < context->masterService->clusterTime) {
+        //contact coordinator for lease expiration and clusterTime.
+        WireFormat::ClientLease lease =
+            CoordinatorClient::getLeaseInfo(context, clientId);
+        context->masterService->updateClusterTime(lease.timestamp);
+        if (lease.leaseId == 0) {
+            throw ExpiredLeaseException(HERE);
+        }
+    }
+
     ClientMap::iterator it = clients.find(clientId);
     if (it == clients.end()) {
-        bool rehashingOccurs = static_cast<double>(clients.size()) + 1.5 >=
-                clients.max_load_factor() *
-                    static_cast<double>(clients.bucket_count());
-        if (rehashingOccurs && clientsSweepingInProgress) {
-            while (clientsSweepingInProgress) {
-                cv_clients.wait(lock);
-            }
-        }
-
         client = new Client(default_rpclist_size);
         clients[clientId] = client;
     } else {
@@ -122,6 +130,7 @@ UnackedRpcResults::checkDuplicate(uint64_t clientId,
         //Beyond the window of maxAckId and maxRpcId.
         client->maxRpcId = rpcId;
         client->recordNewRpc(rpcId);
+        client->numRpcsInProgress++;
         return false;
     } else if (client->hasRecord(rpcId)) {
         //Inside the window duplicate rpc.
@@ -130,6 +139,7 @@ UnackedRpcResults::checkDuplicate(uint64_t clientId,
     } else {
         //Inside the window new rpc.
         client->recordNewRpc(rpcId);
+        client->numRpcsInProgress++;
         return false;
     }
 }
@@ -192,11 +202,10 @@ UnackedRpcResults::recordCompletion(uint64_t clientId,
     Client* client = it->second;
 
     assert(client->maxAckId < rpcId);
-    if (client->maxRpcId < rpcId) {
-        client->maxRpcId = rpcId;
-    }
+    assert(client->maxRpcId >= rpcId);
 
     client->updateResult(rpcId, result);
+    client->numRpcsInProgress--;
 }
 
 /**
@@ -225,15 +234,6 @@ UnackedRpcResults::recoverRecord(uint64_t clientId,
 
     ClientMap::iterator it = clients.find(clientId);
     if (it == clients.end()) {
-        bool rehashingOccurs = static_cast<double>(clients.size()) + 1.5 >=
-                clients.max_load_factor() *
-                    static_cast<double>(clients.bucket_count());
-        if (rehashingOccurs && clientsSweepingInProgress) {
-            while (clientsSweepingInProgress) {
-                cv_clients.wait(lock);
-            }
-        }
-
         client = new Client(default_rpclist_size);
         clients[clientId] = client;
     } else {
@@ -294,54 +294,46 @@ UnackedRpcResults::isRpcAcked(uint64_t clientId, uint64_t rpcId)
  * Clean up stale clients who haven't communicated long.
  * Should not concurrently run this function in several threads.
  * Serialized by Cleaner inherited from WorkerTimer.
- *
- * \param context
- *      Overall information about the RAMCloud server.
  */
 void
-UnackedRpcResults::cleanByTimeout(Context* context)
+UnackedRpcResults::cleanByTimeout()
 {
+    vector<uint64_t> victims;
     {
         Lock lock(mutex);
-        clientsSweepingInProgress = true;
-    }
 
-    // Sweep table and pick candidates.
-    vector<uint64_t> victims;
-    victims.reserve(Cleaner::maxCheckPerPeriod);
+        // Sweep table and pick candidates.
+        victims.reserve(Cleaner::maxCheckPerPeriod);
 
-    uint64_t clusterTime = context->masterService->clusterTime;
-
-    ClientMap::iterator it;
-    for (it = clients.begin();
-         it != clients.end() && victims.size() < Cleaner::maxCheckPerPeriod;
-         ++it) {
-        Client* client = it->second;
-        Lock lock(mutex); //Not needed if we use atomic for leaseTerm.
-                          //Or fine grained locking per client.
-        if (client->leaseTerm <= clusterTime) {
-            victims.push_back(it->first);
+        ClientMap::iterator it;
+        if (cleaner.nextClientToCheck) {
+            it = clients.find(cleaner.nextClientToCheck);
+        } else {
+            it = clients.begin();
+        }
+        for (int i = 0; i < Cleaner::maxIterPerPeriod && it != clients.end();
+                        //&& victims.size() < Cleaner::maxCheckPerPeriod;
+             ++i, ++it) {
+            Client* client = it->second;
+            if (client->leaseTerm <= context->masterService->clusterTime) {
+                victims.push_back(it->first);
+            }
         }
     }
-
-    {
-        Lock lock(mutex);
-        clientsSweepingInProgress = false;
-    }
-
-    cv_clients.notify_all();
 
     // Check with coordinator whether the lease is expired.
     // And erase entry if the lease is expired.
     uint64_t maxClusterTime = 0;
     for (uint32_t i = 0; i < victims.size(); ++i) {
+        Lock lock(mutex);
+        if (clients[victims[i]]->numRpcsInProgress)
+            continue;
+
         WireFormat::ClientLease lease =
             CoordinatorClient::getLeaseInfo(context, victims[i]);
         if (lease.leaseId == 0) {
-            Lock lock(mutex);
             clients.erase(victims[i]);
         } else {
-            Lock lock(mutex);
             clients[victims[i]]->leaseTerm = lease.leaseTerm;
         }
 
@@ -356,17 +348,13 @@ UnackedRpcResults::cleanByTimeout(Context* context)
 /**
  * Constructor for the UnackedRpcResults' Cleaner.
  *
- * \param context
- *      Overall information about the RAMCloud server and provides access to
- *      the dispatcher.
  * \param unackedRpcResults
  *      Provides access to the unackedRpcResults to perform cleaning.
  */
-UnackedRpcResults::Cleaner::Cleaner(Context* context,
-                                    UnackedRpcResults* unackedRpcResults)
-    : WorkerTimer(context->dispatch)
-    , context(context)
+UnackedRpcResults::Cleaner::Cleaner(UnackedRpcResults* unackedRpcResults)
+    : WorkerTimer(unackedRpcResults->context->dispatch)
     , unackedRpcResults(unackedRpcResults)
+    , nextClientToCheck(0)
 {
 }
 
@@ -377,7 +365,7 @@ void
 UnackedRpcResults::Cleaner::handleTimerEvent()
 {
 
-    unackedRpcResults->cleanByTimeout(context);
+    unackedRpcResults->cleanByTimeout();
 
     // Run once per 1/10 of lease term to keep expected garbage ~ 5%.
     this->start(Cycles::rdtsc()+Cycles::fromNanoseconds(

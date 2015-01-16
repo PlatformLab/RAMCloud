@@ -1569,9 +1569,19 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         Rpc* rpc)
 {
     const bool linearizable = reqHdr->rpcId > 0;
-    if (linearizable && shouldReplyEarly<WireFormat::Write>(reqHdr, respHdr)) {
-        rpc->sendReply();
-        return;
+    if (linearizable) {
+        updateClusterTime(reqHdr->lease.timestamp);
+
+        void* result;
+        if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
+                                             reqHdr->rpcId,
+                                             reqHdr->ackId,
+                                             reqHdr->lease.leaseTerm,
+                                             &result)) {
+            *respHdr = parseRpcResult<WireFormat::Write>(result);
+            rpc->sendReply();
+            return;
+        }
     }
 
     // This is a temporary object that has an invalid version and timestamp.
