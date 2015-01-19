@@ -978,6 +978,10 @@ TEST_F(ObjectManagerTest, writeObject) {
     EXPECT_EQ("found=true tableId=1 byteCount=99 recordCount=3"
               , verifyMetadata(1));
 
+    // object overwrite (hashtable contains tombstone)
+    Log::Reference reference = storeTombstone(key, 0);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+
     // Verify RetryException  when overwriting with no space
     uint64_t original = objectManager.getLog()->totalBytesRemaining;
     objectManager.getLog()->totalBytesRemaining = 0;

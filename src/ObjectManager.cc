@@ -886,7 +886,8 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     if (lookup(lock, key, currentType, currentBuffer, 0,
                &currentReference, &currentHashTableEntry)) {
         if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-            removeIfTombstone(currentReference.toInteger(), this);
+            CleanupParameters params = { this , &lock };
+            removeIfTombstone(currentReference.toInteger(), &params);
         } else {
             Object currentObject(currentBuffer);
             currentVersion = currentObject.getVersion();
@@ -1072,7 +1073,8 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
                        &currentReference, &currentHashTableEntry)) {
 
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-                    removeIfTombstone(currentReference.toInteger(), this);
+                    CleanupParameters params = { this , &lock };
+                    removeIfTombstone(currentReference.toInteger(), &params);
                     objectMap.insert(key.getHash(), references[i].toInteger());
                 }
 
