@@ -124,7 +124,10 @@ enum Opcode {
     DROP_INDEX                = 70,
     DROP_INDEXLET_OWNERSHIP   = 71,
     TAKE_INDEXLET_OWNERSHIP   = 72,
-    ILLEGAL_RPC_TYPE          = 73, // 1 + the highest legitimate Opcode
+    TX_DECISION               = 73,
+    TX_PREPARE                = 74,
+    TX_REQUEST_ABORT          = 75,
+    ILLEGAL_RPC_TYPE          = 76, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -1569,6 +1572,180 @@ struct TakeIndexletOwnership {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct TxDecision {
+    static const Opcode opcode = Opcode::TX_DECISION;
+    static const ServiceType service = MASTER_SERVICE;
+
+    enum Decision { COMMIT, ABORT, INVALID };
+
+    struct Request {
+        RequestCommon common;
+        Decision decision;
+        uint32_t objCount;
+
+        struct Object {
+            uint64_t tableId;
+            uint16_t keyLength;
+
+            // In buffer: The actual key for this part
+            // follows immediately after this.
+            Object(uint64_t tableId, uint16_t keyLength)
+                : tableId(tableId)
+                , keyLength(keyLength)
+            {
+            }
+        } __attribute__((packed));
+    } __attribute__((packed));
+
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct TxPrepare {
+    static const Opcode opcode = Opcode::TX_PREPARE;
+    static const ServiceType service = MASTER_SERVICE;
+
+    enum Vote { COMMIT, ABORT, INVALID };
+
+    struct Request {
+        RequestCommon common;
+        uint32_t participantCount;
+        uint32_t opCount;
+        // List of Participants
+        // List of Ops
+
+        struct Participant {
+            uint64_t tableId;
+            uint64_t keyHash;
+        } __attribute__((packed));
+
+        struct ReadOp {
+            uint64_t tableId;
+            uint16_t keyLength;
+            RejectRules rejectRules;
+
+            // In buffer: The actual key for this part
+            // follows immediately after this.
+            ReadOp(uint64_t tableId, uint16_t keyLength,
+                    RejectRules rejectRules)
+                : tableId(tableId)
+                , keyLength(keyLength)
+                , rejectRules(rejectRules)
+            {
+            }
+        } __attribute__((packed));
+
+        struct RemoveOp {
+            uint64_t tableId;
+            uint16_t keyLength;
+            RejectRules rejectRules;
+
+            // In buffer: The actual key for this part
+            // follows immediately after this.
+            RemoveOp(uint64_t tableId, uint16_t keyLength,
+                       RejectRules rejectRules)
+                : tableId(tableId)
+                , keyLength(keyLength)
+                , rejectRules(rejectRules)
+            {
+            }
+        } __attribute__((packed));
+
+        struct WriteOp {
+            uint64_t tableId;
+            uint32_t length;        // length of keysAndValue
+            RejectRules rejectRules;
+
+            // In buffer: KeysAndValue follow immediately after this
+            WriteOp(uint64_t tableId, uint32_t length,
+                        RejectRules rejectRules)
+                : tableId(tableId)
+                , length(length)
+                , rejectRules(rejectRules)
+            {
+            }
+        } __attribute__((packed));
+    } __attribute__((packed));
+
+    struct Response {
+        ResponseCommon common;
+        Vote vote;
+    } __attribute__((packed));
+};
+
+struct TxRequestAbort {
+    static const Opcode opcode = Opcode::TX_REQUEST_ABORT;
+    static const ServiceType service = MASTER_SERVICE;
+
+    enum Vote { COMMIT, ABORT, INVALID };
+
+    struct Request {
+        RequestCommon common;
+        uint32_t participantCount;
+        uint32_t opCount;
+        // List of Participants
+        // List of Ops
+
+        struct Participant {
+            uint64_t tableId;
+            uint64_t keyHash;
+        } __attribute__((packed));
+
+        struct ReadOp {
+            uint64_t tableId;
+            uint16_t keyLength;
+            RejectRules rejectRules;
+
+            // In buffer: The actual key for this part
+            // follows immediately after this.
+            ReadOp(uint64_t tableId, uint16_t keyLength,
+                    RejectRules rejectRules)
+                : tableId(tableId)
+                , keyLength(keyLength)
+                , rejectRules(rejectRules)
+            {
+            }
+        } __attribute__((packed));
+
+        struct RemoveOp {
+            uint64_t tableId;
+            uint16_t keyLength;
+            RejectRules rejectRules;
+
+            // In buffer: The actual key for this part
+            // follows immediately after this.
+            RemoveOp(uint64_t tableId, uint16_t keyLength,
+                       RejectRules rejectRules)
+                : tableId(tableId)
+                , keyLength(keyLength)
+                , rejectRules(rejectRules)
+            {
+            }
+        } __attribute__((packed));
+
+        struct WriteOp {
+            uint64_t tableId;
+            uint32_t length;        // length of keysAndValue
+            RejectRules rejectRules;
+
+            // In buffer: KeysAndValue follow immediately after this
+            WriteOp(uint64_t tableId, uint32_t length,
+                        RejectRules rejectRules)
+                : tableId(tableId)
+                , length(length)
+                , rejectRules(rejectRules)
+            {
+            }
+        } __attribute__((packed));
+    } __attribute__((packed));
+
+    struct Response {
+        ResponseCommon common;
+        Vote vote;
     } __attribute__((packed));
 };
 

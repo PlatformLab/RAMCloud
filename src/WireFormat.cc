@@ -104,6 +104,9 @@ opcodeSymbol(uint32_t opcode)
         case READ_KEYS_AND_VALUE:        return "READ_KEYS_AND_VALUE";
         case LOOKUP_INDEX_KEYS:          return "LOOKUP_INDEX_KEYS";
         case INDEXED_READ:               return "INDEXED_READ";
+        case TX_DECISION:                return "TX_DECISION";
+        case TX_PREPARE:                 return "TX_PREPARE";
+        case TX_REQUEST_ABORT:           return "TX_REQUEST_ABORT";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
         case INSERT_INDEX_ENTRY:         return "INSERT_INDEX_ENTRY";
         case REMOVE_INDEX_ENTRY:         return "REMOVE_INDEX_ENTRY";
