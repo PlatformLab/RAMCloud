@@ -111,6 +111,9 @@ opcodeSymbol(uint32_t opcode)
         case SPLIT_AND_MIGRATE_INDEXLET:   return "SPLIT_AND_MIGRATE_INDEXLET";
         case COORD_SPLIT_AND_MIGRATE_INDEXLET:
                                     return "COORD_SPLIT_AND_MIGRATE_INDEXLET";
+        case TX_DECISION:                return "TX_DECISION";
+        case TX_PREPARE:                 return "TX_PREPARE";
+        case TX_REQUEST_ABORT:           return "TX_REQUEST_ABORT";
     }
 
     // Never heard of this RPC; return the numeric value. The shared buffer
