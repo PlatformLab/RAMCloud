@@ -79,11 +79,11 @@ IndexletManager::addIndexlet(
 
     } else {
         // Add a new indexlet.
-        Btree *bt;
+        IndexBtree *bt;
         if (highestUsedId == 0)
-            bt = new Btree(backingTableId, objectManager);
+            bt = new IndexBtree(backingTableId, objectManager);
         else
-            bt = new Btree(backingTableId, objectManager, highestUsedId);
+            bt = new IndexBtree(backingTableId, objectManager, highestUsedId);
 
         indexletMap.insert(std::make_pair(TableAndIndexId{tableId, indexId},
                 Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
@@ -311,7 +311,6 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
         const void* key, KeyLength keyLength, uint64_t pKHash)
 {
     Lock indexletMapLock(mutex);
-
     RAMCLOUD_LOG(DEBUG, "Inserting: tableId %lu, indexId %u, hash %lu,\n"
                         "key: %s", tableId, indexId, pKHash,
                         Util::hexDump(key, keyLength).c_str());
@@ -329,8 +328,8 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
     Lock indexletLock(indexlet->indexletMutex);
     indexletMapLock.unlock();
 
-    KeyAndHash keyAndHash = {key, keyLength, pKHash};
-    indexlet->bt->insert(keyAndHash, pKHash);
+    BtreeEntry entry = BtreeEntry(key, keyLength, pKHash);
+    indexlet->bt->insert(entry);
 
     return STATUS_OK;
 }
@@ -384,7 +383,7 @@ IndexletManager::lookupIndexKeys(
 
     // We want to use lower_bound() instead of find() because the firstKey
     // may not correspond to a key in the indexlet.
-    auto iter = indexlet->bt->lower_bound(KeyAndHash {
+    auto iter = indexlet->bt->lower_bound(BtreeEntry {
             firstKey, reqHdr->firstKeyLength, reqHdr->firstAllowedKeyHash});
 
     auto iterEnd = indexlet->bt->end();
@@ -404,13 +403,14 @@ IndexletManager::lookupIndexKeys(
 
     while (iter != iterEnd &&
            IndexKey::keyCompare(lastKey, reqHdr->lastKeyLength,
-                        iter.key().key, iter.key().keyLength) >= 0) {
+                        iter->key,
+                        iter->keyLength) >= 0) {
 
         if (respHdr->numHashes < reqHdr->maxNumHashes) {
             // Can alternatively use iter.data() instead of iter.key().pKHash,
             // but we might want to make data NULL in the future, so might
             // as well use the pKHash from key right away.
-            rpc->replyPayload->emplaceAppend<uint64_t>(iter.key().pKHash);
+            rpc->replyPayload->emplaceAppend<uint64_t>(iter->pKHash);
             respHdr->numHashes += 1;
             ++iter;
         } else {
@@ -422,10 +422,10 @@ IndexletManager::lookupIndexKeys(
 
     if (rpcMaxedOut) {
 
-        respHdr->nextKeyLength = uint16_t(iter.key().keyLength);
-        respHdr->nextKeyHash = iter.data();
-        rpc->replyPayload->appendExternal(iter.key().key,
-                uint32_t(iter.key().keyLength));
+        respHdr->nextKeyLength = uint16_t(iter->keyLength);
+        respHdr->nextKeyHash = iter->pKHash;
+        rpc->replyPayload->appendExternal(iter->key,
+                uint32_t(iter->keyLength));
 
     } else if (IndexKey::keyCompare(
             lastKey, reqHdr->lastKeyLength,
@@ -488,7 +488,7 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
     // Note that we don't have to explicitly compare the key hash in value
     // since it is also a part of the key that gets compared in the tree
     // module.
-    indexlet->bt->erase_one(KeyAndHash {key, keyLength, pKHash});
+    indexlet->bt->erase(BtreeEntry {key, keyLength, pKHash});
 
     return STATUS_OK;
 }

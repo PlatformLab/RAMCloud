@@ -18,7 +18,7 @@
 
 #include <unordered_map>
 
-#include "btreeRamCloud/BtreeMultimap.h"
+#include "btreeRamCloud/Btree.h"
 #include "Common.h"
 #include "HashTable.h"
 #include "SpinLock.h"
@@ -79,67 +79,6 @@ class IndexletManager {
                 const void* key, KeyLength keyLength,
                 uint64_t pKHash);
 
-    /// Structure used as the key for key-value pairs in the indexlet tree.
-    struct KeyAndHash {
-        /// Actual bytes of the index key.
-        char key[40];
-        /// Length of index key.
-        uint16_t keyLength;
-        /// Primary key hash of the object the index key points to.
-        /// This is currently being stored as a part of the tree key to enable
-        /// sorting on the key hash if there are multiple index keys with the
-        /// same value of key and keyLength.
-        uint64_t pKHash;
-
-        // btree code uses  empty constructor for keys
-        KeyAndHash()
-            : key()
-            , keyLength()
-            , pKHash()
-        {}
-
-        KeyAndHash(const void *key, uint16_t keyLength, uint64_t pKHash)
-            : key()
-            , keyLength(keyLength)
-            , pKHash(pKHash)
-        {
-            memcpy(this->key, key, keyLength);
-        }
-
-        KeyAndHash(const KeyAndHash& keyAndHash)
-            : key()
-            , keyLength(keyAndHash.keyLength)
-            , pKHash(keyAndHash.pKHash)
-        {
-            memcpy(this->key, keyAndHash.key, keyLength);
-        }
-
-        KeyAndHash& operator =(const KeyAndHash& keyAndHash)
-        {
-            this->keyLength = keyAndHash.keyLength;
-            this->pKHash = keyAndHash.pKHash;
-            memcpy(this->key, keyAndHash.key, keyLength);
-            return *this;
-        }
-    };
-
-    // Btree key compare function
-    struct KeyAndHashCompare {
-      public:
-        bool operator()(const KeyAndHash x, const KeyAndHash y) const
-        {
-            int keyComparison = IndexKey::keyCompare(x.key, x.keyLength,
-                                                     y.key, y.keyLength);
-            if (keyComparison == 0) {
-                return (x.pKHash < y.pKHash);
-            }
-            return keyComparison < 0;
-        }
-    };
-
-    // B+ tree holding key: string, value: primary key hash
-    typedef str::btree_multimap<KeyAndHash, uint64_t, KeyAndHashCompare> Btree;
-
     /**
      * Each indexlet owned by a master is described by fields in this class.
      * Indexlets describe contiguous ranges of secondary key space for a
@@ -149,7 +88,7 @@ class IndexletManager {
         public:
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-                 Btree *bt)
+                 IndexBtree *bt)
             : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                                  firstNotOwnedKeyLength)
             , bt(bt)
@@ -184,19 +123,7 @@ class IndexletManager {
             return *this;
         }
 
-        // Attributes of the b+ tree used for holding the indexes.
-        // Note: traits are not currently used during btree initialization.
-        template <typename KeyType>
-        struct traits_nodebug : str::btree_default_set_traits<KeyType>
-        {
-            static const bool selfverify = false;
-            static const bool debug = false;
-
-            static const int leafslots = 8;
-            static const int innerslots = 8;
-        };
-
-        Btree *bt;
+        IndexBtree *bt;
 
         /// Mutex to protect the indexlet from concurrent access.
         /// A lock for this mutex MUST be held to read or modify any state in
