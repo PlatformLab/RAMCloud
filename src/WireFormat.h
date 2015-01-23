@@ -1575,6 +1575,12 @@ struct TakeIndexletOwnership {
     } __attribute__((packed));
 };
 
+struct TxParticipant {
+    uint64_t tableId;
+    uint64_t keyHash;
+    uint64_t rpcId;
+} __attribute__((packed));
+
 struct TxDecision {
     static const Opcode opcode = Opcode::TX_DECISION;
     static const ServiceType service = MASTER_SERVICE;
@@ -1584,34 +1590,16 @@ struct TxDecision {
     struct Request {
         RequestCommon common;
         Decision decision;
-        uint32_t objCount;
-
-        struct Object {
-            uint64_t tableId;
-            uint16_t keyLength;
-            //TODO(seojin) : key or keyHash?
-            //               RequestAbort can respond with key.
-
-            // In buffer: The actual key for this part
-            // follows immediately after this.
-            Object(uint64_t tableId, uint16_t keyLength)
-                : tableId(tableId)
-                , keyLength(keyLength)
-            {
-            }
-        } __attribute__((packed));
+        uint64_t leaseId;
+        uint32_t participantCount; // Number of local objects participating TX
+                                   // for this server.
+        // List of local Participants
     } __attribute__((packed));
 
     struct Response {
         ResponseCommon common;
     } __attribute__((packed));
 };
-
-struct TxParticipant {
-    uint64_t tableId;
-    uint64_t keyHash;
-    uint64_t rpcId;
-} __attribute__((packed));
 
 struct TxPrepare {
     static const Opcode opcode = Opcode::TX_PREPARE;
@@ -1625,11 +1613,12 @@ struct TxPrepare {
 
     struct Request {
         RequestCommon common;
-        uint64_t clientId;
+        ClientLease lease;
         uint64_t ackId;
-        uint32_t participantCount;
+        uint32_t participantCount; // Number of all objects participating TX
+                                   // in whole cluster.
         uint32_t opCount;
-        // List of All Participants
+        // List of all Participants of TX.
         // List of Ops
 
         struct ReadOp {
@@ -1706,18 +1695,12 @@ struct TxRequestAbort {
 
     struct Request {
         RequestCommon common;
-        uint64_t clientId;
-        uint64_t ackId;
-        uint32_t participantCount;
-        uint32_t opCount;
-        // List of All Participants
-        // List of Operations.
+        uint64_t leaseId; //Recovery coordinator may not know about leaseTerm.
+                          //DM can set arbitrary leaseTerm anyway.
+        uint32_t participantCount; // Number of local objects participating TX
+                                   // for this server.
+        // List of local participants.
 
-        struct AbortOp {
-            uint64_t tableId;
-            uint64_t keyHash;
-            uint64_t rpcId;
-        } __attribute__((packed));
     } __attribute__((packed));
 
     struct Response {
