@@ -1576,9 +1576,9 @@ struct TakeIndexletOwnership {
 };
 
 struct TxParticipant {
-    uint64_t tableId;
-    uint64_t keyHash;
-    uint64_t rpcId;
+    uint64_t tableId;           // Table Id of the participant object.
+    uint64_t keyHash;           // Key Hash of the participant object.
+    uint64_t rpcId;             // Unique (per transaction) participant id.
 } __attribute__((packed));
 
 struct TxDecision {
@@ -1589,10 +1589,11 @@ struct TxDecision {
 
     struct Request {
         RequestCommon common;
-        Decision decision;
-        uint64_t leaseId;
-        uint32_t participantCount; // Number of local objects participating TX
-                                   // for this server.
+        Decision decision;          // Result of a transaction commit attempt.
+        uint64_t leaseId;           // Id of the client lease associated with
+                                    // this transaction.
+        uint32_t participantCount;  // Number of local objects participating TX
+                                    // for this server.
         // List of local Participants
     } __attribute__((packed));
 
@@ -1613,10 +1614,14 @@ struct TxPrepare {
 
     struct Request {
         RequestCommon common;
-        ClientLease lease;
-        uint64_t ackId;
-        uint32_t participantCount; // Number of all objects participating TX
-                                   // in whole cluster.
+        ClientLease lease;          // Lease information for the requested
+                                    // transaction.  To ensure prepare requests
+                                    // are linearizable.
+        uint64_t ackId;             // Id of the largest RPC id whose metadata
+                                    // can be garbage-collected.  Used for
+                                    // linearizability.
+        uint32_t participantCount;  // Number of all objects participating TX
+                                    // in whole cluster.
         uint32_t opCount;
         // List of all Participants of TX.
         // List of Ops
