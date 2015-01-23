@@ -1589,6 +1589,8 @@ struct TxDecision {
         struct Object {
             uint64_t tableId;
             uint16_t keyLength;
+            //TODO(seojin) : key or keyHash?
+            //               RequestAbort can respond with key.
 
             // In buffer: The actual key for this part
             // follows immediately after this.
@@ -1605,34 +1607,45 @@ struct TxDecision {
     } __attribute__((packed));
 };
 
+struct TxParticipant {
+    uint64_t tableId;
+    uint64_t keyHash;
+    uint64_t rpcId;
+} __attribute__((packed));
+
 struct TxPrepare {
     static const Opcode opcode = Opcode::TX_PREPARE;
     static const ServiceType service = MASTER_SERVICE;
 
-    enum Vote { COMMIT, ABORT, INVALID };
+    /// Type of Tx Operation
+    /// Note: Make sure INVALID is always last.
+    enum OpType { READ, REMOVE, WRITE, INVALID };
+
+    enum Vote { COMMIT, ABORT };
 
     struct Request {
         RequestCommon common;
+        uint64_t clientId;
+        uint64_t ackId;
         uint32_t participantCount;
         uint32_t opCount;
-        // List of Participants
+        // List of All Participants
         // List of Ops
 
-        struct Participant {
-            uint64_t tableId;
-            uint64_t keyHash;
-        } __attribute__((packed));
-
         struct ReadOp {
+            OpType type;
             uint64_t tableId;
+            uint64_t rpcId;
             uint16_t keyLength;
             RejectRules rejectRules;
 
             // In buffer: The actual key for this part
             // follows immediately after this.
-            ReadOp(uint64_t tableId, uint16_t keyLength,
+            ReadOp(uint64_t tableId, uint64_t rpcId, uint16_t keyLength,
                     RejectRules rejectRules)
-                : tableId(tableId)
+                : type(OpType::READ)
+                , tableId(tableId)
+                , rpcId(rpcId)
                 , keyLength(keyLength)
                 , rejectRules(rejectRules)
             {
@@ -1640,15 +1653,19 @@ struct TxPrepare {
         } __attribute__((packed));
 
         struct RemoveOp {
+            OpType type;
             uint64_t tableId;
+            uint64_t rpcId;
             uint16_t keyLength;
             RejectRules rejectRules;
 
             // In buffer: The actual key for this part
             // follows immediately after this.
-            RemoveOp(uint64_t tableId, uint16_t keyLength,
+            RemoveOp(uint64_t tableId, uint64_t rpcId, uint16_t keyLength,
                        RejectRules rejectRules)
-                : tableId(tableId)
+                : type(OpType::REMOVE)
+                , tableId(tableId)
+                , rpcId(rpcId)
                 , keyLength(keyLength)
                 , rejectRules(rejectRules)
             {
@@ -1656,14 +1673,18 @@ struct TxPrepare {
         } __attribute__((packed));
 
         struct WriteOp {
+            OpType type;
             uint64_t tableId;
+            uint64_t rpcId;
             uint32_t length;        // length of keysAndValue
             RejectRules rejectRules;
 
             // In buffer: KeysAndValue follow immediately after this
-            WriteOp(uint64_t tableId, uint32_t length,
+            WriteOp(uint64_t tableId, uint64_t rpcId, uint32_t length,
                         RejectRules rejectRules)
-                : tableId(tableId)
+                : type(OpType::WRITE)
+                , tableId(tableId)
+                , rpcId(rpcId)
                 , length(length)
                 , rejectRules(rejectRules)
             {
@@ -1685,61 +1706,17 @@ struct TxRequestAbort {
 
     struct Request {
         RequestCommon common;
+        uint64_t clientId;
+        uint64_t ackId;
         uint32_t participantCount;
         uint32_t opCount;
-        // List of Participants
-        // List of Ops
+        // List of All Participants
+        // List of Operations.
 
-        struct Participant {
+        struct AbortOp {
             uint64_t tableId;
             uint64_t keyHash;
-        } __attribute__((packed));
-
-        struct ReadOp {
-            uint64_t tableId;
-            uint16_t keyLength;
-            RejectRules rejectRules;
-
-            // In buffer: The actual key for this part
-            // follows immediately after this.
-            ReadOp(uint64_t tableId, uint16_t keyLength,
-                    RejectRules rejectRules)
-                : tableId(tableId)
-                , keyLength(keyLength)
-                , rejectRules(rejectRules)
-            {
-            }
-        } __attribute__((packed));
-
-        struct RemoveOp {
-            uint64_t tableId;
-            uint16_t keyLength;
-            RejectRules rejectRules;
-
-            // In buffer: The actual key for this part
-            // follows immediately after this.
-            RemoveOp(uint64_t tableId, uint16_t keyLength,
-                       RejectRules rejectRules)
-                : tableId(tableId)
-                , keyLength(keyLength)
-                , rejectRules(rejectRules)
-            {
-            }
-        } __attribute__((packed));
-
-        struct WriteOp {
-            uint64_t tableId;
-            uint32_t length;        // length of keysAndValue
-            RejectRules rejectRules;
-
-            // In buffer: KeysAndValue follow immediately after this
-            WriteOp(uint64_t tableId, uint32_t length,
-                        RejectRules rejectRules)
-                : tableId(tableId)
-                , length(length)
-                , rejectRules(rejectRules)
-            {
-            }
+            uint64_t rpcId;
         } __attribute__((packed));
     } __attribute__((packed));
 
