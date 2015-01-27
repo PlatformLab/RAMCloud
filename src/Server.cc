@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -232,6 +232,7 @@ Server::enlist(ServerId replacingId)
     // lead to session open timeouts).
     LOG(NOTICE, "Enlisting with cooordinator");
     serverId = CoordinatorClient::enlistServer(context,
+                                               config.preferredIndex,
                                                replacingId,
                                                config.services,
                                                config.localLocator,

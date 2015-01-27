@@ -161,9 +161,9 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::MigrateTablet, MasterService,
                         &MasterService::migrateTablet>(rpc);
             break;
-        case WireFormat::IndexedRead::opcode:
-            callHandler<WireFormat::IndexedRead, MasterService,
-                        &MasterService::indexedRead>(rpc);
+        case WireFormat::ReadHashes::opcode:
+            callHandler<WireFormat::ReadHashes, MasterService,
+                        &MasterService::readHashes>(rpc);
             break;
         case WireFormat::MultiOp::opcode:
             callHandler<WireFormat::MultiOp, MasterService,
@@ -662,32 +662,20 @@ MasterService::incrementObject(Key *key,
 }
 
 /**
- * Top-level server method to handle the INDEXED_READ request.
+ * Top-level server method to handle the READ_HASHES request.
  *
  * \copydetails Service::ping
  */
 void
-MasterService::indexedRead(
-        const WireFormat::IndexedRead::Request* reqHdr,
-        WireFormat::IndexedRead::Response* respHdr,
+MasterService::readHashes(
+        const WireFormat::ReadHashes::Request* reqHdr,
+        WireFormat::ReadHashes::Response* respHdr,
         Rpc* rpc)
 {
     uint32_t reqOffset = sizeof32(*reqHdr);
 
-    const void* firstKeyStr =
-            rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
-    reqOffset += reqHdr->firstKeyLength;
-
-    const void* lastKeyStr =
-            rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
-    reqOffset += reqHdr->lastKeyLength;
-
-    IndexKey::IndexKeyRange keyRange = {reqHdr->indexId,
-            firstKeyStr, reqHdr->firstKeyLength,
-            lastKeyStr, reqHdr->lastKeyLength};
-
-    objectManager.indexedRead(reqHdr->tableId, reqHdr->numHashes,
-            rpc->requestPayload, reqOffset, &keyRange,
+    objectManager.readHashes(reqHdr->tableId, reqHdr->numHashes,
+            rpc->requestPayload, reqOffset,
             maxResponseRpcLen - sizeof32(*respHdr),
             rpc->replyPayload, &respHdr->numHashes, &respHdr->numObjects);
 }
@@ -2039,7 +2027,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         Rpc* rpc)
 {
     // This is a temporary object that has an invalid version and timestamp.
-    // An object is created to make here sure the object format does not leak
+    // An object is created here to make sure the object format does not leak
     // outside the object class. ObjectManager will update the version,
     // timestamp and the checksum
     // This is also used to get key information to update indexes as needed.
@@ -2055,12 +2043,12 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 
     // Write the object.
     RejectRules rejectRules = reqHdr->rejectRules;
+
     respHdr->common.status = objectManager.writeObject(
             object, &rejectRules, &respHdr->version, &oldObjectBuffer);
 
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
-
     // Respond to the client RPC now. Removing old index entries can be
     // done asynchronously while maintaining strong consistency.
     rpc->sendReply();

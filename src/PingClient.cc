@@ -274,7 +274,7 @@ ServerControlRpc::ServerControlRpc(Context* context, ServerId serverId,
 
     reqHdr->keyLength = 0;
     reqHdr->inputLength = inputLength;
-    request.appendExternal(inputData, inputLength);
+    request.append(inputData, inputLength);
     send();
 }
 

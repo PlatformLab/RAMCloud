@@ -56,6 +56,7 @@ struct ServerConfig {
         , clusterName("__unnamed__")
         , services{WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE,
                    WireFormat::MEMBERSHIP_SERVICE}
+        , preferredIndex(0)
         , detectFailures(false)
         , pinMemory(false)
         , segmentSize(128 * 1024)
@@ -78,6 +79,7 @@ struct ServerConfig {
         , clusterName("__unnamed__")
         , services{WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE,
                    WireFormat::PING_SERVICE, WireFormat::MEMBERSHIP_SERVICE}
+        , preferredIndex(0)
         , detectFailures(true)
         , pinMemory(true)
         , segmentSize(Segment::DEFAULT_SEGMENT_SIZE)
@@ -162,6 +164,10 @@ struct ServerConfig {
 
     /// Which services this server should run and advertise to the cluster.
     ServiceMask services;
+
+    /// If nonzero, indicates a particular index number that this server
+    /// would like for its server id, if available.
+    uint32_t preferredIndex;
 
     /// Whether the failure detection thread should be started.
     bool detectFailures;

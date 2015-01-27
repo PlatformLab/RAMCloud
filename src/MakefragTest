@@ -45,6 +45,7 @@ TESTS_SRCFILES := \
 		  src/CoordinatorUpdateManagerTest.cc \
 		  src/Crc32CTest.cc \
 		  src/CyclesTest.cc \
+		  src/DispatchExecTest.cc \
 		  src/DispatchTest.cc \
 		  src/DataBlockTest.cc \
 		  src/ExternalStorageTest.cc \

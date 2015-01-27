@@ -13,6 +13,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <functional>
 #include "Logger.h"
 #include "WorkerSession.h"
 
@@ -63,8 +64,8 @@ WorkerSession::cancelRequest(Transport::RpcNotifier* notifier)
 {
     // Must make sure that the dispatch thread isn't running when we
     // invoke the real cancelRequest.
-    Dispatch::Lock lock(context->dispatch);
-    return wrapped->cancelRequest(notifier);
+    context->dispatchExec->addRequest<CancelRequestWrapper>(
+            notifier, wrapped);
 }
 
 /// \copydoc Transport::Session::getRpcInfo
@@ -82,10 +83,9 @@ void
 WorkerSession::sendRequest(Buffer* request, Buffer* response,
         Transport::RpcNotifier* notifier)
 {
-    // Must make sure that the dispatch thread isn't running when we
-    // invoke the real sendRequest.
-    Dispatch::Lock lock(context->dispatch);
-    wrapped->sendRequest(request, response, notifier);
+    // Enqueue the request for the dispatch thread.
+    context->dispatchExec->addRequest<SendRequestWrapper>(
+            request, response, notifier, wrapped);
 }
 
 } // namespace RAMCloud

@@ -1310,8 +1310,8 @@ TEST_F(MasterServiceTest, prepForIndexletMigration) {
     EXPECT_EQ(IndexletManager::Indexlet::RECOVERING, indexlet->state);
 }
 
-TEST_F(MasterServiceTest, indexedRead) {
-    // Most of the functionality for indexedRead is in ObjectManager,
+TEST_F(MasterServiceTest, readHashes) {
+    // Most of the functionality for readHashes is in ObjectManager,
     // so we do extensive unit testing there.
     // Let's just ensure that the strings are parsed fine in the MasterService
     // class.
@@ -1333,17 +1333,16 @@ TEST_F(MasterServiceTest, indexedRead) {
     uint64_t hashVal0 = 4921604586378860710;
     pKHashes.appendExternal(&hashVal0, 8);
 
-    // indexedRead such that both objects are read.
+    // readHashes such that both objects are read.
     Buffer responseBuffer;
     uint32_t numObjectsResponse;
-    uint32_t numHashesResponse = ramcloud->indexedRead(
-            tableId, 1, &pKHashes, 1, "obj0key1", 8, "obj1key1", 8,
-            &responseBuffer, &numObjectsResponse);
+    uint32_t numHashesResponse = ramcloud->readHashes(
+            tableId, 1, &pKHashes, &responseBuffer, &numObjectsResponse);
 
     // numHashes and numObjects
     EXPECT_EQ(1U, numHashesResponse);
     EXPECT_EQ(1U, numObjectsResponse);
-    uint32_t respOffset = sizeof32(WireFormat::IndexedRead::Response);
+    uint32_t respOffset = sizeof32(WireFormat::ReadHashes::Response);
 
     // version of object0
     EXPECT_EQ(1U, *responseBuffer.getOffset<uint64_t>(respOffset));
@@ -1802,15 +1801,6 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_wrongTable) {
     uint64_t dataTableId = ramcloud->createTable("dataTable");
     uint64_t backingTableId = ramcloud->createTable("backingTable");
 
-    uint8_t indexId = 1;
-    string firstKey = "abc";
-    string splitKey = "pqr";
-    string firstNotOwnedKey = "xyz";
-
-    service->indexletManager.addIndexlet(dataTableId, indexId, backingTableId,
-            firstKey.c_str(), (uint16_t)firstKey.length(),
-            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
-
     Key key(dataTableId, "dummyKey", 8);
     Buffer dummyDataBuffer;
     Object o(key, "dummyValue", 10, 0, 0, dummyDataBuffer);
@@ -1822,6 +1812,15 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_wrongTable) {
             o, &dummyRejectRules, &dummyVersion, &dummyOldBuffer);
     EXPECT_EQ(0, status);
     service->objectManager.log.sync();
+
+    uint8_t indexId = 1;
+    string firstKey = "abc";
+    string splitKey = "pqr";
+    string firstNotOwnedKey = "xyz";
+
+    service->indexletManager.addIndexlet(dataTableId, indexId, backingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
 
     // Add new server after creating the data table and the backing table for
     // the indexlet, so that those tables get forced on masterServer.

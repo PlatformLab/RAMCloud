@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -76,7 +76,7 @@ struct MasterRecoveryManagerTest : public ::testing::Test {
      */
     ServerId addMaster(Lock& lock, ServerStatus status = ServerStatus::UP) {
         ServerId serverId = serverList->enlistServer(
-                {WireFormat::MASTER_SERVICE}, 0, "fake-locator");
+                {WireFormat::MASTER_SERVICE}, 0, 0, "fake-locator");
         serverList->sync();
         serverList->haltUpdater();
         while (!mgr->taskQueue.isIdle())

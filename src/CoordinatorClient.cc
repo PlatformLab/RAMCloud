@@ -26,6 +26,11 @@ namespace RAMCloud {
  *
  * \param context
  *      Overall information about the RAMCloud server or client.
+ * \param preferredIndex
+ *      If nonzero, indicates a particular index number that this server
+ *      would like for its server id, if available. This allows tests to
+ *      ensure a particular allocation of server ids, for maximum test
+ *      reproducibility.
  * \param replacesId
  *      Server id the calling server used to operate at; the coordinator must
  *      make sure this server is removed from the cluster before enlisting
@@ -43,12 +48,12 @@ namespace RAMCloud {
  *      A ServerId guaranteed never to have been used before.
  */
 ServerId
-CoordinatorClient::enlistServer(Context* context, ServerId replacesId,
-        ServiceMask serviceMask, string localServiceLocator,
-        uint32_t readSpeed)
+CoordinatorClient::enlistServer(Context* context, uint32_t preferredIndex,
+        ServerId replacesId, ServiceMask serviceMask,
+        string localServiceLocator, uint32_t readSpeed)
 {
-    EnlistServerRpc rpc(context, replacesId, serviceMask, localServiceLocator,
-            readSpeed);
+    EnlistServerRpc rpc(context, preferredIndex, replacesId,
+            serviceMask, localServiceLocator, readSpeed);
     return rpc.wait();
 }
 
@@ -59,6 +64,11 @@ CoordinatorClient::enlistServer(Context* context, ServerId replacesId,
  *
  * \param context
  *      Overall information about this RAMCloud server or client.
+ * \param preferredIndex
+ *      If nonzero, indicates a particular index number that this server
+ *      would like for its server id, if available. This allows tests to
+ *      ensure a particular allocation of server ids, for maximum test
+ *      reproducibility.
  * \param replacesId
  *      Server id the calling server used to operate at; the coordinator must
  *      make sure this server is removed from the cluster before enlisting
@@ -75,7 +85,7 @@ CoordinatorClient::enlistServer(Context* context, ServerId replacesId,
  * \return
  *      A ServerId guaranteed never to have been used before.
  */
-EnlistServerRpc::EnlistServerRpc(Context* context,
+EnlistServerRpc::EnlistServerRpc(Context* context, uint32_t preferredIndex,
         ServerId replacesId, ServiceMask serviceMask,
         string localServiceLocator, uint32_t readSpeed)
     : CoordinatorRpcWrapper(context,
@@ -83,12 +93,13 @@ EnlistServerRpc::EnlistServerRpc(Context* context,
 {
     WireFormat::EnlistServer::Request* reqHdr(
             allocHeader<WireFormat::EnlistServer>());
+    reqHdr->preferredIndex = preferredIndex;
     reqHdr->replacesId = replacesId.getId();
     reqHdr->serviceMask = serviceMask.serialize();
     reqHdr->readSpeed = readSpeed;
     reqHdr->serviceLocatorLength =
         downCast<uint32_t>(localServiceLocator.length() + 1);
-    request.appendCopy(localServiceLocator.c_str(),
+    request.append(localServiceLocator.c_str(),
             reqHdr->serviceLocatorLength);
     send();
 }

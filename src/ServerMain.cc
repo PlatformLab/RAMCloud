@@ -45,6 +45,9 @@ main(int argc, char *argv[])
 
         OptionsDescription serverOptions("Server");
         serverOptions.add_options()
+            ("allowLocalBackup",
+             ProgramOptions::bool_switch(&config.master.allowLocalBackup),
+             "Allow replication to local backup")
             ("backupInMemory,m",
              ProgramOptions::bool_switch(&config.backup.inMemory),
              "Backup will store segment replicas in memory")
@@ -56,6 +59,13 @@ main(int argc, char *argv[])
                default_value(RANDOM_REFINE_AVG),
              "0 random refine min, 1 random refine avg, 2 even distribution, "
              "3 uniform random")
+            ("backupWriteRateLimit",
+             ProgramOptions::value<size_t>(
+                &config.backup.writeRateLimit)->default_value(0),
+             "If non-0, specifies the maximum number of megabytes per second "
+             "of bandwidth this backup should use. Useful for artificially "
+             "restricting bandwidth when measuring various parts of the "
+             "system.")
             ("cleanerBalancer",
              ProgramOptions::value<string>(&config.master.cleanerBalancer)->
                 default_value("tombstoneRatio:0.40"),
@@ -65,6 +75,10 @@ main(int argc, char *argv[])
              "default value. Currently the only other option is \"fixed:X\", "
              "where 0 <= X <= 100 represents the percentage of CPU time the "
              "disk cleaner will be limited to (the rest is for compaction).")
+            ("detectFailures",
+             ProgramOptions::value<bool>(&config.detectFailures)->
+                default_value(true),
+             "Whether to use the randomized failure detector")
             ("disableLogCleaner,d",
              ProgramOptions::bool_switch(&config.master.disableLogCleaner),
              "Disable the log cleaner entirely. You will eventually run out "
@@ -92,9 +106,46 @@ main(int argc, char *argv[])
                 default_value("10%"),
              "Percentage or megabytes of master memory allocated to "
              "the hash table")
+            ("logCleanerThreads",
+             ProgramOptions::value<uint32_t>(
+                &config.master.cleanerThreadCount)->default_value(1),
+             "The number of cleaner threads controls the amount of parallelism "
+             "in the cleaner. More threads will use more cores, but may be "
+             "able to better keep up with high write rates.")
             ("masterOnly,M",
              ProgramOptions::bool_switch(&masterOnly),
              "The server should run the master service only (no backup)")
+            ("masterServiceThreads",
+             ProgramOptions::value<uint32_t>(
+                &config.master.masterServiceThreadCount)->default_value(3),
+             "The number of threads in MasterService determines the maximum "
+             "number of client RPCs that may be processed in parallel. "
+             "Increasing this value will use more cores and may improve client "
+             "throuphput, especially for reads.")
+            ("maxNonVolatileBuffers",
+             ProgramOptions::value<uint32_t>(
+               &config.backup.maxNonVolatileBuffers)->default_value(0),
+             "Maximum number of segments the backup will buffer in memory. The "
+             "0 value (default) is special: it tells the server to set the "
+             "limit equal to the \"segmentFrames\" value, effectively making "
+             "buffering unlimited.")
+            ("preferredIndex",
+             ProgramOptions::value<uint32_t>(
+                &config.preferredIndex)->default_value(0),
+             "Use this value as the index number for this server's server id, "
+             "if that number isn't already in use. Can be used to ensure "
+             "a reproducible assignment of server ids.")
+            ("replicas,r",
+             ProgramOptions::value<uint32_t>(&config.master.numReplicas),
+             "Number of backup copies to make for each segment")
+            ("segmentFrames",
+             ProgramOptions::value<uint32_t>(&config.backup.numSegmentFrames)->
+                default_value(512),
+             "Number of segment frames in backup storage")
+            ("sync",
+             ProgramOptions::bool_switch(&config.backup.sync),
+             "Make all updates completely synchronous all the way down to "
+             "stable storage.")
             ("totalMasterMemory,t",
 
              // Note: we have tried changing the default value below to
@@ -107,31 +158,10 @@ main(int argc, char *argv[])
                 default_value("500"),
              "Percentage or megabytes of system memory for master log & "
              "hash table")
-            ("replicas,r",
-             ProgramOptions::value<uint32_t>(&config.master.numReplicas),
-             "Number of backup copies to make for each segment")
             ("useMinCopysets",
              ProgramOptions::value<bool>(&config.master.useMinCopysets)->
                 default_value(false),
              "Whether to use MinCopysets or random replication")
-            ("allowLocalBackup",
-             ProgramOptions::bool_switch(&config.master.allowLocalBackup),
-             "Allow replication to local backup")
-            ("segmentFrames",
-             ProgramOptions::value<uint32_t>(&config.backup.numSegmentFrames)->
-                default_value(512),
-             "Number of segment frames in backup storage")
-            ("maxNonVolatileBuffers",
-             ProgramOptions::value<uint32_t>(
-               &config.backup.maxNonVolatileBuffers)->default_value(0),
-             "Maximum number of segments the backup will buffer in memory. The "
-             "0 value (default) is special: it tells the server to set the "
-             "limit equal to the \"segmentFrames\" value, effectively making "
-             "buffering unlimited.")
-            ("detectFailures",
-             ProgramOptions::value<bool>(&config.detectFailures)->
-                default_value(true),
-             "Whether to use the randomized failure detector")
             ("writeCostThreshold,w",
              ProgramOptions::value<uint32_t>(
                 &config.master.cleanerWriteCostThreshold)->default_value(8),
@@ -140,31 +170,7 @@ main(int argc, char *argv[])
              "this value. Lower values cause the disk cleaner to run more "
              "frequently. Higher values do more in-memory cleaning and "
              "reduce the amount of backup disk bandwidth used during disk "
-             "cleaning.")
-            ("sync",
-             ProgramOptions::bool_switch(&config.backup.sync),
-             "Make all updates completely synchronous all the way down to "
-             "stable storage.")
-            ("masterServiceThreads",
-             ProgramOptions::value<uint32_t>(
-                &config.master.masterServiceThreadCount)->default_value(3),
-             "The number of threads in MasterService determines the maximum "
-             "number of client RPCs that may be processed in parallel. "
-             "Increasing this value will use more cores and may improve client "
-             "throuphput, especially for reads.")
-            ("logCleanerThreads",
-             ProgramOptions::value<uint32_t>(
-                &config.master.cleanerThreadCount)->default_value(1),
-             "The number of cleaner threads controls the amount of parallelism "
-             "in the cleaner. More threads will use more cores, but may be "
-             "able to better keep up with high write rates.")
-            ("backupWriteRateLimit",
-             ProgramOptions::value<size_t>(
-                &config.backup.writeRateLimit)->default_value(0),
-             "If non-0, specifies the maximum number of megabytes per second "
-             "of bandwidth this backup should use. Useful for artificially "
-             "restricting bandwidth when measuring various parts of the "
-             "system.");
+             "cleaning.");
 
         OptionParser optionParser(serverOptions, argc, argv);
 

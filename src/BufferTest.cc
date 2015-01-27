@@ -88,13 +88,19 @@ class BufferTest: public ::testing::Test {
      * Generate a string describing the contents of the buffer in a way
      * that displays its internal chunk structure.
      *
+     * \param buffer
+     *      Buffer whose chunks should be described.
+     * \param alt
+     *      True means display an alternate form where only the length
+     *      and internal/external status of each chunk are shown.
+     *
      * \return A string that describes the contents of the buffer. It
      *         consists of the contents of the various chunks separated
      *         by " | ", with long chunks abbreviated and non-printing
      *         characters converted to something printable.
      */
     string
-    showChunks(Buffer* buffer)
+    showChunks(Buffer* buffer, bool alt = false)
     {
         // The following declaration defines the maximum number of characters
         // to display from each chunk.
@@ -109,14 +115,19 @@ class BufferTest: public ::testing::Test {
             actualLength += chunk->length;
             s.append(separator);
             separator = " | ";
-            for (uint32_t i = 0; i < chunk->length; i++) {
-                if (i >= CHUNK_LIMIT) {
-                    // This chunk is too big to print in its entirety;
-                    // just print a count of the remaining characters.
-                    s.append(format("(+%d chars)", chunk->length-i));
-                    break;
+            if (alt) {
+                s.append(format("%u%s", chunk->length,
+                        chunk->internal ? " (internal)" : ""));
+            } else {
+                for (uint32_t i = 0; i < chunk->length; i++) {
+                    if (i >= CHUNK_LIMIT) {
+                        // This chunk is too big to print in its entirety;
+                        // just print a count of the remaining characters.
+                        s.append(format("(+%d chars)", chunk->length-i));
+                        break;
+                    }
+                    TestUtil::convertChar(data[i], &s);
                 }
-                TestUtil::convertChar(data[i], &s);
             }
         }
         if (actualLength != buffer->totalLength) {
@@ -284,6 +295,22 @@ TEST_F(BufferTest, allocPrepend_invalidateCursor) {
 }
 
 TEST_F(BufferTest, append_fromOtherBuffer) {
+    Buffer buffer, buffer2;
+    buffer.appendCopy("abc", 3);
+    char external[1000];
+    buffer.appendExternal(external, sizeof(external));
+    buffer.appendCopy("def", 3);
+    const char* external2 = "012345";
+    buffer.appendExternal(external2, 6);
+    EXPECT_EQ("3 (internal) | 1000 | 3 (internal) | 6",
+            showChunks(&buffer, true));
+    buffer2.appendCopy("01234", 5);
+    buffer2.append(&buffer, 1, 1010);
+    EXPECT_EQ("7 (internal) | 1000 | 8 (internal)",
+            showChunks(&buffer2, true));
+}
+
+TEST_F(BufferTest, appendExternal_fromOtherBuffer) {
     Buffer buffer;
     buffer.appendCopy("abcdef", 6);
     Buffer buffer2;
@@ -857,12 +884,21 @@ TEST_F(BufferTest, allocAux) {
     EXPECT_EQ('x', t->c);
 }
 
-TEST_F(BufferTest, appendExternal) {
+TEST_F(BufferTest, append) {
     Buffer buffer;
-    buffer.appendExternal("abcde", 5);
-    buffer.appendExternal("0123", 4);
-    buffer.appendExternal("", 0);
-    EXPECT_EQ("abcde | 0123", showChunks(&buffer));
+    buffer.append("abcde", 5);
+    buffer.append("0123", 4);
+    buffer.append("", 0);
+    EXPECT_EQ("abcde0123", showChunks(&buffer));
+    EXPECT_EQ(1u, buffer.getNumberChunks());
+    char large[600];
+    for (uint32_t i = 0; i < sizeof(large); i++) {
+        large[i] = "qrstuvw"[i%6];
+    }
+    buffer.append(large, sizeof(large));
+    EXPECT_EQ(2u, buffer.getNumberChunks());
+    string extract(reinterpret_cast<const char*>(buffer.getRange(9, 10)), 10);
+    EXPECT_EQ("qrstuvqrst", extract);
 }
 
 TEST_F(BufferTest, appendCopy) {
@@ -871,6 +907,14 @@ TEST_F(BufferTest, appendCopy) {
     buffer.appendCopy("0123", 4);
     buffer.appendCopy("", 0);
     EXPECT_EQ("abcde0123", showChunks(&buffer));
+}
+
+TEST_F(BufferTest, appendExternal) {
+    Buffer buffer;
+    buffer.appendExternal("abcde", 5);
+    buffer.appendExternal("0123", 4);
+    buffer.appendExternal("", 0);
+    EXPECT_EQ("abcde | 0123", showChunks(&buffer));
 }
 
 TEST_F(BufferTest, appendCopyAndGetStart) {

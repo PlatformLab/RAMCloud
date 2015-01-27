@@ -31,12 +31,13 @@ class ObjectTest : public ::testing::Test {
           numKeys(3),
           cumulativeKeyLengths(),
           keyList(),
+          keyHash(),
           buffer(),
           buffer2(),
           buffer3(),
           buffer4(),
           objectDataFromBuffer(),
-          objectFromBuffer(),
+          objectFromMultiChunkBuffer(),
           objectFromContiguousBuffer(),
           objectFromContiguousVoidPointer(),
           objectFromVoidPointer(),
@@ -49,6 +50,7 @@ class ObjectTest : public ::testing::Test {
         snprintf(dataBlob, sizeof(dataBlob), "YO!");
 
         Key key(57, stringKeys[0], sizeof(stringKeys[0]));
+        keyHash = key.getHash();
 
         keyList[0].key = stringKeys[0];
         keyList[0].keyLength = 3;
@@ -87,35 +89,37 @@ class ObjectTest : public ::testing::Test {
 
         objectDataFromBuffer->assembleForLog(buffer2);
 
+        uint32_t length = buffer2.size();
+        const char* contiguous = static_cast<char*>(
+                buffer2.getRange(0, length));
         objectFromContiguousVoidPointer.construct(
-            buffer2.getRange(0, buffer2.size()),
-            buffer2.size());
+            contiguous, length);
 
-        // prepend some garbage to buffer2 so that we can test the constructor
-        // with a non-zero offset
-        memcpy(buffer2.allocPrepend(sizeof(stringKeys[0])), &stringKeys[0],
-                sizeof(stringKeys[0]));
-
-        objectFromBuffer.construct(buffer2, sizeof32(stringKeys[0]),
-                                   buffer2.size() -
-                                   sizeof32(stringKeys[0]));
+        // Create a buffer holding the object in multiple chunks.
+        // Prepend some garbage so that we can test the constructor
+        // with a non-zero offset.
+        buffer4.appendCopy(&stringKeys[0], sizeof(stringKeys[0]));
+        buffer4.appendExternal(contiguous, 10);
+        buffer4.appendExternal(contiguous+10, 20);
+        buffer4.appendExternal(contiguous+30, length-30);
+        objectFromMultiChunkBuffer.construct(buffer4, sizeof32(stringKeys[0]),
+                                   length);
 
         // Construct a contiguous Buffer to test the conversion to void*
         // optimization
         Buffer contiguousBuffer;
-        contiguousBuffer.appendExternal(buffer2.getRange(0, buffer2.size()),
-                                        buffer2.size());
+        contiguousBuffer.appendExternal(buffer4.getRange(0, buffer4.size()),
+                                        buffer4.size());
 
         objectFromContiguousBuffer.construct(contiguousBuffer,
                                              sizeof32(stringKeys[0]),
-                                             buffer2.size() -
-                                             sizeof32(stringKeys[0]));
+                                             length);
 
         // this object will only contain one key
         objectFromVoidPointer.construct(key, dataBlob, 4, 75, 723, buffer3);
 
         objects[0] = &*objectDataFromBuffer;
-        objects[1] = &*objectFromBuffer;
+        objects[1] = &*objectFromMultiChunkBuffer;
         objects[2] = &*objectFromContiguousVoidPointer;
         objects[3] = &*objectFromContiguousBuffer;
         singleKeyObject = &*objectFromVoidPointer;
@@ -136,6 +140,7 @@ class ObjectTest : public ::testing::Test {
     // scope after the constructor completes execution
     CumulativeKeyLength cumulativeKeyLengths[3];
     KeyInfo keyList[3];
+    KeyHash keyHash;
 
     Buffer buffer;
     Buffer buffer2;
@@ -143,7 +148,7 @@ class ObjectTest : public ::testing::Test {
     Buffer buffer4;
 
     Tub<Object> objectDataFromBuffer;
-    Tub<Object> objectFromBuffer;
+    Tub<Object> objectFromMultiChunkBuffer;
     Tub<Object> objectFromContiguousBuffer;
     Tub<Object> objectFromContiguousVoidPointer;
     Tub<Object> objectFromVoidPointer;
@@ -210,7 +215,7 @@ TEST_F(ObjectTest, constructor_dataFromBuffer)
 
 TEST_F(ObjectTest, constructor_entirelyFromBuffer)
 {
-    Object& object = *objectFromBuffer;
+    Object& object = *objectFromMultiChunkBuffer;
 
     EXPECT_EQ(57U, object.header.tableId);
     EXPECT_EQ(75U, object.header.version);
@@ -619,6 +624,12 @@ TEST_F(ObjectTest, getKeyLength) {
     }
 }
 
+TEST_F(ObjectTest, getPKHash) {
+    for (uint32_t i = 0; i < arrayLength(objects); i++) {
+        EXPECT_EQ(keyHash, objects[i]->getPKHash());
+    }
+}
+
 TEST_F(ObjectTest, getKeysAndValue) {
     for (uint32_t i = 0; i < arrayLength(objects); i++) {
         const uint8_t *keysAndValue = reinterpret_cast<const uint8_t *>(
@@ -724,8 +735,14 @@ TEST_F(ObjectTest, checkIntegrity) {
 
         // screw up the first byte - the number of keys
         EXPECT_TRUE(object.checkIntegrity());
-        evil = reinterpret_cast<uint8_t*>(
-            const_cast<void*>(buffer.getRange(0, 1)));
+        if (object.keysAndValue != NULL) {
+            evil = reinterpret_cast<uint8_t*>(const_cast<void*>(
+                object.keysAndValue));
+        } else {
+            evil = reinterpret_cast<uint8_t*>(
+                const_cast<void*>(object.keysAndValueBuffer->getRange(
+                object.keysAndValueOffset, 1)));
+        }
         tmp = *evil;
         *evil = static_cast<uint8_t>(~*evil);
         EXPECT_FALSE(object.checkIntegrity());
@@ -733,8 +750,14 @@ TEST_F(ObjectTest, checkIntegrity) {
 
         // screw up the first byte in the first key
         EXPECT_TRUE(object.checkIntegrity());
-        evil = reinterpret_cast<uint8_t*>(
-            const_cast<void*>(buffer.getRange(7, 1)));
+        if (object.keysAndValue != NULL) {
+            evil = reinterpret_cast<uint8_t*>(const_cast<void*>(
+                object.keysAndValue)) + 7;
+        } else {
+            evil = reinterpret_cast<uint8_t*>(
+                const_cast<void*>(object.keysAndValueBuffer->getRange(
+                object.keysAndValueOffset + 7, 1)));
+        }
         tmp = *evil;
         *evil = static_cast<uint8_t>(~*evil);
         EXPECT_FALSE(object.checkIntegrity());
@@ -742,8 +765,15 @@ TEST_F(ObjectTest, checkIntegrity) {
 
         // screw up the last byte (in the data blob)
         EXPECT_TRUE(object.checkIntegrity());
-        evil = reinterpret_cast<uint8_t*>(
-            const_cast<void*>(buffer.getRange(buffer.size() - 1, 1)));
+        if (object.keysAndValue != NULL) {
+            evil = reinterpret_cast<uint8_t*>(const_cast<void*>(
+                object.keysAndValue)) + object.keysAndValueLength - 1;
+        } else {
+            evil = reinterpret_cast<uint8_t*>(
+                const_cast<void*>(object.keysAndValueBuffer->getRange(
+                object.keysAndValueOffset + object.keysAndValueLength - 1,
+                1)));
+        }
         tmp = *evil;
         *evil = static_cast<uint8_t>(~*evil);
         EXPECT_FALSE(object.checkIntegrity());
@@ -948,16 +978,29 @@ TEST_F(ObjectTombstoneTest, checkIntegrity) {
         tombstone.assembleForLog(buffer);
         EXPECT_TRUE(tombstone.checkIntegrity());
 
-        uint8_t* evil = reinterpret_cast<uint8_t*>(
-            const_cast<void*>(buffer.getRange(0, 1)));
+        uint8_t* evil;
+        if (tombstone.key != NULL) {
+            evil = reinterpret_cast<uint8_t*>(const_cast<void*>(
+                tombstone.key));
+        } else {
+            evil = reinterpret_cast<uint8_t*>(
+                const_cast<void*>(tombstone.tombstoneBuffer->getRange(
+                tombstone.keyOffset, 1)));
+        }
         uint8_t tmp = *evil;
         *evil = static_cast<uint8_t>(~*evil);
         EXPECT_FALSE(tombstone.checkIntegrity());
         *evil = tmp;
 
         EXPECT_TRUE(tombstone.checkIntegrity());
-        evil = reinterpret_cast<uint8_t*>(
-            const_cast<void*>(buffer.getRange(buffer.size() - 1, 1)));
+        if (tombstone.key != NULL) {
+            evil = reinterpret_cast<uint8_t*>(const_cast<void*>(
+                tombstone.key)) + tombstone.keyLength - 1;
+        } else {
+            evil = reinterpret_cast<uint8_t*>(
+                const_cast<void*>(tombstone.tombstoneBuffer->getRange(
+                tombstone.keyOffset + tombstone.keyLength - 1, 1)));
+        }
         tmp = *evil;
         *evil = static_cast<uint8_t>(~*evil);
         EXPECT_FALSE(tombstone.checkIntegrity());

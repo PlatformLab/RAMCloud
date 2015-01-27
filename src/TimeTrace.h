@@ -17,6 +17,7 @@
 #define RAMCLOUD_TIMETRACE_H
 
 #include "Common.h"
+#include "Atomic.h"
 #include "Cycles.h"
 #include "Logger.h"
 
@@ -30,10 +31,7 @@ namespace RAMCloud {
  * efficiently, and then either return the trace either as a string or
  * print it to the system log.
  *
- * In order to reduce overheads, this class is not synchronized. This
- * means that, technically, it is not thread-safe. However, it should work
- * reasonably well even in multi-threaded environments; the only risk is
- * that one thread may occasionally overwrite an entry from another.
+ * This class is thread-safe.
  */
 class TimeTrace {
   PUBLIC:
@@ -56,14 +54,14 @@ class TimeTrace {
     };
 
     // Total number of events that we can retain any given time.
-    static const int BUFFER_SIZE = 1000;
+    static const int BUFFER_SIZE = 10000;
 
     // Holds information from the most recent calls to the record method.
     Event events[BUFFER_SIZE];
 
     // Index within events of the slot to use for the next call to the
     // record method.
-    volatile int nextIndex;
+    Atomic<int> nextIndex;
 
     // True means that printInternal is currently running, so it is not
     // safe to add more records, since that could result in inconsistent

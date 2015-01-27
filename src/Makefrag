@@ -55,6 +55,7 @@ SHARED_SRCFILES := \
 		   src/Cycles.cc \
 		   src/DataBlock.cc \
 		   src/Dispatch.cc \
+		   src/DispatchExec.cc \
 		   src/Driver.cc \
 		   src/ZooStorage.cc \
 		   src/Enumeration.cc \

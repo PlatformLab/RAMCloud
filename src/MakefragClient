@@ -33,6 +33,7 @@ CLIENT_SRCFILES := \
 		   src/Common.cc \
 		   src/Cycles.cc \
 		   src/Dispatch.cc \
+		   src/DispatchExec.cc \
 		   src/Driver.cc \
 		   src/ExternalStorage.cc \
 		   src/FailSession.cc \

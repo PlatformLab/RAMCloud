@@ -39,6 +39,7 @@
 #include "Infiniband.h"
 #include "CycleCounter.h"
 #include "RawMetrics.h"
+#include "DispatchExec.h"
 #include "PerfCounter.h"
 
 #ifndef RAMCLOUD_INFRCTRANSPORT_H
@@ -288,7 +289,7 @@ class InfRcTransport : public Transport {
     };
 
     // misc helper functions
-    void sendZeroCopy(Buffer* message, QueuePair* qp);
+    void sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp);
     void setNonBlocking(int fd);
 
     // Extend Infiniband::postSrqReceive by issuing queued up transmissions
@@ -412,6 +413,27 @@ class InfRcTransport : public Transport {
         DISALLOW_COPY_AND_ASSIGN(ServerConnectHandler);
     };
     Tub<ServerConnectHandler> serverConnectHandler;
+
+    /**
+     * This class wraps a call to postSrqReceiveAndKickTransmit.
+     */
+    class ReturnNICBuffer : public DispatchExec::Lambda {
+      PRIVATE:
+        InfRcTransport *transport;
+        ibv_srq* srq;
+        BufferDescriptor *bd;
+      public:
+         ReturnNICBuffer(InfRcTransport *transport,
+                         ibv_srq* srq,
+                         BufferDescriptor *bd)
+            : transport(transport), srq(srq), bd(bd) { }
+        void invoke() {
+            transport->postSrqReceiveAndKickTransmit(srq, bd);
+        }
+
+      PRIVATE:
+        DISALLOW_COPY_AND_ASSIGN(ReturnNICBuffer);
+    };
 
     /// Starting address of the region registered with the HCA for zero-copy
     /// transmission, if any. If no region is registered then 0.

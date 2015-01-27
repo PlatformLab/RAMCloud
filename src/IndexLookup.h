@@ -17,6 +17,7 @@
 #define RAMCLOUD_INDEXLOOKUP_H
 
 #include "RamCloud.h"
+#include "IndexKey.h"
 
 namespace RAMCloud {
 
@@ -51,20 +52,16 @@ class IndexLookup {
     ~IndexLookup();
     bool isReady();
     bool getNext();
-    const void* getKey(KeyIndex keyIndex = 0, KeyLength *keyLength = NULL);
-    KeyCount getKeyCount();
-    KeyLength getKeyLength(KeyIndex keyIndex = 0);
-    const void* getValue(uint32_t *valueLength = NULL);
-    uint32_t getValueLength();
+    Object* currentObject();
 
   PRIVATE:
-    /// The lookupIndexKeys RPC and each of the indexedRead RPCs
+    /// The lookupIndexKeys RPC and each of the readHashes RPCs
     /// is in one of the following states at all times.
     enum RpcStatus {
         /// FREE means this RPC is currently available to use/reuse
         FREE,
-        /// LOADING means we are adding PKHashes into this indexedRead RPC.
-        /// LOADING status is only designed for indexedRead RPC
+        /// LOADING means we are adding PKHashes into this readHashes RPC.
+        /// LOADING status is only designed for readHashes RPC
         LOADING,
         /// SENT means this RPC has been sent to server, and is
         /// currently waiting for response
@@ -74,10 +71,10 @@ class IndexLookup {
         RESULT_READY
     };
 
-    /// struct for indexedRead RPC.
+    /// struct for readHashes RPC.
     struct ReadRpc {
-        /// The tub that contains low-level indexedRead RPC
-        Tub<IndexedReadRpc> rpc;
+        /// The tub that contains low-level readHashes RPC
+        Tub<ReadHashesRpc> rpc;
 
         /// The status of rpc.
         RpcStatus status;
@@ -147,42 +144,28 @@ class IndexLookup {
     /// rpc needs the return value of this previous call.
     LookupRpc lookupRpc;
 
-    /// Max number of current indexedRead RPCs
-    static const uint8_t NUM_READ_RPC = 10;
+    /// Max number of current readHashes RPCs
+    static const uint8_t NUM_READ_RPCS = 10;
 
-    /// Max number of PKHashes that will be sent in a single indexedRead RPC
+    /// Max number of PKHashes that will be sent in a single readHashes RPC
     static const uint32_t MAX_PKHASHES_PER_RPC = 256;
 
     /// A special value indicating the corresponding PKHash has not been
-    /// assigned to any ongoing indexedRead RPC
-    static const uint8_t RPC_ID_NOT_ASSIGN = NUM_READ_RPC;
+    /// assigned to any ongoing readHashes RPCs
+    static const uint8_t RPC_ID_NOT_ASSIGNED = NUM_READ_RPCS;
 
-    /// struct for indexedRead RPC, we can have up to NUM_READ_RPC
-    /// indexedRead RPC at a time. Each single RPC handles communication
+    /// struct for readHashes RPCs, we can have up to NUM_READ_RPCS
+    /// readHashes RPCs at a time. Each single RPC handles communication
     /// between client and a single data server
-    ReadRpc readRpc[NUM_READ_RPC];
+    ReadRpc readRpcs[NUM_READ_RPCS];
 
     // The following variables are copy of constructor arguments
 
     /// Table Id we are handling in this IndexLookup class.
     uint64_t tableId;
 
-    /// Index Id we are handling in this IndexLookup class.
-    uint8_t indexId;
-
-    /// Key blob marking the start of the indexed key range for this
-    /// query
-    const void *firstKey;
-
-    /// Length of first key string
-    uint16_t firstKeyLength;
-
-    /// Key blob marking the end of the indexed key range for this
-    /// query
-    const void *lastKey;
-
-    /// Length of last key string
-    uint16_t lastKeyLength;
+    /// Stores the index id and first and last keys for this range lookup
+    struct IndexKey::IndexKeyRange keyRange;
 
     /// Flags supplied by client to the constructor.
     Flags flags;
@@ -219,7 +202,7 @@ class IndexLookup {
 
     /// Used to convert variables such as numInserted into indexes into
     /// activeHashes and activeRpcIds in order to implement circular usage.
-    static const size_t LOG_ARRAY_SIZE = 10;
+    static const size_t LOG_ARRAY_SIZE = 11;
 
     /// Array mask for activeHashes. When need to find the corresponding
     /// position in activeHashes, ARRAY_MASK is used to perform bit operation.
@@ -233,10 +216,10 @@ class IndexLookup {
     /// in this array. The array is reused circularly.
     KeyHash activeHashes[MAX_NUM_PK];
 
-    /// Each entry stores the index into readRpc of the RPC that will
+    /// Each entry stores the index into readRpcs of the RPC that will
     /// be used to fetch the corresponding pKHash from activeHashes.
     /// The value RPC_ID_NOT_ASSIGNED means that the corresponding
-    /// cache is not yet been assigned to an outgoing indexedRead
+    /// cache is not yet been assigned to an outgoing readHashes
     /// RPC.
     uint8_t activeRpcIds[MAX_NUM_PK];
 
@@ -261,7 +244,7 @@ class IndexLookup {
     /// The next hash will be removed at index (numRemoved & ARRAY_MASK).
     size_t numRemoved;
 
-    /// The total number of hashes that have been assigned to indexedRead
+    /// The total number of hashes that have been assigned to readHashes
     /// RPCs.
     /// The next hash will be assigned at index (numAssigned & ARRAY_MASK)
     size_t numAssigned;
@@ -270,12 +253,12 @@ class IndexLookup {
     /// calls getKey/getKeyLength/getValue/getValueLength
     Tub<Object> curObj;
 
-    /// Index into readRpc that contains curObj.
-    /// Current indexedRead RPC index that user is currently reading.
+    /// Index into readRpcs that contains curObj.
+    /// Current readHashes RPC index that user is currently reading.
     /// Need to keep track of this because curObj doesn't copy the object
     /// from response buffer. Need to make sure the life time of response
     /// buffer until user switch to next object.
-    /// The initial value of curIdx is RPC_ID_NOT_ASSIGN, which means there
+    /// The initial value of curIdx is RPC_ID_NOT_ASSIGNED, which means there
     /// is no object available for client.
     uint8_t curIdx;
 

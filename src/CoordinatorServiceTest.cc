@@ -470,7 +470,7 @@ TEST_F(CoordinatorServiceTest, verifyServerFailure) {
     context.transportManager->registerMock(&mockTransport, "mock2");
     service->serverList->haltUpdater();
     ServerId deadId = service->serverList->enlistServer(
-                {WireFormat::PING_SERVICE}, 100, "mock2:");
+                {WireFormat::PING_SERVICE}, 0, 100, "mock2:");
     EXPECT_TRUE(service->verifyServerFailure(deadId));
 }
 

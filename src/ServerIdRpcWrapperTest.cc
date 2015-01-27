@@ -160,7 +160,7 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_callServerCrashed) {
     // crashes due to order dependencies among destructors.
     serverList.haltUpdater();
 
-    id = serverList.enlistServer({WireFormat::MASTER_SERVICE}, 100, "mock:");
+    id = serverList.enlistServer({WireFormat::MASTER_SERVICE}, 0, 100, "mock:");
     ServerIdRpcWrapper wrapper(&context, id, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();

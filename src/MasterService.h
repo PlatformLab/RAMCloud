@@ -152,9 +152,9 @@ class MasterService : public Service {
                 double *asDouble,
                 uint64_t *newVersion,
                 Status *status);
-    void indexedRead(
-                const WireFormat::IndexedRead::Request* reqHdr,
-                WireFormat::IndexedRead::Response* respHdr,
+    void readHashes(
+                const WireFormat::ReadHashes::Request* reqHdr,
+                WireFormat::ReadHashes::Response* respHdr,
                 Rpc* rpc);
     void initOnceEnlisted();
     void insertIndexEntry(const WireFormat::InsertIndexEntry::Request* reqHdr,

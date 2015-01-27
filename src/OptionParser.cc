@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <signal.h>
 #include <boost/version.hpp>
 #include <boost/program_options.hpp>
 #include <boost/lexical_cast.hpp>
@@ -93,6 +94,16 @@ OptionParser::usageAndExit() const
 }
 
 /**
+ * Signal handler which invokes gdb on segfault for ease of debugging.
+ */
+char* executableName;
+void invokeGDB(int signum) {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "/usr/bin/gdb %s %d", executableName, getpid());
+    system(buf);
+}
+
+/**
  * Internal method to do the heavy lifting of parsing the command line.
  *
  * Parses both application-specific and common options aborting and
@@ -107,12 +118,14 @@ OptionParser::usageAndExit() const
 void
 OptionParser::setup(int argc, char* argv[])
 {
+    executableName = argv[0];
     namespace po = ProgramOptions;
     try {
         string defaultLogLevel;
         string logFile;
         vector<string> logLevels;
         string configFile(".ramcloud");
+        bool debugOnSegfault = false;
 
         // Basic options supported on the command line of all apps
         OptionsDescription commonOptions("Common");
@@ -180,7 +193,11 @@ OptionParser::setup(int argc, char* argv[])
              "How long transports should wait (ms) before declaring that a "
              "server connection for listening client requests is dead."
              "0 means use transport-specific default."
-             "Negative number means disabling the timer.");
+             "Negative number means disabling the timer.")
+            ("debugOnSegfault",
+             ProgramOptions::bool_switch(&debugOnSegfault),
+             "Whether or not this application should drop to debugger"
+             "on segfault");
 
         // Do one pass with just help/config file options so we can get
         // the alternate config file location, if specified.  Then
@@ -245,6 +262,8 @@ OptionParser::setup(int argc, char* argv[])
         if (options.pcapFilePath != "")
             pcapFile.construct(options.pcapFilePath.c_str(),
                                PcapFile::LinkType::ETHERNET);
+        if (debugOnSegfault)
+            signal(SIGSEGV, invokeGDB);
     }
     catch (po::multiple_occurrences& e) {
         // This clause provides a more understandable error message

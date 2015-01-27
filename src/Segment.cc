@@ -387,7 +387,7 @@ Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
         if (contigBytes == 0)
             break;
 
-        buffer.appendExternal(contigPointer, contigBytes);
+        buffer.append(contigPointer, contigBytes);
 
         offset += contigBytes;
         length -= contigBytes;
@@ -968,7 +968,7 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
                     prefetch(
                         reinterpret_cast<void*>(reference + fullHeaderLength),
                             dataLength);
-                buffer->appendExternal(
+                buffer->append(
                     reinterpret_cast<void*>(reference + fullHeaderLength),
                     dataLength);
             }

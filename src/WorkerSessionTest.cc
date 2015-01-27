@@ -42,6 +42,7 @@ TEST_F(WorkerSessionTest, basics) {
 
     // Make sure that sendRequest gets passed down to the underlying session.
     wrappedSession->sendRequest(&rpc.request, &rpc.response, &rpc);
+    context.dispatchExec->poll();
     EXPECT_STREQ("sendRequest: abcdefg", transport.outputLog.c_str());
     EXPECT_EQ(0U, MockTransport::sessionDeleteCount);
 
@@ -63,6 +64,7 @@ TEST_F(WorkerSessionTest, cancelRequest) {
             &context, transport.getSession());
     wrappedSession->sendRequest(&rpc.request, &rpc.response, &rpc);
     wrappedSession->cancelRequest(&rpc);
+    context.dispatchExec->poll();
     EXPECT_STREQ("sendRequest: abcdefg | cancel: ",
             transport.outputLog.c_str());
 }
@@ -85,6 +87,7 @@ TEST_F(WorkerSessionTest, sendRequest) {
     WorkerSession* wrappedSession = new WorkerSession(
             &context, transport.getSession());
     wrappedSession->sendRequest(&rpc.request, &rpc.response, &rpc);
+    context.dispatchExec->poll();
     EXPECT_STREQ("sendRequest: abcdefg", transport.outputLog.c_str());
 }
 

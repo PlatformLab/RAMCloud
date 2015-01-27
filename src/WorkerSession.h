@@ -21,6 +21,7 @@
 #include "Atomic.h"
 #include "Dispatch.h"
 #include "Transport.h"
+#include "DispatchExec.h"
 
 namespace RAMCloud {
 /**
@@ -46,6 +47,59 @@ class WorkerSession : public Transport::Session {
     Context* context;              /// Global RAMCloud state.
     Transport::SessionRef wrapped; /// Methods are forwarded to this object.
     DISALLOW_COPY_AND_ASSIGN(WorkerSession);
+};
+
+/**
+ * This class wraps a call to session->sendRequest, for later execution by the
+ * Dispatch thread.
+ */
+class SendRequestWrapper : public DispatchExec::Lambda {
+  PRIVATE:
+    // The following variables all have the same meaning as the arguments to
+    // WorkerSession::sendRequest
+    Buffer* request;
+    Buffer* response;
+    Transport::RpcNotifier* notifier;
+    Transport::SessionRef session;
+  public:
+    SendRequestWrapper(Buffer* request, Buffer* response,
+                       Transport::RpcNotifier* notifier,
+                       Transport::SessionRef session)
+        : request(request), response(response), notifier(notifier),
+          session(session) { }
+
+    /// @copydoc DispatchExec::Lambda::invoke()
+    void invoke() {
+        session->sendRequest(request, response, notifier);
+        session = NULL;
+    }
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(SendRequestWrapper);
+};
+
+/**
+ * This class wraps a call to session->cancelRequest, for later execution by the
+ * Dispatch thread.
+ */
+class CancelRequestWrapper : public DispatchExec::Lambda {
+  PRIVATE:
+    // The following variables all have the same meaning as the arguments to
+    // WorkerSession::cancelRequest
+    Transport::RpcNotifier* notifier;
+    Transport::SessionRef session;
+  public:
+    CancelRequestWrapper(Transport::RpcNotifier* notifier,
+                       Transport::SessionRef session)
+        : notifier(notifier), session(session) { }
+
+    /// @copydoc DispatchExec::Lambda::invoke()
+    void invoke() {
+        session->cancelRequest(notifier);
+        session = NULL;
+    }
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(CancelRequestWrapper);
 };
 
 }  // namespace RAMCloud

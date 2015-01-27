@@ -93,10 +93,7 @@ class RamCloud {
             const void* key, uint16_t keyLength,
             int64_t incrementValue, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
-    uint32_t indexedRead(uint64_t tableId, uint32_t numHashes,
-            Buffer* pKHashes, uint8_t indexId,
-            const void* firstKey, uint16_t firstKeyLength,
-            const void* lastKey, uint16_t lastKeyLength,
+    uint32_t readHashes(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
             Buffer* response, uint32_t* numObjects);
     void indexServerControl(uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
@@ -443,22 +440,19 @@ class IncrementInt64Rpc : public ObjectRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a RamCloud::indexedRead operation,
+ * Encapsulates the state of a RamCloud::readHashes operation,
  * allowing it to execute asynchronously.
  */
-class IndexedReadRpc : public ObjectRpcWrapper {
+class ReadHashesRpc : public ObjectRpcWrapper {
   public:
-    IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
-                   uint32_t numHashes, Buffer* pKHashes, uint8_t indexId,
-                   const void* firstKey, uint16_t firstKeyLength,
-                   const void* lastKey, uint16_t lastKeyLength,
-                   Buffer* response);
-    ~IndexedReadRpc() {}
+      ReadHashesRpc(RamCloud* ramcloud, uint64_t tableId, uint32_t numHashes,
+              Buffer* pKHashes, Buffer* response);
+    ~ReadHashesRpc() {}
     /// \copydoc RpcWrapper::docForWait
     uint32_t wait(uint32_t* numObjects);
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(IndexedReadRpc);
+    DISALLOW_COPY_AND_ASSIGN(ReadHashesRpc);
 };
 
 /**

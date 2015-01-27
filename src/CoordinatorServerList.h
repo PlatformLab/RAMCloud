@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -163,8 +163,8 @@ class CoordinatorServerList : public AbstractServerList{
     ~CoordinatorServerList();
 
     uint32_t backupCount() const;
-    ServerId enlistServer(ServiceMask serviceMask, const uint32_t readSpeed,
-                          const char* serviceLocator);
+    ServerId enlistServer(ServiceMask serviceMask, uint32_t preferredIndex,
+                          uint32_t readSpeed, const char* serviceLocator);
     void haltUpdater();
     uint32_t masterCount() const;
     Entry operator[](ServerId serverId) const;
