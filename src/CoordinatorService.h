@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -53,26 +53,21 @@ class CoordinatorService : public Service {
 
   PRIVATE:
     // - rpc handlers -
-    void createTable(const WireFormat::CreateTable::Request* reqHdr,
-            WireFormat::CreateTable::Response* respHdr,
-            Rpc* rpc);
-    void dropTable(const WireFormat::DropTable::Request* reqHdr,
-            WireFormat::DropTable::Response* respHdr,
+    void coordSplitAndMigrateIndexlet(
+            const WireFormat::CoordSplitAndMigrateIndexlet::Request* reqHdr,
+            WireFormat::CoordSplitAndMigrateIndexlet::Response* respHdr,
             Rpc* rpc);
     void createIndex(const WireFormat::CreateIndex::Request* reqHdr,
             WireFormat::CreateIndex::Response* respHdr,
             Rpc* rpc);
+    void createTable(const WireFormat::CreateTable::Request* reqHdr,
+            WireFormat::CreateTable::Response* respHdr,
+            Rpc* rpc);
     void dropIndex(const WireFormat::DropIndex::Request* reqHdr,
             WireFormat::DropIndex::Response* respHdr,
             Rpc* rpc);
-    void splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
-            WireFormat::SplitTablet::Response* respHdr,
-            Rpc* rpc);
-    void getRuntimeOption(const WireFormat::GetRuntimeOption::Request* reqHdr,
-            WireFormat::GetRuntimeOption::Response* respHdr,
-            Rpc* rpc);
-    void getTableId(const WireFormat::GetTableId::Request* reqHdr,
-            WireFormat::GetTableId::Response* respHdr,
+    void dropTable(const WireFormat::DropTable::Request* reqHdr,
+            WireFormat::DropTable::Response* respHdr,
             Rpc* rpc);
     void enlistServer(const WireFormat::EnlistServer::Request* reqHdr,
             WireFormat::EnlistServer::Response* respHdr,
@@ -83,18 +78,20 @@ class CoordinatorService : public Service {
     void getMasterConfig(const WireFormat::GetMasterConfig::Request* reqHdr,
             WireFormat::GetMasterConfig::Response* respHdr,
             Rpc* rpc);
+    void getRuntimeOption(const WireFormat::GetRuntimeOption::Request* reqHdr,
+            WireFormat::GetRuntimeOption::Response* respHdr,
+            Rpc* rpc);
     void getServerList(const WireFormat::GetServerList::Request* reqHdr,
             WireFormat::GetServerList::Response* respHdr,
             Rpc* rpc);
     void getTableConfig(const WireFormat::GetTableConfig::Request* reqHdr,
             WireFormat::GetTableConfig::Response* respHdr,
             Rpc* rpc);
+    void getTableId(const WireFormat::GetTableId::Request* reqHdr,
+            WireFormat::GetTableId::Response* respHdr,
+            Rpc* rpc);
     void hintServerCrashed(const WireFormat::HintServerCrashed::Request* reqHdr,
             WireFormat::HintServerCrashed::Response* respHdr,
-            Rpc* rpc);
-    void recoveryMasterFinished(
-            const WireFormat::RecoveryMasterFinished::Request* reqHdr,
-            WireFormat::RecoveryMasterFinished::Response* respHdr,
             Rpc* rpc);
     void quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
             WireFormat::BackupQuiesce::Response* respHdr,
@@ -103,19 +100,26 @@ class CoordinatorService : public Service {
             const WireFormat::ReassignTabletOwnership::Request* reqHdr,
             WireFormat::ReassignTabletOwnership::Response* respHdr,
             Rpc* rpc);
-    void setRuntimeOption(const WireFormat::SetRuntimeOption::Request* reqHdr,
-            WireFormat::SetRuntimeOption::Response* respHdr,
+    void recoveryMasterFinished(
+            const WireFormat::RecoveryMasterFinished::Request* reqHdr,
+            WireFormat::RecoveryMasterFinished::Response* respHdr,
+            Rpc* rpc);
+    void serverControlAll(const WireFormat::ServerControlAll::Request* reqHdr,
+            WireFormat::ServerControlAll::Response* respHdr,
             Rpc* rpc);
     void setMasterRecoveryInfo(
             const WireFormat::SetMasterRecoveryInfo::Request* reqHdr,
             WireFormat::SetMasterRecoveryInfo::Response* respHdr,
             Rpc* rpc);
+    void setRuntimeOption(const WireFormat::SetRuntimeOption::Request* reqHdr,
+            WireFormat::SetRuntimeOption::Response* respHdr,
+            Rpc* rpc);
+    void splitTablet(const WireFormat::SplitTablet::Request* reqHdr,
+            WireFormat::SplitTablet::Response* respHdr,
+            Rpc* rpc);
     void verifyMembership(
             const WireFormat::VerifyMembership::Request* reqHdr,
             WireFormat::VerifyMembership::Response* respHdr,
-            Rpc* rpc);
-    void serverControlAll(const WireFormat::ServerControlAll::Request* reqHdr,
-            WireFormat::ServerControlAll::Response* respHdr,
             Rpc* rpc);
 
     // - helper methods -

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -41,7 +41,7 @@ TableManager::TableManager(Context* context,
     , tabletMaster()
     , directory()
     , idMap()
-    , indexletTableMap()
+    , backingTableMap()
 {
     context->tableManager = this;
 }
@@ -90,6 +90,107 @@ TableManager::Index::~Index()
 //////////////////////////////////////////////////////////////////////
 
 /**
+ * Split an indexlet into two disjoint indexlets at a specific key.
+ * Check if the split already exists, in which case, just return.
+ * Ask the original server to migrate the second indexlet resulting from the
+ * split to another master having server id newOwner.
+ * Alert newOwner that it should begin servicing requests on that indexlet.
+ *
+ * \param newOwner
+ *      ServerId of the server that will own the second indexlet resulting
+ *      from the split of the original indexlet at the end of the operation.
+ * \param tableId
+ *      Id of the table to which the index belongs.
+ * \param indexId
+ *      Id of the secondary key for which this index stores information.
+ * \param splitKey
+ *      Key used to partition the indexlet into two. Keys less than
+ *      \a splitKey belong to one indexlet, keys greater than or equal to
+ *      \a splitKey belong to the other.
+ * \param splitKeyLength
+ *      Length of splitKey in bytes.
+ * 
+ * \throw NoSuchIndexlet
+ *      If the indexlet being split, or the index for which the indexlet
+ *      is being split doesn't exist anymore.
+ * \throw NoSuchTable
+ *      If tableId does not specify an existing table.
+ */
+void
+TableManager::coordSplitAndMigrateIndexlet(
+        ServerId newOwner, uint64_t tableId, uint8_t indexId,
+        const void* splitKey, KeyLength splitKeyLength)
+{
+    Lock lock(mutex);
+
+    IdMap::iterator it = idMap.find(tableId);
+    if (it == idMap.end())
+        throw NoSuchTable(HERE);
+    Table* table = it->second;
+
+    IndexMap::iterator indexIter = table->indexMap.find(indexId);
+    if (indexIter == table->indexMap.end())
+        throw NoSuchIndexlet(HERE);
+    Index* index = indexIter->second;
+
+    TableManager::Indexlet* indexlet =
+            findIndexlet(lock, index, splitKey, splitKeyLength);
+
+    if (indexlet == NULL)
+        throw NoSuchIndexlet(HERE);
+
+    if (IndexKey::keyCompare(splitKey, splitKeyLength,
+            indexlet->firstKey, indexlet->firstKeyLength) == 0)
+        return;
+
+    // Save the firstNotOwnedKey from the original indexlet as we will
+    // end up changing this information in the original indexlet.
+    uint16_t firstNotOwnedKeyLength = indexlet->firstNotOwnedKeyLength;
+    void* firstNotOwnedKey = malloc(firstNotOwnedKeyLength);
+    memcpy(firstNotOwnedKey, indexlet->firstNotOwnedKey,
+            firstNotOwnedKeyLength);
+
+    // Create a backing table where the new master can store data for the
+    // indexlet being migrated to it.
+    string newBackingTableName;
+    newBackingTableName.append(format("__backingTable:%lu:%d:%d",
+            index->tableId, index->indexId, index->nextIndexletIdSuffix++));
+    uint64_t newBackingTableId =
+            createTable(lock, newBackingTableName.c_str(), 1, newOwner);
+    IdMap::iterator itd = idMap.find(newBackingTableId);
+    assert(itd != idMap.end());
+
+    MasterClient::prepForIndexletMigration(
+            context, newOwner, tableId, indexId, newBackingTableId,
+            splitKey, splitKeyLength,
+            firstNotOwnedKey, firstNotOwnedKeyLength);
+
+    MasterClient::splitAndMigrateIndexlet(
+            context, indexlet->serverId, newOwner, tableId, indexId,
+            indexlet->backingTableId, newBackingTableId,
+            splitKey, splitKeyLength);
+
+    // Perform the split on our in-memory structure and show that the
+    // second indexlet is now a part of the new server.
+
+    indexlet->firstNotOwnedKeyLength = splitKeyLength;
+    free(indexlet->firstNotOwnedKey);
+    indexlet->firstNotOwnedKey = malloc(splitKeyLength);
+    memcpy(indexlet->firstNotOwnedKey, splitKey, splitKeyLength);
+
+    index->indexlets.push_back(new Indexlet(
+            splitKey, splitKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength,
+            newOwner, newBackingTableId, tableId, indexId));
+
+    MasterClient::takeIndexletOwnership(
+            context, newOwner, tableId, indexId, newBackingTableId,
+            splitKey, splitKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength);
+
+    // TODO(syang0): Put in calls to trimAndBalance for both indexlets
+    // once that is implemented.
+}
+
+/**
  * Create an index for table, if it doesn't already exist.
  *
  * \param tableId
@@ -135,50 +236,54 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
 
     Index* index = new Index(tableId, indexId, indexType);
     try {
-        for (uint8_t i = 0; i < numIndexlets; i++) {
-            string indexTableName;
-            indexTableName.append(
-                format("__indexTable:%lu:%d:%d", tableId, indexId, i));
+        for (index->nextIndexletIdSuffix = 0;
+                index->nextIndexletIdSuffix < numIndexlets;
+                (index->nextIndexletIdSuffix)++) {
+            string backingTableName;
+            backingTableName.append(format("__backingTable:%lu:%d:%d",
+                    tableId, indexId, index->nextIndexletIdSuffix));
             // Create the backing table for indexlet.
             uint64_t backingTableId =
-                    createTable(lock, indexTableName.c_str(), 1);
+                    createTable(lock, backingTableName.c_str(), 1);
 
             IdMap::iterator itd = idMap.find(backingTableId);
             assert(itd != idMap.end());
 
-            // Use the indexTable serverId to assign the indexlet.
-            Tablet* indexletTablet = findTablet(lock, itd->second, 0UL);
+            // Use the backingTable serverId to assign the indexlet.
+            Tablet* backingTablet = findTablet(lock, itd->second, 0UL);
 
-            if ((indexletTablet->startKeyHash != 0UL)
-                 || (indexletTablet->endKeyHash != ~0UL)) {
+            if ((backingTablet->startKeyHash != 0UL)
+                 || (backingTablet->endKeyHash != ~0UL)) {
                 throw NoSuchTablet(HERE);
             }
-            tabletMaster = indexletTablet->serverId;
+            tabletMaster = backingTablet->serverId;
 
             Indexlet *indexlet;
             if (numIndexlets == 1) {
                 char firstKey = 0;
                 char firstNotOwnedKey = 127;
                 indexlet = new Indexlet(
-                            reinterpret_cast<void *>(&firstKey),
-                            1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, backingTableId,
-                            tableId, indexId);
+                        reinterpret_cast<void *>(&firstKey),
+                        1, reinterpret_cast<void *>(&firstNotOwnedKey),
+                        1, tabletMaster, backingTableId,
+                        tableId, indexId);
             } else {
                 // This case exists only for performance and unit testing, and
                 // it is not intended for actual use.
-                char firstKey = static_cast<char>('a'+i);
-                char firstNotOwnedKey = static_cast<char>('b'+i);
+                char firstKey =
+                        static_cast<char>('a' + index->nextIndexletIdSuffix);
+                char firstNotOwnedKey =
+                        static_cast<char>('b' + index->nextIndexletIdSuffix);
                 indexlet = new Indexlet(
-                            reinterpret_cast<void *>(&firstKey),
-                            1, reinterpret_cast<void *>(&firstNotOwnedKey),
-                            1, tabletMaster, backingTableId,
-                            tableId, indexId);
+                        reinterpret_cast<void *>(&firstKey),
+                        1, reinterpret_cast<void *>(&firstNotOwnedKey),
+                        1, tabletMaster, backingTableId,
+                        tableId, indexId);
             }
             index->indexlets.push_back(indexlet);
 
-            // Now we add tableIndexId<->indexlet into indexletTableMap.
-            indexletTableMap.insert(
+            // Now we add tableIndexId<->indexlet into backingTableMap.
+            backingTableMap.insert(
                 std::make_pair(backingTableId, indexlet));
         }
     } catch (...) {
@@ -199,16 +304,19 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
  * \param serverSpan
  *      Number of servers across which this table should be split during
  *      creation.
+ * \param serverId
+ *      Id of the server on which to locate all tablets for this table.
  *
  * \return
  *      Table id of the new table. If a table already exists with the
  *      given name, then its id is returned.
  */
 uint64_t
-TableManager::createTable(const char* name, uint32_t serverSpan)
+TableManager::createTable(const char* name, uint32_t serverSpan,
+        ServerId serverId)
 {
     Lock lock(mutex);
-    return createTable(lock, name, serverSpan);
+    return createTable(lock, name, serverSpan, serverId);
 }
 
 /**
@@ -346,7 +454,7 @@ TableManager::getTablet(uint64_t tableId, uint64_t keyHash)
  * ServerId, and backingTableId), when given a backingTableId
  *
  * \param backingTableId
- *      Identifier of the table
+ *      Id of the backing table that will hold objects for this indexlet.
  * \param indexlet
  *      Indexlet information structure to populate
  * \return
@@ -358,21 +466,21 @@ TableManager::getIndexletInfoByBackingTableId(uint64_t backingTableId,
         ProtoBuf::Indexlet& indexlet)
 {
     Lock lock(mutex);
-    IndexletTableMap::iterator it = indexletTableMap.find(backingTableId);
-    if (it == indexletTableMap.end())
+    IndexletTableMap::iterator it = backingTableMap.find(backingTableId);
+    if (it == backingTableMap.end())
         return false;
 
     if (it->second->firstKey != NULL)
-        indexlet.set_first_key(string(reinterpret_cast<char*>(
-                               it->second->firstKey),
-                               it->second->firstKeyLength));
+        indexlet.set_first_key(
+                string(reinterpret_cast<char*>(it->second->firstKey),
+                it->second->firstKeyLength));
     else
         indexlet.set_first_key("");
 
     if (it->second->firstNotOwnedKey != NULL)
-        indexlet.set_first_not_owned_key(string(reinterpret_cast<char*>(
-                             it->second->firstNotOwnedKey),
-                             it->second->firstNotOwnedKeyLength));
+        indexlet.set_first_not_owned_key(
+                string(reinterpret_cast<char*>(it->second->firstNotOwnedKey),
+                it->second->firstNotOwnedKeyLength));
     else
         indexlet.set_first_not_owned_key("");
     indexlet.set_table_id(it->second->tableId);
@@ -388,9 +496,9 @@ TableManager::getIndexletInfoByBackingTableId(uint64_t backingTableId,
  * for the indexlet.
  *
  * \param tableId
- *      Id of table containing the tablet.
+ *      Id of table to which this index belongs.
  * \param indexId
- *      Id of the index key for which this indexlet stores some information.
+ *      Id of the secondary key for which this indexlet stores information.
  * \param firstKey
  *      Key blob marking the start of the indexed key range for this indexlet.
  * \param firstKeyLength
@@ -403,7 +511,7 @@ TableManager::getIndexletInfoByBackingTableId(uint64_t backingTableId,
  * \param serverId
  *      Indexlet is updated to indicate that it is owned by \a serverId.
  * \param backingTableId
- *      Id of table which store B+tree of this indexlet.
+ *      Id of the backing table that will hold objects for this indexlet.
  */
 void
 TableManager::indexletRecovered(
@@ -456,7 +564,7 @@ bool
 TableManager::isIndexletTable(uint64_t tableId)
 {
     Lock lock(mutex);
-    return indexletTableMap.find(tableId) != indexletTableMap.end();
+    return backingTableMap.find(tableId) != backingTableMap.end();
 }
 
 /**
@@ -486,150 +594,6 @@ TableManager::markAllTabletsRecovering(ServerId serverId)
         }
     }
     return results;
-}
-
-/**
- * Switch ownership of an indexlet from one master to another and alert the new
- * master that it should begin servicing requests on that indexlet. This method
- * does not actually transfer the contents of the indexlet; the caller should
- * already have taken care of that. This method is used to complete the
- * migration of an indexlet from one server to another.
- * This involved reassigning the ownership of the indexlet as well as
- * of the backing table.
- *
- * \param newOwner
- *      ServerId of the server that will own this indexlet at the end of
- *      the operation.
- * \param tableId
- *      Id for a particular table.
- * \param indexId
- *      Id for a particular secondary index associated with tableId.
- * \param backingTableId
- *      Id of the backing table that will hold objects for this indexlet.
- * \param firstKey
- *      Key blob marking the start of the indexed key range for this indexlet.
- * \param firstKeyLength
- *      Number of bytes in firstKey.
- * \param firstNotOwnedKey
- *      Blob of the smallest key in the given index that is after firstKey
- *      in the index order but not part of this indexlet.
- * \param firstNotOwnedKeyLength
- *      Length of firstNotOwnedKey.
- * \param ctimeSegmentId
- *      ServerId of the log head before migration.
- * \param ctimeSegmentOffset
- *      Offset in log head before migration.
- *
- * \throw InternalError
- *      If the backing table corresponding to the indexlet being reassigned
- *      does not have exactly one tablet (that spans the entire key hash range).
- * \throw NoSuchTablet
- *      If the arguments do not identify a backing tablet currently in
- *      the tablet map.
- * \throw NoSuchIndexlet
- *      If the arguments do not identify an indexlet currently in the indexlet
- *      map corresponding to the table.
- */
-void
-TableManager::reassignIndexletOwnership(
-        ServerId newOwner, uint64_t tableId, uint8_t indexId,
-        uint64_t backingTableId,
-        const void* firstKey, uint16_t firstKeyLength,
-        const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-        uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset)
-{
-    Lock lock(mutex);
-
-    ///////////////////////////////////////////////////////////////////////////
-    // Get the indexlet to be reassigned.
-    ///////////////////////////////////////////////////////////////////////////
-    IdMap::iterator tableIter = idMap.find(tableId);
-    if (tableIter == idMap.end())
-        throw NoSuchTable(HERE);
-    Table* table = tableIter->second;
-
-    IndexMap::iterator indexIter = table->indexMap.find(indexId);
-    // TODO(ankitak): This probably means that the index was deleted
-    // after the reassignment was started. Should we throw exception or ignore?
-    // Need to do clean up on old and new server if something was deleted.
-    if (indexIter == table->indexMap.end())
-        throw NoSuchIndexlet(HERE);
-
-    Indexlet* indexlet = findIndexlet(lock, indexIter->second,
-            firstKey, firstKeyLength,
-            firstNotOwnedKey, firstNotOwnedKeyLength);
-
-    // TODO(ankitak): This means that the indexlet we're trying to reassign
-    // doesn't exist anymore. Should we throw exception or ignore?
-    if (indexlet == NULL)
-        throw NoSuchIndexlet(HERE);
-
-    ///////////////////////////////////////////////////////////////////////////
-    // Get tablet corresponding to the backing table for the
-    // indexlet to be reassigned. (This table should have only one tablet.)
-    ///////////////////////////////////////////////////////////////////////////
-    IdMap::iterator backingTableIter = idMap.find(backingTableId);
-    if (backingTableIter == idMap.end())
-        throw NoSuchTable(HERE);
-    Table* backingTable = backingTableIter->second;
-
-    uint64_t startKeyHash = 0;
-    uint64_t endKeyHash = ~0UL;
-    Tablet* tablet = findTablet(lock, backingTable, startKeyHash);
-    if ((tablet->startKeyHash != startKeyHash)
-            || (tablet->endKeyHash != endKeyHash))
-        throw InternalError(HERE, STATUS_INTERNAL_ERROR);
-
-    ///////////////////////////////////////////////////////////////////////////
-    // Modify local info indexlet and backing tablet to do the reassignment.
-    ///////////////////////////////////////////////////////////////////////////
-    LOG(NOTICE, "Reassigning an indexlet in index id %u for table id %lu "
-        "from %s to %s",
-        indexId, tableId,
-        context->coordinatorServerList->toString(indexlet->serverId).c_str(),
-        context->coordinatorServerList->toString(newOwner).c_str());
-
-    indexlet->serverId = newOwner;
-
-    LOG(NOTICE, "Reassigning tablet [0x%lx,0x%lx] in tableId %lu "
-        "which is the backing table for an indexlet in "
-        "index id %u for table id %lu from %s to %s",
-        startKeyHash, endKeyHash, backingTableId, indexId, tableId,
-        context->coordinatorServerList->toString(tablet->serverId).c_str(),
-        context->coordinatorServerList->toString(newOwner).c_str());
-
-    // Get current head of log to preclude all previous data in the log
-    // from being considered part of this tablet.
-    Log::Position headOfLogAtCreation(ctimeSegmentId,
-                                      ctimeSegmentOffset);
-    tablet->ctime = headOfLogAtCreation;
-    tablet->serverId = newOwner;
-    tablet->status = Tablet::NORMAL;
-
-    ///////////////////////////////////////////////////////////////////////////
-    // Record information about the new indexlet assignment in external storage,
-    // in case we crash.
-    ///////////////////////////////////////////////////////////////////////////
-    ProtoBuf::Table externalInfo;
-    serializeTable(lock, table, &externalInfo);
-    externalInfo.set_sequence_number(updateManager->nextSequenceNumber());
-
-    ProtoBuf::Table::ReassignIndexlet* reassignIndexlet =
-            externalInfo.mutable_reassign_indexlet();
-    reassignIndexlet->set_server_id(newOwner.getId());
-    reassignIndexlet->set_index_id(indexId);
-    reassignIndexlet->set_first_key(
-            string(reinterpret_cast<const char*>(firstKey), firstKeyLength));
-    reassignIndexlet->set_first_not_owned_key(
-            string(reinterpret_cast<const char*>(firstNotOwnedKey),
-            firstNotOwnedKeyLength));
-    reassignIndexlet->set_backing_table_id(backingTableId);
-
-    syncTable(lock, table, &externalInfo);
-
-    // Finish up by notifying the relevant master.
-    notifyReassignIndexlet(lock, &externalInfo);
-    updateManager->updateFinished(externalInfo.sequence_number());
 }
 
 /**
@@ -908,7 +872,6 @@ TableManager::splitTablet(const char* name, uint64_t splitKeyHash)
     // Finish up by notifying the relevant master.
     notifySplitTablet(lock, &externalInfo);
     updateManager->updateFinished(externalInfo.sequence_number());
-
 }
 
 /**
@@ -1019,6 +982,8 @@ TableManager::tabletRecovered(
  * \param serverSpan
  *      Number of servers across which this table should be split during
  *      creation.
+ * \param serverId
+ *      Id of the server on which to locate all tablets for this table.
  *
  * \return
  *      Table id of the new table. If a table already exists with the
@@ -1026,7 +991,7 @@ TableManager::tabletRecovered(
  */
 uint64_t
 TableManager::createTable(const Lock& lock, const char* name,
-        uint32_t serverSpan)
+        uint32_t serverSpan, ServerId serverId)
 {
     // See if the desired table already exists.
     Directory::iterator it = directory.find(name);
@@ -1050,12 +1015,19 @@ TableManager::createTable(const Lock& lock, const char* name,
             uint64_t endKeyHash = startKeyHash + tabletRange - 1;
             if (i == (serverSpan - 1))
                 endKeyHash = ~0UL;
+            ServerId currentTabletMaster;
 
-            // Assigned this tablet to the next master in order from the
-            // server list.
-            tabletMaster = context->coordinatorServerList->nextServer(
-                    tabletMaster, {WireFormat::MASTER_SERVICE});
-            if (!tabletMaster.isValid()) {
+            if (serverId != ServerId()) {
+                currentTabletMaster = serverId;
+            } else {
+                // Assigned this tablet to the next master in order from the
+                // server list.
+                currentTabletMaster =
+                        context->coordinatorServerList->nextServer(
+                                tabletMaster, {WireFormat::MASTER_SERVICE});
+                tabletMaster = currentTabletMaster;
+            }
+            if (!currentTabletMaster.isValid()) {
                 // The server list contains no functioning masters! Ask the
                 // client to retry, and hope that eventually a master joins
                 // the cluster.
@@ -1071,7 +1043,7 @@ TableManager::createTable(const Lock& lock, const char* name,
             // master.
             Log::Position ctime(0, 0);
             table->tablets.push_back(new Tablet(tableId, startKeyHash,
-                    endKeyHash, tabletMaster, Tablet::NORMAL, ctime));
+                    endKeyHash, currentTabletMaster, Tablet::NORMAL, ctime));
         }
     }
     catch (...) {
@@ -1098,15 +1070,16 @@ TableManager::createTable(const Lock& lock, const char* name,
 }
 
 /**
+ * Delete an index.
  * All existing index data for the index will be deleted, but key values will
  * remain in objects of the table.
  *
  * \param lock
  *      Ensures that the caller holds the monitor lock; not actually used.
  * \param tableId
- *      Id of the table to which the index belongs
+ *      Id of the table to which the index belongs.
  * \param indexId
- *      Id of the secondary key on which the index is being built
+ *      Id of the secondary key for which this index stores information.
  * \return
  *      Returns the number of indexlets which exist corresponding to the
  *      dropped index. If index or table doesn't exist, return 0.
@@ -1130,7 +1103,7 @@ TableManager::dropIndex(const Lock& lock, uint64_t tableId, uint8_t indexId)
 
     Index* index = table->indexMap[indexId];
     foreach (Indexlet* indexlet, index->indexlets) {
-        indexletTableMap.erase(indexlet->backingTableId);
+        backingTableMap.erase(indexlet->backingTableId);
     }
 
     uint8_t numIndexlets = (uint8_t)index->indexlets.size();
@@ -1141,10 +1114,10 @@ TableManager::dropIndex(const Lock& lock, uint64_t tableId, uint8_t indexId)
     delete index;
 
     for (uint8_t i = 0; i < numIndexlets; i++) {
-        string indexTableName;
-        indexTableName.append(
-            format("__indexTable:%lu:%d:%d", tableId, indexId, i));
-        dropTable(lock, indexTableName.c_str());
+        string backingTableName;
+        backingTableName.append(
+            format("__backingTable:%lu:%d:%d", tableId, indexId, i));
+        dropTable(lock, backingTableName.c_str());
     }
 }
 
@@ -1191,10 +1164,10 @@ TableManager::dropTable(const Lock& lock, const char* name)
         delete index;
 
         for (uint8_t i = 0; i < numIndexlets; i++) {
-            string indexTableName;
-            indexTableName.append(
-                format("__indexTable:%lu:%d:%d", table->id, indexId, i));
-            dropTable(lock, indexTableName.c_str());
+            string backingTableName;
+            backingTableName.append(
+                format("__backingTable:%lu:%d:%d", table->id, indexId, i));
+            dropTable(lock, backingTableName.c_str());
         }
     }
 
@@ -1207,36 +1180,30 @@ TableManager::dropTable(const Lock& lock, const char* name)
 }
 
 /**
- * Find the tablet containing a particular key hash.
+ * Given an index key, find the indexlet containing that entry.
  *
  * \param lock
  *      Ensures that the caller holds the monitor lock; not actually used.
  * \param index
  *      Index in which to search for indexlet.
- * \param firstKey
- *      Key blob marking the start of the indexed key range for this indexlet.
- * \param firstKeyLength
- *      Length of firstKeyStr.
- * \param firstNotOwnedKey
- *      Blob of the smallest key in the given index that is after firstKey
- *      in the index order but not part of this indexlet.
- * \param firstNotOwnedKeyLength
- *      Length of firstNotOwnedKey.
+ * \param key
+ *      The secondary index key used to find a particular indexlet.
+ * \param keyLength
+ *      Length of key.
  *
  * \return
  *      A pointer to the desired indexlet.
  */
 TableManager::Indexlet*
 TableManager::findIndexlet(const Lock& lock, Index* index,
-        const void* firstKey, uint16_t firstKeyLength,
-        const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+        const void* key, uint16_t keyLength)
 {
     foreach (Indexlet* indexlet, index->indexlets) {
-        if ((IndexKey::keyCompare(firstKey, firstKeyLength,
-                indexlet->firstKey, indexlet->firstKeyLength) == 0) &&
-            (IndexKey::keyCompare(firstNotOwnedKey, firstNotOwnedKeyLength,
+        if ((IndexKey::keyCompare(key, keyLength,
+                indexlet->firstKey, indexlet->firstKeyLength) >= 0) &&
+            (IndexKey::keyCompare(key, keyLength,
                 indexlet->firstNotOwnedKey,
-                indexlet->firstNotOwnedKeyLength) == 0)) {
+                indexlet->firstNotOwnedKeyLength) < 0)) {
             return indexlet;
         }
     }
@@ -1431,8 +1398,7 @@ TableManager::notifyDropIndex(const Lock& lock, Index* index)
 
 /**
  * This method is invoked as part of reassigning an indexlet: it sends an RPC
- * to the new master to start serving requests for the indexlet (and also
- * reassigns the backing tablet).
+ * to the new master to start serving requests for the indexlet.
  * This method is intended to be used both during normal indexlet reassignment,
  * and during coordinator crash recovery.
  * Note: Index related functions are not coordinator crash safe yet,
@@ -1456,8 +1422,6 @@ TableManager::notifyReassignIndexlet(const Lock& lock, ProtoBuf::Table* info)
                 reassignIndexlet.index_id(), info->id(),
                 reassignIndexlet.backing_table_id(),
                 serverId.toString().c_str());
-        MasterClient::takeTabletOwnership(context, serverId,
-                reassignIndexlet.backing_table_id(), 0U, ~0UL);
         MasterClient::takeIndexletOwnership(context, serverId,
                 info->id(), (uint8_t)reassignIndexlet.index_id(),
                 reassignIndexlet.backing_table_id(),

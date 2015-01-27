@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -26,65 +26,6 @@ namespace RAMCloud {
 
 // Default RejectRules to use if none are provided by the caller.
 RejectRules defaultRejectRules;
-
-/**
- * Instruct the master that it must no longer serve requests for the tablet
- * specified. The server may reclaim all memory previously allocated to that
- * tablet.
- *
- * \param context
- *      Overall information about this RAMCloud server or client.
- * \param serverId
- *      Identifier for the target server.
- * \param tableId
- *      Identifier for the table containing the tablet.
- * \param firstKeyHash
- *      Smallest value in the 64-bit key hash space for this table that belongs
- *      to the tablet.
- * \param lastKeyHash
- *      Largest value in the 64-bit key hash space for this table that belongs
- *      to the tablet.
- */
-void
-MasterClient::dropTabletOwnership(Context* context, ServerId serverId,
-        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
-{
-    DropTabletOwnershipRpc rpc(context, serverId, tableId,
-                               firstKeyHash, lastKeyHash);
-    rpc.wait();
-}
-
-/**
- * Constructor for DropTabletOwnershipRpc: initiates an RPC in the same way as
- * #MasterClient::dropTabletOwnership, but returns once the RPC has been
- * initiated, without waiting for it to complete.
- *
- * \param context
- *      Overall information about this RAMCloud server or client.
- * \param serverId
- *      Identifier for the target server.
- * \param tableId
- *      Identifier for the table containing the tablet.
- * \param firstKeyHash
- *      Smallest value in the 64-bit key hash space for this table that belongs
- *      to the tablet.
- * \param lastKeyHash
- *      Largest value in the 64-bit key hash space for this table that belongs
- *      to the tablet.
- */
-DropTabletOwnershipRpc::DropTabletOwnershipRpc(Context* context,
-        ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
-        uint64_t lastKeyHash)
-    : ServerIdRpcWrapper(context, serverId,
-            sizeof(WireFormat::DropTabletOwnership::Response))
-{
-    WireFormat::DropTabletOwnership::Request* reqHdr(
-            allocHeader<WireFormat::DropTabletOwnership>(serverId));
-    reqHdr->tableId = tableId;
-    reqHdr->firstKeyHash = firstKeyHash;
-    reqHdr->lastKeyHash = lastKeyHash;
-    send();
-}
 
 /**
  * Instruct the master that it must no longer serve requests for the indexlet
@@ -160,6 +101,65 @@ DropIndexletOwnershipRpc::DropIndexletOwnershipRpc(Context* context,
     reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
     request.appendExternal(firstKey, firstKeyLength);
     request.appendExternal(firstNotOwnedKey, firstNotOwnedKeyLength);
+    send();
+}
+
+/**
+ * Instruct the master that it must no longer serve requests for the tablet
+ * specified. The server may reclaim all memory previously allocated to that
+ * tablet.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ * \param tableId
+ *      Identifier for the table containing the tablet.
+ * \param firstKeyHash
+ *      Smallest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ * \param lastKeyHash
+ *      Largest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ */
+void
+MasterClient::dropTabletOwnership(Context* context, ServerId serverId,
+        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
+{
+    DropTabletOwnershipRpc rpc(context, serverId, tableId,
+                               firstKeyHash, lastKeyHash);
+    rpc.wait();
+}
+
+/**
+ * Constructor for DropTabletOwnershipRpc: initiates an RPC in the same way as
+ * #MasterClient::dropTabletOwnership, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for the target server.
+ * \param tableId
+ *      Identifier for the table containing the tablet.
+ * \param firstKeyHash
+ *      Smallest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ * \param lastKeyHash
+ *      Largest value in the 64-bit key hash space for this table that belongs
+ *      to the tablet.
+ */
+DropTabletOwnershipRpc::DropTabletOwnershipRpc(Context* context,
+        ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
+        uint64_t lastKeyHash)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::DropTabletOwnership::Response))
+{
+    WireFormat::DropTabletOwnership::Request* reqHdr(
+            allocHeader<WireFormat::DropTabletOwnership>(serverId));
+    reqHdr->tableId = tableId;
+    reqHdr->firstKeyHash = firstKeyHash;
+    reqHdr->lastKeyHash = lastKeyHash;
     send();
 }
 
@@ -381,6 +381,94 @@ IsReplicaNeededRpc::wait()
 }
 
 /**
+ * Request that a master decide whether it will accept a migrated indexlet
+ * and set up any necessary state to begin receiving indexlet data from the
+ * original master.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for a master that will (hopefully) accept a
+ *      migrated tablet.
+ * \param tableId
+ *      Identifier for the table.
+ * \param indexId
+ *      Id for a particular secondary index associated with tableId.
+ * \param backingTableId
+ *      Id of the backing table that will hold objects for this indexlet.
+ * \param firstKey
+ *      Key blob marking the start of the indexed key range for this indexlet.
+ * \param firstKeyLength
+ *      Number of bytes in firstKey.
+ * \param firstNotOwnedKey
+ *      Blob of the smallest key in the given index that is after firstKey
+ *      in the index order but not part of this indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of firstNotOwnedKey.
+ * 
+ */
+void
+MasterClient::prepForIndexletMigration(Context* context, ServerId serverId,
+        uint64_t tableId, uint8_t indexId,
+        uint64_t backingTableId,
+        const void* firstKey, uint16_t firstKeyLength,
+        const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+{
+    PrepForIndexletMigrationRpc rpc(
+            context, serverId, tableId, indexId, backingTableId,
+            firstKey, firstKeyLength, firstNotOwnedKey, firstNotOwnedKeyLength);
+    rpc.wait();
+}
+
+/**
+ * Constructor for PrepForIndexletMigrationRpc: initiates an RPC in the same way
+ * #MasterClient::prepForIndexletMigration, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for a master that will (hopefully) accept a
+ *      migrated tablet.
+ * \param tableId
+ *      Identifier for the table.
+ * \param indexId
+ *      Id for a particular secondary index associated with tableId.
+ * \param backingTableId
+ *      Id of the backing table that will hold objects for this indexlet.
+ * \param firstKey
+ *      Key blob marking the start of the indexed key range for this indexlet.
+ * \param firstKeyLength
+ *      Number of bytes in firstKey.
+ * \param firstNotOwnedKey
+ *      Blob of the smallest key in the given index that is after firstKey
+ *      in the index order but not part of this indexlet.
+ * \param firstNotOwnedKeyLength
+ *      Length of firstNotOwnedKey.
+ * 
+ */
+PrepForIndexletMigrationRpc::PrepForIndexletMigrationRpc(
+        Context* context, ServerId serverId,
+        uint64_t tableId, uint8_t indexId,
+        uint64_t backingTableId,
+        const void* firstKey, uint16_t firstKeyLength,
+        const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::PrepForIndexletMigration::Response))
+{
+    WireFormat::PrepForIndexletMigration::Request* reqHdr(
+        allocHeader<WireFormat::PrepForIndexletMigration>(serverId));
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
+    reqHdr->backingTableId = backingTableId;
+    reqHdr->firstKeyLength = firstKeyLength;
+    reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
+    request.appendExternal(firstKey, firstKeyLength);
+    request.appendExternal(firstNotOwnedKey, firstNotOwnedKeyLength);
+    send();
+}
+
+/**
  * Request that a master decide whether it will accept a migrated tablet
  * and set up any necessary state to begin receiving tablet data from the
  * original master.
@@ -396,18 +484,13 @@ IsReplicaNeededRpc::wait()
  *      Lowest key hash in the tablet range to be migrated.
  * \param lastKeyHash
  *      Highest key hash in the tablet range to be migrated.
- * \param expectedObjects
- *      Estimate of the total number of objects that will be migrated.
- * \param expectedBytes
- *      Estimate of the total number of bytes that will be migrated.
  */
 void
 MasterClient::prepForMigration(Context* context, ServerId serverId,
-        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
-        uint64_t expectedObjects, uint64_t expectedBytes)
+        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
 {
-    PrepForMigrationRpc rpc(context, serverId, tableId, firstKeyHash,
-            lastKeyHash, expectedObjects, expectedBytes);
+    PrepForMigrationRpc rpc(context, serverId, tableId,
+            firstKeyHash, lastKeyHash);
     rpc.wait();
 }
 
@@ -427,14 +510,9 @@ MasterClient::prepForMigration(Context* context, ServerId serverId,
  *      Lowest key hash in the tablet range to be migrated.
  * \param lastKeyHash
  *      Highest key hash in the tablet range to be migrated.
- * \param expectedObjects
- *      Estimate of the total number of objects that will be migrated.
- * \param expectedBytes
- *      Estimate of the total number of bytes that will be migrated.
  */
 PrepForMigrationRpc::PrepForMigrationRpc(Context* context, ServerId serverId,
-        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash,
-        uint64_t expectedObjects, uint64_t expectedBytes)
+        uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::PrepForMigration::Response))
 {
@@ -443,8 +521,6 @@ PrepForMigrationRpc::PrepForMigrationRpc(Context* context, ServerId serverId,
     reqHdr->tableId = tableId;
     reqHdr->firstKeyHash = firstKeyHash;
     reqHdr->lastKeyHash = lastKeyHash;
-    reqHdr->expectedObjects = expectedObjects;
-    reqHdr->expectedBytes = expectedBytes;
     send();
 }
 
@@ -465,13 +541,29 @@ PrepForMigrationRpc::PrepForMigrationRpc(Context* context, ServerId serverId,
  * \param segment
  *      Segment containing the data being migrated. This will be sent
  *      in its entirety.
+ * \param isIndexletData
+ *      True if data being migrated belongs to a tablet which backs an indexlet.
+ *      False if data being migrated belongs to a tablet that doesn't correspond
+ *      to indexlet.
+ * \param dataTableId
+ *      TableId of the indexlet being migrated.
+ * \param indexId
+ *      IndexId of the indexlet being migrated.
+ * \param key
+ *      The secondary index key used to find the indexlet being migrated.
+ * \param keyLength
+ *      Length of the key.
  */
 void
-MasterClient::receiveMigrationData(Context* context, ServerId serverId,
-        uint64_t tableId, uint64_t firstKeyHash, Segment* segment)
+MasterClient::receiveMigrationData(
+        Context* context, ServerId serverId, Segment* segment,
+        uint64_t tableId, uint64_t firstKeyHash,
+        bool isIndexletData, uint64_t dataTableId, uint8_t indexId,
+        const void* key, uint16_t keyLength)
 {
-    ReceiveMigrationDataRpc rpc(context, serverId, tableId, firstKeyHash,
-            segment);
+    ReceiveMigrationDataRpc rpc(context, serverId, segment,
+            tableId, firstKeyHash,
+            isIndexletData, dataTableId, indexId, key, keyLength);
     rpc.wait();
 }
 
@@ -492,10 +584,24 @@ MasterClient::receiveMigrationData(Context* context, ServerId serverId,
  * \param segment
  *      Segment containing the data being migrated. This will be sent
  *      in its entirety.
+ * \param isIndexletData
+ *      True if data being migrated belongs to a tablet which backs an indexlet.
+ *      False if data being migrated belongs to a tablet that doesn't correspond
+ *      to indexlet.
+ * \param dataTableId
+ *      TableId of the indexlet being migrated.
+ * \param indexId
+ *      IndexId of the indexlet being migrated.
+ * \param key
+ *      The secondary index key used to find the indexlet being migrated.
+ * \param keyLength
+ *      Length of the key.
  */
 ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context* context,
-        ServerId serverId, uint64_t tableId, uint64_t firstKeyHash,
-        Segment* segment)
+        ServerId serverId, Segment* segment,
+        uint64_t tableId, uint64_t firstKeyHash,
+        bool isIndexletData, uint64_t dataTableId, uint8_t indexId,
+        const void* key, uint16_t keyLength)
     : ServerIdRpcWrapper(context, serverId,
             sizeof(WireFormat::ReceiveMigrationData::Response))
 {
@@ -503,6 +609,11 @@ ReceiveMigrationDataRpc::ReceiveMigrationDataRpc(Context* context,
             allocHeader<WireFormat::ReceiveMigrationData>(serverId));
     reqHdr->tableId = tableId;
     reqHdr->firstKeyHash = firstKeyHash;
+    reqHdr->isIndexletData = isIndexletData;
+    reqHdr->dataTableId = dataTableId;
+    reqHdr->indexId = indexId;
+    reqHdr->keyLength = keyLength;
+    request.appendExternal(key, keyLength);
     segment->getAppendedLength(&reqHdr->certificate);
     reqHdr->segmentBytes = segment->appendToBuffer(request);
     send();
@@ -650,6 +761,94 @@ void
 RemoveIndexEntryRpc::indexNotFound()
 {
     response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
+}
+
+/**
+ * Request that a master (with id currentOwnerId) split a given indexlet at
+ * splitKey and migrate the second indexlet resulting from this split to server
+ * with newOwnerId.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param currentOwnerId
+ *      Identifier for a master that will split and migrate an indexlet
+ * \param newOwnerId
+ *      Identifier for the master that will receive the split indexlet.
+ * \param tableId
+ *      Identifier for the table.
+ * \param indexId
+ *      Id for a particular secondary index associated with tableId.
+ * \param currentBackingTableId
+ *      Id of the backing table that holds objects for the indexlet that will
+ *      be split.
+ * \param newBackingTableId
+ *      Id of the backing table on newOwner that will old objects for the
+ *      split indexlet that will be migrated to newOwner.
+ * \param splitKey
+ *      Key blob marking the split point in the indexlet.
+ * \param splitKeyLength
+ *      Number of bytes in splitKey.
+ * 
+ */
+void
+MasterClient::splitAndMigrateIndexlet(Context* context,
+        ServerId currentOwnerId, ServerId newOwnerId,
+        uint64_t tableId, uint8_t indexId,
+        uint64_t currentBackingTableId, uint64_t newBackingTableId,
+        const void* splitKey, uint16_t splitKeyLength)
+{
+    SplitAndMigrateIndexletRpc rpc(
+            context, currentOwnerId, newOwnerId,
+            tableId, indexId, currentBackingTableId, newBackingTableId,
+            splitKey, splitKeyLength);
+    rpc.wait();
+}
+
+/**
+ * Constructor for SplitAndMigrateIndexletRpc: initiates an RPC in the same way
+ * as #MasterClient::splitAndMigrateIndexlet, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param currentOwnerId
+ *      Identifier for a master that will split and migrate an indexlet
+ * \param newOwnerId
+ *      Identifier for the master that will receive the split indexlet.
+ * \param tableId
+ *      Identifier for the table.
+ * \param indexId
+ *      Id for a particular secondary index associated with tableId.
+ * \param splitKey
+ *      Key blob marking the split point in the indexlet.
+ * \param splitKeyLength
+ *      Number of bytes in splitKey.
+ * \param currentBackingTableId
+ *      Id of the backing table that holds objects for the indexlet that will
+ *      be split.
+ * \param newBackingTableId
+ *      Id of the backing table on newOwner that will old objects for the
+ *      split indexlet that will be migrated to newOwner.
+ */
+SplitAndMigrateIndexletRpc::SplitAndMigrateIndexletRpc(
+        Context* context, ServerId currentOwnerId, ServerId newOwnerId,
+        uint64_t tableId, uint8_t indexId,
+        uint64_t currentBackingTableId, uint64_t newBackingTableId,
+        const void* splitKey, uint16_t splitKeyLength)
+    : ServerIdRpcWrapper(context, currentOwnerId,
+            sizeof(WireFormat::SplitAndMigrateIndexlet::Response))
+{
+    WireFormat::SplitAndMigrateIndexlet::Request* reqHdr(
+            allocHeader<WireFormat::SplitAndMigrateIndexlet>(
+                    currentOwnerId));
+    reqHdr->newOwnerId = newOwnerId.getId();
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
+    reqHdr->currentBackingTableId = currentBackingTableId;
+    reqHdr->newBackingTableId = newBackingTableId;
+    reqHdr->splitKeyLength = splitKeyLength;
+    request.appendExternal(splitKey, splitKeyLength);
+    send();
 }
 
 /**
@@ -824,7 +1023,7 @@ MasterClient::takeIndexletOwnership(Context* context, ServerId serverId,
  *      Blob of the smallest key in the given index that is after firstKey
  *      in the index order but not part of this indexlet.
  * \param firstNotOwnedKeyLength
- *      Number of bytes in the firstNotOwnedKey.
+ *      Number of bytes in the firstNotOwnedKey..
  */
 TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
         Context* context, ServerId serverId, uint64_t tableId,

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -169,6 +169,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::MultiOp, MasterService,
                         &MasterService::multiOp>(rpc);
             break;
+        case WireFormat::PrepForIndexletMigration::opcode:
+            callHandler<WireFormat::PrepForIndexletMigration, MasterService,
+                        &MasterService::prepForIndexletMigration>(rpc);
+            break;
         case WireFormat::PrepForMigration::opcode:
             callHandler<WireFormat::PrepForMigration, MasterService,
                         &MasterService::prepForMigration>(rpc);
@@ -192,6 +196,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::RemoveIndexEntry::opcode:
             callHandler<WireFormat::RemoveIndexEntry, MasterService,
                         &MasterService::removeIndexEntry>(rpc);
+            break;
+        case WireFormat::SplitAndMigrateIndexlet::opcode:
+            callHandler<WireFormat::SplitAndMigrateIndexlet, MasterService,
+                        &MasterService::splitAndMigrateIndexlet>(rpc);
             break;
         case WireFormat::SplitMasterTablet::opcode:
             callHandler<WireFormat::SplitMasterTablet, MasterService,
@@ -796,7 +804,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // "new" TableStats mechanism.
 
     MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
-            firstKeyHash, lastKeyHash, 0, 0);
+            firstKeyHash, lastKeyHash);
     Log::Position newOwnerLogHead = MasterClient::getHeadOfLog(
             context, newOwnerMasterId);
 
@@ -822,9 +830,9 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
             continue;
         }
 
-        Buffer buffer;
-        it.appendToBuffer(buffer);
-        Key key(type, buffer);
+        Buffer objectBufferToTransfer;
+        it.appendToBuffer(objectBufferToTransfer);
+        Key key(type, objectBufferToTransfer);
 
         // Skip if not applicable.
         if (key.getTableId() != tableId)
@@ -836,16 +844,16 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         if (type == LOG_ENTRY_TYPE_OBJ) {
             // Only send objects when they're currently in the hash table.
             // Otherwise they're dead.
-            Buffer currentBuffer;
-            uint64_t currentVersion;
-            if (objectManager.readObject(key, &currentBuffer, 0,
-                    &currentVersion) != STATUS_OK) {
+            Buffer dummyBuffer;
+            uint64_t versionFromHashTable;
+            if (objectManager.readObject(key, &dummyBuffer, 0,
+                    &versionFromHashTable) != STATUS_OK) {
                 continue;
             }
 
             // Skip objects older than what is currently in the hash table.
-            Object iteratorObject(buffer);
-            if (iteratorObject.getVersion() < currentVersion)
+            Object currentObject(objectBufferToTransfer);
+            if (currentObject.getVersion() < versionFromHashTable)
                 continue;
 
             totalObjects++;
@@ -863,26 +871,26 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
             totalTombstones++;
         }
 
-        totalBytes += buffer.size();
+        totalBytes += objectBufferToTransfer.size();
 
         if (!transferSeg)
             transferSeg.construct();
 
         // If we can't fit it, send the current buffer and retry.
-        if (!transferSeg->append(type, buffer)) {
+        if (!transferSeg->append(type, objectBufferToTransfer)) {
             transferSeg->close();
             LOG(DEBUG, "Sending migration segment");
             MasterClient::receiveMigrationData(context, newOwnerMasterId,
-                    tableId, firstKeyHash, transferSeg.get());
+                    transferSeg.get(), tableId, firstKeyHash);
 
             transferSeg.destroy();
             transferSeg.construct();
 
             // If it doesn't fit this time, we're in trouble.
-            if (!transferSeg->append(type, buffer)) {
+            if (!transferSeg->append(type, objectBufferToTransfer)) {
                 LOG(ERROR, "Tablet migration failed: could not fit object "
                         "into empty segment (obj bytes %u)",
-                        buffer.size());
+                        objectBufferToTransfer.size());
                 respHdr->common.status = STATUS_INTERNAL_ERROR;
                 return;
             }
@@ -893,7 +901,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         transferSeg->close();
         LOG(DEBUG, "Sending last migration segment");
         MasterClient::receiveMigrationData(context, newOwnerMasterId,
-                tableId, firstKeyHash, transferSeg.get());
+                transferSeg.get(), tableId, firstKeyHash);
         transferSeg.destroy();
     }
 
@@ -1277,6 +1285,50 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 }
 
 /**
+ * Top-level server method to handle the PREP_FOR_INDEXLET_MIGRATION request.
+ *
+ * This is used during indexlet migration to request that a destination
+ * master take on an indexlet from the current owner. The receiver may
+ * accept or refuse.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::prepForIndexletMigration(
+        const WireFormat::PrepForIndexletMigration::Request* reqHdr,
+        WireFormat::PrepForIndexletMigration::Response* respHdr,
+        Rpc* rpc)
+{
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    void* firstKey = rpc->requestPayload->getRange(
+            reqOffset, reqHdr->firstKeyLength);
+    reqOffset += reqHdr->firstKeyLength;
+    void* firstNotOwnedKey = rpc->requestPayload->getRange(
+            reqOffset, reqHdr->firstNotOwnedKeyLength);
+
+    // Try to add the indexlet.
+    bool added = indexletManager.addIndexlet(
+            reqHdr->tableId, reqHdr->indexId,
+            reqHdr->backingTableId, firstKey, reqHdr->firstKeyLength,
+            firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength,
+            IndexletManager::Indexlet::RECOVERING);
+
+    if (added) {
+        LOG(NOTICE, "Ready to receive indexlet in indexId %u for tableId %lu",
+                reqHdr->indexId, reqHdr->tableId);
+    } else {
+        LOG(WARNING, "Already have given indexlet in indexId %u "
+                "for tableId %lu, cannot add.",
+                reqHdr->indexId, reqHdr->tableId);
+        respHdr->common.status = STATUS_OBJECT_EXISTS;
+        return;
+    }
+
+    tabletManager.changeState(reqHdr->backingTableId, 0UL, ~0UL,
+            TabletManager::NORMAL, TabletManager::RECOVERING);
+}
+
+/**
  * Top-level server method to handle the PREP_FOR_MIGRATION request.
  *
  * This is used during tablet migration to request that a destination
@@ -1448,17 +1500,36 @@ MasterService::receiveMigrationData(
 
     Segment::Certificate certificate = reqHdr->certificate;
     rpc->requestPayload->truncateFront(sizeof(*reqHdr));
-    if (rpc->requestPayload->size() != segmentBytes) {
+    if (rpc->requestPayload->size() != segmentBytes + reqHdr->keyLength) {
         LOG(ERROR, "RPC size (%u) does not match advertised length (%u)",
-                rpc->requestPayload->size(), segmentBytes);
+                rpc->requestPayload->size(), segmentBytes + reqHdr->keyLength);
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         return;
     }
-    const void* segmentMemory = rpc->requestPayload->getStart<const void*>();
+    const void* segmentMemory = rpc->requestPayload->getRange(
+           reqHdr->keyLength, segmentBytes);
     SegmentIterator it(segmentMemory, segmentBytes, certificate);
     it.checkMetadataIntegrity();
+
     SideLog sideLog(objectManager.getLog());
-    objectManager.replaySegment(&sideLog, it);
+    if (reqHdr->isIndexletData) {
+        // In case we're receiving data corresponding to an indexlet, compute
+        // the nextNodeId while replaying segment.
+        LOG(DEBUG, "Recovering nextNodeId.");
+        std::unordered_map<uint64_t, uint64_t> nextNodeIdMap;
+        nextNodeIdMap[tableId] = 0;
+        objectManager.replaySegment(&sideLog, it, nextNodeIdMap);
+        if (nextNodeIdMap[tableId] > 0) {
+            const void* key = rpc->requestPayload->getRange(
+                    0, reqHdr->keyLength);
+            indexletManager.setNextNodeIdIfHigher(
+                    reqHdr->dataTableId, reqHdr->indexId,
+                    key, reqHdr->keyLength,
+                    nextNodeIdMap[tableId]);
+        }
+    } else {
+        objectManager.replaySegment(&sideLog, it);
+    }
     sideLog.commit();
 }
 
@@ -1621,11 +1692,212 @@ MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
 }
 
 /**
+ * Top-level server method to handle the SPLIT_AND_MIGRAGE_INDEXLET request.
+ *
+ * This RPC is issued when an indexlet located on this master should be split
+ * into two indexlets and one of the resulting indexlets migrated to a
+ * different master.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::splitAndMigrateIndexlet(
+        const WireFormat::SplitAndMigrateIndexlet::Request* reqHdr,
+        WireFormat::SplitAndMigrateIndexlet::Response* respHdr,
+        Rpc* rpc)
+{
+    ServerId newOwnerMasterId(reqHdr->newOwnerId);
+    uint64_t tableId = reqHdr->tableId;
+    uint8_t indexId = reqHdr->indexId;
+    uint64_t currentBackingTableId = reqHdr->currentBackingTableId;
+    uint64_t newBackingTableId = reqHdr->newBackingTableId;
+    uint16_t splitKeyLength = reqHdr->splitKeyLength;
+    void* splitKey = rpc->requestPayload->getRange(
+            sizeof32(*reqHdr), splitKeyLength);
+
+    // Find the indexlet we're trying to split / migrate to ensure we own it.
+    bool foundIndexlet = indexletManager.hasIndexlet(
+            tableId, indexId, splitKey, splitKeyLength);
+    if (!foundIndexlet) {
+        LOG(WARNING, "Split and migration request for indexlet this master "
+                "does not own: indexlet in indexId %u in tableId %lu.",
+                indexId, tableId);
+        respHdr->common.status = STATUS_UNKNOWN_INDEXLET;
+        return;
+    }
+
+    // Find the backing table for the indexlet we're trying to split / migrate
+    // to ensure we own it.
+    TabletManager::Tablet tablet;
+    bool foundTablet = tabletManager.getTablet(
+            currentBackingTableId, 0UL, &tablet);
+    if (!foundTablet) {
+        LOG(WARNING, "Split and migration request for indexlet this master "
+                "does not own: backing table for indexlet in "
+                "indexId %u in tableId %lu.",
+                indexId, tableId);
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
+        return;
+    }
+
+    if (newOwnerMasterId == serverId) {
+        LOG(WARNING, "Migrating to myself doesn't make much sense.");
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        return;
+    }
+
+    LOG(NOTICE, "Migrating a partition of an indexlet in "
+            "indexId %u in tableId %lu from %s (this server) to %s.",
+            indexId, tableId,
+            context->serverList->toString(serverId).c_str(),
+            context->serverList->toString(newOwnerMasterId).c_str());
+
+    // We'll send over objects in Segment containers for better network
+    // efficiency and convenience.
+    Tub<Segment> transferSeg;
+
+    Buffer logEntryBuffer;
+    Buffer objectBufferToTransfer;
+    Buffer keysAndValue;
+
+    uint64_t totalObjects = 0;
+    uint64_t totalTombstones = 0;
+    uint64_t totalBytes = 0;
+
+    // Hold on to the iterator since it locks the head Segment, avoiding any
+    // additional appends once we've finished iterating.
+    LogIterator it(*objectManager.getLog());
+    for (; !it.isDone(); it.next()) {
+
+        logEntryBuffer.reset();
+        objectBufferToTransfer.reset();
+        keysAndValue.reset();
+
+        LogEntryType type = it.getType();
+        if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
+            // We aren't interested in any other types.
+            continue;
+        }
+
+        it.appendToBuffer(logEntryBuffer);
+        Key indexNodeKey(type, logEntryBuffer);
+
+        // Skip if not applicable.
+        if (indexNodeKey.getTableId() != currentBackingTableId) {
+            LOG(DEBUG, "Found entry that doesn't belong to "
+                    "the table being migrated. Continuing to the next.");
+            continue;
+        }
+
+        if (!indexletManager.isGreaterOrEqual(indexNodeKey, tableId, indexId,
+                splitKey, splitKeyLength)) {
+            LOG(DEBUG, "Found entry that doesn't belong to "
+                    "the partition being migrated. Continuing to the next.");
+            continue;
+        }
+
+        if (type == LOG_ENTRY_TYPE_OBJ) {
+            // Only send objects when they're currently in the hash table.
+            // Otherwise they're dead.
+            Buffer dummyBuffer;
+            uint64_t versionFromHashTable;
+            if (objectManager.readObject(indexNodeKey, &dummyBuffer, 0,
+                    &versionFromHashTable) != STATUS_OK) {
+                continue;
+            }
+
+            // Skip objects older than what is currently in the hash table.
+            Object currentObject(logEntryBuffer);
+            if (currentObject.getVersion() < versionFromHashTable)
+                continue;
+
+            // Create new object and append to a new buffer so that we can
+            // change table Id to the new backing table Id.
+            currentObject.appendKeysAndValueToBuffer(keysAndValue);
+            Object newObject(newBackingTableId, currentObject.getVersion(),
+                    currentObject.getTimestamp(), keysAndValue);
+
+//            LOG(DEBUG, "Old object: tableId %lu, key %s, keylength %u AND "
+//                    "New object: tableId %lu, key %s, keylength %u",
+//                    currentObject.getTableId(),
+//                    static_cast<const char*>(currentObject.getKey()),
+//                    currentObject.getKeyLength(),
+//                    newObject.getTableId(),
+//                    static_cast<const char*>(newObject.getKey()),
+//                    newObject.getKeyLength());
+
+            newObject.assembleForLog(objectBufferToTransfer);
+            totalObjects++;
+        } else {
+            // We must always send tombstones, since an object we may have sent
+            // could have been deleted more recently. We could be smarter and
+            // more selective here, but that'd require keeping extra state to
+            // know what we've already sent.
+
+            // Note that we can do better. The stupid way
+            // is to track each object or tombstone we've sent. The smarter
+            // way is to just record the Log::Position when we started
+            // iterating and only send newer tombstones.
+
+            totalTombstones++;
+        }
+
+        totalBytes += objectBufferToTransfer.size();
+
+        if (!transferSeg)
+            transferSeg.construct();
+
+        // If we can't fit it, send the current buffer and retry.
+        if (!transferSeg->append(type, objectBufferToTransfer)) {
+            transferSeg->close();
+            LOG(DEBUG, "Couldn't fit segment.");
+            // The firstKeyHash param for receiveMigrationData is zero
+            // as we're transferring contents to a new backing table (id-ed
+            // by newBackingTableId) and
+            // the newOwner has a tablet that spans the entire key hash
+            // range of this backing table.
+            MasterClient::receiveMigrationData(context, newOwnerMasterId,
+                    transferSeg.get(), newBackingTableId, 0);
+
+            transferSeg.destroy();
+            transferSeg.construct();
+
+            // If it doesn't fit this time, we're in trouble.
+            if (!transferSeg->append(type, objectBufferToTransfer)) {
+                LOG(ERROR, "Indexlet migration failed: could not fit object "
+                        "into empty segment (obj bytes %u)",
+                        objectBufferToTransfer.size());
+                respHdr->common.status = STATUS_INTERNAL_ERROR;
+                return;
+            }
+        }
+    }
+
+    // Truncate indexlet such that we don't own the part of the indexlet that
+    // is being migrated before completing the migration. This is so that we
+    // don't get any more data for that part of the indexlet after it has been
+    // migrated.
+    indexletManager.truncateIndexlet(
+            tableId, indexId, splitKey, splitKeyLength);
+
+    if (transferSeg) {
+        transferSeg->close();
+        LOG(DEBUG, "Sending last migration segment");
+        MasterClient::receiveMigrationData(context, newOwnerMasterId,
+                transferSeg.get(), newBackingTableId, 0);
+        transferSeg.destroy();
+    }
+
+    LOG(DEBUG, "Sent %lu total objects, %lu total tombstones, %lu total bytes.",
+            totalObjects, totalTombstones, totalBytes);
+}
+
+/**
  * Top-level server method to handle the SPLIT_MASTER_TABLET_OWNERSHIP request.
  *
- * This RPC is issued by the coordinator when a tablet should be splitted. The
- * coordinator specifies the to be splitted tablet and at which point the split
- * should occur (splitKeyHash).
+ * This RPC is issued by the coordinator when a tablet should be split. The
+ * coordinator specifies the point at which the split should occur
+ * (splitKeyHash).
  *
  * \copydetails Service::ping
  */
@@ -1750,7 +2022,8 @@ MasterService::takeIndexletOwnership(
     indexletManager.addIndexlet(
             reqHdr->tableId, reqHdr->indexId, reqHdr->backingTableId,
             firstKey, reqHdr->firstKeyLength,
-            firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
+            firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength,
+            IndexletManager::Indexlet::NORMAL);
     LOG(NOTICE, "Took ownership of indexlet in tableId %lu indexId %u",
             reqHdr->tableId, reqHdr->indexId);
 }
@@ -1920,8 +2193,8 @@ MasterService::detectSegmentRecoveryFailure(
  *      A list specifying for each segmentId a backup who can provide a
  *      filtered recovery data segment. A particular segment may be listed more
  *      than once if it has multiple viable backups.
- * \param highestBTreeIdMap
- *      A unordered map that keeps track of the highest used BTree ID in
+ * \param nextNodeIdMap
+ *      A unordered map that keeps track of the nextNodeId in
  *      each indexlet table.
  * \throw SegmentRecoveryFailedException
  *      If some segment was not recovered and the recovery master is not
@@ -1930,7 +2203,7 @@ MasterService::detectSegmentRecoveryFailure(
 void
 MasterService::recover(uint64_t recoveryId, ServerId masterId,
         uint64_t partitionId, vector<Replica>& replicas,
-        std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap)
+        std::unordered_map<uint64_t, uint64_t>& nextNodeIdMap)
 {
     /* Overview of the internals of this method and its structures.
      *
@@ -2111,7 +2384,7 @@ MasterService::recover(uint64_t recoveryId, ServerId masterId,
                                     ReplicatedSegment::recoveryStart),
                             task->replica.segmentId, responseLen);
                 }
-                objectManager.replaySegment(&sideLog, it, highestBTreeIdMap);
+                objectManager.replaySegment(&sideLog, it, nextNodeIdMap);
                 usefulTime += Cycles::rdtsc() - startUseful;
                 TEST_LOG("Segment %lu replay complete",
                          task->replica.segmentId);
@@ -2324,15 +2597,15 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     // Recover Segments, firing ObjectManager::replaySegment for each one.
     bool successful = false;
     try {
-        // This unordered_map is used to keep track of the highest BTree id
+        // This unordered_map is used to keep track of the nextNodeId
         // in every indexlet table
-        std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+        std::unordered_map<uint64_t, uint64_t> nextNodeIdMap;
         foreach (const ProtoBuf::Indexlet& indexlet,
                 recoveryPartition.indexlet()) {
-            highestBTreeIdMap[indexlet.backing_table_id()] = 0;
+            nextNodeIdMap[indexlet.backing_table_id()] = 0;
         }
         recover(recoveryId, crashedServerId, partitionId, replicas,
-                highestBTreeIdMap);
+                nextNodeIdMap);
         // Install indexlets we are recovering
         foreach (const ProtoBuf::Indexlet& newIndexlet,
                  recoveryPartition.indexlet()) {
@@ -2346,7 +2619,8 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                     (uint16_t)newIndexlet.first_key().length(),
                     newIndexlet.first_not_owned_key().c_str(),
                     (uint16_t)newIndexlet.first_not_owned_key().length(),
-                    highestBTreeIdMap[newIndexlet.backing_table_id()]);
+                    IndexletManager::Indexlet::RECOVERING,
+                    nextNodeIdMap[newIndexlet.backing_table_id()]);
         }
         successful = true;
     } catch (const SegmentRecoveryFailedException& e) {
@@ -2388,8 +2662,9 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     bool cancelRecovery = CoordinatorClient::recoveryMasterFinished(
             context, recoveryId, serverId, &recoveryPartition, successful);
     if (!cancelRecovery) {
-        // Ok - we're expected to be serving now. Mark recovered tablets
-        // as normal so we can handle clients.
+        // Ok - we're expected to be serving now. Mark recovered tablets and
+        // indexlets as normal so we can handle clients.
+
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
                 recoveryPartition.tablet()) {
             bool changed = tabletManager.changeState(
@@ -2401,6 +2676,27 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                         "tablet's state to NORMAL (%lu range [%lu,%lu])",
                         tablet.table_id(),
                         tablet.start_key_hash(), tablet.end_key_hash()));
+            }
+        }
+
+        foreach (ProtoBuf::Indexlet& indexlet,
+            *recoveryPartition.mutable_indexlet()) {
+            bool changed = indexletManager.changeState(
+                indexlet.table_id(),
+                (uint8_t)indexlet.index_id(),
+                indexlet.first_key().c_str(),
+                (uint16_t)indexlet.first_key().length(),
+                indexlet.first_not_owned_key().c_str(),
+                (uint16_t)indexlet.first_not_owned_key().length(),
+                (IndexletManager::Indexlet::State)
+                        IndexletManager::Indexlet::RECOVERING,
+                (IndexletManager::Indexlet::State)
+                        IndexletManager::Indexlet::NORMAL);
+            if (!changed) {
+                throw FatalError(HERE, format("Could not change recovering "
+                        "indexlet's state to NORMAL for an indexlet in "
+                        "index id %u in table id %lu.",
+                        indexlet.index_id(), indexlet.table_id()));
             }
         }
     } else {
