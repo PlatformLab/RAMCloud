@@ -605,6 +605,58 @@ TEST_F(ObjectManagerTest, replaySegment_highestBTreeIdMap) {
               , verifyMetadata(0));
 }
 
+TEST_F(ObjectManagerTest, replaySegment_tombstoneSegmentId) {
+    // a) Test whether the correct segmentId is put into the tombstone, even
+    // when the passed-in segmentId is junk.
+    // b) Whether a tombstone is synthesized for an object when a newer one
+    // replaces it.
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    Key key0(0, "key0", 4);
+    Segment::Certificate certificate;
+    len = buildRecoverySegment(seg, segLen, key0, 1, "original", &certificate);
+    it.construct(&seg[0], len, certificate);
+    objectManager.replaySegment(&sl, *it);
+    verifyRecoveryObject(key0, "original");
+
+    // New object with higher version, check for tombstone after the first
+    // object
+    len = buildRecoverySegment(seg, segLen, key0, 2, "new", &certificate);
+    it.construct(&seg[0], len, certificate);
+    objectManager.replaySegment(&sl, *it);
+    verifyRecoveryObject(key0, "new");
+    it.construct(*sl.head);
+    while (it->getType() != LOG_ENTRY_TYPE_OBJ)
+        it->next();
+    it->next();
+    EXPECT_EQ(it->getType(), LOG_ENTRY_TYPE_OBJTOMB);
+
+    // Check for tombstone segmentId correctness after replay of tombstone
+    Buffer dataBuffer;
+    Object o1(key0, NULL, 0, 2, 0, dataBuffer);
+    ObjectTombstone t1(o1, 8, 0);
+    len = buildRecoverySegment(seg, segLen, t1, &certificate);
+    it.construct(&seg[0], len, certificate);
+    objectManager.replaySegment(&sl, *it);
+
+    it.construct(*sl.head);
+    while (it->getType() != LOG_ENTRY_TYPE_OBJTOMB)
+        it->next();
+    // Step over the old tombstone
+    it->next();
+    while (it->getType() != LOG_ENTRY_TYPE_OBJTOMB)
+        it->next();
+    dataBuffer.reset();
+    it->appendToBuffer(dataBuffer);
+    ObjectTombstone t2(dataBuffer);
+    EXPECT_EQ(t2.getSegmentId(), 1U);
+    EXPECT_EQ(t2.getObjectVersion(), t1.getObjectVersion());
+}
+
 TEST_F(ObjectManagerTest, replaySegment) {
     uint32_t segLen = 8192;
     char seg[segLen];
@@ -661,7 +713,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     verifyRecoveryObject(key1, "newer guy");
-    EXPECT_EQ("found=true tableId=0 byteCount=123 recordCount=3"
+    EXPECT_EQ("found=true tableId=0 byteCount=159 recordCount=4"
               , verifyMetadata(0));
 
     // Case 2a: Equal/newer tombstone already there; ignore object.
@@ -682,7 +734,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key2, 1, "equal guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=123 recordCount=3"
+    EXPECT_EQ("found=true tableId=0 byteCount=159 recordCount=4"
               , verifyMetadata(0));
     len = buildRecoverySegment(seg, segLen, key2, 0, "older guy", &certificate);
     it.construct(&seg[0], len, certificate);
@@ -714,7 +766,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
                                &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=164 recordCount=4"
+    EXPECT_EQ("found=true tableId=0 byteCount=200 recordCount=5"
               , verifyMetadata(0));
     verifyRecoveryObject(key3, "newer guy");
     EXPECT_TRUE(lookup(key3, &reference));
@@ -728,7 +780,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key4, 0, "only guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=204 recordCount=5"
+    EXPECT_EQ("found=true tableId=0 byteCount=240 recordCount=6"
               , verifyMetadata(0));
     verifyRecoveryObject(key4, "only guy");
 
@@ -752,7 +804,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key5, 1, "newer guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=245 recordCount=6"
+    EXPECT_EQ("found=true tableId=0 byteCount=281 recordCount=7"
               , verifyMetadata(0));
     dataBuffer.reset();
     Object o3(key5, NULL, 0, 0, 0, dataBuffer);
@@ -760,7 +812,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t3(o3, 0, 0);
     len = buildRecoverySegment(seg, segLen, t3, &certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=245 recordCount=6"
+    EXPECT_EQ("found=true tableId=0 byteCount=281 recordCount=7"
               , verifyMetadata(0));
     verifyRecoveryObject(key5, "newer guy");
 
@@ -769,7 +821,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key6, 0, "equal guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=286 recordCount=7"
+    EXPECT_EQ("found=true tableId=0 byteCount=322 recordCount=8"
               , verifyMetadata(0));
     verifyRecoveryObject(key6, "equal guy");
 
@@ -781,7 +833,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     objectManager.removeTombstones();
-    EXPECT_EQ("found=true tableId=0 byteCount=322 recordCount=8"
+    EXPECT_EQ("found=true tableId=0 byteCount=358 recordCount=9"
               , verifyMetadata(0));
     EXPECT_FALSE(lookup(key6, &reference));
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, getObjectStatus(0, "key6", 4));
@@ -790,7 +842,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key7, 0, "older guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=363 recordCount=9"
+    EXPECT_EQ("found=true tableId=0 byteCount=399 recordCount=10"
               , verifyMetadata(0));
     verifyRecoveryObject(key7, "older guy");
     dataBuffer.reset();
@@ -801,7 +853,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     objectManager.removeTombstones();
-    EXPECT_EQ("found=true tableId=0 byteCount=399 recordCount=10"
+    EXPECT_EQ("found=true tableId=0 byteCount=471 recordCount=12"
               , verifyMetadata(0));
     EXPECT_FALSE(lookup(key7, &reference));
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, getObjectStatus(0, "key7", 4));
@@ -820,7 +872,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key8);
         ret = objectManager.lookup(lock, key8, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=435 recordCount=11"
+    EXPECT_EQ("found=true tableId=0 byteCount=507 recordCount=13"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
@@ -838,7 +890,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key8);
         ret = objectManager.lookup(lock, key8, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=435 recordCount=11"
+    EXPECT_EQ("found=true tableId=0 byteCount=507 recordCount=13"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     EXPECT_EQ(t6LogPtr, buffer.getStart<uint8_t>());
@@ -857,7 +909,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key9);
         ret = objectManager.lookup(lock, key9, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=471 recordCount=12"
+    EXPECT_EQ("found=true tableId=0 byteCount=543 recordCount=14"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     ObjectTombstone t8InLog(buffer);
@@ -875,7 +927,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key9);
         ret = objectManager.lookup(lock, key9, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=507 recordCount=13"
+    EXPECT_EQ("found=true tableId=0 byteCount=579 recordCount=15"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
@@ -897,17 +949,17 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key10);
         EXPECT_TRUE(objectManager.lookup(lock, key10, type, buffer));
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=544 recordCount=14"
+    EXPECT_EQ("found=true tableId=0 byteCount=616 recordCount=16"
               , verifyMetadata(0));
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
-    Buffer t10Buffer;
-    t10.assembleForLog(t10Buffer);
-    EXPECT_EQ(string(reinterpret_cast<const char*>(
-                     t10Buffer.getRange(0, t10Buffer.size())),
-                     buffer.size()),
-              string(reinterpret_cast<const char*>(
-                     buffer.getRange(0, buffer.size())),
-                     buffer.size()));
+    ObjectTombstone t11(buffer);
+
+    EXPECT_EQ(t11.header.segmentId, 0U);
+    EXPECT_EQ(string(reinterpret_cast<const char*>(t11.getKey()), 
+                t11.getKeyLength()),
+              string(reinterpret_cast<const char*>(t10.getKey()), 
+                  t10.getKeyLength()));
+    EXPECT_EQ(t11.getObjectVersion(), t10.getObjectVersion());
     ////////////////////////////////////////////////////////////////////
     //
     //  For safeVersion recovery from OBJECT_SAFEVERSION entry

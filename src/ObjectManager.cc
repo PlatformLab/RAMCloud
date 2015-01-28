@@ -542,7 +542,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
     prefetcher.next();
 
     uint64_t bytesIterated = 0;
-    while (expect_true(!it.isDone())) {
+    for (; expect_true(!it.isDone()); it.next()) {
         prefetchHashTableBucket(&prefetcher);
         prefetcher.next();
 
@@ -598,14 +598,14 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
 
             HashTableBucketLock lock(*this, key);
 
-            uint64_t minSuccessor = 0;
-            bool freeCurrentEntry = false;
 
             LogEntryType currentType;
             Buffer currentBuffer;
             Log::Reference currentReference;
+            // Handle the case where there is a current object in the hash table
             if (lookup(lock, key, currentType, currentBuffer, 0,
                                                         &currentReference)) {
+                bool currentEntryIsObject = false;
                 uint64_t currentVersion;
 
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
@@ -614,47 +614,60 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 } else {
                     Object currentObject(currentBuffer);
                     currentVersion = currentObject.getVersion();
-                    freeCurrentEntry = true;
+                    currentEntryIsObject = true;
                 }
 
-                minSuccessor = currentVersion + 1;
-            }
+                // Throw new object away if the hash table version is newer
+                if (recoveryObj->version <= currentVersion) {
+                    objectDiscardCount++;
+                    continue;
+                }
+                if (currentEntryIsObject) {
+                    // Create a tombstone to prevent rebirth after more crashes
+                    Object object(currentBuffer);
+                    ObjectTombstone tombstone(object,
+                            log.getSegmentId(currentReference),
+                            WallTime::secondsTimestamp());
 
-            if (recoveryObj->version >= minSuccessor) {
-                // write to log (with lazy backup flush) & update hash table
-                Log::Reference newObjReference;
-                {
-                    CycleCounter<uint64_t> _(&segmentAppendTicks);
-                    sideLog->append(LOG_ENTRY_TYPE_OBJ,
-                                    recoveryObj,
-                                    it.getLength(),
-                                    &newObjReference);
+                    Buffer tombstoneBuffer;
+                    tombstone.assembleForLog(tombstoneBuffer);
+                    sideLog->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer);
+                    tombstoneAppendCount++;
                     TableStats::increment(masterTableMetadata,
-                                          key.getTableId(),
-                                          it.getLength(),
-                                          1);
-                }
+                            key.getTableId(),
+                            tombstoneBuffer.size(),
+                            1);
 
-                // JIRA Issue: RAM-674:
-                // If master runs out of space during recovery, this master
-                // should abort the recovery. Coordinator will then try
-                // another master.
-
-                objectAppendCount++;
-                liveObjectBytes += it.getLength();
-
-                replace(lock, key, newObjReference);
-
-                // nuke the old object, if it existed
-                if (freeCurrentEntry) {
+                    // Track the death of the object
                     liveObjectBytes -= currentBuffer.size();
                     sideLog->free(currentReference);
-                } else {
-                    liveObjectCount++;
+                    liveObjectCount--;
                 }
-            } else {
-                objectDiscardCount++;
+            } 
+
+            // If we did not decide to throw the object away, then we will add it
+            Log::Reference newObjReference;
+            {
+                CycleCounter<uint64_t> _(&segmentAppendTicks);
+                sideLog->append(LOG_ENTRY_TYPE_OBJ,
+                                recoveryObj,
+                                it.getLength(),
+                                &newObjReference);
+                TableStats::increment(masterTableMetadata,
+                                      key.getTableId(),
+                                      it.getLength(),
+                                      1);
             }
+
+            // JIRA Issue: RAM-674:
+            // If master runs out of space during recovery, this master
+            // should abort the recovery. Coordinator will then try
+            // another master.
+
+            liveObjectCount++;
+            objectAppendCount++;
+            liveObjectBytes += it.getLength();
+            replace(lock, key, newObjReference);
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             Buffer buffer;
             it.appendToBuffer(buffer);
@@ -685,57 +698,101 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 // JIRA Issue: RAM-673:
                 // Should throw and try another segment replica.
             }
+            uint64_t recoverVersion = recoverTomb.getObjectVersion();
 
             HashTableBucketLock lock(*this, key);
 
-            uint64_t minSuccessor = 0;
-            bool freeCurrentEntry = false;
 
             LogEntryType currentType;
             Buffer currentBuffer;
             Log::Reference currentReference;
             if (lookup(lock, key, currentType, currentBuffer, 0,
                                                         &currentReference)) {
+                bool currentEntryIsObject = false;
+                uint64_t currentVersion;
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
                     ObjectTombstone currentTombstone(currentBuffer);
-                    minSuccessor = currentTombstone.getObjectVersion() + 1;
+                    currentVersion = currentTombstone.getObjectVersion();
                 } else {
                     Object currentObject(currentBuffer);
-                    minSuccessor = currentObject.getVersion();
-                    freeCurrentEntry = true;
+                    currentVersion = currentObject.getVersion();
+                    currentEntryIsObject = true;
                 }
-            }
+                // Throw new tombstone away if the hash table version is strictly newer
+                if (recoverVersion < currentVersion) {
+                    tombstoneDiscardCount++;
+                    continue;
+                }
+                // We assume we will not see an exact duplicate tombstone and
+                // do not handle that case.
+                assert(currentEntryIsObject || 
+                        recoverVersion != currentVersion);
 
-            if (recoverTomb.getObjectVersion() >= minSuccessor) {
-                tombstoneAppendCount++;
-                Log::Reference newTombReference;
-                {
-                    CycleCounter<uint64_t> _(&segmentAppendTicks);
-                    sideLog->append(LOG_ENTRY_TYPE_OBJTOMB,
-                                    buffer,
-                                    &newTombReference);
+                // Synthesize a new tombstone specifically so as to maintain
+                // the following invariant
+                // Any time a logically deleted object is present in the log
+                // and not yet cleaned, there exists a corresponding tombstone
+                // which refers specifically to it.
+                if (currentEntryIsObject) {
+                    Log::Reference newTombReference;
+                    // Create a tombstone to prevent rebirth after more crashes
+                    Object object(currentBuffer);
+                    ObjectTombstone tombstone(object,
+                            log.getSegmentId(currentReference),
+                            WallTime::secondsTimestamp());
+
+                    Buffer tombstoneBuffer;
+                    tombstone.assembleForLog(tombstoneBuffer);
+                    sideLog->append(LOG_ENTRY_TYPE_OBJTOMB, 
+                            tombstoneBuffer, 
+                            &newTombReference);
+
+                    tombstoneAppendCount++;
                     TableStats::increment(masterTableMetadata,
-                                          key.getTableId(),
-                                          buffer.size(),
-                                          1);
-                }
+                            key.getTableId(),
+                            tombstoneBuffer.size(),
+                            1);
 
-                // JIRA Issue: RAM-674:
-                // If master runs out of space during recovery, this master
-                // should abort the recovery. Coordinator will then try
-                // another master.
-
-                replace(lock, key, newTombReference);
-
-                // nuke the object, if it existed
-                if (freeCurrentEntry) {
-                    liveObjectCount++;
+                    // Track the death of the object
                     liveObjectBytes -= currentBuffer.size();
                     sideLog->free(currentReference);
+                    liveObjectCount--;
+
+                    // Just use this tombstone in the hash table.
+                    if (recoverVersion == currentVersion) {
+                        replace(lock, key, newTombReference);
+                        continue;
+                    }
+
                 }
-            } else {
-                tombstoneDiscardCount++;
+
             }
+             
+            // Reaching this point means that there was either no entry in the
+            // hash table or this tombstone is newer than the current object in
+            // the hash table.
+            // Thus, we add the received tombstone to the hash table to block
+            // earlier version objects and tombstones.
+            recoverTomb.header.timestamp = WallTime::secondsTimestamp();
+            recoverTomb.header.segmentId = 0;
+            recoverTomb.header.checksum = 0;
+            recoverTomb.header.checksum = recoverTomb.computeChecksum();
+
+            // Create a new Buffer to avoid reading and writing from the same
+            // Buffer.
+            Log::Reference newTombReference;
+            Buffer tombstoneBuffer;
+            recoverTomb.assembleForLog(tombstoneBuffer);
+            sideLog->append(LOG_ENTRY_TYPE_OBJTOMB, 
+                    tombstoneBuffer, 
+                    &newTombReference);
+
+            tombstoneAppendCount++;
+            TableStats::increment(masterTableMetadata,
+                    key.getTableId(),
+                    buffer.size(),
+                    1);
+            replace(lock, key, newTombReference);
         } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
             // LOG_ENTRY_TYPE_SAFEVERSION is duplicated to all the
             // partitions in BackupService::buildRecoverySegments()
@@ -779,7 +836,6 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             }
         }
 
-        it.next();
     }
 
     metrics->master.backupInRecoverTicks +=
