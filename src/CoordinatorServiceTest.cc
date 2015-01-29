@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -121,18 +121,6 @@ TEST_F(CoordinatorServiceTest, createTable_idempotence) {
     EXPECT_EQ(2UL, ramcloud->createTable("another", 1));
 }
 
-TEST_F(CoordinatorServiceTest, getRuntimeOption) {
-    Buffer value;
-    ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
-    ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());
-    ramcloud->getRuntimeOption("failRecoveryMasters", &value);
-    EXPECT_STREQ("1 2 3", service->getString(&value, 0,
-                                            value.size()));
-    EXPECT_THROW(ramcloud->getRuntimeOption("optionNotExisting",
-                                            &value),
-                 ObjectDoesntExistException);
-}
-
 TEST_F(CoordinatorServiceTest, getServerList) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
@@ -169,6 +157,18 @@ TEST_F(CoordinatorServiceTest, getServerList_backups) {
             getLocators(list));
 }
 
+TEST_F(CoordinatorServiceTest, getRuntimeOption) {
+    Buffer value;
+    ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
+    ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());
+    ramcloud->getRuntimeOption("failRecoveryMasters", &value);
+    EXPECT_STREQ("1 2 3", service->getString(&value, 0,
+                                            value.size()));
+    EXPECT_THROW(ramcloud->getRuntimeOption("optionNotExisting",
+                                            &value),
+                 ObjectDoesntExistException);
+}
+
 TEST_F(CoordinatorServiceTest, getServerList_masters) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
@@ -187,7 +187,7 @@ TEST_F(CoordinatorServiceTest, getServerList_masters) {
             getLocators(list));
 }
 
-TEST_F(CoordinatorServiceTest, getTableConfig_tabletInfo) {
+TEST_F(CoordinatorServiceTest, getTabletConfig_tabletInfo) {
     ramcloud->createTable("foo");
     ProtoBuf::TableConfig tableConfigProtoBuf;
     CoordinatorClient::getTableConfig(&context, 1, &tableConfigProtoBuf);
@@ -203,7 +203,7 @@ TEST_F(CoordinatorServiceTest, getTableConfig_tabletInfo) {
     EXPECT_EQ("", tableConfigProtoBuf.ShortDebugString());
 }
 
-TEST_F(CoordinatorServiceTest, getTableConfig_indexInfo) {
+TEST_F(CoordinatorServiceTest, getTabletConfig_indexInfo) {
     ramcloud->createTable("foo");
     ramcloud->createIndex(1, 2, 1);
 
@@ -230,11 +230,52 @@ TEST_F(CoordinatorServiceTest, getTableConfig_indexInfo) {
     EXPECT_EQ("", tableConfigProtoBuf.ShortDebugString());
 }
 
-TEST_F(CoordinatorServiceTest, getTableConfig_invalid) {
+TEST_F(CoordinatorServiceTest, getInvalidTableConfig) {
     ramcloud->createTable("bar");
     ProtoBuf::TableConfig tableConfig;
     CoordinatorClient::getTableConfig(&context, 123, &tableConfig);
     EXPECT_EQ("", tableConfig.ShortDebugString());
+}
+
+TEST_F(CoordinatorServiceTest, setRuntimeOption) {
+    ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
+    ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());
+    EXPECT_EQ(1u, service->runtimeOptions.popFailRecoveryMasters());
+    EXPECT_EQ(2u, service->runtimeOptions.popFailRecoveryMasters());
+    EXPECT_EQ(3u, service->runtimeOptions.popFailRecoveryMasters());
+    EXPECT_EQ(0u, service->runtimeOptions.popFailRecoveryMasters());
+    EXPECT_THROW(ramcloud->setRuntimeOption("BAD", "1 2 3"),
+                 ObjectDoesntExistException);
+}
+
+TEST_F(CoordinatorServiceTest, setMasterRecoveryInfo) {
+    ProtoBuf::MasterRecoveryInfo info;
+    info.set_min_open_segment_id(10);
+    info.set_min_open_segment_epoch(1);
+    CoordinatorClient::setMasterRecoveryInfo(&context, masterServerId, info);
+    EXPECT_EQ(10u, service->context->coordinatorServerList->operator[](
+            masterServerId).masterRecoveryInfo.min_open_segment_id());
+}
+
+TEST_F(CoordinatorServiceTest, setMasterRecoveryInfo_noSuchServer) {
+    string message = "no exception";
+    try {
+        ProtoBuf::MasterRecoveryInfo info;
+        info.set_min_open_segment_id(10);
+        info.set_min_open_segment_epoch(1);
+        CoordinatorClient::setMasterRecoveryInfo(&context, {999, 999}, info);
+    }
+    catch (const ServerNotUpException& e) {
+        message = e.toSymbol();
+    }
+    EXPECT_EQ("STATUS_SERVER_NOT_UP", message);
+}
+
+TEST_F(CoordinatorServiceTest, verifyMembership) {
+    CoordinatorClient::verifyMembership(&context, masterServerId);
+    ServerId bogus(3, 2);
+    EXPECT_THROW(CoordinatorClient::verifyMembership(&context, bogus, false),
+                 CallerNotInClusterException);
 }
 
 TEST_F(CoordinatorServiceTest, serverControlAll) {
@@ -273,47 +314,6 @@ TEST_F(CoordinatorServiceTest, serverControlAll_rpcErrors) {
     EXPECT_EQ(1U, respHdr->serverCount);
     EXPECT_EQ(1U, respHdr->respCount);
     EXPECT_EQ(16U, respHdr->totalRespLength);
-}
-
-TEST_F(CoordinatorServiceTest, setMasterRecoveryInfo) {
-    ProtoBuf::MasterRecoveryInfo info;
-    info.set_min_open_segment_id(10);
-    info.set_min_open_segment_epoch(1);
-    CoordinatorClient::setMasterRecoveryInfo(&context, masterServerId, info);
-    EXPECT_EQ(10u, service->context->coordinatorServerList->operator[](
-            masterServerId).masterRecoveryInfo.min_open_segment_id());
-}
-
-TEST_F(CoordinatorServiceTest, setMasterRecoveryInfo_noSuchServer) {
-    string message = "no exception";
-    try {
-        ProtoBuf::MasterRecoveryInfo info;
-        info.set_min_open_segment_id(10);
-        info.set_min_open_segment_epoch(1);
-        CoordinatorClient::setMasterRecoveryInfo(&context, {999, 999}, info);
-    }
-    catch (const ServerNotUpException& e) {
-        message = e.toSymbol();
-    }
-    EXPECT_EQ("STATUS_SERVER_NOT_UP", message);
-}
-
-TEST_F(CoordinatorServiceTest, setRuntimeOption) {
-    ramcloud->setRuntimeOption("failRecoveryMasters", "1 2 3");
-    ASSERT_EQ(3u, service->runtimeOptions.failRecoveryMasters.size());
-    EXPECT_EQ(1u, service->runtimeOptions.popFailRecoveryMasters());
-    EXPECT_EQ(2u, service->runtimeOptions.popFailRecoveryMasters());
-    EXPECT_EQ(3u, service->runtimeOptions.popFailRecoveryMasters());
-    EXPECT_EQ(0u, service->runtimeOptions.popFailRecoveryMasters());
-    EXPECT_THROW(ramcloud->setRuntimeOption("BAD", "1 2 3"),
-                 ObjectDoesntExistException);
-}
-
-TEST_F(CoordinatorServiceTest, verifyMembership) {
-    CoordinatorClient::verifyMembership(&context, masterServerId);
-    ServerId bogus(3, 2);
-    EXPECT_THROW(CoordinatorClient::verifyMembership(&context, bogus, false),
-                 CallerNotInClusterException);
 }
 
 TEST_F(CoordinatorServiceTest, checkServerControlRpcs_basic) {

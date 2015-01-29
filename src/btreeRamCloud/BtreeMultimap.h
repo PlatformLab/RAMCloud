@@ -219,25 +219,6 @@ public:
     }
 
 public:
-    // Returns the NodeId that will be assigned to the next new node written.
-    // The value will be equal to ROOT_ID when the tree is empty.
-    NodeId getNextNodeId()
-    {
-        return tree.getNextNodeId();
-    }
-
-    // Set nextNodeId to the given value.
-    void setNextNodeId(NodeId givenNextNodeId) {
-        tree.setNextNodeId(givenNextNodeId);
-    }
-
-    // Returns true if node specified by nodeKey contains any entries
-    // that have key greater than or equal to compareKey; false otherwise.
-    bool isGreaterOrEqual(Key& nodeKey, const key_type& compareKey) {
-        return tree.isGreaterOrEqual(nodeKey, compareKey);
-    }
-
-public:
     // *** Key and Value Comparison Function Objects
 
     /// Constant access to the key comparison object sorting the B+ tree

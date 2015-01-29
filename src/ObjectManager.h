@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -68,7 +68,7 @@ class ObjectManager : public LogEntryHandlers {
                 uint64_t* outVersion, Buffer* removedObjBuffer = NULL);
     void removeOrphanedObjects();
     void replaySegment(SideLog* sideLog, SegmentIterator& it,
-                std::unordered_map<uint64_t, uint64_t>& nextNodeIdMap);
+                std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap);
     void replaySegment(SideLog* sideLog, SegmentIterator& it);
     void syncChanges();
     Status writeObject(Object& newObject, RejectRules* rejectRules,

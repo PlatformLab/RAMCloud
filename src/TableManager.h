@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -70,13 +70,9 @@ class TableManager {
             CoordinatorUpdateManager* updateManager);
     ~TableManager();
 
-    void coordSplitAndMigrateIndexlet(ServerId newOwner,
-            uint64_t tableId, uint8_t indexId,
-            const void* splitKey, KeyLength splitKeyLength);
     void createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
             uint8_t numIndexlets);
-    uint64_t createTable(const char* name, uint32_t serverSpan,
-            ServerId serverId = ServerId());
+    uint64_t createTable(const char* name, uint32_t serverSpan);
     string debugString(bool shortForm = false);
     void dropIndex(uint64_t tableId, uint8_t indexId);
     void dropTable(const char* name);
@@ -90,6 +86,12 @@ class TableManager {
             ServerId serverId, uint64_t backingTableId);
     bool isIndexletTable(uint64_t tableId);
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
+    void reassignIndexletOwnership(
+            ServerId newOwner, uint64_t tableId, uint8_t indexId,
+            uint64_t backingTableId,
+            const void* firstKey, uint16_t firstKeyLength,
+            const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
+            uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
             uint64_t startKeyHash, uint64_t endKeyHash,
             uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset);
@@ -107,7 +109,7 @@ class TableManager {
      * 
      * Each indexlet is stored by a backing RAMCloud table. The name of the
      * table is synthesized and has the format:
-     * "__backingTable:tableId:indexId:i" where tableId and indexId
+     * "__indexTable:tableId:indexId:i" where tableId and indexId
      * identify the index and i refers to the i-th indexlet corresponding
      * to that index.
      */
@@ -155,7 +157,6 @@ class TableManager {
             : tableId(tableId)
             , indexId(indexId)
             , indexType(indexType)
-            , nextIndexletIdSuffix(0)
             , indexlets()
         {}
         ~Index();
@@ -168,11 +169,6 @@ class TableManager {
 
         /// Type of the index.
         uint8_t indexType;
-
-        /// Currently, the backingTable name for an indexlet is in the format
-        /// "__backingTable:%lu:%d:%d", and nextIndexletIdSuffix indicates
-        /// the next value to use for the last %d in that name.
-        uint8_t nextIndexletIdSuffix;
 
         /// Information about each of the indexlets of index in the table. The
         /// entries are allocated and freed dynamically.
@@ -240,18 +236,19 @@ class TableManager {
     typedef std::unordered_map<uint64_t, Table*> IdMap;
     IdMap idMap;
 
-    /// Maps from backingTable id to indexlet.
-    /// This is a map since every backingTable can have at most one table
+    /// Maps from indexletTable id to indexlet.
+    /// This is a map since every indexletTable can have at most one table
     /// containing indexlet.
     typedef std::unordered_map<uint64_t, Indexlet*> IndexletTableMap;
-    IndexletTableMap backingTableMap;
+    IndexletTableMap indexletTableMap;
 
     uint64_t createTable(const Lock& lock, const char* name,
-            uint32_t serverSpan, ServerId serverId = ServerId());
+            uint32_t serverSpan);
     void dropIndex(const Lock& lock, uint64_t tableId, uint8_t indexId);
     void dropTable(const Lock& lock, const char* name);
     TableManager::Indexlet* findIndexlet(const Lock& lock, Index* index,
-            const void* key, uint16_t keyLength);
+            const void* firstKey, uint16_t firstKeyLength,
+            const void* firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     Tablet* findTablet(const Lock& lock, Table* table, uint64_t keyHash);
     void notifyCreate(const Lock& lock, Table* table);
     void notifyCreateIndex(const Lock& lock, Index* index);

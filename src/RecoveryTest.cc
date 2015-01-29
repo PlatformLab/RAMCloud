@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -220,7 +220,7 @@ TEST_F(RecoveryTest, splitTablets_indexlet) {
     tableManager.testAddTablet({1,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
     tableManager.testCreateTable("t2", 2);
     tableManager.testAddTablet({2,  0,  19, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.testCreateTable("__backingTable:1:1:0", 3);
+    tableManager.testCreateTable("__indexTable:1:1:0", 3);
     tableManager.testAddTablet({3,  0,  ~0UL, {99, 0}, Tablet::RECOVERING, {}});
     tableManager.createIndex(1, 1, 0, 1);
     recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
@@ -1184,7 +1184,7 @@ TEST_F(RecoveryTest, startRecoveryMasters_indexlet) {
     tableManager.testAddTablet({123,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
     tableManager.testAddTablet({123, 20, 29, {99, 0}, Tablet::RECOVERING, {}});
     tableManager.testAddTablet({123, 10, 19, {99, 0}, Tablet::RECOVERING, {}});
-    tableManager.testCreateTable("__backingTable:123:1:0", 3);
+    tableManager.testCreateTable("__indexTable:123:1:0", 3);
     tableManager.testAddTablet({3,  0,  ~0UL, {99, 0}, Tablet::RECOVERING, {}});
     tableManager.createIndex(123, 1, 0, 1);
     Recovery recovery(&context, taskQueue, &tableManager, &tracker, NULL,

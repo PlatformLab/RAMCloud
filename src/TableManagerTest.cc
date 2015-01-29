@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,7 +19,6 @@
 
 #include "TestUtil.h"
 #include "MockCluster.h"
-#include "StringUtil.h"
 #include "TableManager.h"
 #include "TableManager.pb.h"
 
@@ -222,86 +221,13 @@ TEST_F(TableManagerTest, createTable_basics) {
             cluster.externalStorage.getPbValue<ProtoBuf::Table>());
     EXPECT_EQ(3U, updateManager->smallestUnfinished);
 }
-
 TEST_F(TableManagerTest, createTable_tableAlreadyExists) {
     cluster.addServer(masterConfig)->master.get();
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
 }
-
 TEST_F(TableManagerTest, createTable_noMastersInCluster) {
     EXPECT_THROW(tableManager->createTable("foo", 1), RetryException);
-}
-
-TEST_F(TableManagerTest, createTable_givenServerId) {
-    MasterService* master1 = cluster.addServer(masterConfig)->master.get();
-    MasterService* master2 = cluster.addServer(masterConfig)->master.get();
-    MasterService* master3 = cluster.addServer(masterConfig)->master.get();
-    MasterService* master4 = cluster.addServer(masterConfig)->master.get();
-    updateManager->reset();
-
-    // Create a table with one tablet on server number 2 (which would not
-    // be the server chosen by default had we not specified the server id).
-    EXPECT_EQ(1U, tableManager->createTable("firstTable", 1, ServerId(2)));
-    EXPECT_EQ(1U, tableManager->directory["firstTable"]->id);
-    EXPECT_EQ("firstTable", tableManager->idMap[1]->name);
-    EXPECT_EQ("Table { name: firstTable, id 1, "
-            "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
-            "serverId: 2.0, status: NORMAL, ctime: 0.0 } }",
-            tableManager->debugString());
-    EXPECT_EQ(0U, master1->tabletManager.getNumTablets());
-    EXPECT_EQ(1U, master2->tabletManager.getNumTablets());
-    EXPECT_EQ(0U, master3->tabletManager.getNumTablets());
-    EXPECT_EQ(0U, master4->tabletManager.getNumTablets());
-
-    // Create a table with three tablets on server number 3.
-    EXPECT_EQ(2U, tableManager->createTable("secondTable", 3, ServerId(3)));
-    EXPECT_EQ(2U, tableManager->directory["secondTable"]->id);
-    EXPECT_EQ("Table { name: firstTable, id 1, "
-            "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
-            "serverId: 2.0, status: NORMAL, ctime: 0.0 } } "
-            "Table { name: secondTable, id 2, "
-            "Tablet { startKeyHash: 0x0, endKeyHash: 0x5555555555555555, "
-            "serverId: 3.0, status: NORMAL, ctime: 0.0 } "
-            "Tablet { startKeyHash: 0x5555555555555556, "
-            "endKeyHash: 0xaaaaaaaaaaaaaaab, "
-            "serverId: 3.0, status: NORMAL, ctime: 0.0 } "
-            "Tablet { startKeyHash: 0xaaaaaaaaaaaaaaac, "
-            "endKeyHash: 0xffffffffffffffff, "
-            "serverId: 3.0, status: NORMAL, ctime: 0.0 } }",
-            tableManager->debugString());
-    EXPECT_EQ(0U, master1->tabletManager.getNumTablets());
-    EXPECT_EQ(1U, master2->tabletManager.getNumTablets());
-    EXPECT_EQ(3U, master3->tabletManager.getNumTablets());
-    EXPECT_EQ(0U, master4->tabletManager.getNumTablets());
-
-    // Create a table with two tablets without specifying a server id to
-    // ensure the previous tables did not affect the default behaviour.
-    EXPECT_EQ(3U, tableManager->createTable("thirdTable", 2));
-    EXPECT_EQ(3U, tableManager->directory["thirdTable"]->id);
-    EXPECT_EQ("Table { name: firstTable, id 1, "
-            "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
-            "serverId: 2.0, status: NORMAL, ctime: 0.0 } } "
-            "Table { name: secondTable, id 2, "
-            "Tablet { startKeyHash: 0x0, endKeyHash: 0x5555555555555555, "
-            "serverId: 3.0, status: NORMAL, ctime: 0.0 } "
-            "Tablet { startKeyHash: 0x5555555555555556, "
-            "endKeyHash: 0xaaaaaaaaaaaaaaab, "
-            "serverId: 3.0, status: NORMAL, ctime: 0.0 } "
-            "Tablet { startKeyHash: 0xaaaaaaaaaaaaaaac, "
-            "endKeyHash: 0xffffffffffffffff, "
-            "serverId: 3.0, status: NORMAL, ctime: 0.0 } } "
-            "Table { name: thirdTable, id 3, "
-            "Tablet { startKeyHash: 0x0, endKeyHash: 0x7fffffffffffffff, "
-            "serverId: 1.0, status: NORMAL, ctime: 0.0 } "
-            "Tablet { startKeyHash: 0x8000000000000000, "
-            "endKeyHash: 0xffffffffffffffff, "
-            "serverId: 2.0, status: NORMAL, ctime: 0.0 } }",
-            tableManager->debugString());
-    EXPECT_EQ(1U, master1->tabletManager.getNumTablets());
-    EXPECT_EQ(2U, master2->tabletManager.getNumTablets());
-    EXPECT_EQ(3U, master3->tabletManager.getNumTablets());
-    EXPECT_EQ(0U, master4->tabletManager.getNumTablets());
 }
 
 TEST_F(TableManagerTest, dropTable_basics) {
@@ -431,6 +357,156 @@ TEST_F(TableManagerTest, markAllTabletsRecovering) {
             "endKeyHash: 0xffffffffffffffff, "
             "serverId: 1.0, status: RECOVERING, ctime: 0.0 } }",
             tableManager->debugString());
+}
+
+TEST_F(TableManagerTest, reassignIndexletOwnership_basics) {
+    cluster.addServer(masterConfig)->master.get();
+    MasterService* master2 = cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
+    uint64_t tableId = tableManager->createTable("table1", 1);
+    uint8_t indexId = 2;
+    tableManager->createIndex(tableId, indexId, 1, 2);
+    cluster.externalStorage.log.clear();
+    TestLog::reset();
+    TestLog::Enable _("reassignIndexletOwnership");
+
+    // Data table1 is on Server 1. There are two backing tables for the index,
+    // the one for 0th indexlet on Server 2 and the one for 1st indexlet
+    // on Server 1.
+    EXPECT_EQ("Table { name: table1, id 1, "
+            "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
+            "serverId: 1.0, status: NORMAL, ctime: 0.0 } } "
+            "Table { name: __indexTable:1:2:0, id 2, "
+            "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
+            "serverId: 2.0, status: NORMAL, ctime: 0.0 } } "
+            "Table { name: __indexTable:1:2:1, id 3, "
+            "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
+            "serverId: 1.0, status: NORMAL, ctime: 0.0 } }",
+            tableManager->debugString());
+
+    uint64_t backingTableId1 = tableManager->getTableId(
+            format("__indexTable:%lu:%d:%d", tableId, indexId, 1).c_str());
+    tableManager->reassignIndexletOwnership(ServerId(2), tableId, indexId,
+            backingTableId1, "b", 1, "c", 1, 99, 100);
+
+    // Check log messages printed during the function.
+    EXPECT_EQ("reassignIndexletOwnership: Reassigning an indexlet "
+            "in index id 2 for table id 1 from server 1.0 at "
+            "mock:host=server0 to server 2.0 at mock:host=server1 | "
+            "reassignIndexletOwnership: Reassigning tablet "
+            "[0x0,0xffffffffffffffff] in tableId 3 which is the backing table "
+            "for an indexlet in index id 2 for table id 1 from server 1.0 at "
+            "mock:host=server0 to server 2.0 at mock:host=server1",
+            TestLog::get());
+
+    // Check reassignment of indexlet.
+    EXPECT_EQ(2U, master2->indexletManager.getNumIndexlets());
+
+    // Check reassignment of backing table.
+    EXPECT_EQ("Table { name: table1, id 1, "
+            "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
+            "serverId: 1.0, status: NORMAL, ctime: 0.0 } } "
+            "Table { name: __indexTable:1:2:0, id 2, "
+            "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
+            "serverId: 2.0, status: NORMAL, ctime: 0.0 } } "
+            "Table { name: __indexTable:1:2:1, id 3, "
+            "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
+            "serverId: 2.0, status: NORMAL, ctime: 99.100 } }",
+            tableManager->debugString());
+    EXPECT_EQ(2U, master2->tabletManager.getNumTablets());
+
+    // Check Table protobuf stored in external storage.
+    EXPECT_EQ("name: \"table1\" id: 1 "
+            "tablet { start_key_hash: 0 end_key_hash: 18446744073709551615 "
+            "state: NORMAL server_id: 1 ctime_log_head_id: 0 "
+            "ctime_log_head_offset: 0 } "
+            "sequence_number: 4 reassign_indexlet { server_id: 2 index_id: 2 "
+            "first_key: \"b\" first_not_owned_key: \"c\" backing_table_id: 3 }",
+            cluster.externalStorage.getPbValue<ProtoBuf::Table>());
+}
+
+TEST_F(TableManagerTest, reassignIndexletOwnership_noSuchTable_dataTable) {
+    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
+
+    uint64_t tableId = tableManager->createTable("table1", 1);
+    uint8_t indexId = 2;
+    tableManager->createIndex(tableId, indexId, 1, 2);
+    uint64_t backingTableId1 = tableManager->getTableId(
+            format("__indexTable:%lu:%d:%d", tableId, indexId, 1).c_str());
+
+    EXPECT_THROW(tableManager->reassignIndexletOwnership(
+            ServerId(2), tableId + 10, indexId, backingTableId1, "b", 1, "c", 1,
+            99, 100), TableManager::NoSuchTable);
+    EXPECT_NO_THROW(tableManager->reassignIndexletOwnership(
+            ServerId(2), tableId, indexId, backingTableId1, "b", 1, "c", 1,
+            99, 100));
+}
+
+TEST_F(TableManagerTest, reassignIndexletOwnership_noSuchIndexlet) {
+    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
+
+    uint64_t tableId = tableManager->createTable("table1", 1);
+    uint8_t indexId = 2;
+    tableManager->createIndex(tableId, indexId, 1, 2);
+    uint64_t backingTableId1 = tableManager->getTableId(
+            format("__indexTable:%lu:%d:%d", tableId, indexId, 1).c_str());
+
+    // Index doesn't exist.
+    uint8_t wrongIndexId = 4;
+    EXPECT_THROW(tableManager->reassignIndexletOwnership(
+            ServerId(2), tableId, wrongIndexId, backingTableId1,
+            "b", 1, "c", 1, 99, 100), TableManager::NoSuchIndexlet);
+
+    // Index exists, but indexlet doesn't exist.
+    EXPECT_THROW(tableManager->reassignIndexletOwnership(
+            ServerId(2), tableId, indexId, backingTableId1, "a", 1, "c", 1,
+            99, 100), TableManager::NoSuchIndexlet);
+
+    // Everything is good!
+    EXPECT_NO_THROW(tableManager->reassignIndexletOwnership(
+            ServerId(2), tableId, indexId, backingTableId1, "b", 1, "c", 1,
+            99, 100));
+}
+
+TEST_F(TableManagerTest, reassignIndexletOwnership_noSuchTable_backingTable) {
+    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
+
+    uint64_t tableId = tableManager->createTable("table1", 1);
+    uint8_t indexId = 2;
+    tableManager->createIndex(tableId, indexId, 1, 2);
+
+    uint64_t backingTableId1 = tableManager->getTableId(
+            format("__indexTable:%lu:%d:%d", tableId, indexId, 1).c_str());
+
+    EXPECT_THROW(tableManager->reassignIndexletOwnership(
+            ServerId(2), tableId, indexId, backingTableId1 + 10, "b", 1, "c", 1,
+            99, 100), TableManager::NoSuchTable);
+}
+
+TEST_F(TableManagerTest, reassignIndexletOwnership_internalError) {
+    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
+
+    uint64_t tableId = tableManager->createTable("table1", 1);
+    uint8_t indexId = 2;
+    tableManager->createIndex(tableId, indexId, 1, 2);
+
+    const char* backingTableName1 = format("__indexTable:%lu:%d:%d",
+            tableId, indexId, 1).c_str();
+    uint64_t backingTableId1 = tableManager->getTableId(backingTableName1);
+    // Split backing table for one of the indexlets.
+    tableManager->splitTablet(backingTableName1, 0x100);
+
+    EXPECT_THROW(tableManager->reassignIndexletOwnership(
+            ServerId(2), tableId, indexId, backingTableId1, "b", 1, "c", 1,
+            99, 100), InternalError);
 }
 
 TEST_F(TableManagerTest, reassignTabletOwnership_basics) {
@@ -767,81 +843,6 @@ TEST_F(TableManagerTest, serializeIndexConfig) {
     }
 }
 
-TEST_F(TableManagerTest, splitAndMigrateIndexlet_basics) {
-    MasterService* master1 = cluster.addServer(masterConfig)->master.get();
-    MasterService* master2 = cluster.addServer(masterConfig)->master.get();
-
-    updateManager->reset();
-    uint64_t dataTableId = tableManager->createTable("foo", 1);
-    // Ensure that the table was created with a single tablet on master1.
-    assert(master1->tabletManager.getNumTablets() == 1U);
-    assert(master2->tabletManager.getNumTablets() == 0U);
-
-    uint8_t indexId = 1;
-    tableManager->createIndex(dataTableId, indexId, 0, 1);
-    cluster.externalStorage.log.clear();
-
-    // Ensure that the index was created with a single indexlet on master2.
-    assert(master1->tabletManager.getNumTablets() == 1U);
-    assert(master2->tabletManager.getNumTablets() == 1U);
-    assert(master1->indexletManager.getNumIndexlets() == 0U);
-    assert(master2->indexletManager.getNumIndexlets() == 1U);
-
-    char firstKey = 0;
-    char firstNotOwnedKey = 127;
-    string splitKey = "foo";
-
-    EXPECT_NO_THROW(tableManager->coordSplitAndMigrateIndexlet(
-            master1->serverId, dataTableId, indexId,
-            splitKey.c_str(), (uint16_t)splitKey.length()));
-
-    EXPECT_EQ(2U, master1->tabletManager.getNumTablets());
-    EXPECT_EQ(1U, master2->tabletManager.getNumTablets());
-    EXPECT_EQ(1U, master1->indexletManager.getNumIndexlets());
-    EXPECT_EQ(1U, master2->indexletManager.getNumIndexlets());
-
-    SpinLock indexMutex;
-    IndexletManager::Lock indexLock(indexMutex);
-    IndexletManager::IndexletMap::iterator it1 =
-            master1->indexletManager.getIndexlet(
-                dataTableId, indexId,
-                splitKey.c_str(), (uint16_t)splitKey.length(),
-                reinterpret_cast<void *>(&firstNotOwnedKey), 1,
-                indexLock);
-    EXPECT_NE(master1->indexletManager.indexletMap.end(), it1);
-    IndexletManager::IndexletMap::iterator it2 =
-            master2->indexletManager.getIndexlet(
-                dataTableId, indexId, reinterpret_cast<void *>(&firstKey), 1,
-                splitKey.c_str(), (uint16_t)splitKey.length(),
-                indexLock);
-    EXPECT_NE(master2->indexletManager.indexletMap.end(), it2);
-    indexLock.unlock();
-
-    TableManager::IdMap::iterator tableIter =
-            tableManager->idMap.find(dataTableId);
-    TableManager::Table* table = tableIter->second;
-    TableManager::IndexMap::iterator indexIter = table->indexMap.find(indexId);
-    TableManager::Index* index = indexIter->second;
-
-    TableManager::Indexlet* indexlet1 = tableManager->findIndexlet(
-            lock, index, reinterpret_cast<void *>(&firstKey), 1);
-    EXPECT_EQ(0, IndexKey::keyCompare(
-            indexlet1->firstKey, indexlet1->firstKeyLength,
-            reinterpret_cast<void *>(&firstKey), 1));
-    EXPECT_EQ(0, IndexKey::keyCompare(
-            indexlet1->firstNotOwnedKey, indexlet1->firstNotOwnedKeyLength,
-            splitKey.c_str(), (uint16_t)splitKey.length()));
-
-    TableManager::Indexlet* indexlet2 = tableManager->findIndexlet(
-            lock, index, splitKey.c_str(), (uint16_t)splitKey.length());
-    EXPECT_EQ(0, IndexKey::keyCompare(
-            indexlet2->firstKey, indexlet2->firstKeyLength,
-            splitKey.c_str(), (uint16_t)splitKey.length()));
-    EXPECT_EQ(0, IndexKey::keyCompare(
-            indexlet2->firstNotOwnedKey, indexlet2->firstNotOwnedKeyLength,
-            reinterpret_cast<void *>(&firstNotOwnedKey), 1));
-}
-
 TEST_F(TableManagerTest, splitTablet_basics) {
     MasterService* master1 = cluster.addServer(masterConfig)->master.get();
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
@@ -867,7 +868,6 @@ TEST_F(TableManagerTest, splitTablet_basics) {
     EXPECT_EQ("set(UPDATE, tables/foo)",
             cluster.externalStorage.log);
 }
-
 TEST_F(TableManagerTest, splitTablet_splitAlreadyExists) {
     MasterService* master1 = cluster.addServer(masterConfig)->master.get();
     tableManager->createTable("foo", 2);
@@ -881,7 +881,6 @@ TEST_F(TableManagerTest, splitTablet_splitAlreadyExists) {
     EXPECT_EQ(2U, master1->tabletManager.getNumTablets());
     EXPECT_EQ("", cluster.externalStorage.log);
 }
-
 TEST_F(TableManagerTest, splitTablet_tabletRecovering) {
     cluster.addServer(masterConfig)->master.get();
     tableManager->createTable("foo", 2);
@@ -903,12 +902,10 @@ TEST_F(TableManagerTest, splitRecoveringTablet_splitAlreadyExists) {
             "{ 0x8000000000000000-0xffffffffffffffff on 1.0 } }",
             tableManager->debugString(true));
 }
-
 TEST_F(TableManagerTest, splitRecoveringTablet_badTableId) {
     EXPECT_THROW(tableManager->splitRecoveringTablet(99LU, 0x800),
             TableManager::NoSuchTable);
 }
-
 TEST_F(TableManagerTest, splitRecoveringTablet_success) {
     cluster.addServer(masterConfig)->master.get();
     cluster.addServer(masterConfig)->master.get();
@@ -972,15 +969,13 @@ TEST_F(TableManagerTest, findIndexlet) {
             "t", 1, "z", 1, ServerId(4, 0), 2, 1, 1));
 
     TableManager::Indexlet* indexlet;
-    indexlet = tableManager->findIndexlet(lock, &index, "a", 1);
+    indexlet = tableManager->findIndexlet(lock, &index, "a", 1, "c", 1);
     EXPECT_EQ("1.0", indexlet->serverId.toString());
-    indexlet = tableManager->findIndexlet(lock, &index, "m", 1);
+    indexlet = tableManager->findIndexlet(lock, &index, "m", 1, "t", 1);
     EXPECT_EQ("3.0", indexlet->serverId.toString());
-    indexlet = tableManager->findIndexlet(lock, &index, "b", 1);
-    EXPECT_EQ("1.0", indexlet->serverId.toString());
-    indexlet = tableManager->findIndexlet(lock, &index, "z", 1);
+    indexlet = tableManager->findIndexlet(lock, &index, "b", 1, "d", 1);
     EXPECT_TRUE(indexlet == NULL);
-    indexlet = tableManager->findIndexlet(lock, &index, "zzz", 1);
+    indexlet = tableManager->findIndexlet(lock, &index, "z", 1, "zzz", 3);
     EXPECT_TRUE(indexlet == NULL);
 }
 

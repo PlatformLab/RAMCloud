@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -579,10 +579,14 @@ TEST_F(ObjectManagerTest, removeOrphanedObjects) {
         TestLog::get());
 }
 
-TEST_F(ObjectManagerTest, replaySegment_nextNodeIdMap) {
+TEST_F(ObjectManagerTest, replaySegment_highestBTreeIdMap) {
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
+    Buffer buffer;
+    Log::Reference reference;
+    Log::Reference logTomb1Ref;
+    Log::Reference logTomb2Ref;
     SideLog sl(&objectManager.log);
 
     char keyStr[8];
@@ -593,12 +597,12 @@ TEST_F(ObjectManagerTest, replaySegment_nextNodeIdMap) {
     len = buildRecoverySegment(seg, segLen, key0, 1, "newer guy", &certificate);
     Tub<SegmentIterator> it;
     it.construct(&seg[0], len, certificate);
-    std::unordered_map<uint64_t, uint64_t> nextNodeIdMap;
-    nextNodeIdMap[0] = 0;
-    objectManager.replaySegment(&sl, *it, nextNodeIdMap);
-    EXPECT_EQ(12345U, nextNodeIdMap[0]);
-    EXPECT_EQ("found=true tableId=0 byteCount=45 recordCount=1",
-              verifyMetadata(0));
+    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+    highestBTreeIdMap[0] = 0;
+    objectManager.replaySegment(&sl, *it, highestBTreeIdMap);
+    EXPECT_EQ(12345U, highestBTreeIdMap[0]);
+    EXPECT_EQ("found=true tableId=0 byteCount=45 recordCount=1"
+              , verifyMetadata(0));
 }
 
 TEST_F(ObjectManagerTest, replaySegment) {
