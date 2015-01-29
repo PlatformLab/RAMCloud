@@ -119,7 +119,7 @@ ObjectManager::initOnceEnlisted()
  * possible that zero (if that object was removed after client got the key
  * hash), one, or multiple (if there are multiple objects with the same primary
  * key hash) objects match.
- * 
+ *
  * \param tableId
  *      Id of the table containing the object(s).
  * \param reqNumHashes
@@ -182,7 +182,7 @@ ObjectManager::readHashes(const uint64_t tableId, uint32_t reqNumHashes,
             return;
         if (tablet.state != TabletManager::NORMAL) {
             if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
-                throw RetryException(HERE, 1000, 2000, 
+                throw RetryException(HERE, 1000, 2000,
                         "Tablet is currently locked for migration!");
             return;
         }
@@ -360,7 +360,7 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
         return STATUS_UNKNOWN_TABLET;
     if (tablet.state != TabletManager::NORMAL) {
         if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
-            throw RetryException(HERE, 1000, 2000, 
+            throw RetryException(HERE, 1000, 2000,
                     "Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
     }
@@ -643,9 +643,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                     sideLog->free(currentReference);
                     liveObjectCount--;
                 }
-            } 
+            }
 
-            // If we did not decide to throw the object away, then we will add it
+            // If we did not decide to throw the object away earlier, then we
+            // add it here.
             Log::Reference newObjReference;
             {
                 CycleCounter<uint64_t> _(&segmentAppendTicks);
@@ -718,14 +719,15 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                     currentVersion = currentObject.getVersion();
                     currentEntryIsObject = true;
                 }
-                // Throw new tombstone away if the hash table version is strictly newer
+                // Throw new tombstone away if the hash table version is
+                // strictly newer
                 if (recoverVersion < currentVersion) {
                     tombstoneDiscardCount++;
                     continue;
                 }
                 // We assume we will not see an exact duplicate tombstone and
                 // do not handle that case.
-                assert(currentEntryIsObject || 
+                assert(currentEntryIsObject ||
                         recoverVersion != currentVersion);
 
                 // Synthesize a new tombstone specifically so as to maintain
@@ -743,8 +745,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
 
                     Buffer tombstoneBuffer;
                     tombstone.assembleForLog(tombstoneBuffer);
-                    sideLog->append(LOG_ENTRY_TYPE_OBJTOMB, 
-                            tombstoneBuffer, 
+                    sideLog->append(LOG_ENTRY_TYPE_OBJTOMB,
+                            tombstoneBuffer,
                             &newTombReference);
 
                     tombstoneAppendCount++;
@@ -767,7 +769,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 }
 
             }
-             
+
             // Reaching this point means that there was either no entry in the
             // hash table or this tombstone is newer than the current object in
             // the hash table.
@@ -783,8 +785,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             Log::Reference newTombReference;
             Buffer tombstoneBuffer;
             recoverTomb.assembleForLog(tombstoneBuffer);
-            sideLog->append(LOG_ENTRY_TYPE_OBJTOMB, 
-                    tombstoneBuffer, 
+            sideLog->append(LOG_ENTRY_TYPE_OBJTOMB,
+                    tombstoneBuffer,
                     &newTombReference);
 
             tombstoneAppendCount++;
@@ -942,7 +944,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         return STATUS_UNKNOWN_TABLET;
     if (tablet.state != TabletManager::NORMAL) {
         if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
-            throw RetryException(HERE, 1000, 2000, 
+            throw RetryException(HERE, 1000, 2000,
                     "Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
     }
@@ -1210,13 +1212,13 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
  * Adds a log entry header, an object header and the object contents
  * to a buffer. This is preparatory work so that eventually, all the
  * entries in the buffer can be flushed to the log atomically.
- * 
+ *
  * This method is currently used by the Btree module to prepare a buffer
  * for the log. The idea is that eventually, each of the log entries in
  * the buffer can be flushed atomically by the log.
  * It is general enough to be used by any other module.
- * 
- * 
+ *
+ *
  * \param newObject
  *      The object for which the object header and the log entry
  *      header need to be constructed.
@@ -1345,7 +1347,7 @@ ObjectManager::writeTombstone(Key& key, Buffer *logBuffer)
         return STATUS_UNKNOWN_TABLET;
     if (tablet.state != TabletManager::NORMAL) {
         if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
-            throw RetryException(HERE, 1000, 2000, 
+            throw RetryException(HERE, 1000, 2000,
                     "Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
     }
@@ -1420,7 +1422,7 @@ ObjectManager::relocate(LogEntryType type, Buffer& oldBuffer,
     if (type == LOG_ENTRY_TYPE_OBJ)
         relocateObject(oldBuffer, oldReference, relocator);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
-        relocateTombstone(oldBuffer, relocator);
+        relocateTombstone(oldBuffer, oldReference, relocator);
 }
 
 /**
@@ -1883,7 +1885,8 @@ ObjectManager::relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
  *      The reference to verify for presence in the hash table.
  */
 bool
-ObjectManager::keyPointsAtReference(Key& key, AbstractLog::Reference reference) {
+ObjectManager::keyPointsAtReference(Key& key, AbstractLog::Reference reference)
+{
 
     HashTableBucketLock lock(*this, key);
 
@@ -1899,6 +1902,7 @@ ObjectManager::keyPointsAtReference(Key& key, AbstractLog::Reference reference) 
     return false;
 }
 
+
 /**
  * Callback used by the LogCleaner when it's cleaning a Segment and comes
  * across a Tombstone.
@@ -1910,6 +1914,10 @@ ObjectManager::keyPointsAtReference(Key& key, AbstractLog::Reference reference) 
  * \param oldBuffer
  *      Buffer pointing to the tombstone's current location, which will soon be
  *      invalidated.
+ * \param oldReference
+ *      Reference to the old tombstone in the log. This is used to check whether
+ *      the hash table still points at the tombstone, because we must copy the
+ *      tombstone and update the reference if that is the case.
  * \param relocator
  *      The relocator may be used to store the tombstone in a new location if it
  *      is still alive. It also provides a reference to the new location and
@@ -1920,19 +1928,40 @@ ObjectManager::keyPointsAtReference(Key& key, AbstractLog::Reference reference) 
  *      cleaner will note the failure, allocate more memory, and try again.
  */
 void
-ObjectManager::relocateTombstone(Buffer& oldBuffer,
+ObjectManager::relocateTombstone(Buffer& oldBuffer, Log::Reference oldReference,
                 LogEntryRelocator& relocator)
 {
     ObjectTombstone tomb(oldBuffer);
 
     // See if the object this tombstone refers to is still in the log.
-    bool keepNewTomb = log.segmentExists(tomb.getSegmentId());
+    bool objectExists = log.segmentExists(tomb.getSegmentId());
+    bool hashReferenceExists = false;
+
+    // Check if the hash table still references this tombstone and update the
+    // pointer if it does. For efficiency, we perform the lookup here so we can
+    // do the update inline if it turns out to be necessary.
+    Key key(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer);
+    HashTableBucketLock lock(*this, key);
+    HashTable::Candidates candidates;
+    objectMap.lookup(key.getHash(), candidates);
+    while (!candidates.isDone()) {
+        if (candidates.getReference() != oldReference.toInteger()) {
+            candidates.next();
+            continue;
+        }
+        hashReferenceExists = true;
+        break;
+    }
+
+    bool keepNewTomb = objectExists || hashReferenceExists;
 
     if (keepNewTomb) {
         // Try to relocate it. If it fails, just return. The cleaner will
         // allocate more memory and retry.
         if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer))
             return;
+        if (hashReferenceExists)
+            candidates.setReference(relocator.getNewReference().toInteger());
     } else {
         // Tombstone will be dropped/"cleaned" so stats should be updated.
         TableStats::decrement(masterTableMetadata,

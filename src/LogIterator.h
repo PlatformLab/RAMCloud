@@ -54,7 +54,7 @@ class LogIterator {
     // Renew the segmentList with the latest updates from the log.
     // If we reach the head segment, and do not lock the head, our current
     // SegmentIterator will cache the length of the segment at the time of its
-    // own construction. 
+    // own construction.
     //
     // Meanwhile, the log can continue to grow because its
     // appendLock is still free.

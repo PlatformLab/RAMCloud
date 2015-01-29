@@ -955,9 +955,9 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t11(buffer);
 
     EXPECT_EQ(t11.header.segmentId, 0U);
-    EXPECT_EQ(string(reinterpret_cast<const char*>(t11.getKey()), 
+    EXPECT_EQ(string(reinterpret_cast<const char*>(t11.getKey()),
                 t11.getKeyLength()),
-              string(reinterpret_cast<const char*>(t10.getKey()), 
+              string(reinterpret_cast<const char*>(t10.getKey()),
                   t10.getKeyLength()));
     EXPECT_EQ(t11.getObjectVersion(), t10.getObjectVersion());
     ////////////////////////////////////////////////////////////////////
@@ -1640,7 +1640,7 @@ TEST_F(ObjectManagerTest, keyPointsAtReference) {
     Buffer objBuffer;
     obj.assembleForLog(objBuffer);
     sl.append(LOG_ENTRY_TYPE_OBJ, objBuffer);
-    
+
     it.construct(*sl.head);
     while (it->getType() != LOG_ENTRY_TYPE_OBJ)
         it->next();
@@ -1770,9 +1770,8 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_cleanTombstone) {
     EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));
 
-    LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
-    oldTypeInLog = objectManager.log.getEntry(oldTombstoneReference,
+    objectManager.log.getEntry(oldTombstoneReference,
                                           oldBufferInLog);
 
     LogEntryRelocator relocator(
@@ -1785,6 +1784,42 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_cleanTombstone) {
     // Tombstone should have been cleaned leaving no bytes and no objects.
     EXPECT_EQ("found=true tableId=0 byteCount=0 recordCount=0"
               , verifyMetadata(0));
+}
+TEST_F(ObjectManagerTest, tombstoneRelocationCallback_hashTableRefUpdate) {
+    Key key(0, "1", 1);
+    Buffer value;
+    Object obj(key, "hi", 2, 0, 0, value);
+
+    ObjectTombstone tombstone(obj, 0, 0);
+    Log::Reference tombstoneReference;
+    Buffer tombstoneBuffer;
+    tombstone.assembleForLog(tombstoneBuffer);
+    objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer,
+            &tombstoneReference);
+
+    Buffer oldBufferInLog;
+    objectManager.log.getEntry(tombstoneReference,
+                                          oldBufferInLog);
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        objectManager.replace(lock, key, tombstoneReference);
+    }
+    EXPECT_TRUE(objectManager.keyPointsAtReference(
+                key, tombstoneReference));
+
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_OBJTOMB,
+                           oldBufferInLog,
+                           tombstoneReference,
+                           relocator);
+    EXPECT_TRUE(relocator.didAppend);
+    EXPECT_NE(relocator.getNewReference(), tombstoneReference);
+    EXPECT_FALSE(objectManager.keyPointsAtReference(
+                key, tombstoneReference));
+    EXPECT_TRUE(objectManager.keyPointsAtReference(
+                key, relocator.getNewReference()));
 }
 
 TEST_F(ObjectManagerTest, replace_noPriorVersion) {

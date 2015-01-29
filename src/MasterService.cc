@@ -816,7 +816,7 @@ MasterService::migrateSingleObject(
     if (type == LOG_ENTRY_TYPE_OBJ) {
         // Only send objects when they're currently in the hash table.
         // Otherwise they're dead.
-        if (!objectManager.keyPointsAtReference(key, 
+        if (!objectManager.keyPointsAtReference(key,
                     it.getReference())) {
             return 0;
         }

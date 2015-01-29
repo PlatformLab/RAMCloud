@@ -327,11 +327,11 @@ TEST_F(LogIteratorTest, refresh) {
         while (!i.isDone())
             i.next();
         i.refresh();
-        EXPECT_TRUE(i.isDone()); 
+        EXPECT_TRUE(i.isDone());
         l.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
-        EXPECT_TRUE(i.isDone()); 
+        EXPECT_TRUE(i.isDone());
         i.refresh();
-        EXPECT_FALSE(i.isDone()); 
+        EXPECT_FALSE(i.isDone());
     }
     // Locked head, implicit refresh
     {

@@ -197,7 +197,7 @@ Log::Position
 LogIterator::getPosition() {
     if (currentIterator)
         return Log::Position(currentSegmentId, currentIterator->getOffset());
-    else 
+    else
         return Log::Position(currentSegmentId + 1, 0);
 }
 

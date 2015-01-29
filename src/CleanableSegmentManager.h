@@ -71,6 +71,7 @@ class CleanableSegmentManager {
   public:
     CleanableSegmentManager(SegmentManager& segmentManager,
                             const ServerConfig* config,
+                            Context* context,
                             LogCleanerMetrics::OnDisk<>& onDiskMetrics);
     ~CleanableSegmentManager();
     int getLiveObjectUtilization();
@@ -115,6 +116,11 @@ class CleanableSegmentManager {
     /// The current value 5 was experimentally found to be reasonable (good
     /// performance in a number of benchmarks, and relatively low overhead).
     enum { SCAN_TOMBSTONES_EVERY_N_SEGMENTS = 5 };
+
+    /// This context is used for reaching into the hash table to query the
+    /// liveness of tombstones, because tombstones that are still referenced by
+    /// the hash table cannot be safely cleaned.
+    Context* context;
 
     /// The SegmentManager responsible for allocating log segments. This is
     /// needed to query for newly cleanable segments.
