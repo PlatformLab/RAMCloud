@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1236,20 +1236,20 @@ TEST_F(MasterServiceTest, prepForMigration) {
 
     // Overlap
     EXPECT_THROW(MasterClient::prepForMigration(&context,
-            masterServer->serverId, 5, 27, 873, 0, 0),
+            masterServer->serverId, 5, 27, 873),
             ObjectExistsException);
     EXPECT_EQ("prepForMigration: Already have tablet [0x1b,0x369] "
             "in tableId 5, cannot add [0x1b,0x369]", TestLog::get());
     EXPECT_THROW(MasterClient::prepForMigration(&context,
-            masterServer->serverId, 5, 0, 27, 0, 0),
+            masterServer->serverId, 5, 0, 27),
             ObjectExistsException);
     EXPECT_THROW(MasterClient::prepForMigration(&context,
-            masterServer->serverId, 5, 873, 82743, 0, 0),
+            masterServer->serverId, 5, 873, 82743),
             ObjectExistsException);
 
     TestLog::reset();
     MasterClient::prepForMigration(&context,
-            masterServer->serverId, 5, 1000, 2000, 0, 0);
+            masterServer->serverId, 5, 1000, 2000);
     TabletManager::Tablet tablet;
     EXPECT_TRUE(service->tabletManager.getTablet(5, 1000, 2000, &tablet));
     EXPECT_EQ(5U, tablet.tableId);
@@ -1258,6 +1258,104 @@ TEST_F(MasterServiceTest, prepForMigration) {
     EXPECT_EQ(TabletManager::RECOVERING, tablet.state);
     EXPECT_EQ("prepForMigration: Ready to receive tablet [0x3e8,0x7d0] "
             "in tableId 5 from \"??\"", TestLog::get());
+}
+
+TEST_F(MasterServiceTest, prepForIndexletMigration) {
+    uint64_t dataTableId = ramcloud->createTable("dataTable");
+    uint8_t indexId = 1;
+    uint64_t backingTableId = ramcloud->createTable("backingTable");
+    uint64_t newBackingTableId = ramcloud->createTable("newBackingTableId");
+    string firstKey = "abc";
+    string splitKey = "pqr";
+    string firstNotOwnedKey = "xyz";
+
+    service->indexletManager.addIndexlet(dataTableId, indexId, backingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    TestLog::Enable _("prepForIndexletMigration");
+
+    // Failure cases
+    EXPECT_THROW(MasterClient::prepForIndexletMigration(
+            &context, masterServer->serverId, dataTableId, indexId,
+            newBackingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length()),
+                ObjectExistsException);
+    EXPECT_EQ("prepForIndexletMigration: Already have given indexlet "
+            "in indexId 1 for tableId 1, cannot add.", TestLog::get());
+    EXPECT_THROW(MasterClient::prepForIndexletMigration(
+            &context, masterServer->serverId, dataTableId, indexId,
+            newBackingTableId, "abcd", 4, "xy", 2),
+                InternalError);
+
+    // Success
+    TestLog::reset();
+    EXPECT_NO_THROW(MasterClient::prepForIndexletMigration(
+            &context, masterServer->serverId, dataTableId, indexId,
+            newBackingTableId, "y", 1, "z", 1));
+    EXPECT_EQ("prepForIndexletMigration: Ready to receive indexlet "
+            "in indexId 1 for tableId 1", TestLog::get());
+
+    SpinLock indexMutex;
+    IndexletManager::Lock indexLock(indexMutex);
+    IndexletManager::IndexletMap::iterator it =
+            service->indexletManager.getIndexlet(
+                    dataTableId, indexId, "y", 1, "z", 1, indexLock);
+    EXPECT_NE(service->indexletManager.indexletMap.end(), it);
+    IndexletManager::Indexlet* indexlet = &it->second;
+    EXPECT_EQ(0, IndexKey::keyCompare(
+            indexlet->firstKey, indexlet->firstKeyLength, "y", 1));
+    EXPECT_EQ(0, IndexKey::keyCompare(
+            indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength,
+            "z", 1));
+    EXPECT_EQ(IndexletManager::Indexlet::RECOVERING, indexlet->state);
+}
+
+TEST_F(MasterServiceTest, readHashes) {
+    // Most of the functionality for readHashes is in ObjectManager,
+    // so we do extensive unit testing there.
+    // Let's just ensure that the strings are parsed fine in the MasterService
+    // class.
+    // This may be overkill, and we may not acually need this test here.
+    uint64_t tableId = 1;
+    uint8_t numKeys = 2;
+
+    KeyInfo keyList0[2];
+    keyList0[0].keyLength = 8;
+    keyList0[0].key = "obj0key0";
+    keyList0[1].keyLength = 8;
+    keyList0[1].key = "obj0key1";
+
+    ramcloud->write(tableId, numKeys, keyList0, "obj0value",
+            NULL, NULL, false);
+
+    Buffer pKHashes;
+    // Key::getHash(tableId, "obj0key0", 8) gives 4921604586378860710,
+    uint64_t hashVal0 = 4921604586378860710;
+    pKHashes.appendExternal(&hashVal0, 8);
+
+    // readHashes such that both objects are read.
+    Buffer responseBuffer;
+    uint32_t numObjectsResponse;
+    uint32_t numHashesResponse = ramcloud->readHashes(
+            tableId, 1, &pKHashes, &responseBuffer, &numObjectsResponse);
+
+    // numHashes and numObjects
+    EXPECT_EQ(1U, numHashesResponse);
+    EXPECT_EQ(1U, numObjectsResponse);
+    uint32_t respOffset = sizeof32(WireFormat::ReadHashes::Response);
+
+    // version of object0
+    EXPECT_EQ(1U, *responseBuffer.getOffset<uint64_t>(respOffset));
+    respOffset += 8;
+    // value of object0
+    uint32_t obj1Length = *responseBuffer.getOffset<uint32_t>(respOffset);
+    respOffset += 4;
+    Object o1(tableId, 1, 0, responseBuffer, respOffset, obj1Length);
+    respOffset += obj1Length;
+    EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(o1.getValue()),
+            o1.getValueLength()));
 }
 
 TEST_F(MasterServiceTest, read_basics) {
@@ -1332,24 +1430,24 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
     Segment s;
 
     MasterClient::prepForMigration(&context, masterServer->serverId,
-            5, 1, -1UL, 0, 0);
+            5, 1, -1UL);
 
     TestLog::Enable _("receiveMigrationData");
 
     EXPECT_THROW(MasterClient::receiveMigrationData(&context,
-            masterServer->serverId, 6, 0, &s),
+            masterServer->serverId, &s, 6, 0),
             UnknownTabletException);
     EXPECT_EQ("receiveMigrationData: Receiving 0 bytes of migration data "
             "for tablet [0x0,??] in tableId 6 | "
             "receiveMigrationData: migration data received for unknown "
             "tablet [0x0,??] in tableId 6", TestLog::get());
     EXPECT_THROW(MasterClient::receiveMigrationData(&context,
-            masterServer->serverId, 5, 0, &s),
+            masterServer->serverId, &s, 5, 0),
             UnknownTabletException);
 
     TestLog::reset();
     EXPECT_THROW(MasterClient::receiveMigrationData(&context,
-            masterServer->serverId, 1, 0, &s),
+            masterServer->serverId, &s, 1, 0),
             InternalError);
     EXPECT_EQ("receiveMigrationData: Receiving 0 bytes of migration data for "
             "tablet [0x0,??] in tableId 1 | receiveMigrationData: migration "
@@ -1357,17 +1455,18 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
             TestLog::get());
 
     Key key(5, "wee!", 4);
-    Buffer dataBuffer;
-    Object o(key, "watch out for the migrant object", 32, 0, 0, dataBuffer);
+    Buffer dummyDataBuffer;
+    Object o(key, "watch out for the migrant object", 32, 0, 0,
+            dummyDataBuffer);
 
-    Buffer buffer;
-    o.assembleForLog(buffer);
+    Buffer bufferForLog;
+    o.assembleForLog(bufferForLog);
 
-    s.append(LOG_ENTRY_TYPE_OBJ, buffer);
+    s.append(LOG_ENTRY_TYPE_OBJ, bufferForLog);
     s.close();
 
     MasterClient::receiveMigrationData(&context, masterServer->serverId,
-            5, 1, &s);
+            &s, 5, 1);
 
     ObjectBuffer logBuffer;
     Status status = service->objectManager.readObject(key, &logBuffer, 0, 0);
@@ -1379,6 +1478,70 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
     EXPECT_EQ(STATUS_OK, status);
     EXPECT_EQ(string(reinterpret_cast<const char*>(logBuffer.getValue()), 32),
             "watch out for the migrant object");
+}
+
+TEST_F(MasterServiceTest, receiveMigrationData_indexletData) {
+    Segment s;
+
+    uint64_t dataTableId = 100;
+    uint8_t indexId = 1;
+    uint64_t newBackingTableId = ramcloud->createTable("newBackingTable");
+    string firstKey = "abc";
+    string firstNotOwnedKey = "xyz";
+
+    MasterClient::prepForIndexletMigration(
+            &context, masterServer->serverId, dataTableId, indexId,
+            newBackingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    char keyStr[8];
+    uint64_t *bTreeKey = reinterpret_cast<uint64_t*>(keyStr);
+    *bTreeKey = 12345;
+    Key key(newBackingTableId, keyStr, 8);
+
+    Buffer dummyDataBuffer;
+    Object o(key, "watch out for the migrant object", 32, 0, 0,
+            dummyDataBuffer);
+
+    Buffer bufferForLog;
+    o.assembleForLog(bufferForLog);
+    s.append(LOG_ENTRY_TYPE_OBJ, bufferForLog);
+    s.close();
+
+    TestLog::Enable _("receiveMigrationData");
+
+    EXPECT_NO_THROW(MasterClient::receiveMigrationData(
+            &context, masterServer->serverId, &s,
+            newBackingTableId, 0,
+            true, dataTableId, indexId,
+            firstKey.c_str(), (uint16_t)firstKey.length()));
+
+    EXPECT_EQ("receiveMigrationData: Receiving 69 bytes of migration data for "
+            "tablet [0x0,??] in tableId 1 | "
+            "receiveMigrationData: Recovering nextNodeId.", TestLog::get());
+
+    // Ensure data recovered correctly.
+    ObjectBuffer bufferFromLog;
+    Status status;
+    status = service->objectManager.readObject(key, &bufferFromLog, 0, 0);
+    EXPECT_NE(STATUS_OK, status);
+    // Need to mark the tablet as NORMAL before we can read from it.
+    service->tabletManager.changeState(
+            newBackingTableId, 0UL, ~0UL,
+            TabletManager::RECOVERING, TabletManager::NORMAL);
+    status = service->objectManager.readObject(key, &bufferFromLog, 0, 0);
+    EXPECT_EQ(STATUS_OK, status);
+    EXPECT_EQ("watch out for the migrant object",
+            string(reinterpret_cast<const char*>(
+                    bufferFromLog.getValue()), 32));
+
+    // Ensure nextNodeId recovered correctly.
+    IndexletManager::Indexlet* indexlet =
+            service->indexletManager.findIndexlet(dataTableId, indexId,
+            firstKey.c_str(), (uint16_t)firstKey.length());
+
+    EXPECT_EQ(12345U, indexlet->bt->getNextNodeId());
 }
 
 static bool
@@ -1540,6 +1703,245 @@ TEST_F(MasterServiceTest, requestRemoveIndexEntries_basics) {
             "key key2, primaryKeyHash %lu" ,
             key.getHash(), key.getHash()),
             TestLog::get());
+}
+
+
+TEST_F(MasterServiceTest, splitAndMigrateIndexlet_indexletNotOnServer) {
+    ServerConfig master2Config = masterConfig;
+    master2Config.master.numReplicas = 0;
+    master2Config.localLocator = "mock:host=master2";
+    Server* master2 = cluster.addServer(master2Config);
+
+    uint8_t indexId = 1;
+    string splitKey = "pqr";
+
+    uint64_t dataTableId = cluster.coordinator->tableManager.createTable(
+            "dataTable", 1, masterServer->serverId);
+    uint64_t backingTableId = cluster.coordinator->tableManager.createTable(
+            "backingTable", 1, masterServer->serverId);
+    uint64_t newBackingTableId = cluster.coordinator->tableManager.createTable(
+            "newBackingTable", 2, master2->serverId);
+
+    TestLog::Enable _("splitAndMigrateIndexlet");
+    EXPECT_THROW(MasterClient::splitAndMigrateIndexlet(
+            &context, masterServer->serverId, master2->serverId,
+            dataTableId, indexId,
+            backingTableId, newBackingTableId,
+            splitKey.c_str(), (uint16_t)splitKey.length()),
+                    UnknownIndexletException);
+    EXPECT_EQ("splitAndMigrateIndexlet: Split and migration request "
+            "for indexlet this master does not own: "
+            "indexlet in indexId 1 in tableId 1.",
+                    TestLog::get());
+}
+
+TEST_F(MasterServiceTest, splitAndMigrateIndexlet_tabletNotOnServer) {
+    ServerConfig master2Config = masterConfig;
+    master2Config.master.numReplicas = 0;
+    master2Config.localLocator = "mock:host=master2";
+    Server* master2 = cluster.addServer(master2Config);
+
+    uint8_t indexId = 1;
+    string firstKey = "abc";
+    string splitKey = "pqr";
+    string firstNotOwnedKey = "xyz";
+
+    uint64_t dataTableId = cluster.coordinator->tableManager.createTable(
+            "dataTable", 1, masterServer->serverId);
+    // Create backingTable on the wrong server to trigger error we want tested.
+    uint64_t backingTableId = cluster.coordinator->tableManager.createTable(
+            "backingTable", 1, master2->serverId);
+    uint64_t newBackingTableId = cluster.coordinator->tableManager.createTable(
+            "newBackingTable", 1, master2->serverId);
+
+    service->indexletManager.addIndexlet(dataTableId, indexId, backingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    TestLog::Enable _("splitAndMigrateIndexlet");
+    EXPECT_THROW(MasterClient::splitAndMigrateIndexlet(
+            &context, masterServer->serverId, master2->serverId,
+            dataTableId, indexId,
+            backingTableId, newBackingTableId,
+            splitKey.c_str(), (uint16_t)splitKey.length()),
+                    UnknownTabletException);
+    EXPECT_EQ("splitAndMigrateIndexlet: Split and migration request "
+            "for indexlet this master does not own: backing table for "
+            "indexlet in indexId 1 in tableId 1.",
+                    TestLog::get());
+}
+
+TEST_F(MasterServiceTest, splitAndMigrateIndexlet_migrateToSelf) {
+    uint8_t indexId = 1;
+    string firstKey = "abc";
+    string splitKey = "pqr";
+    string firstNotOwnedKey = "xyz";
+
+    uint64_t dataTableId = cluster.coordinator->tableManager.createTable(
+            "dataTable", 1, masterServer->serverId);
+    uint64_t backingTableId = cluster.coordinator->tableManager.createTable(
+            "backingTable", 1, masterServer->serverId);
+    uint64_t newBackingTableId = cluster.coordinator->tableManager.createTable(
+            "newBackingTable", 1, masterServer->serverId);
+
+    service->indexletManager.addIndexlet(dataTableId, indexId, backingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    TestLog::Enable _("splitAndMigrateIndexlet");
+    EXPECT_THROW(MasterClient::splitAndMigrateIndexlet(
+            &context, masterServer->serverId, masterServer->serverId,
+            dataTableId, indexId,
+            backingTableId, newBackingTableId,
+            splitKey.c_str(), (uint16_t)splitKey.length()),
+                    RequestFormatError);
+    EXPECT_EQ("splitAndMigrateIndexlet: Migrating to myself doesn't make "
+            "much sense.", TestLog::get());
+}
+
+TEST_F(MasterServiceTest, splitAndMigrateIndexlet_wrongTable) {
+    uint64_t dataTableId = ramcloud->createTable("dataTable");
+    uint64_t backingTableId = ramcloud->createTable("backingTable");
+
+    Key key(dataTableId, "dummyKey", 8);
+    Buffer dummyDataBuffer;
+    Object o(key, "dummyValue", 10, 0, 0, dummyDataBuffer);
+    RejectRules dummyRejectRules;
+    uint64_t dummyVersion;
+    Buffer dummyOldBuffer;
+    // Querying for status pushes the object to log, and not querying doesn't.
+    Status status = service->objectManager.writeObject(
+            o, &dummyRejectRules, &dummyVersion, &dummyOldBuffer);
+    EXPECT_EQ(0, status);
+    service->objectManager.log.sync();
+
+    uint8_t indexId = 1;
+    string firstKey = "abc";
+    string splitKey = "pqr";
+    string firstNotOwnedKey = "xyz";
+
+    service->indexletManager.addIndexlet(dataTableId, indexId, backingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    // Add new server after creating the data table and the backing table for
+    // the indexlet, so that those tables get forced on masterServer.
+    ServerConfig master2Config = masterConfig;
+    master2Config.master.numReplicas = 0;
+    master2Config.localLocator = "mock:host=master2";
+    Server* master2 = cluster.addServer(master2Config);
+    Log* master2Log = &master2->master->objectManager.log;
+    master2Log->sync();
+    uint64_t newBackingTableId = ramcloud->createTable("newBackingTable");
+
+    TestLog::Enable _("splitAndMigrateIndexlet");
+    EXPECT_NO_THROW(MasterClient::splitAndMigrateIndexlet(
+            &context, masterServer->serverId, master2->serverId,
+            dataTableId, indexId,
+            backingTableId, newBackingTableId,
+            splitKey.c_str(), (uint16_t)splitKey.length()));
+    EXPECT_EQ("splitAndMigrateIndexlet: Migrating a partition of an indexlet "
+            "in indexId 1 in tableId 1 "
+            "from server 2.0 at mock:host=master (this server) "
+            "to server 3.0 at mock:host=master2. | "
+            "splitAndMigrateIndexlet: Found entry that doesn't belong to the "
+            "table being migrated. Continuing to the next. | "
+            "splitAndMigrateIndexlet: Sent 0 total objects, "
+            "0 total tombstones, 0 total bytes.",
+                    TestLog::get());
+}
+
+TEST_F(MasterServiceTest, splitAndMigrateIndexlet_wrongPartition) {
+    uint64_t dataTableId = ramcloud->createTable("dataTable");
+    uint64_t backingTableId = ramcloud->createTable("backingTable");
+
+    uint8_t indexId = 1;
+    string firstKey = "abc";
+    string splitKey = "pqr";
+    string firstNotOwnedKey = "xyz";
+
+    service->indexletManager.addIndexlet(dataTableId, indexId, backingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    service->indexletManager.insertEntry(dataTableId, indexId,
+            "alpha", 5, 12345U);
+    service->objectManager.log.sync();
+
+    // Add new server after creating the data table and the backing table for
+    // the indexlet, so that those tables get forced on masterServer.
+    ServerConfig master2Config = masterConfig;
+    master2Config.master.numReplicas = 0;
+    master2Config.localLocator = "mock:host=master2";
+    Server* master2 = cluster.addServer(master2Config);
+    Log* master2Log = &master2->master->objectManager.log;
+    master2Log->sync();
+    uint64_t newBackingTableId = ramcloud->createTable("newBackingTable");
+
+    TestLog::Enable _("splitAndMigrateIndexlet");
+    EXPECT_NO_THROW(MasterClient::splitAndMigrateIndexlet(
+            &context, masterServer->serverId, master2->serverId,
+            dataTableId, indexId,
+            backingTableId, newBackingTableId,
+            splitKey.c_str(), (uint16_t)splitKey.length()));
+    EXPECT_EQ("splitAndMigrateIndexlet: Migrating a partition of an indexlet "
+            "in indexId 1 in tableId 1 "
+            "from server 2.0 at mock:host=master (this server) "
+            "to server 3.0 at mock:host=master2. | "
+            "splitAndMigrateIndexlet: Found entry that doesn't belong to the "
+            "partition being migrated. Continuing to the next. | "
+            "splitAndMigrateIndexlet: Sent 0 total objects, "
+            "0 total tombstones, 0 total bytes.",
+                    TestLog::get());
+}
+
+TEST_F(MasterServiceTest, splitAndMigrateIndexlet_moveData) {
+    uint64_t dataTableId = ramcloud->createTable("dataTable");
+    uint64_t backingTableId = ramcloud->createTable("backingTable");
+
+    uint8_t indexId = 1;
+    string firstKey = "abc";
+    string splitKey = "pqr";
+    string firstNotOwnedKey = "xyz";
+
+    service->indexletManager.addIndexlet(dataTableId, indexId, backingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    service->indexletManager.insertEntry(dataTableId, indexId,
+            "queen", 5, 12345U);
+    service->objectManager.log.sync();
+
+    // Add new server after creating the data table and the backing table for
+    // the indexlet, so that those tables get forced on masterServer.
+    ServerConfig master2Config = masterConfig;
+    master2Config.master.numReplicas = 0;
+    master2Config.localLocator = "mock:host=master2";
+    Server* master2 = cluster.addServer(master2Config);
+    Log* master2Log = &master2->master->objectManager.log;
+    master2Log->sync();
+
+    uint64_t newBackingTableId = ramcloud->createTable("newBackingTable");
+    MasterClient::prepForIndexletMigration(
+            &context, master2->serverId, dataTableId, indexId,
+            newBackingTableId,
+            splitKey.c_str(), (uint16_t)splitKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    TestLog::Enable _("splitAndMigrateIndexlet");
+    EXPECT_NO_THROW(MasterClient::splitAndMigrateIndexlet(
+            &context, masterServer->serverId, master2->serverId,
+            dataTableId, indexId,
+            backingTableId, newBackingTableId,
+            splitKey.c_str(), (uint16_t)splitKey.length()));
+    EXPECT_EQ("splitAndMigrateIndexlet: Migrating a partition of an indexlet "
+            "in indexId 1 in tableId 1 "
+            "from server 2.0 at mock:host=master "
+            "(this server) to server 3.0 at mock:host=master2. | "
+            "splitAndMigrateIndexlet: Sending last migration segment | "
+            "splitAndMigrateIndexlet: Sent 1 total objects, "
+            "0 total tombstones, 571 total bytes.",
+                    TestLog::get());
 }
 
 TEST_F(MasterServiceTest, splitMasterTablet) {
@@ -2073,9 +2475,9 @@ TEST_F(MasterServiceTest, recover) {
     };
 
     TestLog::Enable _;
-    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+    std::unordered_map<uint64_t, uint64_t> nextNodeIdMap;
     EXPECT_THROW(service->recover(456lu, serverId, 0, replicas,
-            highestBTreeIdMap),
+            nextNodeIdMap),
             SegmentRecoveryFailedException);
     // 1,2,3) 87 was requested from the first server list entry.
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -2332,8 +2734,8 @@ TEST_F(MasterRecoverTest, recover) {
 
     MockRandom __(1); // triggers deterministic rand().
     TestLog::Enable _("replaySegment", "recover", NULL);
-    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
-    master->recover(456lu, ServerId(99, 0), 0, replicas, highestBTreeIdMap);
+    std::unordered_map<uint64_t, uint64_t> nextNodeIdMap;
+    master->recover(456lu, ServerId(99, 0), 0, replicas, nextNodeIdMap);
     EXPECT_EQ(0U, TestLog::get().find(
             "recover: Recovering master 99.0, partition 0, 3 replicas "
             "available"));
@@ -2355,9 +2757,9 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
 
     MockRandom __(1); // triggers deterministic rand().
     TestLog::Enable _("replaySegment", "recover", NULL);
-    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
+    std::unordered_map<uint64_t, uint64_t> nextNodeIdMap;
     EXPECT_THROW(master->recover(456lu, ServerId(99, 0), 0, replicas,
-            highestBTreeIdMap), SegmentRecoveryFailedException);
+            nextNodeIdMap), SegmentRecoveryFailedException);
     string log = TestLog::get();
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
             "recover: Recovering master 99.0, partition 0, "

@@ -5,7 +5,7 @@
 /*
  * STX B+ Tree Template Classes v0.9
  * Copyright (C) 2008-2013 Timo Bingmann <tb@panthema.net>
- * Copyright (c) 2014 Stanford University
+ * Copyright (c) 2014-2015 Stanford University
  *
  * Boost Software License - Version 1.0 - August 17th, 2003
  *
@@ -420,6 +420,19 @@ private:
     typedef btree_pair_to_value<value_type, pair_type> pair_to_value_type;
 
 public:
+
+    // Returns the NodeId that will be assigned to the next new node written.
+    // The value will be equal to ROOT_ID when the tree is empty.
+    NodeId getNextNodeId() {
+        return nextNodeId;
+    }
+
+    // Set nextNodeId to the given value.
+    void setNextNodeId(NodeId givenNextNodeId) {
+        nextNodeId = givenNextNodeId;
+    }
+
+public:
     // *** Iterators and Reverse Iterators
 
     class iterator;
@@ -804,10 +817,10 @@ public:
     /// Default constructor recovering an existing B+ tree with the standard key
     /// comparison function
     explicit inline btree(uint64_t tableId, ObjectManager *objMgr,
-                          uint64_t highestUsedId,
+                          uint64_t nextNodeId,
                           const allocator_type &alloc = allocator_type())
     : m_headleafId(INVALID_NODEID), m_allocator(alloc),
-      treeTableId(tableId), objMgr(objMgr), nextNodeId(highestUsedId + 1),
+      treeTableId(tableId), objMgr(objMgr), nextNodeId(nextNodeId),
       m_rootId(ROOT_ID), logBuffer(), numEntries(0), cache()
     {
     }
@@ -1469,6 +1482,28 @@ public:
         }
 
         return num;
+    }
+
+    // Returns true if node specified by nodeKey contains any entries
+    // that have key greater than or equal to compareKey; false otherwise.
+    bool isGreaterOrEqual(Key& nodeKey, const key_type& compareKey)
+    {
+        const NodeId nodeId =
+                *static_cast<const NodeId *>(nodeKey.getStringKey());
+
+        Buffer nodeBuffer;
+        const node *n = static_cast<const node *>(
+                getPointerToObject(nodeId, &nodeBuffer));
+
+        assert(n->slotuse > 0);
+
+        if (n->isleafnode()) {
+            const leaf_node *ln = static_cast<const leaf_node *>(n);
+            return key_greaterequal(ln->slotkey[ln->slotuse - 1], compareKey);
+        } else {
+            const inner_node *in = static_cast<const inner_node *>(n);
+            return key_greaterequal(in->slotkey[in->slotuse - 1], compareKey);
+        }
     }
 
     /// Searches the B+ tree and returns an iterator to the first pair

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -64,65 +64,68 @@ static_assert(INVALID_SERVICE < (sizeof(SerializedServiceMask) * 8),
  * - WireFormatTest.cc's out-of-range test, if ILLEGAL_RPC_TYPE was changed.
  */
 enum Opcode {
-    PING                      = 7,
-    PROXY_PING                = 8,
-    KILL                      = 9,
-    CREATE_TABLE              = 10,
-    GET_TABLE_ID              = 11,
-    DROP_TABLE                = 12,
-    READ                      = 13,
-    WRITE                     = 14,
-    REMOVE                    = 15,
-    ENLIST_SERVER             = 16,
-    GET_SERVER_LIST           = 17,
-    GET_TABLE_CONFIG          = 18,
-    RECOVER                   = 19,
-    HINT_SERVER_CRASHED       = 20,
-    RECOVERY_MASTER_FINISHED  = 21,
-    ENUMERATE                 = 22,
-    SET_MASTER_RECOVERY_INFO  = 23,
-    FILL_WITH_TEST_DATA       = 24,
-    MULTI_OP                  = 25,
-    GET_METRICS               = 26,
-    BACKUP_FREE               = 28,
-    BACKUP_GETRECOVERYDATA    = 29,
-    BACKUP_STARTREADINGDATA   = 31,
-    BACKUP_WRITE              = 32,
-    BACKUP_RECOVERYCOMPLETE   = 33,
-    BACKUP_QUIESCE            = 34,
-    UPDATE_SERVER_LIST        = 35,
-    BACKUP_STARTPARTITION     = 36,
-    DROP_TABLET_OWNERSHIP     = 39,
-    TAKE_TABLET_OWNERSHIP     = 40,
-    GET_HEAD_OF_LOG           = 42,
-    INCREMENT                 = 43,
-    PREP_FOR_MIGRATION        = 44,
-    RECEIVE_MIGRATION_DATA    = 45,
-    REASSIGN_TABLET_OWNERSHIP = 46,
-    MIGRATE_TABLET            = 47,
-    IS_REPLICA_NEEDED         = 48,
-    SPLIT_TABLET              = 49,
-    GET_SERVER_STATISTICS     = 50,
-    SET_RUNTIME_OPTION        = 51,
-    GET_SERVER_CONFIG         = 52,
-    GET_BACKUP_CONFIG         = 53,
-    GET_MASTER_CONFIG         = 55,
-    GET_LOG_METRICS           = 56,
-    VERIFY_MEMBERSHIP         = 57,
-    GET_RUNTIME_OPTION        = 58,
-    SERVER_CONTROL            = 59,
-    SERVER_CONTROL_ALL        = 60,
-    GET_SERVER_ID             = 61,
-    READ_KEYS_AND_VALUE       = 62,
-    LOOKUP_INDEX_KEYS         = 63,
-    READ_HASHES               = 64,
-    INSERT_INDEX_ENTRY        = 65,
-    REMOVE_INDEX_ENTRY        = 66,
-    CREATE_INDEX              = 67,
-    DROP_INDEX                = 68,
-    DROP_INDEXLET_OWNERSHIP   = 69,
-    TAKE_INDEXLET_OWNERSHIP   = 70,
-    ILLEGAL_RPC_TYPE          = 71, // 1 + the highest legitimate Opcode
+    PING                        = 7,
+    PROXY_PING                  = 8,
+    KILL                        = 9,
+    CREATE_TABLE                = 10,
+    GET_TABLE_ID                = 11,
+    DROP_TABLE                  = 12,
+    READ                        = 13,
+    WRITE                       = 14,
+    REMOVE                      = 15,
+    ENLIST_SERVER               = 16,
+    GET_SERVER_LIST             = 17,
+    GET_TABLE_CONFIG            = 18,
+    RECOVER                     = 19,
+    HINT_SERVER_CRASHED         = 20,
+    RECOVERY_MASTER_FINISHED    = 21,
+    ENUMERATE                   = 22,
+    SET_MASTER_RECOVERY_INFO    = 23,
+    FILL_WITH_TEST_DATA         = 24,
+    MULTI_OP                    = 25,
+    GET_METRICS                 = 26,
+    BACKUP_FREE                 = 28,
+    BACKUP_GETRECOVERYDATA      = 29,
+    BACKUP_STARTREADINGDATA     = 31,
+    BACKUP_WRITE                = 32,
+    BACKUP_RECOVERYCOMPLETE     = 33,
+    BACKUP_QUIESCE              = 34,
+    UPDATE_SERVER_LIST          = 35,
+    BACKUP_STARTPARTITION       = 36,
+    DROP_TABLET_OWNERSHIP       = 39,
+    TAKE_TABLET_OWNERSHIP       = 40,
+    GET_HEAD_OF_LOG             = 42,
+    INCREMENT                   = 43,
+    PREP_FOR_MIGRATION          = 44,
+    RECEIVE_MIGRATION_DATA      = 45,
+    REASSIGN_TABLET_OWNERSHIP   = 46,
+    MIGRATE_TABLET              = 47,
+    IS_REPLICA_NEEDED           = 48,
+    SPLIT_TABLET                = 49,
+    GET_SERVER_STATISTICS       = 50,
+    SET_RUNTIME_OPTION          = 51,
+    GET_SERVER_CONFIG           = 52,
+    GET_BACKUP_CONFIG           = 53,
+    GET_MASTER_CONFIG           = 55,
+    GET_LOG_METRICS             = 56,
+    VERIFY_MEMBERSHIP           = 57,
+    GET_RUNTIME_OPTION          = 58,
+    SERVER_CONTROL              = 59,
+    SERVER_CONTROL_ALL          = 60,
+    GET_SERVER_ID               = 61,
+    READ_KEYS_AND_VALUE         = 62,
+    LOOKUP_INDEX_KEYS           = 63,
+    READ_HASHES                 = 64,
+    INSERT_INDEX_ENTRY          = 65,
+    REMOVE_INDEX_ENTRY          = 66,
+    CREATE_INDEX                = 67,
+    DROP_INDEX                  = 68,
+    DROP_INDEXLET_OWNERSHIP     = 69,
+    TAKE_INDEXLET_OWNERSHIP     = 70,
+    PREP_FOR_INDEXLET_MIGRATION = 71,
+    SPLIT_AND_MIGRATE_INDEXLET  = 72,
+    COORD_SPLIT_AND_MIGRATE_INDEXLET = 73,
+    ILLEGAL_RPC_TYPE            = 74, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -431,6 +434,26 @@ struct BackupWrite {
                                           ///< following the data included
                                           ///< in this rpc.
         // Opaque byte string follows with data to write.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct CoordSplitAndMigrateIndexlet {
+    static const Opcode opcode = COORD_SPLIT_AND_MIGRATE_INDEXLET;
+    static const ServiceType service = COORDINATOR_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t newOwnerId;        // ServerId of the master to which the
+                                    // second indexlet resulting from the split
+                                    // should be migrated.
+        uint64_t tableId;           // Id of table to which the index belongs.
+        uint8_t indexId;            // Id of index.
+        uint16_t splitKeyLength;    // Length in bytes of splitKey.
+        // In buffer: The actual bytes for splitKey go here. splitKey
+        // indicates where to split the indexlet that contains this key.
+        // This will be the first key of the new indexlet.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -1128,6 +1151,27 @@ struct Ping {
     } __attribute__((packed));
 };
 
+struct PrepForIndexletMigration {
+    static const Opcode opcode = PREP_FOR_INDEXLET_MIGRATION;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommonWithId common;
+        uint64_t tableId;           // TableId of the indexlet we'll move.
+        uint8_t indexId;            // IndexId of the indexlet we'll move.
+        uint64_t backingTableId;    // Table id of the RAMCloud table that
+                                    // stores the objects encapsulating the
+                                    // nodes for this indexlet tree.
+        uint16_t firstKeyLength;    // Length of firstKey in bytes.
+        uint16_t firstNotOwnedKeyLength; // Length of firstNotOwnedKey in bytes.
+        // In buffer: The actual bytes for firstKey and firstNotOwnedKey
+        // go here. [firstKey, firstNotOwnedKey) defines the span of the
+        // indexlet being migrated to this server.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
 struct PrepForMigration {
     static const Opcode opcode = PREP_FOR_MIGRATION;
     static const ServiceType service = MASTER_SERVICE;
@@ -1136,8 +1180,6 @@ struct PrepForMigration {
         uint64_t tableId;           // TableId of the tablet we'll move.
         uint64_t firstKeyHash;      // First key in the tablet range.
         uint64_t lastKeyHash;       // Last key in the tablet range.
-        uint64_t expectedObjects;   // Expected number of objects to migrate.
-        uint64_t expectedBytes;     // Expected total object bytes to migrate.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -1231,19 +1273,35 @@ struct ReceiveMigrationData {
             : common()
             , tableId()
             , firstKeyHash()
+            , isIndexletData(false)
+            , dataTableId()
+            , indexId()
+            , keyLength()
             , segmentBytes()
             , certificate()
         {}
         RequestCommonWithId common;
-        uint64_t tableId;           // Id of the table this data belongs to.
-        uint64_t firstKeyHash;      // Start of the tablet range for the data.
-        uint32_t segmentBytes;      // Length of the Segment containing migrated
-                                    // data immediately following this header.
+        uint64_t tableId;       // Id of the table this data belongs to.
+                                // If data being transfered belongs to an
+                                // indexlet, this is its backingTableId.
+        uint64_t firstKeyHash;  // Start of the tablet range for the data.
+        bool isIndexletData;    // True if data being migrated belongs to a
+                                // tablet which backs an indexlet.
+                                // False if data being migrated belongs to a
+                                // tablet that doesn't correspond to indexlet.
+        uint64_t dataTableId;   // TableId of the indexlet being migrated.
+        uint8_t indexId;        // IndexId of the indexlet being migrated.
+        uint16_t keyLength;     // Length of a key belonging to the indexlet.
+        uint32_t segmentBytes;  // Length of the Segment containing migrated
+                                // data following this header.
         Segment::Certificate certificate; // Certificate for the segment
-                                          // which follows this fields in
-                                          // the response field. Used by
+                                          // being migrated. Used by
                                           // master to iterate over the
                                           // segment.
+        // In buffer: The actual bytes for a key belonging to the indexlet
+        // (used to determine which indexlet is being migrated);
+        // followed by:
+        // Segment containing migrated data.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -1454,6 +1512,30 @@ struct SetRuntimeOption {
     } __attribute__((packed));
 };
 
+struct SplitAndMigrateIndexlet {
+    static const Opcode opcode = SPLIT_AND_MIGRATE_INDEXLET;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommonWithId common;
+        uint64_t newOwnerId;        // ServerId of the master to which the
+                                    // second indexlet resulting from the split
+                                    // should be migrated.
+        uint64_t tableId;           // Id of table to which the index belongs.
+        uint8_t indexId;            // Id of index.
+        uint64_t currentBackingTableId; // Id of the backing table for the
+                                        // indexlet to be split.
+        uint64_t newBackingTableId; // Id of the backing table for the indexlet
+                                    // resulting from the split.
+        uint16_t splitKeyLength;    // Length in bytes of splitKey.
+        // In buffer: The actual bytes for splitKey go here. splitKey
+        // indicates where to split the indexlet that contains this key.
+        // This will be the first key of the new indexlet.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
 struct SplitMasterTablet {
     static const Opcode opcode = SPLIT_TABLET;
     static const ServiceType service = MASTER_SERVICE;
@@ -1507,17 +1589,16 @@ struct TakeIndexletOwnership {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RequestCommonWithId common;
-        uint64_t tableId;                   // Id of table to which the index
-                                            // belongs.
-        uint8_t indexId;                    // Type of index.
-        uint64_t backingTableId;           // Id of the table that will hold
-                                            // objects for this indexlet.
-        uint16_t firstKeyLength;            // Length of fistKey in bytes.
-        uint16_t firstNotOwnedKeyLength;    // Length of firstNotOwnedKey in
-                                            // bytes.
+        uint64_t tableId;                // Id of table to which the index
+                                         // belongs.
+        uint8_t indexId;                 // Id of index.
+        uint64_t backingTableId;         // Id of the table that will hold
+                                         // objects for this indexlet.
+        uint16_t firstKeyLength;         // Length of fistKey in bytes.
+        uint16_t firstNotOwnedKeyLength; // Length of firstNotOwnedKey in bytes.
         // In buffer: The actual bytes for firstKey and firstNotOwnedKey
         // go here. [firstKey, firstNotOwnedKey) defines the span of the
-        // indexlet.
+        // indexlet for which this server is taking ownership.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -115,6 +115,76 @@ RamCloud::poll()
     // anything (the dispatch thread will be polling continuously).
     if (clientContext->dispatch->isDispatchThread())
         clientContext->dispatch->poll();
+}
+
+/**
+ * Split an indexlet into two disjoint indexlets at a specific key.
+ * Check if the split already exists, in which case, just return.
+ * Ask the original server to migrate the second indexlet resulting from the
+ * split to another master having server id newOwner.
+ * Alert newOwner that it should begin servicing requests on that indexlet.
+ *
+ * \param newOwner
+ *      ServerId of the server that will own the second indexlet resulting
+ *      from the split of the original indexlet at the end of the operation.
+ * \param tableId
+ *      Id of the table to which the index belongs.
+ * \param indexId
+ *      Id of the secondary key for which this index stores information.
+ * \param splitKey
+ *      Key used to partition the indexlet into two. Keys less than
+ *      \a splitKey belong to one indexlet, keys greater than or equal to
+ *      \a splitKey belong to the other.
+ * \param splitKeyLength
+ *      Length of splitKey in bytes.
+ */
+void
+RamCloud::coordSplitAndMigrateIndexlet(
+        ServerId newOwner, uint64_t tableId, uint8_t indexId,
+        const void* splitKey, KeyLength splitKeyLength)
+{
+    CoordSplitAndMigrateIndexletRpc rpc(
+        this, newOwner, tableId, indexId, splitKey, splitKeyLength);
+    rpc.wait();
+}
+
+/**
+ * Constructor for CoordSplitAndMigrateIndexletRpc:
+ * initiates an RPC in the same way as #RamCloud::coordSplitAndMigrateIndexlet,
+ * but returns once the RPC has been initiated, without waiting for it to
+ * complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param newOwner
+ *      ServerId of the server that will own the second indexlet resulting
+ *      from the split of the original indexlet at the end of the operation.
+ * \param tableId
+ *      Id of the table to which the index belongs.
+ * \param indexId
+ *      Id of the secondary key for which this index stores information.
+ * \param splitKey
+ *      Key used to partition the indexlet into two. Keys less than
+ *      \a splitKey belong to one indexlet, keys greater than or equal to
+ *      \a splitKey belong to the other.
+ * \param splitKeyLength
+ *      Length of splitKey in bytes.
+ */
+CoordSplitAndMigrateIndexletRpc::CoordSplitAndMigrateIndexletRpc(
+        RamCloud* ramcloud,
+        ServerId newOwner, uint64_t tableId, uint8_t indexId,
+        const void* splitKey, KeyLength splitKeyLength)
+    : CoordinatorRpcWrapper(ramcloud->clientContext,
+            sizeof(WireFormat::CoordSplitAndMigrateIndexlet::Response))
+{
+    WireFormat::CoordSplitAndMigrateIndexlet::Request* reqHdr(
+            allocHeader<WireFormat::CoordSplitAndMigrateIndexlet>());
+    reqHdr->newOwnerId = newOwner.getId();
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
+    reqHdr->splitKeyLength = splitKeyLength;
+    request.appendCopy(splitKey, splitKeyLength);
+    send();
 }
 
 /**

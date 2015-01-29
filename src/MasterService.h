@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -192,6 +192,10 @@ class MasterService : public Service {
     void multiWrite(const WireFormat::MultiOp::Request* reqHdr,
                 WireFormat::MultiOp::Response* respHdr,
                 Rpc* rpc);
+    void prepForIndexletMigration(
+                const WireFormat::PrepForIndexletMigration::Request* reqHdr,
+                WireFormat::PrepForIndexletMigration::Response* respHdr,
+                Rpc* rpc);
     void prepForMigration(const WireFormat::PrepForMigration::Request* reqHdr,
                 WireFormat::PrepForMigration::Response* respHdr,
                 Rpc* rpc);
@@ -213,6 +217,10 @@ class MasterService : public Service {
                 Rpc* rpc);
     void requestInsertIndexEntries(Object& object);
     void requestRemoveIndexEntries(Buffer& objectBuffer);
+    void splitAndMigrateIndexlet(
+                const WireFormat::SplitAndMigrateIndexlet::Request* reqHdr,
+                WireFormat::SplitAndMigrateIndexlet::Response* respHdr,
+                Rpc* rpc);
     void splitMasterTablet(const WireFormat::SplitMasterTablet::Request* reqHdr,
                 WireFormat::SplitMasterTablet::Response* respHdr,
                 Rpc* rpc);
@@ -306,7 +314,7 @@ class MasterService : public Service {
                 ServerId masterId,
                 uint64_t partitionId,
                 vector<Replica>& replicas,
-                std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap);
+                std::unordered_map<uint64_t, uint64_t>& nextNodeIdMap);
 
 ///////////////////////////////////////////////////////////////////////////////
 /////////////////////////End of Recovery related code./////////////////////////

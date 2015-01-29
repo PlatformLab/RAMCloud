@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -504,13 +504,13 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
  * \param it
  *       SegmentIterator which is pointing to the start of the recovery segment
  *       to be replayed into the log.
- * \param highestBTreeIdMap
- *       A unordered map that keeps track of the highest used BTree ID in
+ * \param nextNodeIdMap
+ *       A unordered map that keeps track of the nextNodeId in
  *       each indexlet table.
  */
 void
 ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
-    std::unordered_map<uint64_t, uint64_t>* highestBTreeIdMap)
+    std::unordered_map<uint64_t, uint64_t>* nextNodeIdMap)
 {
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
     uint64_t startReplicationPostingWriteRpcTicks =
@@ -571,11 +571,11 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             Key key(recoveryObj->tableId, primaryKey, primaryKeyLen);
 
             // If table is an BTree table,i.e., tableId exists in
-            // highestBTreeIdMap, update highestBTreeId of its table.
-            if (highestBTreeIdMap) {
+            // nextNodeIdMap, update nextNodeId of its table.
+            if (nextNodeIdMap) {
                 std::unordered_map<uint64_t, uint64_t>::iterator iter
-                    = highestBTreeIdMap->find(recoveryObj->tableId);
-                if (iter != highestBTreeIdMap->end()) {
+                    = nextNodeIdMap->find(recoveryObj->tableId);
+                if (iter != nextNodeIdMap->end()) {
                     const uint64_t *bTreeKey =
                         reinterpret_cast<const uint64_t*>(primaryKey);
                     uint64_t bTreeId = *bTreeKey;
@@ -675,11 +675,11 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             Key key(type, buffer);
 
             // If table is an BTree table,i.e., tableId exists in
-            // highestBTreeIdMap, update highestBTreeId of its table.
-            if (highestBTreeIdMap) {
+            // nextNodeIdMap, update nextNodeId of its table.
+            if (nextNodeIdMap) {
                 std::unordered_map<uint64_t, uint64_t>::iterator iter
-                    = highestBTreeIdMap->find(key.getTableId());
-                if (iter != highestBTreeIdMap->end()) {
+                    = nextNodeIdMap->find(key.getTableId());
+                if (iter != nextNodeIdMap->end()) {
                     const uint64_t *bTreeKey =
                         reinterpret_cast<const uint64_t*>(key.getStringKey());
                     uint64_t bTreeId = *bTreeKey;
