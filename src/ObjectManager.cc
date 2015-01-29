@@ -645,8 +645,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 }
             }
 
-            // If we did not decide to throw the object away earlier, then we
-            // add it here.
+            // Add the incoming object or tombstone to our log and update
+            // the hash table to refer to it.
             Log::Reference newObjReference;
             {
                 CycleCounter<uint64_t> _(&segmentAppendTicks);
@@ -659,6 +659,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                                       it.getLength(),
                                       1);
             }
+            replace(lock, key, newObjReference);
 
             // JIRA Issue: RAM-674:
             // If master runs out of space during recovery, this master
@@ -668,7 +669,6 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             liveObjectCount++;
             objectAppendCount++;
             liveObjectBytes += it.getLength();
-            replace(lock, key, newObjReference);
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             Buffer buffer;
             it.appendToBuffer(buffer);
@@ -760,7 +760,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                     sideLog->free(currentReference);
                     liveObjectCount--;
 
-                    // Just use this tombstone in the hash table.
+                    // Optimization to avoid appending two tombstones with the
+                    // same version for the same key to the log.
                     if (recoverVersion == currentVersion) {
                         replace(lock, key, newTombReference);
                         continue;
@@ -776,6 +777,9 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             // Thus, we add the received tombstone to the hash table to block
             // earlier version objects and tombstones.
             recoverTomb.header.timestamp = WallTime::secondsTimestamp();
+
+            // A segmentId of 0 indicates that this tombstone can be cleaned as
+            // soon as the hash table ceases to reference it.
             recoverTomb.header.segmentId = 0;
             recoverTomb.header.checksum = 0;
             recoverTomb.header.checksum = recoverTomb.computeChecksum();

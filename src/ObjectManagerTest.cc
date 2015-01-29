@@ -601,11 +601,7 @@ TEST_F(ObjectManagerTest, replaySegment_nextNodeIdMap) {
               , verifyMetadata(0));
 }
 
-TEST_F(ObjectManagerTest, replaySegment_tombstoneSegmentId) {
-    // a) Test whether the correct segmentId is put into the tombstone, even
-    // when the passed-in segmentId is junk.
-    // b) Whether a tombstone is synthesized for an object when a newer one
-    // replaces it.
+TEST_F(ObjectManagerTest, replaySegment_tombstoneSynthesis) {
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
@@ -631,7 +627,29 @@ TEST_F(ObjectManagerTest, replaySegment_tombstoneSegmentId) {
     it->next();
     EXPECT_EQ(it->getType(), LOG_ENTRY_TYPE_OBJTOMB);
 
-    // Check for tombstone segmentId correctness after replay of tombstone
+    Buffer testBuffer;
+    it->appendToBuffer(testBuffer);
+    ObjectTombstone tomb(testBuffer);
+    EXPECT_EQ(string(static_cast<const char*>(tomb.getKey()),
+                tomb.getKeyLength()), "key0");
+    EXPECT_EQ(tomb.getSegmentId(), 1U);
+
+}
+
+TEST_F(ObjectManagerTest, replaySegment_tombstoneSegmentId) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    Key key0(0, "key0", 4);
+    Segment::Certificate certificate;
+    len = buildRecoverySegment(seg, segLen, key0, 1, "original", &certificate);
+    it.construct(&seg[0], len, certificate);
+    objectManager.replaySegment(&sl, *it);
+
+
     Buffer dataBuffer;
     Object o1(key0, NULL, 0, 2, 0, dataBuffer);
     ObjectTombstone t1(o1, 8, 0);
@@ -642,15 +660,18 @@ TEST_F(ObjectManagerTest, replaySegment_tombstoneSegmentId) {
     it.construct(*sl.head);
     while (it->getType() != LOG_ENTRY_TYPE_OBJTOMB)
         it->next();
-    // Step over the old tombstone
-    it->next();
-    while (it->getType() != LOG_ENTRY_TYPE_OBJTOMB)
-        it->next();
     dataBuffer.reset();
     it->appendToBuffer(dataBuffer);
     ObjectTombstone t2(dataBuffer);
     EXPECT_EQ(t2.getSegmentId(), 1U);
-    EXPECT_EQ(t2.getObjectVersion(), t1.getObjectVersion());
+    EXPECT_EQ(t2.getObjectVersion(), 1U);
+
+    it->next();
+    dataBuffer.reset();
+    it->appendToBuffer(dataBuffer);
+    ObjectTombstone t3(dataBuffer);
+    EXPECT_EQ(t3.getSegmentId(), 0U);
+    EXPECT_EQ(t3.getObjectVersion(), 2U);
 }
 
 TEST_F(ObjectManagerTest, replaySegment) {
