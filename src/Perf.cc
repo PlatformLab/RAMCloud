@@ -282,6 +282,28 @@ double bufferGetStart()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+double bufferConstruct() {
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Buffer b;   // Compiler doesn't seem to optimize this out.
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+double bufferReset() {
+    int count = 1000000;
+    uint64_t totalTime = 0;
+    for (int i = 0; i < count; i++) {
+        Buffer b;
+        uint64_t start = Cycles::rdtsc();
+        b.reset();
+        totalTime += Cycles::rdtsc() - start;
+    }
+    return Cycles::toSeconds(totalTime)/count;
+}
+
 // Measure the cost of creating an iterator and iterating over 10
 // chunks in a buffer.
 double bufferIterator()
@@ -1129,6 +1151,10 @@ TestInfo tests[] = {
      "buffer add onto existing chunk"},
     {"bufferGetStart", bufferGetStart,
      "Buffer::getStart"},
+     {"bufferConstruct", bufferConstruct,
+     "buffer stack allocation"},
+     {"bufferReset", bufferReset,
+     "Buffer::reset"},
     {"bufferIterator", bufferIterator,
      "iterate over buffer with 5 chunks"},
     {"condPingPong", condPingPong,

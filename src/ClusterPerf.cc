@@ -474,17 +474,18 @@ timeIndexedRead(uint64_t tableId, uint8_t indexId,
         std::deque<Buffer> pkHashBuffers;
         const void* tempFirstKey = firstKey;
         uint16_t tempFirstKeyLength = firstKeyLength;
-
-        start = Cycles::rdtsc();
+        uint64_t hashLookupTime = 0;
         while (true)
         {
             pkHashBuffers.emplace_back();
             Buffer& respBuffer = pkHashBuffers.back();
 
+            start = Cycles::rdtsc();
             cluster->lookupIndexKeys(tableId, indexId, tempFirstKey,
                     tempFirstKeyLength, firstAllowedKeyHash, lastKey,
                     lastKeyLength, maxNumHashes, &respBuffer, &numHashes,
                     &nextKeyLength, &nextKeyHash);
+            hashLookupTime += Cycles::rdtsc() - start;
 
             totalNumHashes += numHashes;
 
@@ -499,7 +500,7 @@ timeIndexedRead(uint64_t tableId, uint8_t indexId,
             }
         }
         if (!warmup)
-            hashLookupTimes.at(i) = Cycles::toSeconds(Cycles::rdtsc() - start);
+            hashLookupTimes.at(i) = Cycles::toSeconds(hashLookupTime);
 
         assert(totalNumHashes == objectsExpected);
         assert(expectedFirstPkHash == *pkHashBuffers.front()
@@ -510,22 +511,24 @@ timeIndexedRead(uint64_t tableId, uint8_t indexId,
         uint32_t numObjects;
         uint32_t totalNumObjects = 0;
 
-        start = Cycles::rdtsc();
+        uint64_t readHashTime = 0;
         for (auto it = pkHashBuffers.begin(); it != pkHashBuffers.end(); it++) {
             numHashes = (it->getStart<WireFormat::LookupIndexKeys::Response>())
                 ->numHashes;
             it->truncateFront(sizeof32(WireFormat::LookupIndexKeys::Response));
 
+            start = Cycles::rdtsc();
             uint32_t numReturnedHashes =
                 cluster->readHashes(tableId, numHashes, &(*it), &readObjects,
                     &numObjects);
+            readHashTime += Cycles::rdtsc() - start;
 
             assert(numReturnedHashes == numHashes); // else collision
             totalNumObjects += numObjects;
         }
         if (!warmup)
             lookupAndReadTimes.at(i) = hashLookupTimes.at(i) +
-                Cycles::toSeconds(Cycles::rdtsc() - start);
+                Cycles::toSeconds(readHashTime);
 
         assert(totalNumObjects == objectsExpected);
 
