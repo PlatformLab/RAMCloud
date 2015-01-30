@@ -78,8 +78,14 @@ TabletManager::checkAndIncrementReadCount(Key& key) {
     Lock guard(lock);
     TabletMap::iterator it = lookup(key.getTableId(), key.getHash(), guard);
 
-    if (it == tabletMap.end() || it->second.state != NORMAL)
+    if (it == tabletMap.end())
         return false;
+    if (it->second.state != NORMAL) {
+        if (it->second.state == TabletManager::LOCKED_FOR_MIGRATION)
+            throw RetryException(HERE, 1000, 2000,
+                    "Tablet is currently locked for migration!");
+        return false;
+    }
 
     it->second.readCount++;
     return true;
@@ -336,8 +342,18 @@ TabletManager::changeState(uint64_t tableId,
 void
 TabletManager::incrementReadCount(Key& key)
 {
+    incrementReadCount(key.getTableId(), key.getHash());
+}
+
+/**
+ * Increment the object read counter on the tablet associated with the given
+ * table id and primary key hash.
+ */
+void
+TabletManager::incrementReadCount(uint64_t tableId, KeyHash keyHash)
+{
     Lock guard(lock);
-    TabletMap::iterator it = lookup(key.getTableId(), key.getHash(), guard);
+    TabletMap::iterator it = lookup(tableId, keyHash, guard);
     if (it != tabletMap.end())
         it->second.readCount++;
 }
@@ -349,8 +365,18 @@ TabletManager::incrementReadCount(Key& key)
 void
 TabletManager::incrementWriteCount(Key& key)
 {
+    incrementWriteCount(key.getTableId(), key.getHash());
+}
+
+/**
+ * Increment the object write counter on the tablet associated with the given
+ * table id and primary key hash.
+ */
+void
+TabletManager::incrementWriteCount(uint64_t tableId, KeyHash keyHash)
+{
     Lock guard(lock);
-    TabletMap::iterator it = lookup(key.getTableId(), key.getHash(), guard);
+    TabletMap::iterator it = lookup(tableId, keyHash, guard);
     if (it != tabletMap.end())
         it->second.writeCount++;
 }

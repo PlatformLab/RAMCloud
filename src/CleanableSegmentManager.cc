@@ -20,14 +20,17 @@
 #include "ShortMacros.h"
 #include "TestLog.h"
 #include "WallTime.h"
+#include "MasterService.h"
 
 namespace RAMCloud {
 
 CleanableSegmentManager::CleanableSegmentManager(
                                     SegmentManager& segmentManager,
                                     const ServerConfig* config,
+                                    Context* context,
                                     LogCleanerMetrics::OnDisk<>& onDiskMetrics)
-    : segmentManager(segmentManager)
+    : context(context)
+    , segmentManager(segmentManager)
     , lastUpdateTimestamp(0)
     , liveObjectBytes(0)
     , undeadTombstoneBytes(0)
@@ -289,6 +292,12 @@ CleanableSegmentManager::scanSegmentTombstones(Lock& guard)
         Buffer buffer;
         it.appendToBuffer(buffer);
         ObjectTombstone tomb(buffer);
+        // Protect tombstones which are still in the hash table since their
+        // references are removed asynchronously.
+        Key key(tomb.getTableId(), tomb.getKey(), tomb.getKeyLength());
+        if (context->masterService->objectManager.keyPointsAtReference(key,
+                  s.getReference(it.getOffset())))
+            continue;
         if (!segmentManager.doesIdExist(tomb.getSegmentId())) {
             deadTombstones++;
             // Magic constant indicates the likely full length

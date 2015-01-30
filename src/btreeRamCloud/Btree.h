@@ -1281,7 +1281,7 @@ PUBLIC:
     explicit inline IndexBtree(uint64_t tableId, ObjectManager *objMgr,
                           uint64_t nextNodeId)
     : m_stats(), treeTableId(tableId), objMgr(objMgr),
-        nextNodeId(nextNodeId + 1), m_rootId(ROOT_ID),  logBuffer(),
+        nextNodeId(nextNodeId), m_rootId(ROOT_ID),  logBuffer(),
         numEntries(0), cache()
     { }
 
@@ -1304,8 +1304,10 @@ PUBLIC:
     // that have key greater than or equal to compareKey; false otherwise.
     // TODO(syang0) This function does not achieve the effect that Ankitak
     // wants. Need to rethink it.
-    bool isGreaterOrEqual(NodeId nodeId, BtreeEntry entry) {
+    bool isGreaterOrEqual(Key& nodeKey, BtreeEntry entry) {
         Buffer b;
+        const NodeId nodeId =
+            *(static_cast<const NodeId*>(nodeKey.getStringKey()));
         Node *n = readNode(nodeId, &b);
         return key_greaterequal(n->back(), entry);
     }

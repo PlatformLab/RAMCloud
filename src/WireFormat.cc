@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -51,62 +51,66 @@ const char*
 opcodeSymbol(uint32_t opcode)
 {
     switch (opcode) {
-        case PING:                       return "PING";
-        case PROXY_PING:                 return "PROXY_PING";
-        case KILL:                       return "KILL";
-        case CREATE_TABLE:               return "CREATE_TABLE";
-        case GET_TABLE_ID:               return "GET_TABLE_ID";
-        case DROP_TABLE:                 return "DROP_TABLE";
-        case CREATE_INDEX:               return "CREATE_INDEX";
-        case DROP_INDEX:                 return "DROP_INDEX";
-        case READ:                       return "READ";
-        case WRITE:                      return "WRITE";
-        case REMOVE:                     return "REMOVE";
-        case ENLIST_SERVER:              return "ENLIST_SERVER";
-        case GET_SERVER_LIST:            return "GET_SERVER_LIST";
-        case GET_TABLE_CONFIG:           return "GET_TABLE_CONFIG";
-        case RECOVER:                    return "RECOVER";
-        case HINT_SERVER_CRASHED:        return "HINT_SERVER_CRASHED";
-        case RECOVERY_MASTER_FINISHED:   return "RECOVERY_MASTER_FINISHED";
-        case ENUMERATE:                  return "ENUMERATE";
-        case FILL_WITH_TEST_DATA:        return "FILL_WITH_TEST_DATA";
-        case MULTI_OP:                   return "MULTI_OP";
-        case GET_METRICS:                return "GET_METRICS";
-        case BACKUP_FREE:                return "BACKUP_FREE";
-        case BACKUP_GETRECOVERYDATA:     return "BACKUP_GETRECOVERYDATA";
-        case BACKUP_STARTREADINGDATA:    return "BACKUP_STARTREADINGDATA";
-        case BACKUP_STARTPARTITION:      return "BACKUP_STARTPARTITIONING";
-        case BACKUP_WRITE:               return "BACKUP_WRITE";
-        case BACKUP_RECOVERYCOMPLETE:    return "BACKUP_RECOVERYCOMPLETE";
-        case BACKUP_QUIESCE:             return "BACKUP_QUIESCE";
-        case UPDATE_SERVER_LIST:         return "UPDATE_SERVER_LIST";
-        case SET_MASTER_RECOVERY_INFO:   return "SET_MASTER_RECOVERY_INFO";
-        case DROP_TABLET_OWNERSHIP:      return "DROP_TABLET_OWNERSHIP";
-        case TAKE_TABLET_OWNERSHIP:      return "TAKE_TABLET_OWNERSHIP";
-        case DROP_INDEXLET_OWNERSHIP:    return "DROP_INDEXLET_OWNERSHIP";
-        case TAKE_INDEXLET_OWNERSHIP:    return "TAKE_INDEXLET_OWNERSHIP";
-        case INCREMENT:                  return "INCREMENT";
-        case GET_HEAD_OF_LOG:            return "GET_HEAD_OF_LOG";
-        case PREP_FOR_MIGRATION:         return "PREP_FOR_MIGRATION";
-        case RECEIVE_MIGRATION_DATA:     return "RECEIVE_MIGRATION_DATA";
-        case REASSIGN_TABLET_OWNERSHIP:  return "REASSIGN_TABLET_OWNERSHIP";
-        case MIGRATE_TABLET:             return "MIGRATE_TABLET";
-        case IS_REPLICA_NEEDED:          return "IS_REPLICA_NEEDED";
-        case SPLIT_TABLET:               return "SPLIT_TABLET";
-        case GET_SERVER_STATISTICS:      return "GET_SERVER_STATISTICS";
-        case SET_RUNTIME_OPTION:         return "SET_RUNTIME_OPTION";
-        case GET_SERVER_CONFIG:          return "GET_SERVER_CONFIG";
-        case GET_LOG_METRICS:            return "GET_LOG_METRICS";
-        case VERIFY_MEMBERSHIP:          return "VERIFY_MEMBERSHIP";
-        case GET_RUNTIME_OPTION:         return "GET_RUNTIME_OPTION";
-        case SERVER_CONTROL:             return "SERVER_CONTROL";
-        case GET_SERVER_ID:              return "GET_SERVER_ID";
-        case READ_KEYS_AND_VALUE:        return "READ_KEYS_AND_VALUE";
-        case LOOKUP_INDEX_KEYS:          return "LOOKUP_INDEX_KEYS";
-        case INDEXED_READ:               return "INDEXED_READ";
-        case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
-        case INSERT_INDEX_ENTRY:         return "INSERT_INDEX_ENTRY";
-        case REMOVE_INDEX_ENTRY:         return "REMOVE_INDEX_ENTRY";
+        case PING:                         return "PING";
+        case PROXY_PING:                   return "PROXY_PING";
+        case KILL:                         return "KILL";
+        case CREATE_TABLE:                 return "CREATE_TABLE";
+        case GET_TABLE_ID:                 return "GET_TABLE_ID";
+        case DROP_TABLE:                   return "DROP_TABLE";
+        case CREATE_INDEX:                 return "CREATE_INDEX";
+        case DROP_INDEX:                   return "DROP_INDEX";
+        case READ:                         return "READ";
+        case WRITE:                        return "WRITE";
+        case REMOVE:                       return "REMOVE";
+        case ENLIST_SERVER:                return "ENLIST_SERVER";
+        case GET_SERVER_LIST:              return "GET_SERVER_LIST";
+        case GET_TABLE_CONFIG:             return "GET_TABLE_CONFIG";
+        case RECOVER:                      return "RECOVER";
+        case HINT_SERVER_CRASHED:          return "HINT_SERVER_CRASHED";
+        case RECOVERY_MASTER_FINISHED:     return "RECOVERY_MASTER_FINISHED";
+        case ENUMERATE:                    return "ENUMERATE";
+        case FILL_WITH_TEST_DATA:          return "FILL_WITH_TEST_DATA";
+        case MULTI_OP:                     return "MULTI_OP";
+        case GET_METRICS:                  return "GET_METRICS";
+        case BACKUP_FREE:                  return "BACKUP_FREE";
+        case BACKUP_GETRECOVERYDATA:       return "BACKUP_GETRECOVERYDATA";
+        case BACKUP_STARTREADINGDATA:      return "BACKUP_STARTREADINGDATA";
+        case BACKUP_STARTPARTITION:        return "BACKUP_STARTPARTITIONING";
+        case BACKUP_WRITE:                 return "BACKUP_WRITE";
+        case BACKUP_RECOVERYCOMPLETE:      return "BACKUP_RECOVERYCOMPLETE";
+        case BACKUP_QUIESCE:               return "BACKUP_QUIESCE";
+        case UPDATE_SERVER_LIST:           return "UPDATE_SERVER_LIST";
+        case SET_MASTER_RECOVERY_INFO:     return "SET_MASTER_RECOVERY_INFO";
+        case DROP_TABLET_OWNERSHIP:        return "DROP_TABLET_OWNERSHIP";
+        case TAKE_TABLET_OWNERSHIP:        return "TAKE_TABLET_OWNERSHIP";
+        case DROP_INDEXLET_OWNERSHIP:      return "DROP_INDEXLET_OWNERSHIP";
+        case TAKE_INDEXLET_OWNERSHIP:      return "TAKE_INDEXLET_OWNERSHIP";
+        case INCREMENT:                    return "INCREMENT";
+        case GET_HEAD_OF_LOG:              return "GET_HEAD_OF_LOG";
+        case PREP_FOR_MIGRATION:           return "PREP_FOR_MIGRATION";
+        case RECEIVE_MIGRATION_DATA:       return "RECEIVE_MIGRATION_DATA";
+        case REASSIGN_TABLET_OWNERSHIP:    return "REASSIGN_TABLET_OWNERSHIP";
+        case MIGRATE_TABLET:               return "MIGRATE_TABLET";
+        case IS_REPLICA_NEEDED:            return "IS_REPLICA_NEEDED";
+        case SPLIT_TABLET:                 return "SPLIT_TABLET";
+        case GET_SERVER_STATISTICS:        return "GET_SERVER_STATISTICS";
+        case SET_RUNTIME_OPTION:           return "SET_RUNTIME_OPTION";
+        case GET_SERVER_CONFIG:            return "GET_SERVER_CONFIG";
+        case GET_LOG_METRICS:              return "GET_LOG_METRICS";
+        case VERIFY_MEMBERSHIP:            return "VERIFY_MEMBERSHIP";
+        case GET_RUNTIME_OPTION:           return "GET_RUNTIME_OPTION";
+        case SERVER_CONTROL:               return "SERVER_CONTROL";
+        case GET_SERVER_ID:                return "GET_SERVER_ID";
+        case READ_KEYS_AND_VALUE:          return "READ_KEYS_AND_VALUE";
+        case LOOKUP_INDEX_KEYS:            return "LOOKUP_INDEX_KEYS";
+        case READ_HASHES:                  return "READ_HASHES";
+        case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
+        case INSERT_INDEX_ENTRY:           return "INSERT_INDEX_ENTRY";
+        case REMOVE_INDEX_ENTRY:           return "REMOVE_INDEX_ENTRY";
+        case PREP_FOR_INDEXLET_MIGRATION:  return "PREP_FOR_INDEXLET_MIGRATION";
+        case SPLIT_AND_MIGRATE_INDEXLET:   return "SPLIT_AND_MIGRATE_INDEXLET";
+        case COORD_SPLIT_AND_MIGRATE_INDEXLET:
+                                    return "COORD_SPLIT_AND_MIGRATE_INDEXLET";
     }
 
     // Never heard of this RPC; return the numeric value. The shared buffer

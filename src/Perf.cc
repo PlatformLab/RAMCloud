@@ -52,6 +52,7 @@
 #include "SpinLock.h"
 #include "ClientException.h"
 #include "PerfHelper.h"
+#include "TimeTrace.h"
 #include "Util.h"
 
 using namespace RAMCloud;
@@ -1051,6 +1052,20 @@ double throwSwitch()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of recording a TimeTrace entry.
+double timeTrace()
+{
+    int count = 100000;
+    TimeTrace trace;
+    trace.record("warmup record");
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        trace.record("sample TimeTrace record");
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of pushing a new element on a std::vector, copying
 // from the end to an internal element, and popping the end element.
 double vectorPushPop()
@@ -1194,6 +1209,8 @@ TestInfo tests[] = {
      "Throw an Exception in a function call"},
     {"throwSwitch", throwSwitch,
      "Throw an Exception using ClientException::throwException"},
+    {"timeTrace", timeTrace,
+     "Record an event using TimeTrace"},
     {"vectorPushPop", vectorPushPop,
      "Push and pop a std::vector"},
 };

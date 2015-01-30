@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -309,7 +309,7 @@ TEST_F(ObjectManagerTest, constructor) {
     EXPECT_EQ(ServerId(5), *objectManager.replicaManager.masterId);
 }
 
-TEST_F(ObjectManagerTest, indexedRead) {
+TEST_F(ObjectManagerTest, readHashes) {
     uint64_t tableId = 0;
     uint8_t numKeys = 2;
 
@@ -348,155 +348,35 @@ TEST_F(ObjectManagerTest, indexedRead) {
     EXPECT_EQ(STATUS_OK, writeStatus1);
 
     Buffer pKHashes;
-    // Key::getHash(tableId, "obj0key0", 8) gives 3072971246352516766.
-    // Key::getHash(tableId, "obj1key0", 8) gives 11535301360022427630.
-    uint64_t hashVal0 = 3072971246352516766U;
-    uint64_t hashVal1 = 11535301360022427630U;
-    pKHashes.appendExternal(&hashVal0, 8);
-    pKHashes.appendExternal(&hashVal1, 8);
+    pKHashes.emplaceAppend<uint64_t>(obj0.getPKHash());
+    pKHashes.emplaceAppend<uint64_t>(obj1.getPKHash());
 
-    // indexedRead such that both objects are read.
-    IndexKey::IndexKeyRange keyRange = {1, "obj0key1", 8, "obj1key1", 8};
+    // readHashes such that both objects are read.
     Buffer responseBuffer;
     uint32_t numHashesResponse;
     uint32_t numObjectsResponse;
-    objectManager.indexedRead(tableId, 2, &pKHashes, 0, &keyRange, 1000,
-                &responseBuffer, &numHashesResponse, &numObjectsResponse);
+    objectManager.readHashes(tableId, 2, &pKHashes, 0, 1000, &responseBuffer,
+            &numHashesResponse, &numObjectsResponse);
 
-    // numHashes and numObjects
     EXPECT_EQ(2U, numHashesResponse);
     EXPECT_EQ(2U, numObjectsResponse);
+
     uint32_t respOffset = 0;
-
-    // version of object0
-    EXPECT_EQ(1U, *responseBuffer.getOffset<uint64_t>(respOffset));
-    respOffset += 8;
+    respOffset += sizeof32(uint64_t); // version
     // value of object0
+    uint32_t obj0Length = *responseBuffer.getOffset<uint32_t>(respOffset);
+    respOffset += sizeof32(uint32_t); // length
+    Object o0(tableId, 1, 0, responseBuffer, respOffset, obj0Length);
+    EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(o0.getValue()),
+                                  o0.getValueLength()));
+    respOffset += obj0Length;
+
+    respOffset += sizeof32(uint64_t); // version
+    // value of object1
     uint32_t obj1Length = *responseBuffer.getOffset<uint32_t>(respOffset);
-    respOffset += 4;
+    respOffset += sizeof32(uint32_t); // length
     Object o1(tableId, 1, 0, responseBuffer, respOffset, obj1Length);
-    respOffset += obj1Length;
-    EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(o1.getValue()),
-                                  o1.getValueLength()));
-
-    // version of object1
-    EXPECT_EQ(2U, *responseBuffer.getOffset<uint64_t>(respOffset));
-    respOffset += 8;
-    // value of object0
-    uint32_t obj2Length = *responseBuffer.getOffset<uint32_t>(respOffset);
-    respOffset += 4;
-    Object o2(tableId, 1, 0, responseBuffer, respOffset, obj2Length);
-    respOffset += obj2Length;
-    EXPECT_EQ("obj1value", string(reinterpret_cast<const char*>(o2.getValue()),
-                                  o2.getValueLength()));
-}
-
-TEST_F(ObjectManagerTest, indexedRead_wrongHash) {
-    uint64_t tableId = 0;
-    uint8_t numKeys = 2;
-
-    KeyInfo keyList0[2];
-    keyList0[0].keyLength = 8;
-    keyList0[0].key = "obj0key0";
-    keyList0[1].keyLength = 8;
-    keyList0[1].key = "obj0key1";
-
-    const void* value0 = "obj0value";
-    uint32_t valueLength0 = 9;
-
-    Buffer keysAndVal0;
-    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList0, value0,
-                                       valueLength0, &keysAndVal0);
-
-    Buffer pKHashes;
-    // Key::getHash(tableId, "obj0key0", 8) gives 3072971246352516766.
-    // Instead use a different value.
-    uint64_t hashVal0 = 1072971246352516766U;
-    pKHashes.appendExternal(&hashVal0, 8);
-
-    // indexedRead such that the hash value provided doesn't match the object
-    // but the key range provided contains the secondary key of the object.
-    IndexKey::IndexKeyRange keyRange = {1, "obj0key1", 8, "obj1key1", 8};
-    Buffer responseBuffer;
-    uint32_t numHashesResponse;
-    uint32_t numObjectsResponse;
-    objectManager.indexedRead(tableId, 1, &pKHashes, 0, &keyRange, 1000,
-                &responseBuffer, &numHashesResponse, &numObjectsResponse);
-
-    // numHashes and numObjects
-    EXPECT_EQ(1U, numHashesResponse);
-    EXPECT_EQ(0U, numObjectsResponse);
-}
-
-TEST_F(ObjectManagerTest, indexedRead_wrongRange) {
-    uint64_t tableId = 0;
-    uint8_t numKeys = 2;
-
-    KeyInfo keyList0[2];
-    keyList0[0].keyLength = 8;
-    keyList0[0].key = "obj0key0";
-    keyList0[1].keyLength = 8;
-    keyList0[1].key = "obj0key1";
-
-    const void* value0 = "obj0value";
-    uint32_t valueLength0 = 9;
-
-    Buffer keysAndVal0;
-    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList0, value0,
-                                       valueLength0, &keysAndVal0);
-
-    Object obj0(tableId, 0, 0, keysAndVal0);
-    Status writeStatus0 = objectManager.writeObject(obj0, NULL, NULL);
-    EXPECT_EQ(STATUS_OK, writeStatus0);
-
-    KeyInfo keyList1[2];
-    keyList1[0].keyLength = 8;
-    keyList1[0].key = "obj1key0";
-    keyList1[1].keyLength = 8;
-    keyList1[1].key = "obj1key1";
-
-    const void* value1 = "obj1value";
-    uint32_t valueLength1 = 9;
-
-    Buffer keysAndVal1;
-    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList1, value1,
-                                       valueLength1, &keysAndVal1);
-
-    Object obj1(tableId, 0, 0, keysAndVal1);
-    Status writeStatus1 = objectManager.writeObject(obj1, NULL, NULL);
-    EXPECT_EQ(STATUS_OK, writeStatus1);
-
-    Buffer pKHashes;
-    // Key::getHash(tableId, "obj0key0", 8) gives 3072971246352516766.
-    // Key::getHash(tableId, "obj1key0", 8) gives 11535301360022427630.
-    uint64_t hashVal0 = 3072971246352516766U;
-    uint64_t hashVal1 = 11535301360022427630U;
-    pKHashes.appendExternal(&hashVal0, 8);
-    pKHashes.appendExternal(&hashVal1, 8);
-
-    // indexedRead such that correct hashes of both objects is provided
-    // but the key range contains the secondary key of only one object.
-    IndexKey::IndexKeyRange keyRange = {1, "obj0key1", 8, "obj0key1", 8};
-    Buffer responseBuffer;
-    uint32_t numHashesResponse;
-    uint32_t numObjectsResponse;
-    objectManager.indexedRead(tableId, 2, &pKHashes, 0, &keyRange, 1000,
-                &responseBuffer, &numHashesResponse, &numObjectsResponse);
-
-    // numHashes and numObjects
-    EXPECT_EQ(2U, numHashesResponse);
-    EXPECT_EQ(1U, numObjectsResponse);
-    uint32_t respOffset = 0;
-
-    // version of object0
-    EXPECT_EQ(1U, *responseBuffer.getOffset<uint64_t>(respOffset));
-    respOffset += 8;
-    // value of object0
-    uint32_t obj1Length = *responseBuffer.getOffset<uint32_t>(respOffset);
-    respOffset += 4;
-    Object o1(tableId, 1, 0, responseBuffer, respOffset, obj1Length);
-    respOffset += obj1Length;
-    EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(o1.getValue()),
+    EXPECT_EQ("obj1value", string(reinterpret_cast<const char*>(o1.getValue()),
                                   o1.getValueLength()));
 }
 
@@ -699,14 +579,10 @@ TEST_F(ObjectManagerTest, removeOrphanedObjects) {
         TestLog::get());
 }
 
-TEST_F(ObjectManagerTest, replaySegment_highestBTreeIdMap) {
+TEST_F(ObjectManagerTest, replaySegment_nextNodeIdMap) {
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
-    Buffer buffer;
-    Log::Reference reference;
-    Log::Reference logTomb1Ref;
-    Log::Reference logTomb2Ref;
     SideLog sl(&objectManager.log);
 
     char keyStr[8];
@@ -717,12 +593,85 @@ TEST_F(ObjectManagerTest, replaySegment_highestBTreeIdMap) {
     len = buildRecoverySegment(seg, segLen, key0, 1, "newer guy", &certificate);
     Tub<SegmentIterator> it;
     it.construct(&seg[0], len, certificate);
-    std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
-    highestBTreeIdMap[0] = 0;
-    objectManager.replaySegment(&sl, *it, highestBTreeIdMap);
-    EXPECT_EQ(12345U, highestBTreeIdMap[0]);
+    std::unordered_map<uint64_t, uint64_t> nextNodeIdMap;
+    nextNodeIdMap[0] = 0;
+    objectManager.replaySegment(&sl, *it, &nextNodeIdMap);
+    EXPECT_EQ(12345U, nextNodeIdMap[0]);
     EXPECT_EQ("found=true tableId=0 byteCount=45 recordCount=1"
               , verifyMetadata(0));
+}
+
+TEST_F(ObjectManagerTest, replaySegment_tombstoneSynthesis) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    Key key0(0, "key0", 4);
+    Segment::Certificate certificate;
+    len = buildRecoverySegment(seg, segLen, key0, 1, "original", &certificate);
+    it.construct(&seg[0], len, certificate);
+    objectManager.replaySegment(&sl, *it);
+    verifyRecoveryObject(key0, "original");
+
+    // New object with higher version, check for tombstone after the first
+    // object
+    len = buildRecoverySegment(seg, segLen, key0, 2, "new", &certificate);
+    it.construct(&seg[0], len, certificate);
+    objectManager.replaySegment(&sl, *it);
+    verifyRecoveryObject(key0, "new");
+    it.construct(*sl.head);
+    while (it->getType() != LOG_ENTRY_TYPE_OBJ)
+        it->next();
+    it->next();
+    EXPECT_EQ(it->getType(), LOG_ENTRY_TYPE_OBJTOMB);
+
+    Buffer testBuffer;
+    it->appendToBuffer(testBuffer);
+    ObjectTombstone tomb(testBuffer);
+    EXPECT_EQ(string(static_cast<const char*>(tomb.getKey()),
+                tomb.getKeyLength()), "key0");
+    EXPECT_EQ(tomb.getSegmentId(), 1U);
+
+}
+
+TEST_F(ObjectManagerTest, replaySegment_tombstoneSegmentId) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    Key key0(0, "key0", 4);
+    Segment::Certificate certificate;
+    len = buildRecoverySegment(seg, segLen, key0, 1, "original", &certificate);
+    it.construct(&seg[0], len, certificate);
+    objectManager.replaySegment(&sl, *it);
+
+
+    Buffer dataBuffer;
+    Object o1(key0, NULL, 0, 2, 0, dataBuffer);
+    ObjectTombstone t1(o1, 8, 0);
+    len = buildRecoverySegment(seg, segLen, t1, &certificate);
+    it.construct(&seg[0], len, certificate);
+    objectManager.replaySegment(&sl, *it);
+
+    it.construct(*sl.head);
+    while (it->getType() != LOG_ENTRY_TYPE_OBJTOMB)
+        it->next();
+    dataBuffer.reset();
+    it->appendToBuffer(dataBuffer);
+    ObjectTombstone t2(dataBuffer);
+    EXPECT_EQ(t2.getSegmentId(), 1U);
+    EXPECT_EQ(t2.getObjectVersion(), 1U);
+
+    it->next();
+    dataBuffer.reset();
+    it->appendToBuffer(dataBuffer);
+    ObjectTombstone t3(dataBuffer);
+    EXPECT_EQ(t3.getSegmentId(), 0U);
+    EXPECT_EQ(t3.getObjectVersion(), 2U);
 }
 
 TEST_F(ObjectManagerTest, replaySegment) {
@@ -781,7 +730,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     verifyRecoveryObject(key1, "newer guy");
-    EXPECT_EQ("found=true tableId=0 byteCount=123 recordCount=3"
+    EXPECT_EQ("found=true tableId=0 byteCount=159 recordCount=4"
               , verifyMetadata(0));
 
     // Case 2a: Equal/newer tombstone already there; ignore object.
@@ -802,7 +751,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key2, 1, "equal guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=123 recordCount=3"
+    EXPECT_EQ("found=true tableId=0 byteCount=159 recordCount=4"
               , verifyMetadata(0));
     len = buildRecoverySegment(seg, segLen, key2, 0, "older guy", &certificate);
     it.construct(&seg[0], len, certificate);
@@ -834,7 +783,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
                                &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=164 recordCount=4"
+    EXPECT_EQ("found=true tableId=0 byteCount=200 recordCount=5"
               , verifyMetadata(0));
     verifyRecoveryObject(key3, "newer guy");
     EXPECT_TRUE(lookup(key3, &reference));
@@ -848,7 +797,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key4, 0, "only guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=204 recordCount=5"
+    EXPECT_EQ("found=true tableId=0 byteCount=240 recordCount=6"
               , verifyMetadata(0));
     verifyRecoveryObject(key4, "only guy");
 
@@ -872,7 +821,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key5, 1, "newer guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=245 recordCount=6"
+    EXPECT_EQ("found=true tableId=0 byteCount=281 recordCount=7"
               , verifyMetadata(0));
     dataBuffer.reset();
     Object o3(key5, NULL, 0, 0, 0, dataBuffer);
@@ -880,7 +829,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t3(o3, 0, 0);
     len = buildRecoverySegment(seg, segLen, t3, &certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=245 recordCount=6"
+    EXPECT_EQ("found=true tableId=0 byteCount=281 recordCount=7"
               , verifyMetadata(0));
     verifyRecoveryObject(key5, "newer guy");
 
@@ -889,7 +838,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key6, 0, "equal guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=286 recordCount=7"
+    EXPECT_EQ("found=true tableId=0 byteCount=322 recordCount=8"
               , verifyMetadata(0));
     verifyRecoveryObject(key6, "equal guy");
 
@@ -901,7 +850,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     objectManager.removeTombstones();
-    EXPECT_EQ("found=true tableId=0 byteCount=322 recordCount=8"
+    EXPECT_EQ("found=true tableId=0 byteCount=358 recordCount=9"
               , verifyMetadata(0));
     EXPECT_FALSE(lookup(key6, &reference));
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, getObjectStatus(0, "key6", 4));
@@ -910,7 +859,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key7, 0, "older guy", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("found=true tableId=0 byteCount=363 recordCount=9"
+    EXPECT_EQ("found=true tableId=0 byteCount=399 recordCount=10"
               , verifyMetadata(0));
     verifyRecoveryObject(key7, "older guy");
     dataBuffer.reset();
@@ -921,7 +870,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
     objectManager.removeTombstones();
-    EXPECT_EQ("found=true tableId=0 byteCount=399 recordCount=10"
+    EXPECT_EQ("found=true tableId=0 byteCount=471 recordCount=12"
               , verifyMetadata(0));
     EXPECT_FALSE(lookup(key7, &reference));
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, getObjectStatus(0, "key7", 4));
@@ -940,7 +889,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key8);
         ret = objectManager.lookup(lock, key8, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=435 recordCount=11"
+    EXPECT_EQ("found=true tableId=0 byteCount=507 recordCount=13"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
@@ -958,7 +907,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key8);
         ret = objectManager.lookup(lock, key8, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=435 recordCount=11"
+    EXPECT_EQ("found=true tableId=0 byteCount=507 recordCount=13"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     EXPECT_EQ(t6LogPtr, buffer.getStart<uint8_t>());
@@ -977,7 +926,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key9);
         ret = objectManager.lookup(lock, key9, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=471 recordCount=12"
+    EXPECT_EQ("found=true tableId=0 byteCount=543 recordCount=14"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     ObjectTombstone t8InLog(buffer);
@@ -995,7 +944,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key9);
         ret = objectManager.lookup(lock, key9, type, buffer);
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=507 recordCount=13"
+    EXPECT_EQ("found=true tableId=0 byteCount=579 recordCount=15"
               , verifyMetadata(0));
     EXPECT_TRUE(ret);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
@@ -1017,17 +966,17 @@ TEST_F(ObjectManagerTest, replaySegment) {
         ObjectManager::HashTableBucketLock lock(objectManager, key10);
         EXPECT_TRUE(objectManager.lookup(lock, key10, type, buffer));
     }
-    EXPECT_EQ("found=true tableId=0 byteCount=544 recordCount=14"
+    EXPECT_EQ("found=true tableId=0 byteCount=616 recordCount=16"
               , verifyMetadata(0));
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
-    Buffer t10Buffer;
-    t10.assembleForLog(t10Buffer);
-    EXPECT_EQ(string(reinterpret_cast<const char*>(
-                     t10Buffer.getRange(0, t10Buffer.size())),
-                     buffer.size()),
-              string(reinterpret_cast<const char*>(
-                     buffer.getRange(0, buffer.size())),
-                     buffer.size()));
+    ObjectTombstone t11(buffer);
+
+    EXPECT_EQ(t11.header.segmentId, 0U);
+    EXPECT_EQ(string(reinterpret_cast<const char*>(t11.getKey()),
+                t11.getKeyLength()),
+              string(reinterpret_cast<const char*>(t10.getKey()),
+                  t10.getKeyLength()));
+    EXPECT_EQ(t11.getObjectVersion(), t10.getObjectVersion());
     ////////////////////////////////////////////////////////////////////
     //
     //  For safeVersion recovery from OBJECT_SAFEVERSION entry
@@ -1097,6 +1046,10 @@ TEST_F(ObjectManagerTest, writeObject) {
               "writeObject: tombstone: 33 bytes, version 1", TestLog::get());
     EXPECT_EQ("found=true tableId=1 byteCount=99 recordCount=3"
               , verifyMetadata(1));
+
+    // object overwrite (hashtable contains tombstone)
+    Log::Reference reference = storeTombstone(key, 0);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
 
     // Verify RetryException  when overwriting with no space
     uint64_t original = objectManager.getLog()->totalBytesRemaining;
@@ -1599,7 +1552,6 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectAlive) {
     }
     EXPECT_TRUE(success);
     EXPECT_EQ(oldType, oldType2);
-    EXPECT_EQ(oldBuffer.getStart<uint8_t>(), oldBuffer2.getStart<uint8_t>());
 
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
@@ -1623,8 +1575,6 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectAlive) {
     EXPECT_NE(oldReference, newReference);
     EXPECT_NE(newBuffer.getStart<uint8_t>(),
               oldBuffer.getStart<uint8_t>());
-    EXPECT_EQ(newBuffer.getStart<uint8_t>() + 38,
-              newBuffer2.getStart<uint8_t>());
 }
 
 TEST_F(ObjectManagerTest, objectRelocationCallback_objectDeleted) {
@@ -1694,6 +1644,35 @@ TEST_F(ObjectManagerTest, objectRelocationCallback_objectModified) {
     // contents of the tombstone and the new object.
     EXPECT_EQ("found=true tableId=0 byteCount=75 recordCount=2"
               , verifyMetadata(0));
+}
+
+TEST_F(ObjectManagerTest, keyPointsAtReference) {
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    Key key(0, "1", 1);
+    Buffer value;
+    Object obj(key, "hi", 2, 0, 0, value);
+
+    Buffer objBuffer;
+    obj.assembleForLog(objBuffer);
+    sl.append(LOG_ENTRY_TYPE_OBJ, objBuffer);
+
+    it.construct(*sl.head);
+    while (it->getType() != LOG_ENTRY_TYPE_OBJ)
+        it->next();
+
+    Log::Reference reference = sl.head->getReference(it->getOffset());
+    EXPECT_FALSE(objectManager.keyPointsAtReference(
+                key, reference));
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        objectManager.replace(lock, key, reference);
+    }
+
+    EXPECT_TRUE(objectManager.keyPointsAtReference(
+                key, reference));
 }
 
 static bool
@@ -1808,9 +1787,8 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_cleanTombstone) {
     EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));
 
-    LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
-    oldTypeInLog = objectManager.log.getEntry(oldTombstoneReference,
+    objectManager.log.getEntry(oldTombstoneReference,
                                           oldBufferInLog);
 
     LogEntryRelocator relocator(
@@ -1823,6 +1801,42 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_cleanTombstone) {
     // Tombstone should have been cleaned leaving no bytes and no objects.
     EXPECT_EQ("found=true tableId=0 byteCount=0 recordCount=0"
               , verifyMetadata(0));
+}
+TEST_F(ObjectManagerTest, tombstoneRelocationCallback_hashTableRefUpdate) {
+    Key key(0, "1", 1);
+    Buffer value;
+    Object obj(key, "hi", 2, 0, 0, value);
+
+    ObjectTombstone tombstone(obj, 0, 0);
+    Log::Reference tombstoneReference;
+    Buffer tombstoneBuffer;
+    tombstone.assembleForLog(tombstoneBuffer);
+    objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer,
+            &tombstoneReference);
+
+    Buffer oldBufferInLog;
+    objectManager.log.getEntry(tombstoneReference,
+                                          oldBufferInLog);
+
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        objectManager.replace(lock, key, tombstoneReference);
+    }
+    EXPECT_TRUE(objectManager.keyPointsAtReference(
+                key, tombstoneReference));
+
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_OBJTOMB,
+                           oldBufferInLog,
+                           tombstoneReference,
+                           relocator);
+    EXPECT_TRUE(relocator.didAppend);
+    EXPECT_NE(relocator.getNewReference(), tombstoneReference);
+    EXPECT_FALSE(objectManager.keyPointsAtReference(
+                key, tombstoneReference));
+    EXPECT_TRUE(objectManager.keyPointsAtReference(
+                key, relocator.getNewReference()));
 }
 
 TEST_F(ObjectManagerTest, replace_noPriorVersion) {

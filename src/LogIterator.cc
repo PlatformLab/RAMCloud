@@ -56,22 +56,33 @@ namespace RAMCloud {
  *
  * Do note that running in parallel with cleaning means that the same entry may
  * be iterated over multiple times (i.e. if the cleaner has relocated it).
+ *
+ * \param log
+ *      The log to iterate over.
+ * \param lockHead
+ *      When set, we will take the log's appendLock upon reaching the head.
  */
-LogIterator::LogIterator(Log& log)
+LogIterator::LogIterator(Log& log, bool lockHead)
     : log(log),
       segmentList(),
       currentIterator(),
       currentSegmentId(Segment::INVALID_SEGMENT_ID),
-      headLocked(false)
+      headLocked(false),
+      lockHead(lockHead),
+      headReached(false)
 {
     log.segmentManager->logIteratorCreated();
 
-    // If there's no log head yet we need to preclude any appends.
-    log.appendLock.lock();
+    if (lockHead) {
+        // If there's no log head yet we need to preclude any appends.
+        log.appendLock.lock();
+        if (log.head == NULL)
+            headLocked = true;
+        else
+            log.appendLock.unlock();
+    }
     if (log.head == NULL)
-        headLocked = true;
-    else
-        log.appendLock.unlock();
+        headReached = true;
 
     next();
 }
@@ -106,7 +117,7 @@ LogIterator::isDone()
     if (segmentList.size() > 0)
         return false;
 
-    return headLocked;
+    return true;
 }
 
 /**
@@ -115,6 +126,9 @@ LogIterator::isDone()
 void
 LogIterator::next()
 {
+    // This variable ensures that headReached is updated exactly once in this
+    // function.
+    bool localHeadReached = false;
     if (currentIterator && !currentIterator->isDone()) {
         currentIterator->next();
         return;
@@ -133,23 +147,35 @@ LogIterator::next()
         return;
 
     if (segmentList.back() == log.head) {
-        log.appendLock.lock();
-        headLocked = true;
+        if (lockHead && !headLocked) {
+            log.appendLock.lock();
+            headLocked = true;
+        }
+        localHeadReached = true;
     }
 
     currentIterator.construct(*segmentList.back());
     currentSegmentId = segmentList.back()->id;
 
-    // If we've just iterated over the head, then the only segments
-    // that can exist in the log with higher IDs must have been generated
-    // by the cleaner prior to iteration.
-    //
-    // It's a bummer that we're holding the head locked. Should
-    // we not iterate over these segments before the head?
+    // If we lock the head and then discover that it got ahead of us, we
+    // release the lock and continue iteration until we catch up to the current
+    // head. This is necessary to prevent deadlock in any iteration that takes
+    // a HashTableBucketLock.
     if (headLocked && log.head != segmentList.back())
-        {}
-
-    segmentList.pop_back();
+    {
+        // Try once more to follow the log to the current head.
+        // We must unlock because operations inside the Log iteration loop may
+        // require the appendLock.
+        headLocked = false;
+        log.appendLock.unlock();
+        localHeadReached = false;
+        refresh();
+    } else {
+        // The call to refresh() implicitly calls segmentList.pop_back(), so we
+        // do not want to call it again.
+        segmentList.pop_back();
+    }
+    headReached = localHeadReached;
 }
 
 /**
@@ -161,7 +187,57 @@ LogIterator::next()
 bool
 LogIterator::onHead()
 {
-    return headLocked;
+    return headReached;
+}
+
+/**
+ * Get the current position in the log that we have walked to.
+ */
+Log::Position
+LogIterator::getPosition() {
+    if (currentIterator)
+        return Log::Position(currentSegmentId, currentIterator->getOffset());
+    else
+        return Log::Position(currentSegmentId + 1, 0);
+}
+
+/**
+ * Same as getPosition, but returns Log::Reference instead.
+ */
+Log::Reference
+LogIterator::getReference() {
+    return currentIterator->getReference();
+}
+
+/**
+ * Set the current position, and simultaneously refresh our segments as necessary.
+ * In particular, if the head segment has been updated since this iterator was
+ * constructed, or since the last call to this method, we will be able to
+ * iterate past the previous end of the log.
+ *
+ * It is assumed that the position passed in is valid for the current log.
+ */
+void
+LogIterator::setPosition(Log::Position position) {
+    if (currentIterator)
+        currentIterator.destroy();
+
+    segmentList.clear();
+    populateSegmentList(position.getSegmentId());
+
+    // This is an indication of an error because the passed in position is bad
+    assert(segmentList.size() > 0);
+    if (segmentList.back() == log.head) {
+        if (lockHead) {
+            log.appendLock.lock();
+            headLocked = true;
+        }
+        headReached = true;
+    }
+    currentIterator.construct(*segmentList.back());
+    currentIterator->setOffset(position.getSegmentOffset());
+    currentSegmentId = segmentList.back()->id;
+    segmentList.pop_back();
 }
 
 /**

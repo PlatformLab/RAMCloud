@@ -133,6 +133,14 @@ class LogSegment : public Segment {
         return entryLengths[type];
     }
 
+    /*
+     * Return the number of bytes taken up by dead entries of a given type.
+     */
+    uint32_t
+    getDeadEntryLengths(LogEntryType type) {
+        return entryLengths[type];
+    }
+
     uint32_t
     getLiveBytes()
     {

@@ -118,6 +118,15 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
 }
 
 /**
+ * Return the position of the current log head.
+ */
+Log::Position
+Log::getHead() {
+    Lock lock(appendLock);
+    return Position(head->id, head->getAppendedLength());
+}
+
+/**
  * Wait for all log appends made at the time this method is invoked to be fully
  * replicated to backups. If no appends have ever been done, this method will
  * allocate the first log head and sync it to backups.

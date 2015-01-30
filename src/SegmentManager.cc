@@ -883,7 +883,7 @@ SegmentManager::writeSafeVersion(LogSegment* head)
     ObjectSafeVersion objSafeVer(safeVersion);
 
     Buffer buffer;
-    buffer.appendExternal(&objSafeVer, sizeof(objSafeVer));
+    buffer.append(&objSafeVer, sizeof(objSafeVer));
     bool success = head->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer);
     if (!success) {
         throw FatalError(HERE,

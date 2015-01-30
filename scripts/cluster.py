@@ -487,6 +487,22 @@ class Cluster(object):
             if self.verbose:
                 print('%s finished' % p.sonce)
 
+    def remove_empty_files(self):
+        """Remove blank files and empty directories within the log directory.
+        """
+        root = self.log_subdir
+        for item in os.listdir(root):
+           path = os.path.join(root, item)
+           if os.path.isfile(path):
+             if os.path.getsize(path) == 0:
+                os.remove(path)
+           elif os.path.isdir(path):
+             print(path)
+             try:
+                os.rmdir(path)
+             except:
+                None
+
     def shutdown():
         """Kill all remaining processes started as part of this cluster and
         wait for their exit. Usually called implicitly if 'with' keyword is
@@ -499,6 +515,7 @@ class Cluster(object):
 
     def __exit__(self, exc_type=None, exc_value=None, exc_tb=None):
         self.sandbox.__exit__(exc_type, exc_value, exc_tb)
+        self.remove_empty_files()
         return False # rethrow exception, if any
 
 def run(

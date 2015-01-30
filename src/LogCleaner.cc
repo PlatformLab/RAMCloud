@@ -56,7 +56,7 @@ LogCleaner::LogCleaner(Context* context,
       segmentManager(segmentManager),
       replicaManager(replicaManager),
       entryHandlers(entryHandlers),
-      cleanableSegments(segmentManager, config, onDiskMetrics),
+      cleanableSegments(segmentManager, config, context, onDiskMetrics),
       writeCostThreshold(config->master.cleanerWriteCostThreshold),
       disableInMemoryCleaning(config->master.disableInMemoryCleaning),
       numThreads(config->master.cleanerThreadCount),
@@ -428,7 +428,8 @@ LogCleaner::doDiskCleaning()
 
     // If this doesn't hold, then our statistics are wrong. Perhaps
     // MasterService is issuing a log->free(), but is leaving a reference in
-    // the hash table.
+    // the hash table. Or perhaps objects or tombstones which were once
+    // considered dead have come to life again.
     assert(entryBytesAppended <= maxLiveBytes);
 
     uint32_t segmentsBefore = downCast<uint32_t>(segmentsToClean.size());

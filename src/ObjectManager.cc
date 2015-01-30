@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -112,15 +112,14 @@ ObjectManager::initOnceEnlisted()
 }
 
 /**
- * Read object(s) matching the given parameters, previously written by
+ * Read object(s) with the given primary key hashes, previously written by
  * ObjectManager.
  *
  * We'd typically expect one object to match one primary key hash, but it is
- * possible that zero (if that object was removed after client did
- * lookupIndexKeys() preceding this call), one, or multiple (if there are
- * multiple objects with the same primary key hash that also have index
- * keys in the current read range) objects match.
- * 
+ * possible that zero (if that object was removed after client got the key
+ * hash), one, or multiple (if there are multiple objects with the same primary
+ * key hash) objects match.
+ *
  * \param tableId
  *      Id of the table containing the object(s).
  * \param reqNumHashes
@@ -129,26 +128,21 @@ ObjectManager::initOnceEnlisted()
  *      Key hashes of the primary keys of the object(s).
  * \param initialPKHashesOffset
  *      Offset indicating location of first key hash in the pKHashes buffer.
- * \param keyRange
- *      IndexKeyRange that will be used to compare the object's index key
- *      to determine whether it is a match.
  * \param maxLength
- *      Maximum length of response that can be appended to the response
- *      buffer.
+ *      Maximum length of response that can be put in the response buffer.
  *
  * \param[out] response
- *      Buffer to which response for each object will be appended in the
- *      readNext() method.
+ *      Buffer of objects whose primary key hashes match those requested.
  * \param[out] respNumHashes
- *      Num of hashes corresponding to which objects are being returned.
+ *      Number of hashes corresponding to objects being returned.
  * \param[out] numObjects
- *      Num of objects being returned.
+ *      Number of objects being returned.
  */
 void
-ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
+ObjectManager::readHashes(const uint64_t tableId, uint32_t reqNumHashes,
             Buffer* pKHashes, uint32_t initialPKHashesOffset,
-            IndexKey::IndexKeyRange* keyRange, uint32_t maxLength,
-            Buffer* response, uint32_t* respNumHashes, uint32_t* numObjects)
+            uint32_t maxLength, Buffer* response, uint32_t* respNumHashes,
+            uint32_t* numObjects)
 {
     // The current length of the response buffer in bytes. This is the
     // cumulative length of all the objects that have been appended to response
@@ -178,7 +172,7 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
         // as multiple objects having the same primary key hash may match
         // the index key range.
         objectMap.prefetchBucket(pKHash);
-        HashTableBucketLock lock(*this, pKHash);
+        HashTableBucketLock lock(*this, pKHash); // unlocks self on destruct
 
         // If the tablet doesn't exist in the NORMAL state,
         // we must plead ignorance.
@@ -186,13 +180,16 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
         TabletManager::Tablet tablet;
         if (!tabletManager->getTablet(tableId, pKHash, &tablet))
             return;
-        if (tablet.state != TabletManager::NORMAL)
+        if (tablet.state != TabletManager::NORMAL) {
+            if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+                throw RetryException(HERE, 1000, 2000,
+                        "Tablet is currently locked for migration!");
             return;
+        }
 
         HashTable::Candidates candidates;
         objectMap.lookup(pKHash, candidates);
-
-        while (!candidates.isDone()) {
+        for (; !candidates.isDone(); candidates.next()) {
             Buffer candidateBuffer;
             Log::Reference candidateRef(candidates.getReference());
             LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
@@ -201,23 +198,19 @@ ObjectManager::indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
                 continue;
 
             Object object(candidateBuffer);
-            bool isInRange = IndexKey::isKeyInRange(&object, keyRange);
 
-            if (isInRange == true) {
+            // Candidate may have only partially matching primary key hash.
+            if (object.getPKHash() == pKHash) {
                 *numObjects += 1;
                 response->emplaceAppend<uint64_t>(object.getVersion());
                 response->emplaceAppend<uint32_t>(
                         object.getKeysAndValueLength());
                 object.appendKeysAndValueToBuffer(*response);
 
-                KeyLength pKLength;
-                const void* pKString = object.getKey(1, &pKLength);
-                Key pK(tableId, pKString, pKLength);
-                tabletManager->incrementReadCount(pK);
+                tabletManager->incrementReadCount(object.getTableId(),
+                        object.getPKHash());
                 ++PerfStats::threadStats.readCount;
             }
-
-            candidates.next();
         }
 
         partLength = response->size() - currentLength;
@@ -365,8 +358,12 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
     TabletManager::Tablet tablet;
     if (!tabletManager->getTablet(key, &tablet))
         return STATUS_UNKNOWN_TABLET;
-    if (tablet.state != TabletManager::NORMAL)
+    if (tablet.state != TabletManager::NORMAL) {
+        if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+            throw RetryException(HERE, 1000, 2000,
+                    "Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
+    }
 
     LogEntryType type;
     Buffer buffer;
@@ -392,7 +389,7 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
 
     // Return a pointer to the buffer in log for the object being removed.
     if (removedObjBuffer != NULL) {
-        removedObjBuffer->appendExternal(&buffer);
+        removedObjBuffer->append(&buffer);
     }
 
     ObjectTombstone tombstone(object,
@@ -480,8 +477,7 @@ class DelayedIncrementer {
 void
 ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
 {
-  std::unordered_map<uint64_t, uint64_t> highestBTreeIdMap;
-  replaySegment(sideLog, it, highestBTreeIdMap);
+  replaySegment(sideLog, it, NULL);
 }
 
 /**
@@ -508,13 +504,13 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
  * \param it
  *       SegmentIterator which is pointing to the start of the recovery segment
  *       to be replayed into the log.
- * \param highestBTreeIdMap
- *       A unordered map that keeps track of the highest used BTree ID in
+ * \param nextNodeIdMap
+ *       A unordered map that keeps track of the nextNodeId in
  *       each indexlet table.
  */
 void
 ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
-    std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap)
+    std::unordered_map<uint64_t, uint64_t>* nextNodeIdMap)
 {
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
     uint64_t startReplicationPostingWriteRpcTicks =
@@ -546,7 +542,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
     prefetcher.next();
 
     uint64_t bytesIterated = 0;
-    while (expect_true(!it.isDone())) {
+    for (; expect_true(!it.isDone()); it.next()) {
         prefetchHashTableBucket(&prefetcher);
         prefetcher.next();
 
@@ -575,15 +571,17 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             Key key(recoveryObj->tableId, primaryKey, primaryKeyLen);
 
             // If table is an BTree table,i.e., tableId exists in
-            // highestBTreeIdMap, update highestBTreeId of its table.
-            std::unordered_map<uint64_t, uint64_t>::iterator iter
-                = highestBTreeIdMap.find(recoveryObj->tableId);
-            if (iter != highestBTreeIdMap.end()) {
-                const uint64_t *bTreeKey =
-                    reinterpret_cast<const uint64_t*>(primaryKey);
-                uint64_t bTreeId = *bTreeKey;
-                if (bTreeId > iter->second)
-                    iter->second = bTreeId;
+            // nextNodeIdMap, update nextNodeId of its table.
+            if (nextNodeIdMap) {
+                std::unordered_map<uint64_t, uint64_t>::iterator iter
+                    = nextNodeIdMap->find(recoveryObj->tableId);
+                if (iter != nextNodeIdMap->end()) {
+                    const uint64_t *bTreeKey =
+                        reinterpret_cast<const uint64_t*>(primaryKey);
+                    uint64_t bTreeId = *bTreeKey;
+                    if (bTreeId > iter->second)
+                        iter->second = bTreeId;
+                }
             }
 
             bool checksumIsValid = ({
@@ -600,14 +598,14 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
 
             HashTableBucketLock lock(*this, key);
 
-            uint64_t minSuccessor = 0;
-            bool freeCurrentEntry = false;
 
             LogEntryType currentType;
             Buffer currentBuffer;
             Log::Reference currentReference;
+            // Handle the case where there is a current object in the hash table
             if (lookup(lock, key, currentType, currentBuffer, 0,
                                                         &currentReference)) {
+                bool currentEntryIsObject = false;
                 uint64_t currentVersion;
 
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
@@ -616,62 +614,78 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 } else {
                     Object currentObject(currentBuffer);
                     currentVersion = currentObject.getVersion();
-                    freeCurrentEntry = true;
+                    currentEntryIsObject = true;
                 }
 
-                minSuccessor = currentVersion + 1;
-            }
+                // Throw new object away if the hash table version is newer
+                if (recoveryObj->version <= currentVersion) {
+                    objectDiscardCount++;
+                    continue;
+                }
+                if (currentEntryIsObject) {
+                    // Create a tombstone to prevent rebirth after more crashes
+                    Object object(currentBuffer);
+                    ObjectTombstone tombstone(object,
+                            log.getSegmentId(currentReference),
+                            WallTime::secondsTimestamp());
 
-            if (recoveryObj->version >= minSuccessor) {
-                // write to log (with lazy backup flush) & update hash table
-                Log::Reference newObjReference;
-                {
-                    CycleCounter<uint64_t> _(&segmentAppendTicks);
-                    sideLog->append(LOG_ENTRY_TYPE_OBJ,
-                                    recoveryObj,
-                                    it.getLength(),
-                                    &newObjReference);
+                    Buffer tombstoneBuffer;
+                    tombstone.assembleForLog(tombstoneBuffer);
+                    sideLog->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer);
+                    tombstoneAppendCount++;
                     TableStats::increment(masterTableMetadata,
-                                          key.getTableId(),
-                                          it.getLength(),
-                                          1);
-                }
+                            key.getTableId(),
+                            tombstoneBuffer.size(),
+                            1);
 
-                // JIRA Issue: RAM-674:
-                // If master runs out of space during recovery, this master
-                // should abort the recovery. Coordinator will then try
-                // another master.
-
-                objectAppendCount++;
-                liveObjectBytes += it.getLength();
-
-                replace(lock, key, newObjReference);
-
-                // nuke the old object, if it existed
-                if (freeCurrentEntry) {
+                    // Track the death of the object
                     liveObjectBytes -= currentBuffer.size();
                     sideLog->free(currentReference);
-                } else {
-                    liveObjectCount++;
+                    liveObjectCount--;
                 }
-            } else {
-                objectDiscardCount++;
             }
+
+            // Add the incoming object or tombstone to our log and update
+            // the hash table to refer to it.
+            Log::Reference newObjReference;
+            {
+                CycleCounter<uint64_t> _(&segmentAppendTicks);
+                sideLog->append(LOG_ENTRY_TYPE_OBJ,
+                                recoveryObj,
+                                it.getLength(),
+                                &newObjReference);
+                TableStats::increment(masterTableMetadata,
+                                      key.getTableId(),
+                                      it.getLength(),
+                                      1);
+            }
+            replace(lock, key, newObjReference);
+
+            // JIRA Issue: RAM-674:
+            // If master runs out of space during recovery, this master
+            // should abort the recovery. Coordinator will then try
+            // another master.
+
+            liveObjectCount++;
+            objectAppendCount++;
+            liveObjectBytes += it.getLength();
         } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
             Buffer buffer;
             it.appendToBuffer(buffer);
             Key key(type, buffer);
 
             // If table is an BTree table,i.e., tableId exists in
-            // highestBTreeIdMap, update highestBTreeId of its table.
-            std::unordered_map<uint64_t, uint64_t>::iterator iter
-                = highestBTreeIdMap.find(key.getTableId());
-            if (iter != highestBTreeIdMap.end()) {
-                const uint64_t *bTreeKey =
-                    reinterpret_cast<const uint64_t*>(key.getStringKey());
-                uint64_t bTreeId = *bTreeKey;
-                if (bTreeId > iter->second)
-                    iter->second = bTreeId;
+            // nextNodeIdMap, update nextNodeId of its table.
+            if (nextNodeIdMap) {
+                std::unordered_map<uint64_t, uint64_t>::iterator iter
+                    = nextNodeIdMap->find(key.getTableId());
+                if (iter != nextNodeIdMap->end()) {
+                    const uint64_t *bTreeKey =
+                        reinterpret_cast<const uint64_t*>(key.getStringKey());
+                    uint64_t bTreeId = *bTreeKey;
+                    if (bTreeId > iter->second)
+                        iter->second = bTreeId;
+                }
             }
 
             ObjectTombstone recoverTomb(buffer);
@@ -685,57 +699,106 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 // JIRA Issue: RAM-673:
                 // Should throw and try another segment replica.
             }
+            uint64_t recoverVersion = recoverTomb.getObjectVersion();
 
             HashTableBucketLock lock(*this, key);
 
-            uint64_t minSuccessor = 0;
-            bool freeCurrentEntry = false;
 
             LogEntryType currentType;
             Buffer currentBuffer;
             Log::Reference currentReference;
             if (lookup(lock, key, currentType, currentBuffer, 0,
                                                         &currentReference)) {
+                bool currentEntryIsObject = false;
+                uint64_t currentVersion;
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
                     ObjectTombstone currentTombstone(currentBuffer);
-                    minSuccessor = currentTombstone.getObjectVersion() + 1;
+                    currentVersion = currentTombstone.getObjectVersion();
                 } else {
                     Object currentObject(currentBuffer);
-                    minSuccessor = currentObject.getVersion();
-                    freeCurrentEntry = true;
+                    currentVersion = currentObject.getVersion();
+                    currentEntryIsObject = true;
                 }
-            }
+                // Throw new tombstone away if the hash table version is
+                // strictly newer
+                if (recoverVersion < currentVersion) {
+                    tombstoneDiscardCount++;
+                    continue;
+                }
+                // We assume we will not see an exact duplicate tombstone and
+                // do not handle that case.
+                assert(currentEntryIsObject ||
+                        recoverVersion != currentVersion);
 
-            if (recoverTomb.getObjectVersion() >= minSuccessor) {
-                tombstoneAppendCount++;
-                Log::Reference newTombReference;
-                {
-                    CycleCounter<uint64_t> _(&segmentAppendTicks);
+                // Synthesize a new tombstone specifically so as to maintain
+                // the following invariant
+                // Any time a logically deleted object is present in the log
+                // and not yet cleaned, there exists a corresponding tombstone
+                // which refers specifically to it.
+                if (currentEntryIsObject) {
+                    Log::Reference newTombReference;
+                    // Create a tombstone to prevent rebirth after more crashes
+                    Object object(currentBuffer);
+                    ObjectTombstone tombstone(object,
+                            log.getSegmentId(currentReference),
+                            WallTime::secondsTimestamp());
+
+                    Buffer tombstoneBuffer;
+                    tombstone.assembleForLog(tombstoneBuffer);
                     sideLog->append(LOG_ENTRY_TYPE_OBJTOMB,
-                                    buffer,
-                                    &newTombReference);
+                            tombstoneBuffer,
+                            &newTombReference);
+
+                    tombstoneAppendCount++;
                     TableStats::increment(masterTableMetadata,
-                                          key.getTableId(),
-                                          buffer.size(),
-                                          1);
-                }
+                            key.getTableId(),
+                            tombstoneBuffer.size(),
+                            1);
 
-                // JIRA Issue: RAM-674:
-                // If master runs out of space during recovery, this master
-                // should abort the recovery. Coordinator will then try
-                // another master.
-
-                replace(lock, key, newTombReference);
-
-                // nuke the object, if it existed
-                if (freeCurrentEntry) {
-                    liveObjectCount++;
+                    // Track the death of the object
                     liveObjectBytes -= currentBuffer.size();
                     sideLog->free(currentReference);
+                    liveObjectCount--;
+
+                    // Optimization to avoid appending two tombstones with the
+                    // same version for the same key to the log.
+                    if (recoverVersion == currentVersion) {
+                        replace(lock, key, newTombReference);
+                        continue;
+                    }
+
                 }
-            } else {
-                tombstoneDiscardCount++;
+
             }
+
+            // Reaching this point means that there was either no entry in the
+            // hash table or this tombstone is newer than the current object in
+            // the hash table.
+            // Thus, we add the received tombstone to the hash table to block
+            // earlier version objects and tombstones.
+            recoverTomb.header.timestamp = WallTime::secondsTimestamp();
+
+            // A segmentId of 0 indicates that this tombstone can be cleaned as
+            // soon as the hash table ceases to reference it.
+            recoverTomb.header.segmentId = 0;
+            recoverTomb.header.checksum = 0;
+            recoverTomb.header.checksum = recoverTomb.computeChecksum();
+
+            // Create a new Buffer to avoid reading and writing from the same
+            // Buffer.
+            Log::Reference newTombReference;
+            Buffer tombstoneBuffer;
+            recoverTomb.assembleForLog(tombstoneBuffer);
+            sideLog->append(LOG_ENTRY_TYPE_OBJTOMB,
+                    tombstoneBuffer,
+                    &newTombReference);
+
+            tombstoneAppendCount++;
+            TableStats::increment(masterTableMetadata,
+                    key.getTableId(),
+                    buffer.size(),
+                    1);
+            replace(lock, key, newTombReference);
         } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
             // LOG_ENTRY_TYPE_SAFEVERSION is duplicated to all the
             // partitions in BackupService::buildRecoverySegments()
@@ -779,7 +842,6 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             }
         }
 
-        it.next();
     }
 
     metrics->master.backupInRecoverTicks +=
@@ -884,8 +946,12 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     TabletManager::Tablet tablet;
     if (!tabletManager->getTablet(key, &tablet))
         return STATUS_UNKNOWN_TABLET;
-    if (tablet.state != TabletManager::NORMAL)
+    if (tablet.state != TabletManager::NORMAL) {
+        if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+            throw RetryException(HERE, 1000, 2000,
+                    "Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
+    }
 
     LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
     Buffer currentBuffer;
@@ -897,14 +963,15 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     if (lookup(lock, key, currentType, currentBuffer, 0,
                &currentReference, &currentHashTableEntry)) {
         if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-            removeIfTombstone(currentReference.toInteger(), this);
+            CleanupParameters params = { this , &lock };
+            removeIfTombstone(currentReference.toInteger(), &params);
         } else {
             Object currentObject(currentBuffer);
             currentVersion = currentObject.getVersion();
             // Return a pointer to the buffer in log for the object being
             // overwritten.
             if (removedObjBuffer != NULL) {
-                removedObjBuffer->appendExternal(&currentBuffer);
+                removedObjBuffer->append(&currentBuffer);
             }
         }
     }
@@ -1083,7 +1150,8 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
                        &currentReference, &currentHashTableEntry)) {
 
                 if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-                    removeIfTombstone(currentReference.toInteger(), this);
+                    CleanupParameters params = { this , &lock };
+                    removeIfTombstone(currentReference.toInteger(), &params);
                     objectMap.insert(key.getHash(), references[i].toInteger());
                 }
 
@@ -1148,13 +1216,13 @@ ObjectManager::flushEntriesToLog(Buffer *logBuffer, uint32_t& numEntries)
  * Adds a log entry header, an object header and the object contents
  * to a buffer. This is preparatory work so that eventually, all the
  * entries in the buffer can be flushed to the log atomically.
- * 
+ *
  * This method is currently used by the Btree module to prepare a buffer
  * for the log. The idea is that eventually, each of the log entries in
  * the buffer can be flushed atomically by the log.
  * It is general enough to be used by any other module.
- * 
- * 
+ *
+ *
  * \param newObject
  *      The object for which the object header and the log entry
  *      header need to be constructed.
@@ -1187,8 +1255,11 @@ ObjectManager::prepareForLog(Object& newObject, Buffer *logBuffer,
     TabletManager::Tablet tablet;
     if (!tabletManager->getTablet(key, &tablet))
         return STATUS_UNKNOWN_TABLET;
-    if (tablet.state != TabletManager::NORMAL)
+    if (tablet.state != TabletManager::NORMAL) {
+        if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+            DIE("Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
+    }
 
     LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
     Buffer currentBuffer;
@@ -1278,8 +1349,12 @@ ObjectManager::writeTombstone(Key& key, Buffer *logBuffer)
     TabletManager::Tablet tablet;
     if (!tabletManager->getTablet(key, &tablet))
         return STATUS_UNKNOWN_TABLET;
-    if (tablet.state != TabletManager::NORMAL)
+    if (tablet.state != TabletManager::NORMAL) {
+        if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+            throw RetryException(HERE, 1000, 2000,
+                    "Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
+    }
 
     LogEntryType type;
     Buffer buffer;
@@ -1351,7 +1426,7 @@ ObjectManager::relocate(LogEntryType type, Buffer& oldBuffer,
     if (type == LOG_ENTRY_TYPE_OBJ)
         relocateObject(oldBuffer, oldReference, relocator);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
-        relocateTombstone(oldBuffer, relocator);
+        relocateTombstone(oldBuffer, oldReference, relocator);
 }
 
 /**
@@ -1551,7 +1626,7 @@ ObjectManager::lookup(HashTableBucketLock& lock, Key& key,
         Key candidateKey(type, candidateBuffer);
         if (key == candidateKey) {
             outType = type;
-            buffer.appendExternal(&candidateBuffer);
+            buffer.append(&candidateBuffer);
             if (outVersion != NULL) {
                 if (type == LOG_ENTRY_TYPE_OBJ) {
                     Object o(candidateBuffer);
@@ -1806,6 +1881,33 @@ ObjectManager::relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
 }
 
 /**
+ * Returns true iff the given key still points at the given reference.
+ *
+ * \param key
+ *      The key to look up in the hash table.
+ * \param reference
+ *      The reference to verify for presence in the hash table.
+ */
+bool
+ObjectManager::keyPointsAtReference(Key& key, AbstractLog::Reference reference)
+{
+
+    HashTableBucketLock lock(*this, key);
+
+    HashTable::Candidates candidates;
+    objectMap.lookup(key.getHash(), candidates);
+    while (!candidates.isDone()) {
+        if (candidates.getReference() != reference.toInteger()) {
+            candidates.next();
+            continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+
+/**
  * Callback used by the LogCleaner when it's cleaning a Segment and comes
  * across a Tombstone.
  *
@@ -1816,6 +1918,10 @@ ObjectManager::relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
  * \param oldBuffer
  *      Buffer pointing to the tombstone's current location, which will soon be
  *      invalidated.
+ * \param oldReference
+ *      Reference to the old tombstone in the log. This is used to check whether
+ *      the hash table still points at the tombstone, because we must copy the
+ *      tombstone and update the reference if that is the case.
  * \param relocator
  *      The relocator may be used to store the tombstone in a new location if it
  *      is still alive. It also provides a reference to the new location and
@@ -1826,19 +1932,40 @@ ObjectManager::relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
  *      cleaner will note the failure, allocate more memory, and try again.
  */
 void
-ObjectManager::relocateTombstone(Buffer& oldBuffer,
+ObjectManager::relocateTombstone(Buffer& oldBuffer, Log::Reference oldReference,
                 LogEntryRelocator& relocator)
 {
     ObjectTombstone tomb(oldBuffer);
 
     // See if the object this tombstone refers to is still in the log.
-    bool keepNewTomb = log.segmentExists(tomb.getSegmentId());
+    bool objectExists = log.segmentExists(tomb.getSegmentId());
+    bool hashReferenceExists = false;
+
+    // Check if the hash table still references this tombstone and update the
+    // pointer if it does. For efficiency, we perform the lookup here so we can
+    // do the update inline if it turns out to be necessary.
+    Key key(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer);
+    HashTableBucketLock lock(*this, key);
+    HashTable::Candidates candidates;
+    objectMap.lookup(key.getHash(), candidates);
+    while (!candidates.isDone()) {
+        if (candidates.getReference() != oldReference.toInteger()) {
+            candidates.next();
+            continue;
+        }
+        hashReferenceExists = true;
+        break;
+    }
+
+    bool keepNewTomb = objectExists || hashReferenceExists;
 
     if (keepNewTomb) {
         // Try to relocate it. If it fails, just return. The cleaner will
         // allocate more memory and retry.
         if (!relocator.append(LOG_ENTRY_TYPE_OBJTOMB, oldBuffer))
             return;
+        if (hashReferenceExists)
+            candidates.setReference(relocator.getNewReference().toInteger());
     } else {
         // Tombstone will be dropped/"cleaned" so stats should be updated.
         TableStats::decrement(masterTableMetadata,

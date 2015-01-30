@@ -57,11 +57,7 @@ IndexLookup::IndexLookup(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
     : ramcloud(ramcloud)
     , lookupRpc()
     , tableId(tableId)
-    , indexId(indexId)
-    , firstKey(firstKey)
-    , firstKeyLength(firstKeyLength)
-    , lastKey(lastKey)
-    , lastKeyLength(lastKeyLength)
+    , keyRange{indexId, firstKey, firstKeyLength, lastKey, lastKeyLength}
     , flags(flags)
     , maxNumHashes(maxNumHashes)
     , nextKey(NULL)
@@ -71,11 +67,11 @@ IndexLookup::IndexLookup(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
     , numRemoved(0)
     , numAssigned(0)
     , curObj()
-    , curIdx(RPC_ID_NOT_ASSIGN)
+    , curIdx(RPC_ID_NOT_ASSIGNED)
     , finishedLookup(false)
 {
-    for (uint8_t i = 0; i < NUM_READ_RPC; i++) {
-        readRpc[i].status = FREE;
+    for (uint8_t i = 0; i < NUM_READ_RPCS; i++) {
+        readRpcs[i].status = FREE;
     }
 
     lookupRpc.resp.reset();
@@ -127,25 +123,25 @@ IndexLookup::isReady()
         // Rule 1:
         // Handle the completion of a lookIndexKeys RPC.
         if (lookupRpc.status == SENT && lookupRpc.rpc->isReady()) {
+            uint16_t oldKeyLength = nextKeyLength; // should be 0 for first rpc
             lookupRpc.rpc->wait(&lookupRpc.numHashes, &nextKeyLength,
                                 &nextKeyHash);
             lookupRpc.offset = sizeof32(WireFormat::LookupIndexKeys::Response);
-            if (nextKey != NULL)
-                free(nextKey);
+
             // Save the "next key" information from this response,
             // which will be used as the starting key for the next
             // lookupIndexKeys request.
-            // This malloc and memcpy can be expensive, but it is expected
-            // index lookup won't span across many servers.
-            // TODO(zhihao): if we can make sure that lookupIndexKeys
-            // construction doesn't clear the response buffer before copying
-            // firstKey into request buffer, we can consider removing this
-            // malloc & memcpy.
-            nextKey = malloc(nextKeyLength);
-            uint32_t off = lookupRpc.offset
-                           + (lookupRpc.numHashes * (uint32_t) sizeof(KeyHash));
-            memcpy(nextKey, lookupRpc.resp.getOffset<char>(off),
-                   nextKeyLength);
+            if (nextKeyLength > 0) {
+                // malloc for first use or if previous key was smaller
+                if (nextKeyLength > oldKeyLength) {
+                    if (nextKey != NULL)
+                        free(nextKey);
+                    nextKey = malloc(nextKeyLength);
+                }
+                uint32_t off = lookupRpc.offset
+                    + (lookupRpc.numHashes * (uint32_t) sizeof(KeyHash));
+                lookupRpc.resp.copy(off, nextKeyLength, nextKey);
+            }
             lookupRpc.status = RESULT_READY;
         }
         /// Rule 2:
@@ -153,11 +149,13 @@ IndexLookup::isReady()
         /// unread, copy as much of them into activeHashes as possible.
         if (lookupRpc.status == RESULT_READY && lookupRpc.numHashes > 0) {
             while (lookupRpc.numHashes > 0
-                   && numInserted - numRemoved < MAX_NUM_PK) {
+                    && numInserted - numRemoved < MAX_NUM_PK) {
                 //TODO(zhihao): consider copy all PKHashes at once
+                // Greg: probably wont help much, as of fall 2014 most of the
+                // time few hashes are moved (bottlenecked by obj reads)
                 activeHashes[numInserted & ARRAY_MASK]
-                   = *lookupRpc.resp.getOffset<KeyHash>(lookupRpc.offset);
-                activeRpcIds[numInserted & ARRAY_MASK] = RPC_ID_NOT_ASSIGN;
+                    = *lookupRpc.resp.getOffset<KeyHash>(lookupRpc.offset);
+                activeRpcIds[numInserted & ARRAY_MASK] = RPC_ID_NOT_ASSIGNED;
                 lookupRpc.offset += sizeof32(KeyHash);
                 lookupRpc.numHashes--;
                 numInserted++;
@@ -173,24 +171,25 @@ IndexLookup::isReady()
                 finishedLookup = true;
                 lookupRpc.status = FREE;
             } else {
-                lookupRpc.rpc.construct(ramcloud, tableId, indexId, nextKey,
-                                        nextKeyLength, nextKeyHash,
-                                        lastKey, lastKeyLength,
-                                        maxNumHashes, &lookupRpc.resp);
+                lookupRpc.rpc.construct(ramcloud, tableId, keyRange.indexId,
+                                        nextKey, nextKeyLength, nextKeyHash,
+                                        keyRange.lastKey,
+                                        keyRange.lastKeyLength, maxNumHashes,
+                                        &lookupRpc.resp);
                 lookupRpc.status = SENT;
             }
         }
     }
 
     // If there are active hashes that have not yet been
-    // assigned to an indexedRead RPC, try to assign the first unassigned
-    // PKHashes to a indexedRead RPC. We assign PKHashes in their index order.
+    // assigned to an readHashes RPC, try to assign the first unassigned
+    // PKHashes to a readHashes RPC. We assign PKHashes in their index order.
     while (numAssigned < numInserted) {
         // Rule 4:
         // If the PKHash pointed by numAssigned has been assigned (some server
         // crashes may cause numAssigned rolled back, and mark some previously
-        // assigned PKHash RPC_ID_NOT_ASSIGN)
-        if (activeRpcIds[numAssigned & ARRAY_MASK] != RPC_ID_NOT_ASSIGN) {
+        // assigned PKHash RPC_ID_NOT_ASSIGNED)
+        if (activeRpcIds[numAssigned & ARRAY_MASK] != RPC_ID_NOT_ASSIGNED) {
             numAssigned++;
             continue;
         }
@@ -200,15 +199,15 @@ IndexLookup::isReady()
         // Rule 5:
         // Try to assign the current key hash to an existing RPC
         // to the same server.
-        uint8_t readactiveRpcId = RPC_ID_NOT_ASSIGN;
-        for (uint8_t i = 0; i < NUM_READ_RPC; i++) {
-            if (session == readRpc[i].session
-                    && readRpc[i].status == LOADING
+        uint8_t readactiveRpcId = RPC_ID_NOT_ASSIGNED;
+        for (uint8_t i = 0; i < NUM_READ_RPCS; i++) {
+            if (session == readRpcs[i].session
+                    && readRpcs[i].status == LOADING
                     // The below check is to make sure that
                     // pKHashes in every read RPC obey index order
                     // The check is needed during retries after server crashes.
-                    && readRpc[i].maxPos < numAssigned
-                    && readRpc[i].numHashes < MAX_PKHASHES_PER_RPC) {
+                    && readRpcs[i].maxPos < numAssigned
+                    && readRpcs[i].numHashes < MAX_PKHASHES_PER_RPC) {
                 readactiveRpcId = i;
                 break;
             }
@@ -216,54 +215,55 @@ IndexLookup::isReady()
         // Rule 6:
         // If the hash can't go in an existing RPC, see if we can start a new
         // one for it.
-        if (readactiveRpcId == RPC_ID_NOT_ASSIGN) {
-            for (uint8_t i = 0; i < NUM_READ_RPC; i++) {
-                if (readRpc[i].status == FREE) {
+        if (readactiveRpcId == RPC_ID_NOT_ASSIGNED) {
+            for (uint8_t i = 0; i < NUM_READ_RPCS; i++) {
+                if (readRpcs[i].status == FREE) {
                     readactiveRpcId = i;
-                    readRpc[i].session = session;
-                    readRpc[i].numHashes = 0;
-                    readRpc[i].pKHashes.reset();
-                    readRpc[i].status = LOADING;
-                    readRpc[i].maxPos = 0;
+                    readRpcs[i].session = session;
+                    readRpcs[i].numHashes = 0;
+                    readRpcs[i].pKHashes.reset();
+                    readRpcs[i].status = LOADING;
+                    readRpcs[i].maxPos = 0;
                     break;
                 }
             }
         }
-        if (readactiveRpcId != RPC_ID_NOT_ASSIGN) {
-            readRpc[readactiveRpcId].pKHashes.emplaceAppend<KeyHash>(pKHash);
-            readRpc[readactiveRpcId].numHashes++;
-            readRpc[readactiveRpcId].maxPos = numAssigned;
+        if (readactiveRpcId != RPC_ID_NOT_ASSIGNED) {
+            readRpcs[readactiveRpcId].pKHashes.emplaceAppend<KeyHash>(pKHash);
+            readRpcs[readactiveRpcId].numHashes++;
+            readRpcs[readactiveRpcId].maxPos = numAssigned;
             activeRpcIds[numAssigned & ARRAY_MASK] = readactiveRpcId;
             numAssigned++;
         } else {
-            // break means all readRpc are in use. We should stoping assigning
+            // break means all readRpcs are in use. We should stoping assigning
             // more PKHashes
             break;
         }
     }
 
-    // Start to check rules for every indexedRead RPC
-    for (uint8_t i = 0; i < NUM_READ_RPC; i++) {
+    // Start to check rules for every readHashes RPC
+    for (uint8_t i = 0; i < NUM_READ_RPCS; i++) {
         // Rule 7:
-        // If some indexedRead RPC get enough PKHASHES to send, launch that
-        // indexedRead RPC
-        if (readRpc[i].status == LOADING
-                && readRpc[i].numHashes >= MAX_PKHASHES_PER_RPC) {
+        // If some readHashes RPC has enough PKHASHES to send
+        // or all PKHASHES have been assigned, launch that RPC
+        if (readRpcs[i].status == LOADING
+                && (readRpcs[i].numHashes >= MAX_PKHASHES_PER_RPC
+                    || finishedLookup)) {
             launchReadRpc(i);
         }
 
         // Rule 8:
-        // Handle the completion of an indexedReadRPC.
-        if (readRpc[i].status == SENT
-                && readRpc[i].rpc->isReady()) {
+        // Handle the completion of an readHashesRPC.
+        if (readRpcs[i].status == SENT
+                && readRpcs[i].rpc->isReady()) {
             uint32_t numProcessedPKHashes =
-                readRpc[i].rpc->wait(&readRpc[i].numUnreadObjects);
-            readRpc[i].offset = sizeof32(WireFormat::IndexedRead::Response);
-            readRpc[i].status = RESULT_READY;
+                readRpcs[i].rpc->wait(&readRpcs[i].numUnreadObjects);
+            readRpcs[i].offset = sizeof32(WireFormat::ReadHashes::Response);
+            readRpcs[i].status = RESULT_READY;
             // Update objectFinder if no pKHashes got processed in a readRpc.
             if (numProcessedPKHashes == 0)
                 ramcloud->objectFinder.flush(tableId);
-            if (numProcessedPKHashes < readRpc[i].numHashes) {
+            if (numProcessedPKHashes < readRpcs[i].numHashes) {
                 for (size_t p = numRemoved; p < numInserted; p ++) {
                     // Some of the key hashes couldn't be looked up in this
                     // request (either because they aren't stored by that
@@ -272,12 +272,13 @@ IndexLookup::isReady()
                     // the unprocessed hashes so they will get reassigned to
                     // new RPCs.
                     if (activeRpcIds[p] == i) {
+                        // got first numProcessedPKHashes in this Rpc
                         if (numProcessedPKHashes > 0) {
                             numProcessedPKHashes--;
-                        } else {
+                        } else { // the rest need to be re-assigned
+                            activeRpcIds[p] = RPC_ID_NOT_ASSIGNED;
                             if (p < numAssigned)
                                 numAssigned = p;
-                            activeRpcIds[p] = RPC_ID_NOT_ASSIGN;
                         }
                     }
                 }
@@ -287,9 +288,9 @@ IndexLookup::isReady()
         // Rule 9:
         // If all objects have been read by user, this RPC is free to be
         // reused.
-        if (readRpc[i].status == RESULT_READY
-            && readRpc[i].numUnreadObjects == 0) {
-            readRpc[i].status = FREE;
+        if (readRpcs[i].status == RESULT_READY
+            && readRpcs[i].numUnreadObjects == 0) {
+            readRpcs[i].status = FREE;
         }
     }
 
@@ -298,10 +299,7 @@ IndexLookup::isReady()
     // then we come to a conclusion that all available objects has been
     // returned.
     if (numRemoved == numInserted) {
-        if (finishedLookup)
-            return true;
-        else
-            return false;
+        return finishedLookup;
     }
 
     // Rule 11:
@@ -309,168 +307,95 @@ IndexLookup::isReady()
     // return false, which makes upper-level function invoke isReady() again,
     // and the next isReady() will try to assign the next PKHash to be
     // returned.
-    if (activeRpcIds[numRemoved & ARRAY_MASK] == RPC_ID_NOT_ASSIGN)
+    if (activeRpcIds[numRemoved & ARRAY_MASK] == RPC_ID_NOT_ASSIGNED)
         return false;
     uint8_t readRpcId = activeRpcIds[numRemoved & ARRAY_MASK];
 
     // Rule 12:
     // If the next PKHash to be returned is in a LOADING readRpc, launch that
     // readRpc asap.
-    if (readRpc[readRpcId].status == LOADING) {
+    if (readRpcs[readRpcId].status == LOADING) {
         launchReadRpc(readRpcId);
     }
 
     // Rule 13:
-    // If the indexedRead RPC that contains the next pKHash to return has
+    // If the readHashes RPC that contains the next pKHash to return has
     // returned, tell invoker that getNext() will not block if it is invoked.
-    if (readRpc[readRpcId].status == RESULT_READY) {
+    if (readRpcs[readRpcId].status == RESULT_READY) {
         return true;
     }
 
     // Rule 14:
     // If the next PKHash to be returned is in a SENT readRpc, wait until
     // this readRpc returns.
-    assert(readRpc[readRpcId].status == SENT);
+    assert(readRpcs[readRpcId].status == SENT);
     return false;
 }
 
 /**
- * Wait until either another object is available or all
- * objects have been returned.
+ * Wait until either another object in the proper index range
+ * is available or all objects have been returned.
  *
- * Client should invoke this function before calling getKey/getValue.
+ * Client should invoke this function before calling currentObject
  *
  * \return
- *      True means the next index-order object is RESULT_READY. Client
- *      can use getKey/getValue to check object data.
+ *      True means the next index-order object is RESULT_READY and in the
+ *      index range. Client can use currentObject to check object data.
  *      False means we have already reached the last object, and there
  *      are no more objects.
  */
 bool
 IndexLookup::getNext()
 {
-    // This is to check if the client has read some objects. If this is
-    // not the first key to call getNext(), we should mark the previous
-    // objects as read, and free corresponding buffers if necessary.
-    if (curIdx != RPC_ID_NOT_ASSIGN)
-        readRpc[curIdx].numUnreadObjects--;
-    while (!isReady());
-    // If there is no new object to return to client, just return false.
-    if (numRemoved == numInserted && finishedLookup)
-        return false;
-    curIdx = activeRpcIds[numRemoved & ARRAY_MASK];
-    // TODO(zhihao): possible information leakage. Consider use some other
-    // class to access the detailed contents of the RPC result.
-    uint64_t version =
-        *readRpc[curIdx].resp.getOffset<uint64_t>(
-            readRpc[curIdx].offset);
-    readRpc[curIdx].offset += sizeof32(uint64_t);
-    uint32_t length =
-        *readRpc[curIdx].resp.getOffset<uint32_t>(
-            readRpc[curIdx].offset);
-    readRpc[curIdx].offset += sizeof32(uint32_t);
-    curObj.construct(tableId, version, 0, readRpc[curIdx].resp,
-                     readRpc[curIdx].offset, length);
-    readRpc[curIdx].offset += length;
+    do {
+        // This is to check if the client has read some objects. If this is
+        // not the first key to call getNext(), we should mark the previous
+        // objects as read, and free corresponding buffers if necessary.
+        if (curIdx != RPC_ID_NOT_ASSIGNED)
+            readRpcs[curIdx].numUnreadObjects--;
 
-    // TODO(zhihao): (shouldn't move numRemoved on)
-    numRemoved++;
+        while (!isReady()) {
+            ramcloud->clientContext->dispatch->poll();
+        };
+
+        // If there is no new object to return to client, just return false.
+        if (numRemoved == numInserted && finishedLookup)
+            return false;
+        curIdx = activeRpcIds[numRemoved & ARRAY_MASK];
+        Buffer& curBuff = readRpcs[curIdx].resp;
+        uint32_t& curOffset = readRpcs[curIdx].offset;
+        // TODO(zhihao): possible information leakage. Consider use some other
+        // class to access the detailed contents of the RPC result.
+        uint64_t version = *curBuff.getOffset<uint64_t>(curOffset);
+        curOffset += sizeof32(uint64_t);
+
+        uint32_t length = *curBuff.getOffset<uint32_t>(curOffset);
+        curOffset += sizeof32(uint32_t);
+
+        curObj.construct(tableId, version, 0, curBuff, curOffset, length);
+        curOffset += length;
+
+        // TODO(zhihao): (shouldn't move numRemoved on)
+        numRemoved++;
+    } while (!IndexKey::isKeyInRange(curObj.get(), &keyRange));
 
     return true;
 }
 
 /**
- * Returns a pointer to one of the object's keys. The key is guaranteed to
- * be in contiguous memory (if it wasn't already contiguous, it will be
- * copied into a contiguous region).
- *
- * This method should only be invoked if getNext has been invoked and has
- * returned true.
- *
- * \param keyIndex
- *      Index position of this key
- * \param[out] keyLength
- *      Pointer to word that will be filled in with the length of the key
- *      indicated by keyIndex; if NULL then no length is returned.
- *
- * \return
- *      Pointer to the key which will be contiguous, or NULL if there is no
- *      key corresponding to keyIndex
- */
-const void*
-IndexLookup::getKey(KeyIndex keyIndex, KeyLength *keyLength)
-{
-    return curObj->getKey(keyIndex, keyLength);
-}
-
-/**
- * Get number of keys in current object.
- *
- * This method should only be invoked if getNext has been invoked and has
- * returned true.
- *
- * \return
- *      Number of keys in this object.
- */
-KeyCount
-IndexLookup::getKeyCount()
-{
-    return curObj->getKeyCount();
-}
-
-/**
- * Obtain the length of the key at position keyIndex.
- * If keyIndex >= numKeys, then endKeyOffset(keyIndex) will
- * return 0. This function should return 0 in such cases.
- *
- * This method should only be invoked if getNext has been invoked and has
- * returned true.
- *
- * \param keyIndex
- *      Numeric position of the index
- */
-KeyLength
-IndexLookup::getKeyLength(KeyIndex keyIndex)
-{
-    return curObj->getKeyLength(keyIndex);
-}
-
-/**
- * Obtain a pointer to a contiguous copy of this object's value.
- * This will not contain the number of keys, the key lengths and the keys.
- * This function is primarily used by unit tests
- *
- * This method should only be invoked if getNext has been invoked and has
- * returned true.
- *
- *
- * \param[out] valueLength
- *      The length of the object's value in bytes.
- *
- * \return
- *      NULL if the object is malformed,
- *      a pointer to a contiguous copy of the object's value otherwise
- */
-const void*
-IndexLookup::getValue(uint32_t *valueLength)
-{
-    return curObj->getValue(valueLength);
-}
-
-/**
- * Obtain the length of the object's value.
+ * Returns a pointer to the current object.
  *
  * This method should only be invoked if getNext has been invoked and has
  * returned true.
  */
-uint32_t
-IndexLookup::getValueLength()
+Object*
+IndexLookup::currentObject()
 {
-    return curObj->getValueLength();
+    return curObj.get();
 }
 
 /**
- * Launch indexedRead RPC with index number i.
+ * Launch the readHashes RPC with index number i.
  *
  * \param i
  *      The index of RPC to be launched.
@@ -478,14 +403,12 @@ IndexLookup::getValueLength()
 void
 IndexLookup::launchReadRpc(uint8_t i)
 {
-    assert(readRpc[i].status == LOADING);
-    readRpc[i].rpc.construct(ramcloud, tableId,
-                             readRpc[i].numHashes,
-                             &readRpc[i].pKHashes,
-                             indexId, firstKey, firstKeyLength,
-                             lastKey, lastKeyLength,
-                             &readRpc[i].resp);
-    readRpc[i].status = SENT;
+    assert(readRpcs[i].status == LOADING);
+    readRpcs[i].rpc.construct(ramcloud, tableId,
+                             readRpcs[i].numHashes,
+                             &readRpcs[i].pKHashes,
+                             &readRpcs[i].resp);
+    readRpcs[i].status = SENT;
 }
 
 } // end RAMCloud

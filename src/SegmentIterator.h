@@ -56,6 +56,8 @@ class SegmentIterator {
     LogEntryType getType();
     uint32_t getLength();
     uint32_t getOffset();
+    void setOffset(uint32_t offset);
+    Segment::Reference getReference();
     uint32_t appendToBuffer(Buffer& buffer);
     uint32_t setBufferTo(Buffer& buffer);
     void checkMetadataIntegrity();

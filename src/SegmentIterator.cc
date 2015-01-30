@@ -200,6 +200,28 @@ SegmentIterator::getOffset()
 }
 
 /**
+ * Set the current position of the iterator inside the segment.
+ *
+ * \param offset
+ *      This offset must point at an entry header.
+ */
+void
+SegmentIterator::setOffset(uint32_t offset)
+{
+    currentOffset = offset;
+    currentHeader = segment->getEntryHeader(currentOffset);
+    currentLength.destroy();
+}
+
+/**
+ * Get the current position that this segment has walked to.
+ */
+Segment::Reference
+SegmentIterator::getReference() {
+    return Segment::Reference(segment, currentOffset);
+}
+
+/**
  * Append the current entry to the provided buffer.
  *
  * \return

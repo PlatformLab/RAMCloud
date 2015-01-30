@@ -125,10 +125,6 @@ TEST_F(LogDigestTest, appendToBuffer)
     Buffer buffer2;
     d2.appendToBuffer(buffer2);
     EXPECT_EQ(20U, buffer2.size());
-    EXPECT_EQ(static_cast<const void*>(&d2.header),
-        buffer2.getStart<LogDigest::Header>());
-    EXPECT_EQ(static_cast<const void*>(&d2.segmentIds[0]),
-        buffer2.getRange(4, buffer2.size() - 4));
 
     LogDigest d3;
     for (uint32_t i = 0; i < 50; i++) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -56,10 +56,9 @@ class ObjectManager : public LogEntryHandlers {
     virtual ~ObjectManager();
     void initOnceEnlisted();
 
-    void indexedRead(const uint64_t tableId, uint32_t reqNumHashes,
+    void readHashes(const uint64_t tableId, uint32_t reqNumHashes,
                 Buffer* pKHashes, uint32_t initialPKHashesOffset,
-                IndexKey::IndexKeyRange* keyRange, uint32_t maxLength,
-                Buffer* response, uint32_t* respNumHashes,
+                uint32_t maxLength, Buffer* response, uint32_t* respNumHashes,
                 uint32_t* numObjects);
     void prefetchHashTableBucket(SegmentIterator* it);
     Status readObject(Key& key, Buffer* outBuffer,
@@ -69,11 +68,12 @@ class ObjectManager : public LogEntryHandlers {
                 uint64_t* outVersion, Buffer* removedObjBuffer = NULL);
     void removeOrphanedObjects();
     void replaySegment(SideLog* sideLog, SegmentIterator& it,
-                std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap);
+                std::unordered_map<uint64_t, uint64_t>* nextNodeIdMap);
     void replaySegment(SideLog* sideLog, SegmentIterator& it);
     void syncChanges();
     Status writeObject(Object& newObject, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer = NULL);
+    bool keyPointsAtReference(Key& k, AbstractLog::Reference oldReference);
 
     /**
      * The following three methods are used when multiple log entries
@@ -254,7 +254,8 @@ class ObjectManager : public LogEntryHandlers {
                 __attribute__((warn_unused_result));
     void relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
                 LogEntryRelocator& relocator);
-    void relocateTombstone(Buffer& oldBuffer, LogEntryRelocator& relocator);
+    void relocateTombstone(Buffer& oldBuffer, Log::Reference oldReference,
+            LogEntryRelocator& relocator);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
 
     /**

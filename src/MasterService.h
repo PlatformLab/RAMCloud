@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,6 +20,7 @@
 #include "CoordinatorClient.h"
 #include "Log.h"
 #include "LogCleaner.h"
+#include "LogIterator.h"
 #include "HashTable.h"
 #include "MasterTableMetadata.h"
 #include "Object.h"
@@ -152,9 +153,9 @@ class MasterService : public Service {
                 double *asDouble,
                 uint64_t *newVersion,
                 Status *status);
-    void indexedRead(
-                const WireFormat::IndexedRead::Request* reqHdr,
-                WireFormat::IndexedRead::Response* respHdr,
+    void readHashes(
+                const WireFormat::ReadHashes::Request* reqHdr,
+                WireFormat::ReadHashes::Response* respHdr,
                 Rpc* rpc);
     void initOnceEnlisted();
     void insertIndexEntry(const WireFormat::InsertIndexEntry::Request* reqHdr,
@@ -166,6 +167,13 @@ class MasterService : public Service {
     void lookupIndexKeys(const WireFormat::LookupIndexKeys::Request* reqHdr,
                 WireFormat::LookupIndexKeys::Response* respHdr,
                 Rpc* rpc);
+    int migrateSingleObject(LogIterator& it,
+                Tub<Segment>& transferSeg,
+                uint64_t& totalObjects,
+                uint64_t& totalTombstones,
+                uint64_t& totalBytes,
+                const WireFormat::MigrateTablet::Request* reqHdr,
+                WireFormat::MigrateTablet::Response* respHdr);
     void migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
                 WireFormat::MigrateTablet::Response* respHdr,
                 Rpc* rpc);
@@ -183,6 +191,10 @@ class MasterService : public Service {
                 Rpc* rpc);
     void multiWrite(const WireFormat::MultiOp::Request* reqHdr,
                 WireFormat::MultiOp::Response* respHdr,
+                Rpc* rpc);
+    void prepForIndexletMigration(
+                const WireFormat::PrepForIndexletMigration::Request* reqHdr,
+                WireFormat::PrepForIndexletMigration::Response* respHdr,
                 Rpc* rpc);
     void prepForMigration(const WireFormat::PrepForMigration::Request* reqHdr,
                 WireFormat::PrepForMigration::Response* respHdr,
@@ -205,6 +217,10 @@ class MasterService : public Service {
                 Rpc* rpc);
     void requestInsertIndexEntries(Object& object);
     void requestRemoveIndexEntries(Buffer& objectBuffer);
+    void splitAndMigrateIndexlet(
+                const WireFormat::SplitAndMigrateIndexlet::Request* reqHdr,
+                WireFormat::SplitAndMigrateIndexlet::Response* respHdr,
+                Rpc* rpc);
     void splitMasterTablet(const WireFormat::SplitMasterTablet::Request* reqHdr,
                 WireFormat::SplitMasterTablet::Response* respHdr,
                 Rpc* rpc);
@@ -298,7 +314,7 @@ class MasterService : public Service {
                 ServerId masterId,
                 uint64_t partitionId,
                 vector<Replica>& replicas,
-                std::unordered_map<uint64_t, uint64_t>& highestBTreeIdMap);
+                std::unordered_map<uint64_t, uint64_t>& nextNodeIdMap);
 
 ///////////////////////////////////////////////////////////////////////////////
 /////////////////////////End of Recovery related code./////////////////////////

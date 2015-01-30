@@ -24,6 +24,9 @@ message Tablets {
 
       /// The tablet is being recovered, so it's not available.
       RECOVERING = 1;
+
+      /// The tablet is under migration, so it's not available.
+      LOCKED_FOR_MIGRATION = 2;
     }
 
     /// The id of the containing table.

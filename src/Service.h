@@ -69,11 +69,11 @@ class Service {
         /// The response, which will eventually be returned to the client.
         Buffer* replyPayload;
 
-      PRIVATE:
         /// Information about the worker thread that is executing
         /// this request.
         Worker* worker;
 
+      PRIVATE:
         /// True means that sendReply has been invoked.
         bool replied;
 

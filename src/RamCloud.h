@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -63,15 +63,18 @@ struct KeyInfo
  */
 class RamCloud {
   public:
+    void coordSplitAndMigrateIndexlet(
+            ServerId newOwner, uint64_t tableId, uint8_t indexId,
+            const void* splitKey, KeyLength splitKeyLength);
     uint64_t createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
     void createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
-                     uint8_t numIndexlets = 1);
+            uint8_t numIndexlets = 1);
     void dropIndex(uint64_t tableId, uint8_t indexId);
     uint64_t enumerateTable(uint64_t tableId, bool keysOnly,
          uint64_t tabletFirstHash, Buffer& state, Buffer& objects);
     void getLogMetrics(const char* serviceLocator,
-                       ProtoBuf::LogMetrics& logMetrics);
+            ProtoBuf::LogMetrics& logMetrics);
     ServerMetrics getMetrics(uint64_t tableId, const void* key,
             uint16_t keyLength);
     ServerMetrics getMetrics(const char* serviceLocator);
@@ -90,10 +93,7 @@ class RamCloud {
             const void* key, uint16_t keyLength,
             int64_t incrementValue, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
-    uint32_t indexedRead(uint64_t tableId, uint32_t numHashes,
-            Buffer* pKHashes, uint8_t indexId,
-            const void* firstKey, uint16_t firstKeyLength,
-            const void* lastKey, uint16_t lastKeyLength,
+    uint32_t readHashes(uint64_t tableId, uint32_t numHashes, Buffer* pKHashes,
             Buffer* response, uint32_t* numObjects);
     void indexServerControl(uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
@@ -141,18 +141,18 @@ class RamCloud {
     void testingKill(uint64_t tableId, const void* key, uint16_t keyLength);
     void setRuntimeOption(const char* option, const char* value);
     void testingWaitForAllTabletsNormal(uint64_t tableId,
-                                        uint64_t timeoutNs = ~0lu);
+            uint64_t timeoutNs = ~0lu);
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
-                const void* buf, uint32_t length,
-                const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
-                bool async = false);
+            const void* buf, uint32_t length,
+            const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
+            bool async = false);
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const char* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL, bool async = false);
     void write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyInfo,
-                const void* buf, uint32_t length,
-                const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
-                bool async = false);
+            const void* buf, uint32_t length,
+            const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
+            bool async = false);
     void write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyInfo,
             const char* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL, bool async = false);
@@ -195,6 +195,23 @@ class RamCloud {
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::coordSplitAndMigrateIndexlet operation,
+ * allowing it to execute asynchronously.
+ */
+class CoordSplitAndMigrateIndexletRpc : public CoordinatorRpcWrapper {
+  public:
+    CoordSplitAndMigrateIndexletRpc(RamCloud* ramcloud,
+            ServerId newOwner, uint64_t tableId, uint8_t indexId,
+            const void* splitKey, KeyLength splitKeyLength);
+    ~CoordSplitAndMigrateIndexletRpc() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait() {simpleWait(context->dispatch);}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(CoordSplitAndMigrateIndexletRpc);
 };
 
 /**
@@ -423,22 +440,19 @@ class IncrementInt64Rpc : public ObjectRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a RamCloud::indexedRead operation,
+ * Encapsulates the state of a RamCloud::readHashes operation,
  * allowing it to execute asynchronously.
  */
-class IndexedReadRpc : public ObjectRpcWrapper {
+class ReadHashesRpc : public ObjectRpcWrapper {
   public:
-    IndexedReadRpc(RamCloud* ramcloud, uint64_t tableId,
-                   uint32_t numHashes, Buffer* pKHashes, uint8_t indexId,
-                   const void* firstKey, uint16_t firstKeyLength,
-                   const void* lastKey, uint16_t lastKeyLength,
-                   Buffer* response);
-    ~IndexedReadRpc() {}
+      ReadHashesRpc(RamCloud* ramcloud, uint64_t tableId, uint32_t numHashes,
+              Buffer* pKHashes, Buffer* response);
+    ~ReadHashesRpc() {}
     /// \copydoc RpcWrapper::docForWait
     uint32_t wait(uint32_t* numObjects);
 
   PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(IndexedReadRpc);
+    DISALLOW_COPY_AND_ASSIGN(ReadHashesRpc);
 };
 
 /**

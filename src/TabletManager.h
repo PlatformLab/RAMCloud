@@ -58,6 +58,8 @@ class TabletManager {
     enum TabletState {
         NORMAL = ProtoBuf::Tablets_Tablet_State_NORMAL,
         RECOVERING = ProtoBuf::Tablets_Tablet_State_RECOVERING,
+        LOCKED_FOR_MIGRATION =
+            ProtoBuf::Tablets_Tablet_State_LOCKED_FOR_MIGRATION,
     };
 
     /**
@@ -140,7 +142,11 @@ class TabletManager {
                      TabletState oldState,
                      TabletState newState);
     void incrementReadCount(Key& key);
+    void incrementReadCount(uint64_t tableId,
+                            KeyHash keyHash);
     void incrementWriteCount(Key& key);
+    void incrementWriteCount(uint64_t tableId,
+                             KeyHash keyHash);
     void getStatistics(ProtoBuf::ServerStatistics* serverStatistics);
     size_t getNumTablets();
     string toString();

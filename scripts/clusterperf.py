@@ -82,8 +82,7 @@ def get_client_log(
     ignoring RAMCloud log messages (what's left should be a
     summary of the results from a test.
     """
-
-    globResult = glob.glob('%s/latest/client%d*.log' %
+    globResult = glob.glob('%s/latest/client%d.*.log' %
             (options.log_dir, index))
     if len(globResult) == 0:
         raise Exception("couldn't find log file for client %d" % (index))
@@ -94,7 +93,7 @@ def get_client_log(
     return result
 
 def print_cdf_from_log(
-        index = 0                 # Client index (0 for first client,
+        index = 1                 # Client index (0 for first client,
                                   # which is usually the one that's wanted)
         ):
     """
@@ -220,6 +219,20 @@ def broadcast(name, options, cluster_args, client_args):
     print(get_client_log(), end='')
 
 def indexBasic(name, options, cluster_args, client_args):
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '--masterServiceThreads 1'
+    if cluster_args['timeout'] < 200:
+        cluster_args['timeout'] = 200
+    # Ensure at least 5 hosts for optimal performance
+    if options.num_servers == None:
+        cluster_args['num_servers'] = len(hosts)
+    # using 20GB for servers so that we don't run out of memory when inserting
+    # 10 million objects/index entries
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
+    print(get_client_log(), end='')
+
+def indexRange(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '--masterServiceThreads 1'
     if cluster_args['timeout'] < 200:
@@ -416,6 +429,7 @@ simple_tests = [
 
 graph_tests = [
     Test("indexBasic", indexBasic),
+    Test("indexRange", indexRange),
     Test("indexMultiple", indexMultiple),
     Test("indexScalability", indexScalability),
     Test("multiRead_general", multiOp),
