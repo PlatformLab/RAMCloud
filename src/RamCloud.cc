@@ -2852,7 +2852,7 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 
     Key primaryKey(tableId, key, currentKeyLength);
     Object::appendKeysAndValueToBuffer(primaryKey, buf, length,
-                                       &request, &totalLength);
+                                       &request, false, &totalLength);
 
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     reqHdr->async = async;
