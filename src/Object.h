@@ -98,7 +98,7 @@ class Object {
             uint32_t *length = NULL);
     static void appendKeysAndValueToBuffer(
             Key& key, const void* value, uint32_t valueLength,
-            Buffer* buffer, uint32_t *length = NULL);
+            Buffer* buffer, bool appendCopy = false, uint32_t *length = NULL);
     void appendKeysAndValueToBuffer(Buffer& buffer);
 
     void changeTableId(uint64_t newTableId);

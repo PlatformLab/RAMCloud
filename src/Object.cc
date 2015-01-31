@@ -392,13 +392,16 @@ Object::appendKeysAndValueToBuffer(
  * \param buffer
  *      A buffer that can be used temporarily to store the keys and value
  *      for the object. Its lifetime must cover the lifetime of this Object.
+ * \param appendCopy
+ *      If true, keys and values will be copied to the end of buffer.  If false,
+ *      value will be appended using appendExternal.
  * \param [out] length
  *      Total length of keysAndValue
  */
 void
 Object::appendKeysAndValueToBuffer(
         Key& key, const void* value, uint32_t valueLength,
-        Buffer* buffer, uint32_t *length)
+        Buffer* buffer, bool appendCopy, uint32_t *length)
 {
     uint32_t primaryKeyInfoLength =
             KEY_INFO_LENGTH(1) + key.getStringKeyLength();
@@ -416,13 +419,17 @@ Object::appendKeysAndValueToBuffer(
     memcpy(keyInfo + sizeof(KeyCount), &keyLength, sizeof(KeyLength));
     memcpy(keyInfo + KEY_INFO_LENGTH(1), keyString, keyLength);
 
-    buffer->append(value, valueLength);
+    if (appendCopy) {
+        buffer->appendCopy(value, valueLength);
+    } else {
+        buffer->appendExternal(value, valueLength);
+    }
 }
 
 /**
  * Change the tableId for the object, and correspondingly, recompute
  * the checksum.
- * 
+ *
  * \param newTableId
  *      The tableId that this tombstone should refer to.
  */
@@ -901,7 +908,7 @@ ObjectTombstone::appendKeyToBuffer(Buffer& buffer)
 /**
  * Change the tableId for the tombstone, and correspondingly, recompute
  * the checksum.
- * 
+ *
  * \param newTableId
  *      The tableId that this tombstone should refer to.
  */

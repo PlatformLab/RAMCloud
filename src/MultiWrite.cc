@@ -74,7 +74,7 @@ MultiWrite::appendRequest(MultiOpObject* request, Buffer* buf)
     if (req->numKeys == 1) {
         Key primaryKey(req->tableId, req->key, req->keyLength);
         Object::appendKeysAndValueToBuffer(primaryKey, req->value,
-                                           req->valueLength, buf,
+                                           req->valueLength, buf, false,
                                            &keysAndValueLength);
     } else {
         // req->key will be NULL in this case. THe primary key will instead

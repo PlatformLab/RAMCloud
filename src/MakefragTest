@@ -150,8 +150,9 @@ TESTS_SRCFILES := \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
 		  src/ThreadIdTest.cc \
-		  src/TransportManagerTest.cc \
 		  src/TimeTraceTest.cc \
+		  src/TransactionTest.cc \
+		  src/TransportManagerTest.cc \
 		  src/TransportTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
