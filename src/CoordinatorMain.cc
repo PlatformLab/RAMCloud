@@ -52,6 +52,7 @@ main(int argc, char *argv[])
     uint32_t deadServerTimeout;
     uint32_t numThreads;
     bool reset;
+    bool neverKill;
     Context context(true);
     CoordinatorServerList serverList(&context);
     try {
@@ -65,6 +66,10 @@ main(int argc, char *argv[])
             "timeout, the slower real crashes are responded to. The shorter "
             "the timeout, the greater the chance is of falsely deciding a "
             "machine is down when it's not.")
+            ("neverKill,n",
+             ProgramOptions::bool_switch(&neverKill),
+             "If specified, the coordinator will never attempt to kill any "
+             "master or remove it from the server list.")
             ("reset",
              ProgramOptions::bool_switch(&reset),
              "If specified, the coordinator will not attempt to recover "
@@ -130,7 +135,8 @@ main(int argc, char *argv[])
         CoordinatorService coordinatorService(&context,
                                               deadServerTimeout,
                                               true,
-                                              numThreads);
+                                              numThreads,
+                                              neverKill);
         context.serviceManager->addService(coordinatorService,
                                            WireFormat::COORDINATOR_SERVICE);
         PingService pingService(&context);

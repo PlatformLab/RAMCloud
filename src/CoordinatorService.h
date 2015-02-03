@@ -44,7 +44,8 @@ class CoordinatorService : public Service {
     explicit CoordinatorService(Context* context,
             uint32_t deadServerTimeout,
             bool startRecoveryManager = true,
-            uint32_t maxThreads = 1);
+            uint32_t maxThreads = 1,
+            bool neverKill = false);
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
             Rpc* rpc);
@@ -200,6 +201,11 @@ class CoordinatorService : public Service {
      * assume that the server has failed (rather than checking for itself).
      */
     bool forceServerDownForTesting;
+
+    /**
+     * Used for debugging. If true, this coordinator will never kill a master.
+     */
+    bool neverKill;
 
     /**
      * True means that the init method has completed its initialization.

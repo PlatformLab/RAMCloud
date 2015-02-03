@@ -45,7 +45,8 @@ bool CoordinatorService::forceSynchronousInit = false;
 CoordinatorService::CoordinatorService(Context* context,
                                        uint32_t deadServerTimeout,
                                        bool startRecoveryManager,
-                                       uint32_t maxThreads)
+                                       uint32_t maxThreads,
+                                       bool neverKill)
     : context(context)
     , serverList(context->coordinatorServerList)
     , deadServerTimeout(deadServerTimeout)
@@ -55,6 +56,7 @@ CoordinatorService::CoordinatorService(Context* context,
     , recoveryManager(context, tableManager, &runtimeOptions)
     , threadLimit(maxThreads)
     , forceServerDownForTesting(false)
+    , neverKill(neverKill)
     , initFinished(false)
     , backupConfig()
     , masterConfig()
@@ -796,6 +798,8 @@ CoordinatorService::verifyServerFailure(ServerId serverId) {
     // Skip the real ping if this is from a unit test
     if (forceServerDownForTesting)
         return true;
+    if (neverKill)
+        return false;
 
     const string& serviceLocator = serverList->getLocator(serverId);
     PingRpc pingRpc(context, serverId, ServerId());

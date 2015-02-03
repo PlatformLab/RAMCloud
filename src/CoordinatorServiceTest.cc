@@ -472,6 +472,10 @@ TEST_F(CoordinatorServiceTest, verifyServerFailure) {
     ServerId deadId = service->serverList->enlistServer(
                 {WireFormat::PING_SERVICE}, 0, 100, "mock2:");
     EXPECT_TRUE(service->verifyServerFailure(deadId));
+
+    // Case 3: Never kill
+    service->neverKill = true;
+    EXPECT_FALSE(service->verifyServerFailure(deadId));
 }
 
 }  // namespace RAMCloud
