@@ -626,16 +626,6 @@ IndexletManager::lookupIndexKeys(
     Lock indexletLock(indexlet->indexletMutex);
     indexletMapLock.unlock();
 
-    // If there are no values in this indexlet's tree, return right away.
-    if (indexlet->bt->empty()) {
-        // This is currently commented out because the empty() test will not
-        // return the correct answer after recovery as m_stats are not
-        // recovered properly. We're working on fixing this.
-        // As of now, commenting out the next line gives the same result
-        // (but is not elegant / is a problem waiting to happen).
-        //return STATUS_OK;
-    }
-
     // We want to use lower_bound() instead of find() because the firstKey
     // may not correspond to a key in the indexlet.
     auto iter = indexlet->bt->lower_bound(BtreeEntry {
