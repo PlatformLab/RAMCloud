@@ -239,6 +239,9 @@ DEFINE_EXCEPTION(StaleRpcException,
 DEFINE_EXCEPTION(ExpiredLeaseException,
                  STATUS_EXPIRED_LEASE,
                  ClientException)
+DEFINE_EXCEPTION(TxOpAfterCommit,
+                 STATUS_TX_OP_AFTER_COMMIT,
+                 ClientException)
 
 } // namespace RAMCloud
 

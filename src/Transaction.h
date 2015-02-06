@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_TRANSACTION_H
 #define RAMCLOUD_TRANSACTION_H
 
+#include <list>
 #include <map>
 #include <memory>
 
@@ -39,6 +40,10 @@ class Transaction {
             const void* buf, uint32_t length);
 
   PRIVATE:
+    // Forward declaration of RPCs
+    class PrepareRpc;
+    class DecisionRpc;
+
     /// Overall client state information.
     RamCloud* ramcloud;
 
@@ -46,6 +51,28 @@ class Transaction {
     uint32_t participantCount;
     /// List of participant object identifiers.
     Buffer participantList;
+
+    /// Keeps track of whether commit has already been called to preclude
+    /// subsequent read, remove, write, and commit calls.
+    bool commitStarted;
+
+    /// Status of the transaction.  Used to defer exceptions.
+    Status status;
+
+    /// This transaction's decision to either COMMIT or ABORT.
+    WireFormat::TxDecision::Decision decision;
+
+    /// Lease information for to this transaction.
+    WireFormat::ClientLease lease;
+
+    /// Id of the rpcId that should be completed once the transaction is
+    /// complete.
+    uint64_t txId;
+
+    /// List of "in flight" Prepare Rpcs.
+    std::list<PrepareRpc> prepareRpcs;
+    /// List of "in flight" Decision Rpcs.
+    std::list<DecisionRpc> decisionRpcs;
 
     /**
      * Structure to define the key search value for the CommitCache map.
@@ -81,11 +108,19 @@ class Transaction {
         /// this object should abort.
         RejectRules rejectRules;
 
+        /// The rpcId to uniquely identify this operation.
+        uint64_t rpcId;
+        /// Used to keep track of what stage in the commit process this
+        /// operation has reached.
+        enum { PENDING, PREPARE, DECIDE, FAILED } state;
+
         /// Default constructor for CacheEntry.
         CacheEntry()
             : type(CacheEntry::INVALID)
             , objectBuf(NULL)
             , rejectRules({0, 0, 0, 0, 0})
+            , rpcId(0)
+            , state(PENDING)
         {}
 
         /// Copy constructor for CacheEntry, used to get around the missing
@@ -94,6 +129,8 @@ class Transaction {
             : type(other.type)
             , objectBuf(other.objectBuf)
             , rejectRules(other.rejectRules)
+            , rpcId(other.rpcId)
+            , state(other.state)
         {}
 
         /// Destructor for CacheEntry.
@@ -115,6 +152,8 @@ class Transaction {
                 type = other.type;
                 objectBuf = other.objectBuf;
                 rejectRules = other.rejectRules;
+                rpcId = other.rpcId;
+                state = other.state;
             }
             return *this;
         }
@@ -129,10 +168,96 @@ class Transaction {
     typedef std::multimap<CacheKey, CacheEntry> CommitCacheMap;
     CommitCacheMap commitCache;
 
+    /// Used to keep track of which cache entry to process next as part of the
+    /// commit protocol.
+    CommitCacheMap::iterator nextCacheEntry;
+
     CacheEntry* findCacheEntry(Key& key);
     CacheEntry* insertCacheEntry(uint64_t tableId, const void* key,
             uint16_t keyLength, const void* buf, uint32_t length);
+    void buildParticipantList();
+    void processDecisionRpcs();
+    void processPrepareRpcs();
+    void sendDecisionRpc();
+    void sendPrepareRpc();
 
+    /// Encapsulates the state of a single Decision RPC sent to a single server.
+    class DecisionRpc : public RpcWrapper {
+        friend class Transaction;
+      public:
+        DecisionRpc(RamCloud* ramcloud, Transport::SessionRef session,
+                    Transaction* transaction);
+        ~DecisionRpc() {}
+
+        bool checkStatus();
+        bool handleTransportError();
+        void send();
+
+        void appendOp(CommitCacheMap::iterator opEntry);
+        void retryRequest();
+
+        /// Overall client state information.
+        RamCloud* ramcloud;
+
+        /// Session that will be used to transmit the RPC.
+        Transport::SessionRef session;
+
+        /// Transaction that issued this rpc.
+        Transaction* transaction;
+
+        /// Information about all of the ops that are being requested
+        /// in this RPC.
+#ifdef TESTING
+        static const uint32_t MAX_OBJECTS_PER_RPC = 3;
+#else
+        static const uint32_t MAX_OBJECTS_PER_RPC = 75;
+#endif
+        CommitCacheMap::iterator ops[MAX_OBJECTS_PER_RPC];
+
+        /// Header for the RPC (used to update count as objects are added).
+        WireFormat::TxDecision::Request* reqHdr;
+
+        DISALLOW_COPY_AND_ASSIGN(DecisionRpc);
+    };
+
+    /// Encapsulates the state of a single Prepare RPC sent to a single server.
+    class PrepareRpc : public RpcWrapper {
+        friend class Transaction;
+      public:
+        PrepareRpc(RamCloud* ramcloud, Transport::SessionRef session,
+                Transaction* transaction);
+        ~PrepareRpc() {}
+
+        bool checkStatus();
+        bool handleTransportError();
+        void send();
+
+        void appendOp(CommitCacheMap::iterator opEntry);
+        void retryRequest();
+
+        /// Overall client state information.
+        RamCloud* ramcloud;
+
+        /// Session that will be used to transmit the RPC.
+        Transport::SessionRef session;
+
+        /// Transaction that issued this rpc.
+        Transaction* transaction;
+
+        /// Information about all of the ops that are being requested
+        /// in this RPC.
+#ifdef TESTING
+        static const uint32_t MAX_OBJECTS_PER_RPC = 3;
+#else
+        static const uint32_t MAX_OBJECTS_PER_RPC = 75;
+#endif
+        CommitCacheMap::iterator ops[MAX_OBJECTS_PER_RPC];
+
+        /// Header for the RPC (used to update count as objects are added).
+        WireFormat::TxPrepare::Request* reqHdr;
+
+        DISALLOW_COPY_AND_ASSIGN(PrepareRpc);
+    };
 
     DISALLOW_COPY_AND_ASSIGN(Transaction);
 };
