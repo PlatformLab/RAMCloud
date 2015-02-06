@@ -57,6 +57,8 @@ static const char* messages[] = {
     "stale RPC: client already acknowledged receiving result",
                                                  // STATUS_STALE_RPC
     "client lease is expired",                   // STATUS_STALE_RPC
+    "can't perform transaction operations after commit is called",
+                                                 // STATUS_TX_OP_AFTER_COMMIT
 };
 
 // The following table maps from a Status value to the internal name
@@ -95,6 +97,7 @@ static const char* symbols[] = {
     "STATUS_INVALID_PARAMETER",
     "STATUS_STALE_RPC",
     "STATUS_EXPIRED_LEASE",
+    "STATUS_TX_OP_AFTER_COMMIT",
 };
 
 /**

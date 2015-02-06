@@ -131,10 +131,14 @@ typedef enum Status {
     /// Indicates that the lease of a client is expired on the coordinator.
     /// Master refused to execute the RPC with expired lease.
     STATUS_EXPIRED_LEASE                = 32,
-    STATUS_MAX_VALUE                    = 32,
+
+    /// Indicates that a client tried to perform transaction operations after
+    /// the transaction commit had already started.
+    STATUS_TX_OP_AFTER_COMMIT           = 33,
+    STATUS_MAX_VALUE                    = 33,
 
     //TODO(seojin): figure out why compile fails without this..
-    MULTIOP_UNDERWAY                    = 33,
+    MULTIOP_UNDERWAY                    = 34,
 
     // Note: if you add a new status value you must make the following
     // additional updates:

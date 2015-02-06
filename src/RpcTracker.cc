@@ -53,7 +53,7 @@ RpcTracker::rpcFinished(uint64_t rpcId) {
  */
 uint64_t
 RpcTracker::newRpcId(LinearizableObjectRpcWrapper* ptr) {
-    assert(ptr != NULL);
+    // TODO(cstlee) : assert(ptr != NULL);
     if (firstMissing + windowSize == nextRpcId) {
         RAMCLOUD_CLOG(NOTICE, "Waiting for response of RPC with id: %ld",
                       firstMissing);
