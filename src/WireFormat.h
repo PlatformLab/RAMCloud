@@ -127,7 +127,8 @@ enum Opcode {
     TX_DECISION               = 73,
     TX_PREPARE                = 74,
     TX_REQUEST_ABORT          = 75,
-    ILLEGAL_RPC_TYPE          = 76, // 1 + the highest legitimate Opcode
+    TX_HINT_FAILED            = 76,
+    ILLEGAL_RPC_TYPE          = 77, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -1718,6 +1719,26 @@ struct TxRequestAbort {
     struct Response {
         ResponseCommon common;
         Vote vote;
+    } __attribute__((packed));
+};
+
+struct TxHintFailed {
+    static const Opcode opcode = Opcode::TX_HINT_FAILED;
+    static const ServiceType service = MASTER_SERVICE;
+
+    enum Decision { COMMIT, ABORT, INVALID };
+
+    struct Request {
+        RequestCommon common;
+        uint64_t leaseId;           // Id of the client lease associated with
+                                    // this transaction.
+        uint32_t participantCount;  // Number of local objects participating TX
+                                    // for this server.
+        // List of local Participants
+    } __attribute__((packed));
+
+    struct Response {
+        ResponseCommon common;
     } __attribute__((packed));
 };
 

@@ -107,6 +107,7 @@ opcodeSymbol(uint32_t opcode)
         case TX_DECISION:                return "TX_DECISION";
         case TX_PREPARE:                 return "TX_PREPARE";
         case TX_REQUEST_ABORT:           return "TX_REQUEST_ABORT";
+        case TX_HINT_FAILED:             return "TX_HINT_FAILED";
         case ILLEGAL_RPC_TYPE:           return "ILLEGAL_RPC_TYPE";
         case INSERT_INDEX_ENTRY:         return "INSERT_INDEX_ENTRY";
         case REMOVE_INDEX_ENTRY:         return "REMOVE_INDEX_ENTRY";
