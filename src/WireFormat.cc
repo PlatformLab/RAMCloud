@@ -114,6 +114,7 @@ opcodeSymbol(uint32_t opcode)
         case TX_DECISION:                return "TX_DECISION";
         case TX_PREPARE:                 return "TX_PREPARE";
         case TX_REQUEST_ABORT:           return "TX_REQUEST_ABORT";
+        case TX_HINT_FAILED:             return "TX_HINT_FAILED";
     }
 
     // Never heard of this RPC; return the numeric value. The shared buffer
