@@ -2070,6 +2070,8 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
             "[0x0,0x5] in tableId 2 in RECOVERING state", TestLog::get());
 }
 
+// TODO(cstlee) : Unit test MasterService::txHintFailed()
+
 TEST_F(MasterServiceTest, write_basics) {
     ObjectBuffer value;
     uint64_t version;
