@@ -1726,8 +1726,6 @@ struct TxHintFailed {
     static const Opcode opcode = Opcode::TX_HINT_FAILED;
     static const ServiceType service = MASTER_SERVICE;
 
-    enum Decision { COMMIT, ABORT, INVALID };
-
     struct Request {
         RequestCommon common;
         uint64_t leaseId;           // Id of the client lease associated with

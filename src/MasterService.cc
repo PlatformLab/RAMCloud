@@ -81,6 +81,7 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
                     &masterTableMetadata,
                     &unackedRpcResults)
     , tabletManager()
+    , txRecoveryManager(context)
     , indexletManager(context, &objectManager)
     , unackedRpcResults(context)
     , clusterTime(0)
@@ -208,6 +209,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::TakeIndexletOwnership::opcode:
             callHandler<WireFormat::TakeIndexletOwnership, MasterService,
                         &MasterService::takeIndexletOwnership>(rpc);
+            break;
+        case WireFormat::TxHintFailed::opcode:
+            callHandler<WireFormat::TxHintFailed, MasterService,
+                        &MasterService::txHintFailed>(rpc);
             break;
         case WireFormat::Write::opcode:
             callHandler<WireFormat::Write, MasterService,
@@ -1556,6 +1561,26 @@ MasterService::takeIndexletOwnership(
             firstNotOwnedKey, reqHdr->firstNotOwnedKeyLength);
     LOG(NOTICE, "Took ownership of indexlet in tableId %lu indexId %u",
             reqHdr->tableId, reqHdr->indexId);
+}
+
+/**
+ * Top-level server method to handle the TX_HINT_FAILED request.
+ *
+ * This RPC is issued by another master when it thinks that the client running
+ * a particular transaction may have failed.  If this master is the recovery
+ * manager for this transaction, this master should take steps to ensure the
+ * transaction is run to completion.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::txHintFailed(
+        const WireFormat::TxHintFailed::Request* reqHdr,
+        WireFormat::TxHintFailed::Response* respHdr,
+        Rpc* rpc)
+{
+    // Process this request inline.
+    txRecoveryManager.handleTxHintFailed(rpc->requestPayload);
 }
 
 /**

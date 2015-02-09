@@ -153,6 +153,7 @@ TESTS_SRCFILES := \
 		  src/TransactionTest.cc \
 		  src/TransportManagerTest.cc \
 		  src/TransportTest.cc \
+		  src/TxRecoveryManagerTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/UnackedRpcResultsTest.cc \

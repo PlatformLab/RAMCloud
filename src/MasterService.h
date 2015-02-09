@@ -35,6 +35,7 @@
 #include "SideLog.h"
 #include "SpinLock.h"
 #include "TabletManager.h"
+#include "TxRecoveryManager.h"
 #include "IndexletManager.h"
 #include "WireFormat.h"
 #include "UnackedRpcResults.h"
@@ -101,6 +102,12 @@ class MasterService : public Service {
      * key hash space.
      */
     TabletManager tabletManager;
+
+    /**
+     * The TxRecoveryManager keeps track of the ongoing transaction recoveries
+     * that have been assigned to this server.
+     */
+    TxRecoveryManager txRecoveryManager;
 
     /**
      * The IndexletManger class that is responsible for index storage.
@@ -244,6 +251,10 @@ class MasterService : public Service {
     void takeIndexletOwnership(
                 const WireFormat::TakeIndexletOwnership::Request* reqHdr,
                 WireFormat::TakeIndexletOwnership::Response* respHdr,
+                Rpc* rpc);
+    void txHintFailed(
+                const WireFormat::TxHintFailed::Request* reqHdr,
+                WireFormat::TxHintFailed::Response* respHdr,
                 Rpc* rpc);
     void write(const WireFormat::Write::Request* reqHdr,
                 WireFormat::Write::Response* respHdr,
