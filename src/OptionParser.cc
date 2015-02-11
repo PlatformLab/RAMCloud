@@ -98,6 +98,9 @@ OptionParser::usageAndExit() const
  */
 char* executableName;
 void invokeGDB(int signum) {
+    // Prevent repeated invocation of gdb when the server suicides
+    if (signum == SIGABRT)
+       signal(SIGINT, SIG_DFL);
     char buf[256];
     snprintf(buf, sizeof(buf), "/usr/bin/gdb %s %d", executableName, getpid());
     system(buf);
@@ -262,8 +265,10 @@ OptionParser::setup(int argc, char* argv[])
         if (options.pcapFilePath != "")
             pcapFile.construct(options.pcapFilePath.c_str(),
                                PcapFile::LinkType::ETHERNET);
-        if (debugOnSegfault)
+        if (debugOnSegfault) {
             signal(SIGSEGV, invokeGDB);
+            signal(SIGABRT, invokeGDB);
+        }
     }
     catch (po::multiple_occurrences& e) {
         // This clause provides a more understandable error message
