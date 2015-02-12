@@ -1653,7 +1653,12 @@ struct TxParticipant {
     uint64_t keyHash;           // Key Hash of the participant object.
     uint64_t rpcId;             // Unique (per transaction) participant id.
 
-    TxParticipant() : tableId(), keyHash(), rpcId() {}
+    TxParticipant()
+        : tableId()
+        , keyHash()
+        , rpcId()
+    {}
+
     TxParticipant(uint64_t tableId, uint64_t keyHash, uint64_t rpcId)
         : tableId(tableId)
         , keyHash(keyHash)

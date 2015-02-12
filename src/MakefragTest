@@ -155,6 +155,7 @@ TESTS_SRCFILES := \
 		  src/TransactionTest.cc \
 		  src/TransportManagerTest.cc \
 		  src/TransportTest.cc \
+		  src/TxDecisionRecordTest.cc \
 		  src/TxRecoveryManagerTest.cc \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \

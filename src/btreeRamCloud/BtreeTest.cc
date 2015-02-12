@@ -20,6 +20,7 @@
 #include "btreeRamCloud/Btree.h"
 #include "PreparedWrites.h"
 #include "RamCloud.h"
+#include "TxRecoveryManager.h"
 #include "UnackedRpcResults.h"
 #include "Btree.h"
 
@@ -42,6 +43,7 @@ class BtreeTest: public ::testing::Test {
     MasterTableMetadata masterTableMetadata;
     UnackedRpcResults unackedRpcResults;
     PreparedWrites preparedWrites;
+    TxRecoveryManager txRecoveryManager;
     TabletManager tabletManager;
     ObjectManager objectManager;
     uint64_t tableId;
@@ -54,6 +56,7 @@ class BtreeTest: public ::testing::Test {
         , masterTableMetadata()
         , unackedRpcResults(&context)
         , preparedWrites(&context)
+        , txRecoveryManager(&context)
         , tabletManager()
         , objectManager(&context,
                         &serverId,
@@ -61,7 +64,8 @@ class BtreeTest: public ::testing::Test {
                         &tabletManager,
                         &masterTableMetadata,
                         &unackedRpcResults,
-                        &preparedWrites)
+                        &preparedWrites,
+                        &txRecoveryManager)
         , tableId(1)
     {
         objectManager.initOnceEnlisted();

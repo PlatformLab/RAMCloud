@@ -21,17 +21,34 @@
 
 #include "Common.h"
 #include "RpcWrapper.h"
+#include "TxDecisionRecord.h"
 #include "WireFormat.h"
+#include "WorkerTimer.h"
 
 namespace RAMCloud {
 
-class TxRecoveryManager {
+/**
+ * A TxRecoveryManager runs on a manages ongoing transaction recoveries to which
+ * it has been assigned.  When servers, get worried that a transaction may have
+ * failed to run to completion, transaction recoveries are initiated.  The
+ * running of those recoveries is handled by this module.
+ *
+ * Requesting additional recoveries is thread-safe with the processing of the
+ * managed recoveries.  Recoveries are run eagerly but in the background with
+ * respect to the operations that request recoveries.
+ */
+class TxRecoveryManager : public WorkerTimer {
   PUBLIC:
     explicit TxRecoveryManager(Context* context);
-    virtual ~TxRecoveryManager();
+
+    virtual void handleTimerEvent();
     void handleTxHintFailed(Buffer* rpcReq);
+    bool isTxDecisionRecordNeeded(TxDecisionRecord& record);
 
   PRIVATE:
+    /// Forward declaration.
+    class RecoveryTask;
+
     /// Used as a monitor style lock on this module.
     SpinLock mutex;
     typedef std::lock_guard<SpinLock> Lock;
@@ -61,6 +78,8 @@ class TxRecoveryManager {
     /// Keeps track of those transactions whose recoveries have started but not
     /// finished.
     std::set<RecoveryId> recoveringIds;
+    typedef std::list<RecoveryTask> RecoveryList;
+    RecoveryList recoveries;
 
     /**
      * Used to keep track of an individual participants of a transaction.
@@ -81,13 +100,15 @@ class TxRecoveryManager {
     };
     typedef std::list<Participant> ParticipantList;
 
-    class DecisionTask {
+    class RecoveryTask {
       PUBLIC:
-        DecisionTask(Context* context,
-                WireFormat::TxDecision::Decision decision,
-                uint64_t leaseId, ParticipantList* pList);
+        RecoveryTask(Context* context, uint64_t leaseId,
+                Buffer& participantBuffer, uint32_t participantCount,
+                uint32_t offset = 0);
+        RecoveryTask(Context* context, TxDecisionRecord& record);
 
-        bool isReady() { return goalReached; }
+        RecoveryId getId() { return {leaseId, participants.begin()->rpcId}; }
+        bool isReady() { return (state == State::DONE); }
         void performTask();
         void wait();
 
@@ -95,10 +116,10 @@ class TxRecoveryManager {
         /// Encapsulates the state of a single Decision RPC sent to a single
         /// server.
         class DecisionRpc : public RpcWrapper {
-            friend class DecisionTask;
+            friend class RecoveryTask;
           public:
             DecisionRpc(Context* context, Transport::SessionRef session,
-                        DecisionTask* task);
+                        RecoveryTask* task);
             ~DecisionRpc() {}
 
             bool checkStatus();
@@ -115,7 +136,7 @@ class TxRecoveryManager {
             Transport::SessionRef session;
 
             /// Task that issued this rpc.
-            DecisionTask* task;
+            RecoveryTask* task;
 
             /// Information about all of the ops that are being requested
             /// in this RPC.
@@ -132,37 +153,13 @@ class TxRecoveryManager {
             DISALLOW_COPY_AND_ASSIGN(DecisionRpc);
         };
 
-        Context* context;
-        WireFormat::TxDecision::Decision decision;
-        uint64_t leaseId;
-        bool goalReached;
-        ParticipantList *pList;
-        Tub<ParticipantList> defaultPList;
-        ParticipantList::iterator nextParticipantEntry;
-        std::list<DecisionRpc> decisionRpcs;
-
-        void processDecisionRpcs();
-        void sendDecisionRpc();
-
-        DISALLOW_COPY_AND_ASSIGN(DecisionTask);
-    };
-
-    class RequestAbortTask {
-      PUBLIC:
-        RequestAbortTask(Context* context, uint64_t leaseId,
-                ParticipantList* pList);
-        bool isReady() { return goalReached; }
-        void performTask();
-        WireFormat::TxDecision::Decision wait();
-
-      PRIVATE:
         /// Encapsulates the state of a single RequestAbortRpc sent to a single
         /// server.
         class RequestAbortRpc : public RpcWrapper {
-            friend class RequestAbortTask;
+            friend class RecoveryTask;
           public:
             RequestAbortRpc(Context* context, Transport::SessionRef session,
-                    RequestAbortTask* task);
+                    RecoveryTask* task);
             ~RequestAbortRpc() {}
 
             bool checkStatus();
@@ -179,7 +176,7 @@ class TxRecoveryManager {
             Transport::SessionRef session;
 
             /// Task that issued this rpc.
-            RequestAbortTask* task;
+            RecoveryTask* task;
 
             /// Information about all of the ops that are being requested
             /// in this RPC.
@@ -196,18 +193,32 @@ class TxRecoveryManager {
             DISALLOW_COPY_AND_ASSIGN(RequestAbortRpc);
         };
 
+        /// Overall server information about the server running this recovery.
         Context* context;
+        /// Id of the lease associated with the transaction being recovered.
         uint64_t leaseId;
-        bool goalReached;
+        /// Current phase of the recovery.
+        enum State {DONE, REQEST_ABORT, DECIDE} state;
+        /// The decision that the transaction will be driven to.
         WireFormat::TxDecision::Decision decision;
-        ParticipantList *pList;
+        /// List of the participants of the transaction being recovered.
+        ParticipantList participants;
+        /// Iterator into the participant list used to keep track of how much
+        /// process has been made.
         ParticipantList::iterator nextParticipantEntry;
+        /// List of outstanding decision rpcs.
+        std::list<DecisionRpc> decisionRpcs;
+        /// List of outstanding request abort rpcs.
         std::list<RequestAbortRpc> requestAbortRpcs;
 
+        void processDecisionRpcs();
+        void sendDecisionRpc();
         void processRequestAbortRpcs();
         void sendRequestAbortRpc();
 
-        DISALLOW_COPY_AND_ASSIGN(RequestAbortTask);
+        string toString();
+
+        DISALLOW_COPY_AND_ASSIGN(RecoveryTask);
     };
     DISALLOW_COPY_AND_ASSIGN(TxRecoveryManager);
 };

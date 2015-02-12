@@ -180,6 +180,34 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Buffer buffer;
         op.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREP, buffer));
+    }{ // TxDecisionRecord should go in partition 1.
+        Key key(1, "1", 1);
+        TxDecisionRecord decisionRecord(1, key.getHash(), 6,
+                WireFormat::TxDecision::ABORT, 100);
+        Buffer buffer;
+        decisionRecord.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_TXDECISION, buffer));
+    }{ // TxDecisionRecord should go in partition 0.
+        Key key(1, "2", 1);
+        TxDecisionRecord decisionRecord(1, key.getHash(), 5,
+                WireFormat::TxDecision::ABORT, 100);
+        Buffer buffer;
+        decisionRecord.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_TXDECISION, buffer));
+    }{ // TxDecisionRecord not in any partition.
+        Key key(10, "1", 1);
+        TxDecisionRecord decisionRecord(10, key.getHash(), 10,
+                WireFormat::TxDecision::ABORT, 100);
+        Buffer buffer;
+        decisionRecord.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_TXDECISION, buffer));
+    }{ // TxDecisionRecord not written before the tablet existed.
+        Key key(2, "1", 1);
+        TxDecisionRecord decisionRecord(2, key.getHash(), 2,
+                WireFormat::TxDecision::ABORT, 100);
+        Buffer buffer;
+        decisionRecord.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_TXDECISION, buffer));
     }
 
     Segment::Certificate certificate;
@@ -197,18 +225,22 @@ TEST_F(RecoverySegmentBuilderTest, build) {
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
             "object at offset 14, length 34 with tableId 1, key '2' | "
             "tombstone at offset 50, length 33 with tableId 1, key '2' | "
-            "rpcRecord at offest 85, length 44 with tableId 1, "
+            "rpcRecord at offset 85, length 44 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 5, rpcId 3 | "
-            "preparedOp at offest 131, length 62 with tableId 1, key '2', "
-            "leaseId 1, rpcId 10",
+            "preparedOp at offset 131, length 62 with tableId 1, key '2', "
+            "leaseId 1, rpcId 10 | "
+            "txDecision at offset 195, length 40 with tableId 1, "
+                    "keyHash 0x3554F985FBED3C16, leaseId 5",
             ObjectManager::dumpSegment(&recoverySegments[0]));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
             "object at offset 14, length 34 with tableId 1, key '1' | "
             "tombstone at offset 50, length 33 with tableId 1, key '1' | "
-            "rpcRecord at offest 85, length 44 with tableId 1, "
+            "rpcRecord at offset 85, length 44 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 6, rpcId 4 | "
-            "preparedOp at offest 131, length 62 with tableId 1, key '1', "
-            "leaseId 1, rpcId 10",
+            "preparedOp at offset 131, length 62 with tableId 1, key '1', "
+            "leaseId 1, rpcId 10 | "
+            "txDecision at offset 195, length 40 with tableId 1, "
+                    "keyHash 0xDD5D9F7F60D5B056, leaseId 6",
             ObjectManager::dumpSegment(&recoverySegments[1]));
 
     certificate.checksum = 0;

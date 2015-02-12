@@ -18,20 +18,54 @@
 
 namespace RAMCloud {
 
+/**
+ * Constructor for the transaction recovery manager.
+ *
+ * \param context
+ *      Overall information about the server that runs this manager.
+ */
 TxRecoveryManager::TxRecoveryManager(Context* context)
-    : mutex("TxRecoveryManager::lock")
+    : WorkerTimer(context->dispatch)
+    , mutex("TxRecoveryManager::lock")
     , context(context)
     , recoveringIds()
+    , recoveries()
 {
-
-}
-
-TxRecoveryManager::~TxRecoveryManager() {
 }
 
 /**
- * Recover the specified transaction if it is not already in the process of
- * being recovered.
+ * Called when the manager has been scheduled to do some work.  This method
+ * will perform some incremental work and reschedule itself if more work needs
+ * to be done.
+ */
+void
+TxRecoveryManager::handleTimerEvent()
+{
+    Lock lock(mutex);
+
+    // See if any of the recoveries need to do more work.
+    RecoveryList::iterator it = recoveries.begin();
+    while (it != recoveries.end()) {
+        RecoveryTask* task = &(*it);
+        if (task->isReady()) {
+            // Mark recovery complete.
+            recoveringIds.erase(task->getId());
+            it = recoveries.erase(it);
+        } else {
+            task->performTask();
+            it++;
+        }
+    }
+
+    // Reschedule if there is still recoveries in progress.
+    if (recoveries.size() > 0) {
+        this->start(0);
+    }
+}
+
+/**
+ * Request that the specified transaction be recovered if it is not already in
+ * the process of being recovered.
  *
  * \param rpcReq
  *      Request buffer of the TxHintFailed rpc containing the list participants
@@ -53,102 +87,200 @@ TxRecoveryManager::handleTxHintFailed(Buffer* rpcReq)
             participant->tableId, participant->keyHash)) {
         throw UnknownTabletException(HERE);
     }
-
-    /*** Make sure we did not already receive this request. ***/
     uint64_t leaseId = reqHdr->leaseId;
     uint64_t rpcId = participant->rpcId;
+    uint32_t participantCount = reqHdr->participantCount;
     RecoveryId recoveryId = {leaseId, rpcId};
 
-    {
-        Lock lock(mutex);
-        if (recoveringIds.find(recoveryId) != recoveringIds.end()) {
-            // This transaction is already recovering.
-            return;
-        }
-        recoveringIds.insert(recoveryId);
+    /*** Make sure we did not already receive this request. ***/
+    Lock lock(mutex);
+    if (recoveringIds.find(recoveryId) != recoveringIds.end()) {
+        // This transaction is already recovering.
+        return;
     }
 
-    /*** Build a local participant list ***/
-    ParticipantList participantList;
-    for (uint32_t i = 0; i < reqHdr->participantCount; i++) {
-        participant = rpcReq->getOffset<WireFormat::TxParticipant>(offset);
+    /*** Schedule a new recovery. ***/
+    recoveringIds.insert(recoveryId);
+    recoveries.emplace_back(
+            context, leaseId, *rpcReq, participantCount, offset);
+    this->start(0);
+}
+
+/**
+ * Check to see if the recovery manager still needs the referenced decision
+ * record to be kept around.
+ *
+ * \param record
+ *      Reference to the record of interest.
+ * \return
+ *      True if the record is still needed.  False if it is ok for the record
+ *      to be cleaned.
+ */
+bool
+TxRecoveryManager::isTxDecisionRecordNeeded(TxDecisionRecord& record)
+{
+    Lock lock(mutex);
+    if (record.getParticipantCount() < 1) {
+        RAMCLOUD_LOG(ERROR, "TxDecisionRecord missing participant information");
+        return false;
+    }
+
+    WireFormat::TxParticipant participant = record.getParticipant(0);
+    uint64_t leaseId = record.getLeaseId();
+    uint64_t rpcId = participant.rpcId;
+    RecoveryId recoveryId = {leaseId, rpcId};
+    if (recoveringIds.find(recoveryId) == recoveringIds.end()) {
+        // This transaction is still recovering.
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Constructor for the transaction recovery task.  Used when processing
+ * initial transaction recovery requests.
+ *
+ * \param context
+ *      Overall information about this server.
+ * \param leaseId
+ *      If of the lease associated with the transaction to be recovered.
+ * \param participantBuffer
+ *      Buffer containing the WireFormat list of the participants that arrived
+ *      as a part of a TxHintFailed request that initiated this recovery.  This
+ *      constructor assumes the buffer is well formed. If the request is
+ *      malformed, the behavior is undefined.
+ * \param participantCount
+ *      Number of participants contained with the participantBuffer.  Must be
+ *      at lease one.
+ * \param offset
+ *      The offset into the participantBuffer where the list of participants
+ *      start.
+ */
+TxRecoveryManager::RecoveryTask::RecoveryTask(
+        Context* context, uint64_t leaseId,
+        Buffer& participantBuffer, uint32_t participantCount,
+        uint32_t offset)
+    : context(context)
+    , leaseId(leaseId)
+    , state(State::REQEST_ABORT)
+    , decision(WireFormat::TxDecision::INVALID)
+    , participants()
+    , nextParticipantEntry()
+    , decisionRpcs()
+    , requestAbortRpcs()
+{
+    /*** Build a participant list ***/
+    WireFormat::TxParticipant* participant;
+    for (uint32_t i = 0; i < participantCount; i++) {
+        participant =
+                participantBuffer.getOffset<WireFormat::TxParticipant>(offset);
         uint64_t tableId = participant->tableId;
         uint64_t keyHash = participant->keyHash;
         uint64_t rpcId = participant->rpcId;
-        participantList.emplace_back(tableId,
+        participants.emplace_back(tableId,
                                      keyHash,
                                      rpcId);
         offset += sizeof32(*participant);
     }
-
-    /*** Collect Request_Abort VOTES ***/
-    RequestAbortTask requestAbortTask(context, leaseId, &participantList);
-    WireFormat::TxDecision::Decision decision = requestAbortTask.wait();
-
-    /*** Log Decision ***/
-    {
-        Lock lock(mutex);
-    }
-
-    /*** Send Decisions ***/
-    DecisionTask sendDecisionTask(
-            context, decision, leaseId, &participantList);
-    sendDecisionTask.wait();
-
-    /*** Mark the recovery complete ***/
-    {
-        Lock lock(mutex);
-        recoveringIds.erase(recoveryId);
-    }
+    nextParticipantEntry = participants.begin();
 }
 
 /**
- * Constructor for the SendDecisionTask.
+ * Constructor for the transaction recovery task.  Used when continuing
+ * recovering after a recovery failure due to crashed master.
  *
  * \param context
  *      Overall information about this server.
- * \param decision
- *      The decision that should be sent to all transaction participants.
- * \param leaseId
- *      Id of the lease with which the recovering transaction was started.
- * \param pList
- *      Pointer to the list of participants that should be consulted regarding
- *      this abort request.  No items should be added or removed from this list
- *      during the lifetime of this task.  Must not be NULL.
+ * \param record
+ *      Decision record containing information about a recovery that was in the
+ *      process of recovering but may have failed before completing.  This
+ *      record must be will formed (e.g. have at lease one participant),
+ *      otherwise the behavior is undefined.
  */
-TxRecoveryManager::DecisionTask::DecisionTask(
-        Context* context, WireFormat::TxDecision::Decision decision,
-        uint64_t leaseId, ParticipantList* pList)
+TxRecoveryManager::RecoveryTask::RecoveryTask(
+        Context* context, TxDecisionRecord& record)
     : context(context)
-    , decision(decision)
-    , leaseId(leaseId)
-    , goalReached(false)
-    , pList(pList)
-    , defaultPList()
-    , nextParticipantEntry(pList->begin())
+    , leaseId(record.getLeaseId())
+    , state(State::DECIDE)
+    , decision(record.getDecision())
+    , participants()
+    , nextParticipantEntry()
     , decisionRpcs()
-{}
-
-/**
- * Make incremental progress towards notifying all participant masters of the
- * decision for this recovering transaction.
- */
-void
-TxRecoveryManager::DecisionTask::performTask()
+    , requestAbortRpcs()
 {
-    if (!goalReached) {
-        processDecisionRpcs();
-        sendDecisionRpc();
+    /*** Build a participant list ***/
+    WireFormat::TxParticipant participant;
+    for (uint32_t i = 0; i < record.getParticipantCount(); i++) {
+        participant = record.getParticipant(i);
+        uint64_t tableId = participant.tableId;
+        uint64_t keyHash = participant.keyHash;
+        uint64_t rpcId = participant.rpcId;
+        participants.emplace_back(tableId,
+                                     keyHash,
+                                     rpcId);
     }
-    if (decisionRpcs.empty() && nextParticipantEntry == pList->end())
-        goalReached = true;
+    nextParticipantEntry = participants.begin();
 }
 
 /**
- * Polls waiting for the decision task to complete.
+ * Make incremental progress towards recovering this transaction.
  */
 void
-TxRecoveryManager::DecisionTask::wait()
+TxRecoveryManager::RecoveryTask::performTask()
+{
+    if (state == State::REQEST_ABORT) {
+        processRequestAbortRpcs();
+        sendRequestAbortRpc();
+        if (nextParticipantEntry == participants.end()
+            && requestAbortRpcs.empty())
+        {
+            // Done with the request abort phase.
+            // Build decision record to be logged.
+            if (decision != WireFormat::TxDecision::ABORT) {
+                decision = WireFormat::TxDecision::COMMIT;
+            }
+
+            ParticipantList::iterator it = participants.begin();
+            Participant* participant = &(*it);
+            TxDecisionRecord record(
+                    participant->tableId,
+                    participant->keyHash,
+                    leaseId,
+                    decision,
+                    WallTime::secondsTimestamp());
+            while (it != participants.end()) {
+                participant = &(*it);
+                record.addParticipant(
+                        participant->tableId,
+                        participant->keyHash,
+                        participant->rpcId);
+
+            }
+            context->masterService->objectManager.writeTxDecisionRecord(record);
+            context->masterService->objectManager.syncChanges();
+
+            // Change state to cause next phase to execute.
+            state = State::DECIDE;
+            nextParticipantEntry = participants.begin();
+        }
+    } else if (state == State::DECIDE) {
+        processDecisionRpcs();
+        sendDecisionRpc();
+        if (nextParticipantEntry == participants.end()
+            && requestAbortRpcs.empty())
+        {
+            // Done with the request abort phase.
+            // Change state to cause next phase to execute.
+            state = State::DONE;
+        }
+    }
+}
+
+/**
+ * Polls waiting for the recovery task to complete.
+ */
+void
+TxRecoveryManager::RecoveryTask::wait()
 {
     while (!isReady()) {
         performTask();
@@ -165,9 +297,9 @@ TxRecoveryManager::DecisionTask::wait()
  * \param task
  *      Pointer to the task that issued this request.
  */
-TxRecoveryManager::DecisionTask::DecisionRpc::DecisionRpc(Context* context,
+TxRecoveryManager::RecoveryTask::DecisionRpc::DecisionRpc(Context* context,
         Transport::SessionRef session,
-        DecisionTask* task)
+        RecoveryTask* task)
     : RpcWrapper(sizeof(WireFormat::TxDecision::Request))
     , context(context)
     , session(session)
@@ -182,7 +314,7 @@ TxRecoveryManager::DecisionTask::DecisionRpc::DecisionRpc(Context* context,
 
 // See RpcWrapper for documentation.
 bool
-TxRecoveryManager::DecisionTask::DecisionRpc::checkStatus()
+TxRecoveryManager::RecoveryTask::DecisionRpc::checkStatus()
 {
     if (responseHeader->status == STATUS_UNKNOWN_TABLET) {
         retryRequest();
@@ -192,7 +324,7 @@ TxRecoveryManager::DecisionTask::DecisionRpc::checkStatus()
 
 // See RpcWrapper for documentation.
 bool
-TxRecoveryManager::DecisionTask::DecisionRpc::handleTransportError()
+TxRecoveryManager::RecoveryTask::DecisionRpc::handleTransportError()
 {
     // There was a transport-level failure. Flush cached state related
     // to this session, and related to the object mappings.  The objects
@@ -207,7 +339,7 @@ TxRecoveryManager::DecisionTask::DecisionRpc::handleTransportError()
 
 // See RpcWrapper for documentation.
 void
-TxRecoveryManager::DecisionTask::DecisionRpc::send()
+TxRecoveryManager::RecoveryTask::DecisionRpc::send()
 {
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
@@ -220,7 +352,7 @@ TxRecoveryManager::DecisionTask::DecisionRpc::send()
  *      Handle to information about the operation to be appended.
  */
 void
-TxRecoveryManager::DecisionTask::DecisionRpc::appendOp(
+TxRecoveryManager::RecoveryTask::DecisionRpc::appendOp(
         ParticipantList::iterator opEntry)
 {
     Participant* entry = &(*opEntry);
@@ -236,14 +368,14 @@ TxRecoveryManager::DecisionTask::DecisionRpc::appendOp(
  * Handle the case where the RPC may have been sent to the wrong server.
  */
 void
-TxRecoveryManager::DecisionTask::DecisionRpc::retryRequest()
+TxRecoveryManager::RecoveryTask::DecisionRpc::retryRequest()
 {
     for (uint32_t i = 0; i < reqHdr->participantCount; i++) {
         Participant* entry = &(*ops[i]);
         context->masterService->objectFinder.flush(entry->tableId);
         entry->state = Participant::PENDING;
     }
-    task->nextParticipantEntry = task->pList->begin();
+    task->nextParticipantEntry = task->participants.begin();
 }
 
 /**
@@ -251,7 +383,7 @@ TxRecoveryManager::DecisionTask::DecisionRpc::retryRequest()
  * of testing.
  */
 void
-TxRecoveryManager::DecisionTask::processDecisionRpcs()
+TxRecoveryManager::RecoveryTask::processDecisionRpcs()
 {
     // Process outstanding RPCs.
     std::list<DecisionRpc>::iterator it = decisionRpcs.begin();
@@ -285,12 +417,12 @@ TxRecoveryManager::DecisionTask::processDecisionRpcs()
  * mostly for ease of testing.
  */
 void
-TxRecoveryManager::DecisionTask::sendDecisionRpc()
+TxRecoveryManager::RecoveryTask::sendDecisionRpc()
 {
     // Issue an additional rpc.
     DecisionRpc* nextRpc = NULL;
     Transport::SessionRef rpcSession;
-    for (; nextParticipantEntry != pList->end(); nextParticipantEntry++) {
+    for (; nextParticipantEntry != participants.end(); nextParticipantEntry++) {
         Participant* entry = &(*nextParticipantEntry);
 
         if (entry->state == Participant::DECIDE ||
@@ -332,60 +464,6 @@ TxRecoveryManager::DecisionTask::sendDecisionRpc()
 }
 
 /**
- * Constructor for the RequestAbortTask.
- *
- * \param context
- *      Overall information about this server.
- * \param leaseId
- *      Id of the lease with which the recovering transaction was started.
- * \param pList
- *      Pointer to the list of participants that should be consulted regarding
- *      this abort request.  No items should be added or removed from this list
- *      during the lifetime of this task.  Must not be NULL.
- */
-TxRecoveryManager::RequestAbortTask::RequestAbortTask(
-        Context* context, uint64_t leaseId, ParticipantList* pList)
-    : context(context)
-    , leaseId(leaseId)
-    , goalReached(false)
-    , decision(WireFormat::TxDecision::COMMIT)
-    , pList(pList)
-    , nextParticipantEntry(pList->begin())
-    , requestAbortRpcs()
-{}
-
-/**
- * Make incremental progress towards collecting all the votes to find out
- * whether this recovering transaction should be aborted or not.
- */
-void
-TxRecoveryManager::RequestAbortTask::performTask()
-{
-    if (!goalReached) {
-        processRequestAbortRpcs();
-        sendRequestAbortRpc();
-    }
-    if (requestAbortRpcs.empty() && nextParticipantEntry == pList->end())
-        goalReached = true;
-}
-
-/**
- * Polls waiting for the RequestAbortTask to complete.
- *
- * \return
- *      The decision of whether the recovering transaction should be committed
- *      or aborted.
- */
-WireFormat::TxDecision::Decision
-TxRecoveryManager::RequestAbortTask::wait()
-{
-    while (!isReady()) {
-        performTask();
-    }
-    return decision;
-}
-
-/**
  * Constructor for a request abort rpc.
  *
  * \param context
@@ -395,10 +473,10 @@ TxRecoveryManager::RequestAbortTask::wait()
  * \param task
  *      Pointer to the task that issued this request.
  */
-TxRecoveryManager::RequestAbortTask::RequestAbortRpc::RequestAbortRpc(
+TxRecoveryManager::RecoveryTask::RequestAbortRpc::RequestAbortRpc(
             Context* context,
             Transport::SessionRef session,
-            RequestAbortTask* task)
+            RecoveryTask* task)
     : RpcWrapper(sizeof(WireFormat::TxRequestAbort::Request))
     , context(context)
     , session(session)
@@ -412,7 +490,7 @@ TxRecoveryManager::RequestAbortTask::RequestAbortRpc::RequestAbortRpc(
 
 // See RpcWrapper for documentation.
 bool
-TxRecoveryManager::RequestAbortTask::RequestAbortRpc::checkStatus()
+TxRecoveryManager::RecoveryTask::RequestAbortRpc::checkStatus()
 {
     if (responseHeader->status == STATUS_UNKNOWN_TABLET) {
         retryRequest();
@@ -422,7 +500,7 @@ TxRecoveryManager::RequestAbortTask::RequestAbortRpc::checkStatus()
 
 // See RpcWrapper for documentation.
 bool
-TxRecoveryManager::RequestAbortTask::RequestAbortRpc::handleTransportError()
+TxRecoveryManager::RecoveryTask::RequestAbortRpc::handleTransportError()
 {
     // There was a transport-level failure. Flush cached state related
     // to this session, and related to the object mappings.  The objects
@@ -437,7 +515,7 @@ TxRecoveryManager::RequestAbortTask::RequestAbortRpc::handleTransportError()
 
 // See RpcWrapper for documentation.
 void
-TxRecoveryManager::RequestAbortTask::RequestAbortRpc::send()
+TxRecoveryManager::RecoveryTask::RequestAbortRpc::send()
 {
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
@@ -450,7 +528,7 @@ TxRecoveryManager::RequestAbortTask::RequestAbortRpc::send()
  *      Handle to information about the operation to be appended.
  */
 void
-TxRecoveryManager::RequestAbortTask::RequestAbortRpc::appendOp(
+TxRecoveryManager::RecoveryTask::RequestAbortRpc::appendOp(
         ParticipantList::iterator opEntry)
 {
     Participant* entry = &(*opEntry);
@@ -466,14 +544,14 @@ TxRecoveryManager::RequestAbortTask::RequestAbortRpc::appendOp(
  * Handle the case where the RPC may have been sent to the wrong server.
  */
 void
-TxRecoveryManager::RequestAbortTask::RequestAbortRpc::retryRequest()
+TxRecoveryManager::RecoveryTask::RequestAbortRpc::retryRequest()
 {
     for (uint32_t i = 0; i < reqHdr->participantCount; i++) {
         Participant* entry = &(*ops[i]);
         context->masterService->objectFinder.flush(entry->tableId);
         entry->state = Participant::PENDING;
     }
-    task->nextParticipantEntry = task->pList->begin();
+    task->nextParticipantEntry = task->participants.begin();
 }
 
 /**
@@ -481,7 +559,7 @@ TxRecoveryManager::RequestAbortTask::RequestAbortRpc::retryRequest()
  * ease of testing.
  */
 void
-TxRecoveryManager::RequestAbortTask::processRequestAbortRpcs()
+TxRecoveryManager::RecoveryTask::processRequestAbortRpcs()
 {
     // Process outstanding RPCs.
     std::list<RequestAbortRpc>::iterator it = requestAbortRpcs.begin();
@@ -518,12 +596,12 @@ TxRecoveryManager::RequestAbortTask::processRequestAbortRpcs()
  * mostly for ease of testing.
  */
 void
-TxRecoveryManager::RequestAbortTask::sendRequestAbortRpc()
+TxRecoveryManager::RecoveryTask::sendRequestAbortRpc()
 {
     // Issue an additional rpc.
     RequestAbortRpc* nextRpc = NULL;
     Transport::SessionRef rpcSession;
-    for (; nextParticipantEntry != pList->end(); nextParticipantEntry++) {
+    for (; nextParticipantEntry != participants.end(); nextParticipantEntry++) {
         Participant* entry = &(*nextParticipantEntry);
 
         if (entry->state == Participant::ABORT ||
@@ -562,6 +640,48 @@ TxRecoveryManager::RequestAbortTask::sendRequestAbortRpc()
     if (nextRpc) {
         nextRpc->send();
     }
+}
+
+/**
+ * Returns a human readable string representing the contents of the task.
+ * Used during testing.
+ */
+string
+TxRecoveryManager::RecoveryTask::toString()
+{
+    string s;
+    s.append(format("RecoveryTask :: lease{%lu}", leaseId));
+    switch (state) {
+        case State::REQEST_ABORT:
+            s.append(" state{REQEST_ABORT}");
+            break;
+        case State::DECIDE:
+            s.append(" state{DECIDE}");
+            break;
+        case State::DONE:
+            s.append(" state{DONE}");
+            break;
+    }
+    switch (decision) {
+        case WireFormat::TxDecision::COMMIT:
+            s.append(" decision{COMMIT}");
+            break;
+        case WireFormat::TxDecision::ABORT:
+            s.append(" decision{ABORT}");
+            break;
+        case WireFormat::TxDecision::INVALID:
+            s.append(" decision{INVALID}");
+            break;
+    }
+
+    s.append(format(" participants["));
+    ParticipantList::iterator it = participants.begin();
+    for (; it != participants.end(); it++) {
+        s.append(format(" {%lu, %lu, %lu}",
+                        it->tableId, it->keyHash, it->rpcId));
+    }
+    s.append(format(" ]"));
+    return s;
 }
 
 

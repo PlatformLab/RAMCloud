@@ -37,6 +37,7 @@ class CleanerCompactionBenchmark {
     MasterTableMetadata masterTableMetadata;
     UnackedRpcResults unackedRpcResults;
     PreparedWrites preparedWrites;
+    TxRecoveryManager txRecoveryManager;
     ServerId serverId;
     ObjectManager* objectManager;
 
@@ -49,6 +50,7 @@ class CleanerCompactionBenchmark {
         , masterTableMetadata()
         , unackedRpcResults(&context)
         , preparedWrites(&context)
+        , txRecoveryManager(&context)
         , serverId(1, 1)
         , objectManager(NULL)
     {
@@ -67,7 +69,8 @@ class CleanerCompactionBenchmark {
                                           &tabletManager,
                                           &masterTableMetadata,
                                           &unackedRpcResults,
-                                          &preparedWrites);
+                                          &preparedWrites,
+                                          &txRecoveryManager);
     }
 
     ~CleanerCompactionBenchmark()

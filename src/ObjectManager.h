@@ -30,6 +30,8 @@
 #include "ServerConfig.h"
 #include "SpinLock.h"
 #include "TabletManager.h"
+#include "TxDecisionRecord.h"
+#include "TxRecoveryManager.h"
 #include "MasterTableMetadata.h"
 #include "UnackedRpcResults.h"
 #include "LockTable.h"
@@ -57,7 +59,8 @@ class ObjectManager : public LogEntryHandlers {
                 TabletManager* tabletManager,
                 MasterTableMetadata* masterTableMetadata,
                 UnackedRpcResults* unackedRpcResults,
-                PreparedWrites* preparedWrites);
+                PreparedWrites* preparedWrites,
+                TxRecoveryManager* txRecoveryManager);
     virtual ~ObjectManager();
     void initOnceEnlisted();
 
@@ -84,6 +87,7 @@ class ObjectManager : public LogEntryHandlers {
                 uint64_t* newOpPtr, bool* isCommitVote,
                 RpcRecord* rpcRecord, uint64_t* rpcRecordPtr);
     Status tryGrabTxLock(Object& objToLock);
+    Status writeTxDecisionRecord(TxDecisionRecord& record);
 
     /**
      * The following three methods are used when multiple log entries
@@ -268,6 +272,8 @@ class ObjectManager : public LogEntryHandlers {
     void relocateRpcRecord(Buffer& oldBuffer, LogEntryRelocator& relocator);
     void relocateTombstone(Buffer& oldBuffer, Log::Reference oldReference,
             LogEntryRelocator& relocator);
+    void relocateTxDecisionRecord(
+            Buffer& oldBuffer, LogEntryRelocator& relocator);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
     void writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr);
 
@@ -306,6 +312,11 @@ class ObjectManager : public LogEntryHandlers {
      * Used to manage cleaning and recovery of PreparedOp objects.
      */
     PreparedWrites* preparedWrites;
+
+    /**
+     * Used to managed cleaning and recovery of RpcResult objects.
+     */
+    TxRecoveryManager* txRecoveryManager;
 
     /**
      * Allocator used by the SegmentManager to obtain main memory for log

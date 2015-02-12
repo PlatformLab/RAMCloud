@@ -43,6 +43,7 @@ class ObjectManagerTest : public ::testing::Test {
     MasterTableMetadata masterTableMetadata;
     UnackedRpcResults unackedRpcResults;
     PreparedWrites preparedWrites;
+    TxRecoveryManager txRecoveryManager;
     TabletManager tabletManager;
     ObjectManager objectManager;
 
@@ -54,6 +55,7 @@ class ObjectManagerTest : public ::testing::Test {
         , masterTableMetadata()
         , unackedRpcResults(&context)
         , preparedWrites(&context)
+        , txRecoveryManager(&context)
         , tabletManager()
         , objectManager(&context,
                         &serverId,
@@ -61,7 +63,8 @@ class ObjectManagerTest : public ::testing::Test {
                         &tabletManager,
                         &masterTableMetadata,
                         &unackedRpcResults,
-                        &preparedWrites)
+                        &preparedWrites,
+                        &txRecoveryManager)
     {
         objectManager.initOnceEnlisted();
         tabletManager.addTablet(0, 0, ~0UL, TabletManager::NORMAL);
@@ -1314,7 +1317,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
     // non-NORMAL tablet state, no dice.
     tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.prepareOp(op, 0, &newOpPtr, &isCommit,
+    objectManager.prepareOp(op, 0, &newOpPtr, &isCommit,
                                 &rpcRecord, &rpcRecordPtr));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
@@ -1351,6 +1354,35 @@ TEST_F(ObjectManagerTest, prepareOp) {
                                          &rpcRecord, &rpcRecordPtr),
                  RetryException);
     objectManager.getLog()->totalBytesRemaining = original;
+}
+
+TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
+
+    TxDecisionRecord record(1, 2, 21, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 3);
+    record.addParticipant(123, 234, 345);
+
+    // no tablet, no dice.
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.writeTxDecisionRecord(record));
+    EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
+
+    // non-NORMAL tablet state, no dice.
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.writeTxDecisionRecord(record));
+    EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
+
+    TestLog::Enable _("writeTxDecisionRecord");
+
+    // new record
+    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+                                          TabletManager::NORMAL);
+    EXPECT_EQ(STATUS_OK, objectManager.writeTxDecisionRecord(record));
+    EXPECT_EQ("writeTxDecisionRecord: tansactionDecisionRecord: 88 bytes",
+              TestLog::get());
+    EXPECT_EQ("found=true tableId=1 byteCount=88 recordCount=1"
+              , verifyMetadata(1));
 }
 
 TEST_F(ObjectManagerTest, flushEntriesToLog) {
@@ -2387,6 +2419,80 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_hashTableRefUpdate) {
                 key, tombstoneReference));
     EXPECT_TRUE(objectManager.keyPointsAtReference(
                 key, relocator.getNewReference()));
+}
+
+TEST_F(ObjectManagerTest, relocateTxDecisionRecord_relocateRecord) {
+    TxDecisionRecord record(1, 2, 3, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 4);
+    // Make it look like we still need the record.
+    txRecoveryManager.recoveringIds.insert({3, 4});
+
+    Buffer recordBuffer;
+    record.assembleForLog(recordBuffer);
+
+    Log::Reference oldRecordReference;
+    bool success = objectManager.log.append(
+            LOG_ENTRY_TYPE_TXDECISION, recordBuffer, &oldRecordReference);
+    objectManager.log.sync();
+    EXPECT_TRUE(success);
+    // Update metadata manually due to manual log append.
+    TableStats::increment(&masterTableMetadata,
+                          record.getTableId(),
+                          recordBuffer.size(),
+                          1);
+    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=1"
+              , verifyMetadata(1));
+
+    LogEntryType oldTypeInLog;
+    Buffer oldBufferInLog;
+    oldTypeInLog = objectManager.log.getEntry(oldRecordReference,
+                                          oldBufferInLog);
+
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_TXDECISION,
+                           oldBufferInLog,
+                           oldRecordReference,
+                           relocator);
+    EXPECT_TRUE(relocator.didAppend);
+    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=1"
+              , verifyMetadata(1));
+}
+
+TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
+    TxDecisionRecord record(1, 2, 3, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 4);
+
+    Buffer recordBuffer;
+    record.assembleForLog(recordBuffer);
+
+    Log::Reference oldRecordReference;
+    bool success = objectManager.log.append(
+            LOG_ENTRY_TYPE_TXDECISION, recordBuffer, &oldRecordReference);
+    objectManager.log.sync();
+    EXPECT_TRUE(success);
+    // Update metadata manually due to manual log append.
+    TableStats::increment(&masterTableMetadata,
+                          record.getTableId(),
+                          recordBuffer.size(),
+                          1);
+    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=1"
+              , verifyMetadata(1));
+
+    LogEntryType oldTypeInLog;
+    Buffer oldBufferInLog;
+    oldTypeInLog = objectManager.log.getEntry(oldRecordReference,
+                                          oldBufferInLog);
+
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_TXDECISION,
+                           oldBufferInLog,
+                           oldRecordReference,
+                           relocator);
+    EXPECT_FALSE(relocator.didAppend);
+    EXPECT_EQ("found=true tableId=1 byteCount=0 recordCount=0"
+              , verifyMetadata(1));
 }
 
 TEST_F(ObjectManagerTest, replace_noPriorVersion) {

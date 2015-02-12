@@ -81,7 +81,8 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
                     &tabletManager,
                     &masterTableMetadata,
                     &unackedRpcResults,
-                    &preparedWrites)
+                    &preparedWrites,
+                    &txRecoveryManager)
     , tabletManager()
     , txRecoveryManager(context)
     , indexletManager(context, &objectManager)
@@ -2223,7 +2224,6 @@ MasterService::txHintFailed(
         WireFormat::TxHintFailed::Response* respHdr,
         Rpc* rpc)
 {
-    // Process this request inline.
     txRecoveryManager.handleTxHintFailed(rpc->requestPayload);
 }
 

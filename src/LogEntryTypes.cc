@@ -44,6 +44,8 @@ toString(LogEntryType type)
         return "Linearizable Rpc Record";
     case LOG_ENTRY_TYPE_PREP:
         return "Transaction Prepare Record";
+    case LOG_ENTRY_TYPE_TXDECISION:
+        return "Transaction Decision Record";
     default:
         return "<<Unknown>>";
     }
