@@ -145,6 +145,7 @@ SHARED_SRCFILES := \
 		   src/TimeTrace.cc \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
+		   src/TxDecisionRecord.cc \
 		   src/TxRecoveryManager.cc \
 		   src/UdpDriver.cc \
 		   src/UnackedRpcResults.cc \

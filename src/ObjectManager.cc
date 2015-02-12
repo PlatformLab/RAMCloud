@@ -32,6 +32,7 @@
 #include "Transport.h"
 #include "UnackedRpcResults.h"
 #include "WallTime.h"
+#include "MasterService.h"
 
 namespace RAMCloud {
 
@@ -62,19 +63,25 @@ namespace RAMCloud {
  * \param preparedWrites
  *      Pointer to the master's PreparedWrites instance.  This keeps track
  *      of data stored during transaction prepare stage.
+ * \param txRecoveryManager
+ *      Pointer to the master's TxRecoveryManager instance.  This keeps track
+ *      of ongoing transaction recoveries; these recoveries may need records
+ *      stored in the log.
  */
 ObjectManager::ObjectManager(Context* context, ServerId* serverId,
                 const ServerConfig* config,
                 TabletManager* tabletManager,
                 MasterTableMetadata* masterTableMetadata,
                 UnackedRpcResults* unackedRpcResults,
-                PreparedWrites* preparedWrites)
+                PreparedWrites* preparedWrites,
+                TxRecoveryManager* txRecoveryManager)
     : context(context)
     , config(config)
     , tabletManager(tabletManager)
     , masterTableMetadata(masterTableMetadata)
     , unackedRpcResults(unackedRpcResults)
     , preparedWrites(preparedWrites)
+    , txRecoveryManager(txRecoveryManager)
     , allocator(config)
     , replicaManager(context, serverId,
                      config->master.numReplicas,
@@ -1361,6 +1368,55 @@ ObjectManager::tryGrabTxLock(Object& objToLock)
 }
 
 /**
+ * Write a persistent transaction decision record to the log.
+ *
+ * \param record
+ *      The transaction decision record that will be written to the log.
+ * \return
+ *      the status of the operation. If the tablet is in the NORMAL
+ *      state, it returns STATUS_OK.
+ */
+Status
+ObjectManager::writeTxDecisionRecord(TxDecisionRecord& record)
+{
+    // Lock the HashTableBucket to ensure that migration doesn't rip the tablet
+    // out from under us.
+    objectMap.prefetchBucket(record.getKeyHash());
+    uint64_t dummy;
+    uint64_t bucketIndex = objectMap.findBucketIndex(
+            objectMap.getNumBuckets(),
+            record.getKeyHash(),
+            &dummy);
+    HashTableBucketLock lock(*this, bucketIndex);
+
+    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
+    TabletManager::Tablet tablet;
+    if (!tabletManager->getTablet(
+            record.getTableId(), record.getKeyHash(), &tablet))
+        return STATUS_UNKNOWN_TABLET;
+    if (tablet.state != TabletManager::NORMAL)
+        return STATUS_UNKNOWN_TABLET;
+
+    Buffer recordBuffer;
+    record.assembleForLog(recordBuffer);
+
+    if (!log.append(LOG_ENTRY_TYPE_TXDECISION, recordBuffer)) {
+        RAMCLOUD_CLOG(NOTICE,
+                      "Log is out of space, "
+                      "rejecting write of transaction decision record!");
+        return STATUS_RETRY;
+    }
+
+    TEST_LOG("tansactionDecisionRecord: %u bytes", recordBuffer.size());
+    TableStats::increment(masterTableMetadata,
+                          tablet.tableId,
+                          recordBuffer.size(),
+                          1);
+
+    return STATUS_OK;
+}
+
+/**
  * Flushes all the log entries from the given buffer to the log
  * atomically and updates the hash table with the corresponding
  * log reference for each entry
@@ -1721,6 +1777,8 @@ ObjectManager::relocate(LogEntryType type, Buffer& oldBuffer,
         relocateRpcRecord(oldBuffer, relocator);
     else if (type == LOG_ENTRY_TYPE_PREP)
         relocatePreparedOp(oldBuffer, relocator);
+    else if (type == LOG_ENTRY_TYPE_TXDECISION)
+        relocateTxDecisionRecord(oldBuffer, relocator);
 }
 
 /**
@@ -1833,7 +1891,7 @@ ObjectManager::dumpSegment(Segment* segment)
             Buffer buffer;
             it.appendToBuffer(buffer);
             RpcRecord rpcRecord(buffer);
-            result += format("%srpcRecord at offest %u, length %u with tableId "
+            result += format("%srpcRecord at offset %u, length %u with tableId "
                     "%lu, keyHash 0x%016" PRIX64 ", leaseId %lu, rpcId %lu",
                     separator, it.getOffset(), it.getLength(),
                     rpcRecord.getTableId(), rpcRecord.getKeyHash(),
@@ -1842,12 +1900,22 @@ ObjectManager::dumpSegment(Segment* segment)
             Buffer buffer;
             it.appendToBuffer(buffer);
             PreparedOp op(buffer, 0, buffer.size());
-            result += format("%spreparedOp at offest %u, length %u with "
+            result += format("%spreparedOp at offset %u, length %u with "
                     "tableId %lu, key '%.*s', leaseId %lu, rpcId %lu",
                     separator, it.getOffset(), it.getLength(),
                     op.object.getTableId(), op.object.getKeyLength(),
                     static_cast<const char*>(op.object.getKey()),
                     op.header.clientId, op.header.rpcId);
+        } else if (type == LOG_ENTRY_TYPE_TXDECISION) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            TxDecisionRecord decisionRecord(buffer);
+            result += format("%stxDecision at offset %u, length %u with tableId"
+                    " %lu, keyHash 0x%016" PRIX64 ", leaseId %lu",
+                    separator, it.getOffset(), it.getLength(),
+                    decisionRecord.getTableId(), decisionRecord.getKeyHash(),
+                    decisionRecord.getLeaseId());
+
         }
 
         it.next();
@@ -2326,6 +2394,47 @@ ObjectManager::relocateTombstone(Buffer& oldBuffer,
         // Tombstone will be dropped/"cleaned" so stats should be updated.
         TableStats::decrement(masterTableMetadata,
                               tomb.getTableId(),
+                              oldBuffer.size(),
+                              1);
+    }
+}
+
+
+/**
+ * Method used by the LogCleaner when it's cleaning a Segment and comes across
+ * an TxDecisionRecord.
+ *
+ * This method will decide if the TxDecisionRecord still needs to be kept. If
+ * so, it must move the record to a new location.
+ *
+ * \param oldBuffer
+ *      Buffer pointing to the TxDecisionRecord's current location.
+ * \param relocator
+ *      The relocator may be used to store the TxDecisionRecord in a new
+ *      location if it is still alive. It also provides a reference to the new
+ *      location and keeps track of whether this call wanted the
+ *      TxDecisionRecord anymore or not.
+ *
+ *      It is possible that relocation may fail (because more memory needs to
+ *      be allocated). In this case, the callback should just return. The
+ *      cleaner will note the failure, allocate more memory, and try again.
+ */
+void
+ObjectManager::relocateTxDecisionRecord(
+        Buffer& oldBuffer, LogEntryRelocator& relocator)
+{
+    TxDecisionRecord record(oldBuffer);
+
+    bool needed = txRecoveryManager->isTxDecisionRecordNeeded(record);
+    if (needed) {
+        // Try to relocate it. If it fails, just return. The cleaner will
+        // allocate more memory and retry.
+        if (!relocator.append(LOG_ENTRY_TYPE_TXDECISION, oldBuffer))
+            return;
+    } else {
+        // Tombstone will be dropped/"cleaned" so stats should be updated.
+        TableStats::decrement(masterTableMetadata,
+                              record.getTableId(),
                               oldBuffer.size(),
                               1);
     }
