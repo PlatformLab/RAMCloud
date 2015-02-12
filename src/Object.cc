@@ -237,9 +237,9 @@ Object::assembleForLog(void* memBlock)
 
 /**
  * Append the the value associated with this object to a provided buffer.
- * This is a virtual copy and does not make a copy of the value.
+ * This is may be a virtual copy or it may be a hard copy of the value.
  * The caller must ensure that the source (of the value) remains valid
- * as long as the buffer exists.
+ * as long as the buffer exists in the case of a virtual copy.
  *
  * \param buffer
  *      The buffer to append the value to.
@@ -249,19 +249,25 @@ Object::assembleForLog(void* memBlock)
 void
 Object::appendValueToBuffer(Buffer* buffer, uint32_t valueOffset)
 {
-    if (keysAndValue) {
-        const uint8_t *ptr = reinterpret_cast<const uint8_t *>(keysAndValue);
-        buffer->append(ptr + valueOffset, getValueLength());
+    // Prioritize using the keysAndValueBuffer to do a buffer-to-buffer
+    // copy as the Buffer class contains additional logic to safely
+    // append data from another buffer (RAM-688)
+    if (keysAndValueBuffer) {
+        buffer->append(keysAndValueBuffer, keysAndValueOffset + valueOffset,
+                getValueLength());
         return;
     }
 
-    buffer->append(keysAndValueBuffer, keysAndValueOffset + valueOffset,
-                   getValueLength());
+    const uint8_t *ptr = reinterpret_cast<const uint8_t *>(keysAndValue);
+    buffer->append(ptr + valueOffset, getValueLength());
 }
 
 /**
  * Append the cumulative key lengths, the keys and the value associated with
- * this object to a provided buffer.
+ * this object to a provided buffer. This is may be a virtual copy or it may
+ * be a hard copy of the keys and value. The caller must ensure that the
+ * source (of the keys and value) remains valid as long as the buffer
+ * exists in the case of a virtual copy.
  *
  * \param buffer
  *      The buffer to append the keys and the value to.
@@ -269,14 +275,16 @@ Object::appendValueToBuffer(Buffer* buffer, uint32_t valueOffset)
 void
 Object::appendKeysAndValueToBuffer(Buffer& buffer)
 {
-    if (keysAndValue) {
+    // Prioritize using the keysAndValueBuffer to do a buffer-to-buffer
+    // copy as the Buffer class contains additional logic to safely
+    // append data from another buffer (RAM-688)
+    if (keysAndValueBuffer)
+        // keysAndValueBuffer contains keyLengths, keys and value starting
+        // at keysAndValueOffset
+        buffer.append(keysAndValueBuffer, keysAndValueOffset,
+                keysAndValueLength);
+    else
         buffer.append(keysAndValue, keysAndValueLength);
-        return;
-    }
-
-    // keysAndValueBuffer contains keyLengths, keys and value starting
-    // at keysAndValueOffset
-    buffer.append(keysAndValueBuffer, keysAndValueOffset, keysAndValueLength);
 }
 
 /**

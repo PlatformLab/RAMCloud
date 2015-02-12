@@ -36,6 +36,7 @@ class ObjectTest : public ::testing::Test {
           buffer2(),
           buffer3(),
           buffer4(),
+          contiguousBuffer(),
           objectDataFromBuffer(),
           objectFromMultiChunkBuffer(),
           objectFromContiguousBuffer(),
@@ -105,9 +106,6 @@ class ObjectTest : public ::testing::Test {
         objectFromMultiChunkBuffer.construct(buffer4, sizeof32(stringKeys[0]),
                                    length);
 
-        // Construct a contiguous Buffer to test the conversion to void*
-        // optimization
-        Buffer contiguousBuffer;
         contiguousBuffer.appendExternal(buffer4.getRange(0, buffer4.size()),
                                         buffer4.size());
 
@@ -146,6 +144,7 @@ class ObjectTest : public ::testing::Test {
     Buffer buffer2;
     Buffer buffer3;
     Buffer buffer4;
+    Buffer contiguousBuffer;
 
     Tub<Object> objectDataFromBuffer;
     Tub<Object> objectFromMultiChunkBuffer;
