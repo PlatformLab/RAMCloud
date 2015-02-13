@@ -198,7 +198,8 @@ AbstractLog::free(Reference reference)
                                            NULL,
                                            &lengthWithMetadata);
     segment->trackDeadEntry(type, lengthWithMetadata);
-    totalBytesRemaining += lengthWithMetadata;
+    if (type == LOG_ENTRY_TYPE_OBJ)
+        totalBytesRemaining += lengthWithMetadata;
 }
 
 /**
