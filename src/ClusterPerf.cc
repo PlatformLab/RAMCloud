@@ -2461,13 +2461,13 @@ indexScalability()
     cluster->dropIndex(dataTable, indexId);
 }
 
-// This benchmark measures the multiread times for 100B objects with 30B keys
-// distributed across multiple master servers such that there is one
-// object located on each master server.
+// This benchmark measures the multiread times for objects distributed across
+// multiple master servers such that there is one object located on each master
+// server.
 void
 multiRead_oneObjectPerMaster()
 {
-    int dataLength = 100;
+    int dataLength = objectSize;
     uint16_t keyLength = 30;
 
     printf("# RAMCloud multiRead performance for %u B objects"
@@ -2491,12 +2491,12 @@ multiRead_oneObjectPerMaster()
     }
 }
 
-// This benchmark measures the multiread times for multiple
-// 100B objects with 30B keys on a single master server.
+// This benchmark measures the multiread times for objects on a single master
+// server.
 void
 multiRead_oneMaster()
 {
-    int dataLength = 100;
+    int dataLength = objectSize;
     uint16_t keyLength = 30;
 
     printf("# RAMCloud multiRead performance for %u B objects"
@@ -2525,13 +2525,13 @@ multiRead_oneMaster()
     }
 }
 
-// This benchmark measures the multiread times for an approximately
-// fixed number of 100B objects with 30B keys distributed evenly
-// across varying number of master servers.
+// This benchmark measures the multiread times for an approximately fixed
+// number of objects distributed evenly across varying number of master
+// servers.
 void
 multiRead_general()
 {
-    int dataLength = 100;
+    int dataLength = objectSize;
     uint16_t keyLength = 30;
 
     printf("# RAMCloud multiRead performance for "
@@ -2557,14 +2557,13 @@ multiRead_general()
     }
 }
 
-// This benchmark measures the multiread times for an approximately
-// fixed number of 100B objects with 30B keys distributed evenly
-// across varying number of master servers. Requests are issued
-// in a random order.
+// This benchmark measures the multiread times for an approximately fixed
+// number of objects distributed evenly across varying number of master
+// servers. Requests are issued in a random order.
 void
 multiRead_generalRandom()
 {
-    int dataLength = 100;
+    int dataLength = objectSize;
     uint16_t keyLength = 30;
 
     printf("# RAMCloud multiRead performance for "
@@ -2680,13 +2679,13 @@ multiReadThroughput()
     }
 }
 
-// This benchmark measures the multiwrite times for multiple
-// 100B objects with 30B keys on a single master server.
+// This benchmark measures the multiwrite times for multiple objects on a
+// single master server.
 void
 multiWrite_oneMaster()
 {
     int numMasters = 1;
-    int dataLength = 100;
+    int dataLength = objectSize;
     uint16_t keyLength = 30;
     int maxObjsPerMaster = 5000;
 
@@ -3372,7 +3371,7 @@ readThroughput()
     }
 }
 
-// Read times for 100B objects with string keys of different lengths.
+// Read times for objects with string keys of different lengths.
 void
 readVaryingKeyLength()
 {
@@ -3386,7 +3385,7 @@ readVaryingKeyLength()
          2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,
          20000, 30000, 40000, 50000, 60000
     };
-    int dataLength = 100;
+    int dataLength = objectSize;
 
     printf("# RAMCloud read performance for %u B objects\n", dataLength);
     printf("# with keys of various lengths.\n");
@@ -3410,7 +3409,7 @@ readVaryingKeyLength()
     }
 }
 
-// Write times for 100B objects with string keys of different lengths.
+// Write times for objects with string keys of different lengths.
 void
 writeVaryingKeyLength()
 {
@@ -3424,7 +3423,7 @@ writeVaryingKeyLength()
          2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,
          20000, 30000, 40000, 50000, 60000
     };
-    int dataLength = 100;
+    int dataLength = objectSize;
 
     printf("# RAMCloud write performance for %u B objects\n", dataLength);
     printf("# with keys of various lengths.\n");
