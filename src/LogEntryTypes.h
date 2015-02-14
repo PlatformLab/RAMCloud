@@ -49,6 +49,9 @@ enum LogEntryType {
     /// See Object.h::RpcRecord
     LOG_ENTRY_TYPE_RPCRECORD,
 
+    /// See PreparedWrites.h::PreparedOp
+    LOG_ENTRY_TYPE_PREP,
+
     /// Not a type, but rather the total number of types we have defined.
     /// This is currently restricted by the lower 6 bits in a uint8_t field
     /// in Segment.h's Segment::EntryHeader. RAMCloud will probably collapse

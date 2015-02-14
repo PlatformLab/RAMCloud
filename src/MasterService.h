@@ -121,6 +121,12 @@ class MasterService : public Service {
     UnackedRpcResults unackedRpcResults;
 
     /**
+     * The PreparedWrites keep track all prepared objects staged during
+     * transactions.
+     */
+    PreparedWrites preparedWrites;
+
+    /**
      * Largest cluster time that this master service either directly or
      * indirectly received from the coordinator.
      */
@@ -256,6 +262,10 @@ class MasterService : public Service {
                 const WireFormat::TxHintFailed::Request* reqHdr,
                 WireFormat::TxHintFailed::Response* respHdr,
                 Rpc* rpc);
+    void txPrepare(
+                const WireFormat::TxPrepare::Request* reqHdr,
+                WireFormat::TxPrepare::Response* respHdr,
+                Rpc* rpc);
     void write(const WireFormat::Write::Request* reqHdr,
                 WireFormat::Write::Response* respHdr,
                 Rpc* rpc);
@@ -285,6 +295,21 @@ class MasterService : public Service {
         objectManager.getLog()->getEntry(resultRef, resultBuffer);
         RpcRecord savedRec(resultBuffer);
         return *((typename LinearizableRpcType::Response*) savedRec.getResp());
+    }
+
+    WireFormat::TxPrepare::Vote
+    parsePrepRpcResult(void* result) {
+        if (!result) {
+            throw RetryException(HERE, 50, 50,
+                    "Duplicate RPC is in progress.");
+        }
+
+        //Obtain saved RPC response from log.
+        Buffer resultBuffer;
+        Log::Reference resultRef((uint64_t)result);
+        objectManager.getLog()->getEntry(resultRef, resultBuffer);
+        RpcRecord savedRec(resultBuffer);
+        return *((WireFormat::TxPrepare::Vote*) savedRec.getResp());
     }
 
     /**

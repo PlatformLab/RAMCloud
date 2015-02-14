@@ -42,6 +42,8 @@ toString(LogEntryType type)
         return "Table Stats Digest";
     case LOG_ENTRY_TYPE_RPCRECORD:
         return "Linearizable Rpc Record";
+    case LOG_ENTRY_TYPE_PREP:
+        return "Transaction Prepare Record";
     default:
         return "<<Unknown>>";
     }

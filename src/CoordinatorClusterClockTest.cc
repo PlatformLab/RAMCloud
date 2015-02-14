@@ -66,14 +66,6 @@ TEST_F(CoordinatorClusterClockTest, startUpdater) {
     // Time dependent test.
     clock->startUpdater();
     EXPECT_TRUE(clock->updater.isRunning());
-    for (int i = 0; i < 1000; i++) {
-        if (clock->safeClusterTimeUs >=
-                CoordinatorClusterClock::safeTimeIntervalUs) {
-            break;
-        }
-        usleep(1000);
-    }
-    EXPECT_GE(clock->safeClusterTimeUs, safeTimeIntervalUs);
 }
 
 TEST_F(CoordinatorClusterClockTest, handleTimerEvent) {

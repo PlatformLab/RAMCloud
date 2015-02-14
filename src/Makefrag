@@ -73,6 +73,7 @@ SHARED_SRCFILES := \
 		   src/Key.cc \
 		   src/LargeBlockOfMemory.cc \
 		   src/LinearizableObjectRpcWrapper.cc \
+		   src/LockTable.cc \
 		   src/Log.cc \
 		   src/LogCleaner.cc \
 		   src/LogDigest.cc \
@@ -108,6 +109,7 @@ SHARED_SRCFILES := \
 		   src/PingClient.cc \
 		   src/PingService.cc \
 		   src/PortAlarm.cc \
+		   src/PreparedWrites.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
 		   src/ReplicaManager.cc \

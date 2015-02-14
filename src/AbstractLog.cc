@@ -198,6 +198,7 @@ AbstractLog::free(Reference reference)
                                            NULL,
                                            &lengthWithMetadata);
     segment->trackDeadEntry(type, lengthWithMetadata);
+    //TODO(seojin): handle RpcRecord and PreparedOp.
     totalBytesRemaining += lengthWithMetadata;
 }
 
@@ -383,6 +384,7 @@ AbstractLog::append(Lock& appendLock,
     head->trackNewEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ)
         totalBytesRemaining -= lengthWithMetadata;
+    //TODO(seojin): handle RpcRecord and PreparedOp.
 
     metrics.totalBytesAppended += length;
     metrics.totalMetadataBytesAppended += (lengthWithMetadata - length);
