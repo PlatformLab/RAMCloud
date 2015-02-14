@@ -178,6 +178,86 @@ double bMutexNoBlock()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+template<int keyLength>
+static double bufferAppendCommon()
+{
+    Buffer b;
+    char src[keyLength];
+    int count = 1000000;
+    uint64_t totalTime = 0;
+    for (int i = 0; i < count; i++) {
+        uint64_t start = Cycles::rdtsc();
+        b.appendCopy(src, keyLength);
+        totalTime += Cycles::rdtsc() - start;
+        b.reset();
+    }
+    return Cycles::toSeconds(totalTime)/count;
+}
+
+template<int keyLength>
+static double bufferAppendExternalCommon()
+{
+    Buffer b;
+    char src[keyLength];
+    int count = 1000000;
+    uint64_t totalTime = 0;
+    for (int i = 0; i < count; i++) {
+        uint64_t start = Cycles::rdtsc();
+        b.appendExternal(src, keyLength);
+        totalTime += Cycles::rdtsc() - start;
+        b.reset();
+    }
+    return Cycles::toSeconds(totalTime)/count;
+}
+
+// Measure the cost of appendCopy'ing 1 bytes to a Buffer
+double bufferAppendCopy1()
+{
+    return bufferAppendCommon<1>();
+}
+
+// Measure the cost of appendCopy'ing 50 bytes to a Buffer
+double bufferAppendCopy50()
+{
+    return bufferAppendCommon<50>();
+}
+
+// Measure the cost of appendCopy'ing 100 bytes to a Buffer
+double bufferAppendCopy100()
+{
+    return bufferAppendCommon<100>();
+}
+
+// Measure the cost of appendCopy'ing 500 bytes to a Buffer
+double bufferAppendCopy500()
+{
+    return bufferAppendCommon<500>();
+}
+
+// Measure the cost of appendExternal'ing 1 bytes to a Buffer
+double bufferAppendExternal1()
+{
+    return bufferAppendExternalCommon<1>();
+}
+
+// Measure the cost of appendExternal'ing 50 bytes to a Buffer
+double bufferAppendExternal50()
+{
+    return bufferAppendExternalCommon<50>();
+}
+
+// Measure the cost of appendExternal'ing 100 bytes to a Buffer
+double bufferAppendExternal100()
+{
+    return bufferAppendExternalCommon<100>();
+}
+
+// Measure the cost of appendExternal'ing 500 bytes to a Buffer
+double bufferAppendExternal500()
+{
+    return bufferAppendExternalCommon<500>();
+}
+
 // Measure the cost of allocating and deallocating a buffer, plus
 // appending (virtually) one block.
 double bufferBasic()
@@ -240,6 +320,16 @@ double bufferCopy()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+double bufferConstruct() {
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Buffer b;   // Compiler doesn't seem to optimize this out.
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of allocating new space by extending the
 // last chunk.
 double bufferExtendChunk()
@@ -266,6 +356,18 @@ double bufferExtendChunk()
     return Cycles::toSeconds(total)/(count*10);
 }
 
+double bufferReset() {
+    int count = 1000000;
+    uint64_t totalTime = 0;
+    for (int i = 0; i < count; i++) {
+        Buffer b;
+        uint64_t start = Cycles::rdtsc();
+        b.reset();
+        totalTime += Cycles::rdtsc() - start;
+    }
+    return Cycles::toSeconds(totalTime)/count;
+}
+
 // Measure the cost of retrieving an object from the beginning of a buffer.
 double bufferGetStart()
 {
@@ -280,28 +382,6 @@ double bufferGetStart()
     }
     uint64_t stop = Cycles::rdtsc();
     return Cycles::toSeconds(stop - start)/count;
-}
-
-double bufferConstruct() {
-    int count = 1000000;
-    uint64_t start = Cycles::rdtsc();
-    for (int i = 0; i < count; i++) {
-        Buffer b;   // Compiler doesn't seem to optimize this out.
-    }
-    uint64_t stop = Cycles::rdtsc();
-    return Cycles::toSeconds(stop - start)/count;
-}
-
-double bufferReset() {
-    int count = 1000000;
-    uint64_t totalTime = 0;
-    for (int i = 0; i < count; i++) {
-        Buffer b;
-        uint64_t start = Cycles::rdtsc();
-        b.reset();
-        totalTime += Cycles::rdtsc() - start;
-    }
-    return Cycles::toSeconds(totalTime)/count;
 }
 
 // Measure the cost of creating an iterator and iterating over 10
@@ -1139,6 +1219,22 @@ TestInfo tests[] = {
      "Atomic<int>::exchange"},
     {"bMutexNoBlock", bMutexNoBlock,
      "std::mutex lock/unlock (no blocking)"},
+    {"bufferAppendCopy1", bufferAppendCopy1,
+     "appendCopy 1 byte to a buffer"},
+    {"bufferAppendCopy50", bufferAppendCopy50,
+     "appendCopy 50 bytes to a buffer"},
+    {"bufferAppendCopy100", bufferAppendCopy100,
+     "appendCopy 100 bytes to a buffer"},
+    {"bufferAppendCopy500", bufferAppendCopy500,
+     "appendCopy 500 bytes to a buffer"},
+    {"bufferAppendExternal1", bufferAppendExternal1,
+     "appendExternal 1 byte to a buffer"},
+    {"bufferAppendExternal50", bufferAppendExternal50,
+     "appendExternal 50 bytes to a buffer"},
+    {"bufferAppendExternal100", bufferAppendExternal100,
+     "appendExternal 100 bytes to a buffer"},
+    {"bufferAppendExternal500", bufferAppendExternal500,
+     "appendExternal 500 bytes to a buffer"},
     {"bufferBasic", bufferBasic,
      "buffer create, add one chunk, delete"},
     {"bufferBasicAlloc", bufferBasicAlloc,
@@ -1250,7 +1346,7 @@ TestInfo tests[] = {
 void runTest(TestInfo& info)
 {
     double secs = info.func();
-    int width = printf("%-18s ", info.name);
+    int width = printf("%-23s ", info.name);
     if (secs < 1.0e-06) {
         width += printf("%8.2fns", 1e09*secs);
     } else if (secs < 1.0e-03) {
