@@ -16,7 +16,6 @@
 #ifndef RAMCLOUD_UNACKEDRPCRESULTS_H
 #define RAMCLOUD_UNACKEDRPCRESULTS_H
 
-#include <condition_variable>
 #include <unordered_map>
 #include "Common.h"
 #include "SpinLock.h"

@@ -16,6 +16,7 @@
 #include "TestUtil.h"
 #include "Object.h"
 #include "ObjectManager.h"
+#include "PreparedWrites.h"
 #include "RecoverySegmentBuilder.h"
 #include "SegmentIterator.h"
 #include "SegmentManager.h"
@@ -139,6 +140,46 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Buffer buffer;
         rpcRecord.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_RPCRECORD, buffer));
+    }{ // PreparedOp should go in partition 1.
+        Key key(1, "1", 1);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 10UL, 0, NULL,
+                      key, "hello", 6, 0, 0, dataBuffer);
+
+        Buffer buffer;
+        op.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREP, buffer));
+    }{ // PreparedOp should go in partition 0.
+        Key key(1, "2", 1);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::READ,
+                      1UL, 10UL, 0, NULL,
+                      key, "hello", 6, 0, 0, dataBuffer);
+
+        Buffer buffer;
+        op.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREP, buffer));
+    }{ // PreparedOp not in any partition.
+        Key key(10, "1", 1);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 10UL, 0, NULL,
+                      key, "hello", 6, 0, 0, dataBuffer);
+
+        Buffer buffer;
+        op.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREP, buffer));
+    }{ // PreparedOp not written before the tablet existed.
+        Key key(2, "1", 1);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 10UL, 0U, NULL,
+                      key, "hello", 6, 0, 0, dataBuffer);
+
+        Buffer buffer;
+        op.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREP, buffer));
     }
 
     Segment::Certificate certificate;
@@ -157,13 +198,17 @@ TEST_F(RecoverySegmentBuilderTest, build) {
             "object at offset 14, length 34 with tableId 1, key '2' | "
             "tombstone at offset 50, length 33 with tableId 1, key '2' | "
             "rpcRecord at offest 85, length 44 with tableId 1, "
-                    "keyHash 0x3554F985FBED3C16, leaseId 5, rpcId 3",
+                    "keyHash 0x3554F985FBED3C16, leaseId 5, rpcId 3 | "
+            "preparedOp at offest 131, length 62 with tableId 1, key '2', "
+            "leaseId 1, rpcId 10",
             ObjectManager::dumpSegment(&recoverySegments[0]));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
             "object at offset 14, length 34 with tableId 1, key '1' | "
             "tombstone at offset 50, length 33 with tableId 1, key '1' | "
             "rpcRecord at offest 85, length 44 with tableId 1, "
-                    "keyHash 0xDD5D9F7F60D5B056, leaseId 6, rpcId 4",
+                    "keyHash 0xDD5D9F7F60D5B056, leaseId 6, rpcId 4 | "
+            "preparedOp at offest 131, length 62 with tableId 1, key '1', "
+            "leaseId 1, rpcId 10",
             ObjectManager::dumpSegment(&recoverySegments[1]));
 
     certificate.checksum = 0;

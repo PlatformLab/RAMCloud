@@ -42,6 +42,7 @@ class ObjectManagerTest : public ::testing::Test {
     ServerConfig masterConfig;
     MasterTableMetadata masterTableMetadata;
     UnackedRpcResults unackedRpcResults;
+    PreparedWrites preparedWrites;
     TabletManager tabletManager;
     ObjectManager objectManager;
 
@@ -52,13 +53,15 @@ class ObjectManagerTest : public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
         , unackedRpcResults(&context)
+        , preparedWrites(&context)
         , tabletManager()
         , objectManager(&context,
                         &serverId,
                         &masterConfig,
                         &tabletManager,
                         &masterTableMetadata,
-                        &unackedRpcResults)
+                        &unackedRpcResults,
+                        &preparedWrites)
     {
         objectManager.initOnceEnlisted();
         tabletManager.addTablet(0, 0, ~0UL, TabletManager::NORMAL);
@@ -164,6 +167,33 @@ class ObjectManagerTest : public ::testing::Test {
         rpcRecord.assembleForLog(newRpcRecBuffer);
         bool success = s.append(LOG_ENTRY_TYPE_RPCRECORD,
                                 newRpcRecBuffer);
+        EXPECT_TRUE(success);
+        s.close();
+
+        Buffer buffer;
+        s.appendToBuffer(buffer);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
+        s.getAppendedLength(outCertificate);
+
+        return buffer.size();
+    }
+
+    /**
+     * Build a properly formatted segment containing a single PreparedOp.
+     * This segment may be passed directly to the ObjectManager::replaySegment()
+     * routine.
+     */
+    uint32_t
+    buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
+                         PreparedOp &op,
+                         Segment::Certificate* outCertificate)
+    {
+        Segment s;
+        Buffer newBuffer;
+        op.assembleForLog(newBuffer);
+        bool success = s.append(LOG_ENTRY_TYPE_PREP,
+                                newBuffer);
         EXPECT_TRUE(success);
         s.close();
 
@@ -1083,6 +1113,84 @@ TEST_F(ObjectManagerTest, replaySegment_rpcRecord) {
 
 }
 
+TEST_F(ObjectManagerTest, replaySegment_preparedOp) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    PreparedWrites *preparedWrites = objectManager.preparedWrites;
+
+    EXPECT_EQ(0UL, preparedWrites->peekOp(1UL, 10UL));
+
+    {   // 1. Test regular PreparedOp.
+        Segment::Certificate certificate;
+        Buffer buf;
+        Key key(10, "1", 1);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 10UL, 0, NULL,
+                      key, "hello", 6, 0, 0, buf);
+        len = buildRecoverySegment(seg, segLen, op, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_NE(0UL, preparedWrites->peekOp(1UL, 10UL));
+
+
+    {   // 2. Ignored preparedOp due to old version number.
+        Segment::Certificate certificate;
+        Buffer buf;
+        Key key(10, "2", 1);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 11UL, 0, NULL,
+                      key, "helli", 6, 1 /*version*/, 0, buf);
+        len = buildRecoverySegment(seg, segLen, op, &certificate);
+        it.construct(&seg[0], len, certificate);
+
+        // Pushing version of object >= 1.
+        tabletManager.addTablet(10, 0, ~0UL, TabletManager::NORMAL);
+        Object obj(key, "hello", 6, 0, 0, buf);
+        objectManager.writeObject(obj, NULL, NULL, NULL, NULL, NULL);
+        tabletManager.changeState(10, 0, ~0UL, TabletManager::NORMAL,
+                                               TabletManager::RECOVERING);
+    }
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_EQ(0UL, preparedWrites->peekOp(1UL, 11UL));
+
+
+    {   // 3. preparedOp with higher version number.
+        Segment::Certificate certificate;
+        Buffer buf;
+        Key key(10, "2", 1);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 11UL, 0, NULL,
+                      key, "helli", 6, 3 /*version*/, 0, buf);
+        len = buildRecoverySegment(seg, segLen, op, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_NE(0UL, preparedWrites->peekOp(1UL, 11UL));
+
+    uint64_t newOpPtr = preparedWrites->peekOp(1UL, 11UL);
+    Buffer preparedOpBuffer;
+    Log::Reference resultRef(newOpPtr);
+    objectManager.getLog()->getEntry(resultRef, preparedOpBuffer);
+    PreparedOp savedOp(preparedOpBuffer, 0, preparedOpBuffer.size());
+
+    EXPECT_EQ(1UL, savedOp.header.clientId);
+    EXPECT_EQ(11UL, savedOp.header.rpcId);
+    EXPECT_EQ(0UL, savedOp.header.participantCount);
+    EXPECT_EQ(10UL, savedOp.object.getTableId());
+    EXPECT_EQ(3UL, savedOp.object.header.version);
+}
+
 static bool
 writeObjectFilter(string s)
 {
@@ -1170,6 +1278,79 @@ TEST_F(ObjectManagerTest, writeObject_returnRemovedObj) {
     const void* oldValue = oldObj.getValue(&oldValueLength);
     EXPECT_EQ("originalValue", string(reinterpret_cast<const char*>(oldValue),
                                       oldValueLength));
+}
+
+TEST_F(ObjectManagerTest, prepareOp) {
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    Key key(1, "1", 1);
+    Buffer buffer;
+    bool isCommit;
+    uint64_t newOpPtr;
+
+    WireFormat::TxParticipant participants[3];
+    Key key2(1, "2", 1);
+    Key key3(2, "3", 1);
+    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
+    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
+    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
+    // create an object just so that buffer will be populated with the key
+    // and the value. This keeps the abstractions intact
+    PreparedOp op(TxPrepare::READ, 1, 10,
+                  3, participants,
+                  key, "value", 5, 0, 0, buffer);
+
+    WireFormat::TxPrepare::Vote vote;
+    RpcRecord rpcRecord(key.getTableId(), key.getHash(),
+                        1, 10, 9, &vote, sizeof(vote));
+    uint64_t rpcRecordPtr;
+
+    // no tablet, no dice.
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.prepareOp(op, 0, &newOpPtr, &isCommit,
+                                &rpcRecord, &rpcRecordPtr));
+    EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
+
+    // non-NORMAL tablet state, no dice.
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.prepareOp(op, 0, &newOpPtr, &isCommit,
+                                &rpcRecord, &rpcRecordPtr));
+    EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
+
+    TestLog::Enable _(writeObjectFilter);
+
+    // new object
+    // TODO(seojin): Currently we don't support new object transaction.
+    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+                                          TabletManager::NORMAL);
+    Buffer buffer2;
+    Object obj(key, "value", 5, 0, 0, buffer2);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ("writeObject: object: 33 bytes, version 1", TestLog::get());
+    EXPECT_EQ("found=true tableId=1 byteCount=33 recordCount=1"
+              , verifyMetadata(1));
+
+    // object overwrite (tombstone needed)
+    TestLog::reset();
+    EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
+                       op, 0, &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+    EXPECT_TRUE(isCommit);
+
+    EXPECT_EQ("found=true tableId=1 byteCount=214 recordCount=3"
+              , verifyMetadata(1));
+
+    // Check object is locked.
+    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+
+    // Verify RetryException  when overwriting with no space
+    // Abort cannot be written and retryException is fired.
+    uint64_t original = objectManager.getLog()->totalBytesRemaining;
+    objectManager.getLog()->totalBytesRemaining = 0;
+    EXPECT_THROW(objectManager.prepareOp(op, 0, 0, &isCommit,
+                                         &rpcRecord, &rpcRecordPtr),
+                 RetryException);
+    objectManager.getLog()->totalBytesRemaining = original;
 }
 
 TEST_F(ObjectManagerTest, flushEntriesToLog) {
@@ -1751,6 +1932,173 @@ TEST_F(ObjectManagerTest, keyPointsAtReference) {
 
     EXPECT_TRUE(objectManager.keyPointsAtReference(
                 key, reference));
+}
+
+TEST_F(ObjectManagerTest, relocateObject_objectLocked) {
+    Key key(0, "key0", 4);
+
+    Buffer value;
+    Object obj(key, "item0", 5, 0, 0, value);
+    objectManager.writeObject(obj, NULL, NULL);
+    EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
+              , verifyMetadata(0));
+
+    LogEntryType oldType;
+    Buffer oldBuffer;
+    bool success = false;
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        success = objectManager.lookup(lock, key, oldType, oldBuffer, 0, 0);
+    }
+    EXPECT_TRUE(success);
+
+    Log::Reference newReference;
+    success = objectManager.log.append(LOG_ENTRY_TYPE_OBJ,
+                                       oldBuffer,
+                                       &newReference);
+    objectManager.log.sync();
+    EXPECT_TRUE(success);
+
+    LogEntryType newType;
+    Buffer newBuffer;
+    newType = objectManager.log.getEntry(newReference, newBuffer);
+
+    LogEntryType oldType2;
+    Buffer oldBuffer2;
+    Log::Reference oldReference;
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        success = objectManager.lookup(lock, key, oldType2, oldBuffer2, 0,
+            &oldReference);
+    }
+    EXPECT_TRUE(success);
+    EXPECT_EQ(oldType, oldType2);
+
+    objectManager.lockTable.acquireLock(oldReference.toInteger());
+    EXPECT_TRUE(objectManager.lockTable.isLockAcquired(
+                                    oldReference.toInteger()));
+
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer,
+                           oldReference, relocator);
+    EXPECT_TRUE(relocator.didAppend);
+    EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
+              , verifyMetadata(0));
+
+    EXPECT_FALSE(objectManager.lockTable.isLockAcquired(
+                                    oldReference.toInteger()));
+
+    LogEntryType newType2;
+    Buffer newBuffer2;
+    Log::Reference newReference2;
+    {
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        objectManager.lookup(lock, key, newType2, newBuffer2, 0,
+            &newReference2);
+    }
+    EXPECT_TRUE(relocator.didAppend);
+    EXPECT_EQ(newType, newType2);
+    EXPECT_EQ(newReference.toInteger() + 38, newReference2.toInteger());
+    EXPECT_NE(oldReference, newReference);
+    EXPECT_FALSE(objectManager.lockTable.
+                   isLockAcquired(oldReference.toInteger()));
+    EXPECT_TRUE(objectManager.lockTable.
+                   isLockAcquired(newReference2.toInteger()));
+}
+
+TEST_F(ObjectManagerTest, relocatePrepareOp_relocate) {
+    Key key(0, "key0", 4);
+    Buffer oldBuffer;
+    bool success = false;
+
+    using WireFormat::TxParticipant;
+    TxParticipant participants[3];
+    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
+    participants[1] = TxParticipant(573U, key.getHash(), 11U);
+    participants[2] = TxParticipant(574U, key.getHash(), 12U);
+
+    Buffer value;
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 3U, participants,
+                  key, "item1", 5, 0, 0, value);
+    op.assembleForLog(oldBuffer);
+
+    Log::Reference oldReference;
+    success = objectManager.log.append(LOG_ENTRY_TYPE_PREP,
+                                       oldBuffer,
+                                       &oldReference);
+    objectManager.log.sync();
+    EXPECT_TRUE(success);
+
+    preparedWrites.bufferWrite(op.header.clientId,
+                               op.header.rpcId,
+                               oldReference.toInteger());
+
+    LogEntryType newType;
+    Buffer newBuffer;
+    newType = objectManager.log.getEntry(oldReference, newBuffer);
+
+    EXPECT_EQ(LOG_ENTRY_TYPE_PREP, newType);
+
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_PREP, oldBuffer,
+                           oldReference, relocator);
+    EXPECT_TRUE(relocator.didAppend);
+
+    uint64_t newOpPtr = preparedWrites.peekOp(op.header.clientId,
+                                              op.header.rpcId);
+    EXPECT_NE(0UL, newOpPtr);
+    EXPECT_NE(oldReference.toInteger(), newOpPtr);
+    EXPECT_EQ(relocator.getNewReference().toInteger(), newOpPtr);
+}
+
+TEST_F(ObjectManagerTest, relocatePrepareOp_clean) {
+    Key key(0, "key0", 4);
+    Buffer oldBuffer;
+    bool success = false;
+
+    using WireFormat::TxParticipant;
+    TxParticipant participants[3];
+    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
+    participants[1] = TxParticipant(573U, key.getHash(), 11U);
+    participants[2] = TxParticipant(574U, key.getHash(), 12U);
+
+    Buffer value;
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 3U, participants,
+                  key, "item1", 5, 0, 0, value);
+    op.assembleForLog(oldBuffer);
+
+    Log::Reference oldReference;
+    success = objectManager.log.append(LOG_ENTRY_TYPE_PREP,
+                                       oldBuffer,
+                                       &oldReference);
+    objectManager.log.sync();
+    EXPECT_TRUE(success);
+
+    preparedWrites.bufferWrite(op.header.clientId,
+                               op.header.rpcId,
+                               oldReference.toInteger());
+
+    LogEntryType newType;
+    Buffer newBuffer;
+    newType = objectManager.log.getEntry(oldReference, newBuffer);
+
+    EXPECT_EQ(LOG_ENTRY_TYPE_PREP, newType);
+
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+
+    preparedWrites.popOp(op.header.clientId, op.header.rpcId);
+
+    objectManager.relocate(LOG_ENTRY_TYPE_PREP, oldBuffer,
+                           oldReference, relocator);
+    EXPECT_FALSE(relocator.didAppend);
+
+    uint64_t newOpPtr = preparedWrites.peekOp(op.header.clientId,
+                                              op.header.rpcId);
+    EXPECT_EQ(0UL, newOpPtr);
+    EXPECT_NE(oldReference.toInteger(), newOpPtr);
 }
 
 TEST_F(ObjectManagerTest, relocateRpcRecord_relocateRecord) {

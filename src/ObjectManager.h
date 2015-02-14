@@ -23,6 +23,7 @@
 #include "HashTable.h"
 #include "IndexKey.h"
 #include "Object.h"
+#include "PreparedWrites.h"
 #include "SegmentManager.h"
 #include "SegmentIterator.h"
 #include "ReplicaManager.h"
@@ -31,6 +32,7 @@
 #include "TabletManager.h"
 #include "MasterTableMetadata.h"
 #include "UnackedRpcResults.h"
+#include "LockTable.h"
 
 namespace RAMCloud {
 
@@ -54,7 +56,8 @@ class ObjectManager : public LogEntryHandlers {
                 const ServerConfig* config,
                 TabletManager* tabletManager,
                 MasterTableMetadata* masterTableMetadata,
-                UnackedRpcResults* unackedRpcResults);
+                UnackedRpcResults* unackedRpcResults,
+                PreparedWrites* preparedWrites);
     virtual ~ObjectManager();
     void initOnceEnlisted();
 
@@ -77,6 +80,10 @@ class ObjectManager : public LogEntryHandlers {
                 uint64_t* outVersion, Buffer* removedObjBuffer = NULL,
                 RpcRecord* rpcRecord = NULL, uint64_t* rpcRecordPtr = NULL);
     bool keyPointsAtReference(Key& k, AbstractLog::Reference oldReference);
+    Status prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
+                uint64_t* newOpPtr, bool* isCommitVote,
+                RpcRecord* rpcRecord, uint64_t* rpcRecordPtr);
+    Status tryGrabTxLock(Object& objToLock);
 
     /**
      * The following three methods are used when multiple log entries
@@ -257,10 +264,12 @@ class ObjectManager : public LogEntryHandlers {
                 __attribute__((warn_unused_result));
     void relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
                 LogEntryRelocator& relocator);
+    void relocatePreparedOp(Buffer& oldBuffer, LogEntryRelocator& relocator);
     void relocateRpcRecord(Buffer& oldBuffer, LogEntryRelocator& relocator);
     void relocateTombstone(Buffer& oldBuffer, Log::Reference oldReference,
             LogEntryRelocator& relocator);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
+    void writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr);
 
     /**
      * Shared RAMCloud information.
@@ -292,6 +301,11 @@ class ObjectManager : public LogEntryHandlers {
      * Used to managed cleaning and recovery of RpcResult objects.
      */
     UnackedRpcResults* unackedRpcResults;
+
+    /**
+     * Used to manage cleaning and recovery of PreparedOp objects.
+     */
+    PreparedWrites* preparedWrites;
 
     /**
      * Allocator used by the SegmentManager to obtain main memory for log
@@ -342,6 +356,11 @@ class ObjectManager : public LogEntryHandlers {
      * cleaner.
      */
     SpinLock hashTableBucketLocks[1024];
+
+    /**
+     * Locks objects during transactions.
+     */
+    LockTable lockTable;
 
     /**
      * Number of times the replaySegment() method returned (or threw an

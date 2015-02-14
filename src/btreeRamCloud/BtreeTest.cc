@@ -18,6 +18,7 @@
 
 #include <gtest/gtest.h>
 #include "btreeRamCloud/Btree.h"
+#include "PreparedWrites.h"
 #include "RamCloud.h"
 #include "UnackedRpcResults.h"
 #include "Btree.h"
@@ -40,6 +41,7 @@ class BtreeTest: public ::testing::Test {
     ServerConfig masterConfig;
     MasterTableMetadata masterTableMetadata;
     UnackedRpcResults unackedRpcResults;
+    PreparedWrites preparedWrites;
     TabletManager tabletManager;
     ObjectManager objectManager;
     uint64_t tableId;
@@ -51,13 +53,15 @@ class BtreeTest: public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
         , unackedRpcResults(&context)
+        , preparedWrites(&context)
         , tabletManager()
         , objectManager(&context,
                         &serverId,
                         &masterConfig,
                         &tabletManager,
                         &masterTableMetadata,
-                        &unackedRpcResults)
+                        &unackedRpcResults,
+                        &preparedWrites)
         , tableId(1)
     {
         objectManager.initOnceEnlisted();

@@ -200,6 +200,7 @@ AbstractLog::free(Reference reference)
     segment->trackDeadEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ)
         totalBytesRemaining += lengthWithMetadata;
+    //TODO(seojin): handle RpcRecord and PreparedOp.
 }
 
 /**
@@ -265,7 +266,7 @@ AbstractLog::getSegmentId(Reference reference)
  * Given a size of a new live object, check whether we have enough space to put
  * it into the log without risking being unable to clean.
 
- * \param objectSize 
+ * \param objectSize
  *       The total amount of log space that will be consumed by the object and
  *       its metadata
  */
@@ -380,6 +381,7 @@ AbstractLog::append(Lock& appendLock,
     head->trackNewEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ)
         totalBytesRemaining -= lengthWithMetadata;
+    //TODO(seojin): handle RpcRecord and PreparedOp.
 
     metrics.totalBytesAppended += length;
     metrics.totalMetadataBytesAppended += (lengthWithMetadata - length);

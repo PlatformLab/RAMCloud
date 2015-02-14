@@ -105,6 +105,7 @@ TESTS_SRCFILES := \
 		  src/PingServiceTest.cc \
 		  src/PortAlarm.cc \
 		  src/PortAlarmTest.cc \
+		  src/PreparedWritesTest.cc \
 		  src/PriorityTaskQueueTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/RawMetricsTest.cc \
