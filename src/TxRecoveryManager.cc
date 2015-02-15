@@ -26,7 +26,7 @@ namespace RAMCloud {
  */
 TxRecoveryManager::TxRecoveryManager(Context* context)
     : WorkerTimer(context->dispatch)
-    , mutex("TxRecoveryManager::lock")
+    , lock("TxRecoveryManager::lock")
     , context(context)
     , recoveringIds()
     , recoveries()
@@ -41,7 +41,7 @@ TxRecoveryManager::TxRecoveryManager(Context* context)
 void
 TxRecoveryManager::handleTimerEvent()
 {
-    Lock lock(mutex);
+    Lock _(lock);
 
     // See if any of the recoveries need to do more work.
     RecoveryList::iterator it = recoveries.begin();
@@ -93,7 +93,7 @@ TxRecoveryManager::handleTxHintFailed(Buffer* rpcReq)
     RecoveryId recoveryId = {leaseId, rpcId};
 
     /*** Make sure we did not already receive this request. ***/
-    Lock lock(mutex);
+    Lock _(lock);
     if (recoveringIds.find(recoveryId) != recoveringIds.end()) {
         // This transaction is already recovering.
         return;
@@ -119,7 +119,7 @@ TxRecoveryManager::handleTxHintFailed(Buffer* rpcReq)
 bool
 TxRecoveryManager::isTxDecisionRecordNeeded(TxDecisionRecord& record)
 {
-    Lock lock(mutex);
+    Lock _(lock);
     if (record.getParticipantCount() < 1) {
         RAMCLOUD_LOG(ERROR, "TxDecisionRecord missing participant information");
         return false;
@@ -133,6 +133,42 @@ TxRecoveryManager::isTxDecisionRecordNeeded(TxDecisionRecord& record)
         // This transaction is still recovering.
         return false;
     }
+    return true;
+}
+
+/**
+ * Recover and restart a possibly failed transaction recovery.  Used during
+ * master crash recovery when taking ownership of TxDecisionRecords.
+ *
+ * \param record
+ *      The TxDecisionRecord that represents an ongoing transaction recovery
+ *      that this module should now take ownership over.
+ * \return
+ *      True if the record is needed and should be kept.  False, if the record
+ *      is no longer necessary.
+ */
+bool
+TxRecoveryManager::recoverRecovery(TxDecisionRecord& record)
+{
+    if (expect_false(record.getParticipantCount() < 1)) {
+        RAMCLOUD_LOG(ERROR, "TxDecisionRecord missing participant information");
+        return false;
+    }
+
+    RecoveryId recoveryId = {record.getLeaseId(),
+                             record.getParticipant(0).rpcId};
+
+    /*** Make sure we did not already receive this request. ***/
+    Lock _(lock);
+    if (expect_false(recoveringIds.find(recoveryId) != recoveringIds.end())) {
+        // This transaction is already recovering.
+        return false;
+    }
+
+    /*** Schedule a recovery. ***/
+    recoveringIds.insert(recoveryId);
+    recoveries.emplace_back(context, record);
+    this->start(0);
     return true;
 }
 

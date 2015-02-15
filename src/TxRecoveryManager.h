@@ -44,13 +44,14 @@ class TxRecoveryManager : public WorkerTimer {
     virtual void handleTimerEvent();
     void handleTxHintFailed(Buffer* rpcReq);
     bool isTxDecisionRecordNeeded(TxDecisionRecord& record);
+    bool recoverRecovery(TxDecisionRecord& record);
 
   PRIVATE:
     /// Forward declaration.
     class RecoveryTask;
 
     /// Used as a monitor style lock on this module.
-    SpinLock mutex;
+    SpinLock lock;
     typedef std::lock_guard<SpinLock> Lock;
 
     /// Overall information about this server.
@@ -76,9 +77,10 @@ class TxRecoveryManager : public WorkerTimer {
     };
 
     /// Keeps track of those transactions whose recoveries have started but not
-    /// finished.
+    /// finished.  (Should be able to use a std::map once emplace is supported.)
     std::set<RecoveryId> recoveringIds;
     typedef std::list<RecoveryTask> RecoveryList;
+    /// Contains all currently active transactions.
     RecoveryList recoveries;
 
     /**

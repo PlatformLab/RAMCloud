@@ -210,6 +210,33 @@ class ObjectManagerTest : public ::testing::Test {
     }
 
     /**
+     * Build a properly formatted segment containing a single TxDecisionRecord.
+     * This segment may be passed directly to the ObjectManager::replaySegment()
+     * routine.
+     */
+    uint32_t
+    buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
+                         TxDecisionRecord &record,
+                         Segment::Certificate* outCertificate)
+    {
+        Segment s;
+        Buffer newBuffer;
+        record.assembleForLog(newBuffer);
+        bool success = s.append(LOG_ENTRY_TYPE_TXDECISION,
+                                newBuffer);
+        EXPECT_TRUE(success);
+        s.close();
+
+        Buffer buffer;
+        s.appendToBuffer(buffer);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
+        s.getAppendedLength(outCertificate);
+
+        return buffer.size();
+    }
+
+    /**
      * Store an object in the log and hash table, returning its Log::Reference.
      */
     Log::Reference
@@ -1165,7 +1192,6 @@ TEST_F(ObjectManagerTest, replaySegment_rpcRecord) {
     EXPECT_NE(unackedRpcResults->clients.end(),
               unackedRpcResults->clients.find(expectedLeaseId));
     EXPECT_EQ(1U, unackedRpcResults->clients.size());
-
 }
 
 TEST_F(ObjectManagerTest, replaySegment_preparedOp) {
@@ -1244,6 +1270,66 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp) {
     EXPECT_EQ(0UL, savedOp.header.participantCount);
     EXPECT_EQ(10UL, savedOp.object.getTableId());
     EXPECT_EQ(3UL, savedOp.object.header.version);
+}
+
+TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_basic) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    TxRecoveryManager* txRecoveryManager = objectManager.txRecoveryManager;
+
+    EXPECT_EQ(0U, txRecoveryManager->recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager->recoveries.size());
+    EXPECT_FALSE(txRecoveryManager->isRunning());
+
+    {
+        Segment::Certificate certificate;
+        Buffer buf;
+        TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
+        record.addParticipant(1, 2, 3);
+        len = buildRecoverySegment(seg, segLen, record, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_EQ(1U, txRecoveryManager->recoveringIds.size());
+    EXPECT_EQ(1U, txRecoveryManager->recoveries.size());
+    EXPECT_TRUE(txRecoveryManager->isRunning());
+}
+
+TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    TxRecoveryManager* txRecoveryManager = objectManager.txRecoveryManager;
+
+    txRecoveryManager->recoveringIds.insert({42, 3});
+
+    EXPECT_EQ(1U, txRecoveryManager->recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager->recoveries.size());
+    EXPECT_FALSE(txRecoveryManager->isRunning());
+
+    {
+        Segment::Certificate certificate;
+        Buffer buf;
+        TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
+        record.addParticipant(1, 2, 3);
+        len = buildRecoverySegment(seg, segLen, record, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_EQ(1U, txRecoveryManager->recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager->recoveries.size());
+    EXPECT_FALSE(txRecoveryManager->isRunning());
 }
 
 static bool
