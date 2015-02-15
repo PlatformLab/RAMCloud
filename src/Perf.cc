@@ -597,6 +597,20 @@ double getThreadId()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of getting the kernel thread id using a syscall.
+double getThreadIdSyscall()
+{
+    int count = 1000000;
+    int64_t result = 0;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        result += syscall(SYS_gettid);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    // printf("Result: %d\n", downCast<int>(result));
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure hash table lookup performance. Prefetching can
 // be enabled to measure its effect. This test is a lot
 // slower than the others (takes several seconds) due to the
@@ -1275,6 +1289,8 @@ TestInfo tests[] = {
      "Generate a random 100-byte value"},
     {"getThreadId", getThreadId,
      "Retrieve thread id via ThreadId::get"},
+    {"getThreadIdSyscall", getThreadIdSyscall,
+     "Retrieve kernel thread id using syscall"},
     {"hashTableLookup", hashTableLookup,
      "Key lookup in a 1GB HashTable"},
     {"hashTableLookupPf", hashTableLookup<20>,
