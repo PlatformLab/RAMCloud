@@ -322,17 +322,13 @@ Transaction::processDecisionRpcs()
             continue;
         }
 
-        WireFormat::TxDecision::Response* respHdr =
-                rpc->response->getStart<WireFormat::TxDecision::Response>();
-        if (respHdr != NULL) {
-            if (respHdr->common.status == STATUS_OK) {
-                for (uint32_t i = 0; i < DecisionRpc::MAX_OBJECTS_PER_RPC; i++)
-                    ramcloud->rpcTracker.rpcFinished(rpc->ops[i]->second.rpcId);
-            } else if (respHdr->common.status == STATUS_UNKNOWN_TABLET) {
-                // Nothing to do.
-            } else {
-                status = respHdr->common.status;
-            }
+        if (rpc->responseHeader->status == STATUS_OK) {
+            for (uint32_t i = 0; i < DecisionRpc::MAX_OBJECTS_PER_RPC; i++)
+                ramcloud->rpcTracker.rpcFinished(rpc->ops[i]->second.rpcId);
+        } else if (rpc->responseHeader->status == STATUS_UNKNOWN_TABLET) {
+            // Nothing to do.
+        } else {
+            status = rpc->responseHeader->status;
         }
 
         // Destroy object.
@@ -356,18 +352,16 @@ Transaction::processPrepareRpcs()
             continue;
         }
 
-        WireFormat::TxPrepare::Response* respHdr =
-                rpc->response->getStart<WireFormat::TxPrepare::Response>();
-        if (respHdr != NULL) {
-            if (respHdr->common.status == STATUS_OK) {
-                if (respHdr->vote != WireFormat::TxPrepare::COMMIT) {
-                    decision = WireFormat::TxDecision::ABORT;
-                }
-            } else if (respHdr->common.status == STATUS_UNKNOWN_TABLET) {
-                // Nothing to do.
-            } else {
-                status = respHdr->common.status;
+        if (rpc->responseHeader->status == STATUS_OK) {
+            WireFormat::TxPrepare::Response* respHdr =
+                    rpc->response->getStart<WireFormat::TxPrepare::Response>();
+            if (respHdr->vote != WireFormat::TxPrepare::COMMIT) {
+                decision = WireFormat::TxDecision::ABORT;
             }
+        } else if (rpc->responseHeader->status == STATUS_UNKNOWN_TABLET) {
+            // Nothing to do.
+        } else {
+            status = rpc->responseHeader->status;
         }
 
         // Destroy object.

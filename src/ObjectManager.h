@@ -254,6 +254,7 @@ class ObjectManager : public LogEntryHandlers {
     static string dumpSegment(Segment* segment);
     uint32_t getObjectTimestamp(Buffer& buffer);
     uint32_t getTombstoneTimestamp(Buffer& buffer);
+    uint32_t getTxDecisionRecordTimestamp(Buffer& buffer);
     bool lookup(HashTableBucketLock& lock, Key& key,
                 LogEntryType& outType, Buffer& buffer,
                 uint64_t* outVersion = NULL,

@@ -155,6 +155,88 @@ class TxRecoveryManagerTest : public ::testing::Test {
 
 // TODO(cstlee) : handleTimerEvent())
 
+TEST_F(TxRecoveryManagerTest, handleTxHintFailed_basic) {
+    Buffer buffer;
+    WireFormat::TxHintFailed::Request req;
+    req.leaseId = 42;
+    req.participantCount = 2;
+    buffer.appendCopy<WireFormat::TxHintFailed::Request>(&req);
+    buffer.emplaceAppend<WireFormat::TxParticipant>(tableId1, 2, 3);
+    buffer.emplaceAppend<WireFormat::TxParticipant>(tableId2, 5, 6);
+
+    EXPECT_EQ(0U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+
+    txRecoveryManager.handleTxHintFailed(&buffer);
+
+    EXPECT_EQ(1U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(1U, txRecoveryManager.recoveries.size());
+    EXPECT_TRUE(txRecoveryManager.isRunning());
+}
+
+TEST_F(TxRecoveryManagerTest, handleTxHintFailed_badRPC) {
+    Buffer buffer;
+    WireFormat::TxHintFailed::Request req;
+    req.leaseId = 42;
+    req.participantCount = 0;
+    buffer.appendCopy<WireFormat::TxHintFailed::Request>(&req);
+
+    EXPECT_EQ(0U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+
+    EXPECT_THROW(txRecoveryManager.handleTxHintFailed(&buffer),
+                 RequestFormatError);
+
+    EXPECT_EQ(0U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+}
+
+TEST_F(TxRecoveryManagerTest, handleTxHintFailed_wrongServer) {
+    Buffer buffer;
+    WireFormat::TxHintFailed::Request req;
+    req.leaseId = 42;
+    req.participantCount = 2;
+    buffer.appendCopy<WireFormat::TxHintFailed::Request>(&req);
+    buffer.emplaceAppend<WireFormat::TxParticipant>(tableId2, 2, 3);
+    buffer.emplaceAppend<WireFormat::TxParticipant>(tableId3, 5, 6);
+
+    EXPECT_EQ(0U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+
+    EXPECT_THROW(txRecoveryManager.handleTxHintFailed(&buffer),
+                 UnknownTabletException);
+
+    EXPECT_EQ(0U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+}
+
+TEST_F(TxRecoveryManagerTest, handleTxHintFailed_duplicate) {
+    Buffer buffer;
+    WireFormat::TxHintFailed::Request req;
+    req.leaseId = 42;
+    req.participantCount = 2;
+    buffer.appendCopy<WireFormat::TxHintFailed::Request>(&req);
+    buffer.emplaceAppend<WireFormat::TxParticipant>(tableId1, 2, 3);
+    buffer.emplaceAppend<WireFormat::TxParticipant>(tableId2, 5, 6);
+
+    txRecoveryManager.recoveringIds.insert({42, 3});
+
+    EXPECT_EQ(1U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+
+    txRecoveryManager.handleTxHintFailed(&buffer);
+
+    EXPECT_EQ(1U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+}
+
 TEST_F(TxRecoveryManagerTest, isTxDecisionRecordNeeded_basic) {
     TxDecisionRecord record(1, 2, 3, WireFormat::TxDecision::ABORT, 100);
     record.addParticipant(1, 2, 4);
@@ -173,6 +255,54 @@ TEST_F(TxRecoveryManagerTest, isTxDecisionRecordNeeded_badRecord) {
     EXPECT_EQ("isTxDecisionRecordNeeded: "
               "TxDecisionRecord missing participant information",
               TestLog::get());
+}
+
+TEST_F(TxRecoveryManagerTest, recoverRecovery_basic) {
+    TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 3);
+    record.addParticipant(4, 5, 6);
+
+    EXPECT_EQ(0U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+
+    EXPECT_TRUE(txRecoveryManager.recoverRecovery(record));
+
+    EXPECT_EQ(1U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(1U, txRecoveryManager.recoveries.size());
+    EXPECT_TRUE(txRecoveryManager.isRunning());
+}
+
+TEST_F(TxRecoveryManagerTest, recoverRecovery_badRecord) {
+    TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
+
+    EXPECT_EQ(0U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+
+    EXPECT_FALSE(txRecoveryManager.recoverRecovery(record));
+
+    EXPECT_EQ(0U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+}
+
+TEST_F(TxRecoveryManagerTest, recoverRecovery_duplicate) {
+    TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 3);
+    record.addParticipant(4, 5, 6);
+
+    txRecoveryManager.recoveringIds.insert({42, 3});
+
+    EXPECT_EQ(1U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+
+    EXPECT_FALSE(txRecoveryManager.recoverRecovery(record));
+
+    EXPECT_EQ(1U, txRecoveryManager.recoveringIds.size());
+    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+    EXPECT_FALSE(txRecoveryManager.isRunning());
 }
 
 TEST_F(TxRecoveryManagerTest, RecoveryTask_constructor_initial) {

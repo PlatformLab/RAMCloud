@@ -955,6 +955,30 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                                             op.header.rpcId,
                                             newReference.toInteger());
             }
+        } else if (type == LOG_ENTRY_TYPE_TXDECISION) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+
+            TxDecisionRecord record(buffer);
+
+            bool checksumIsValid = ({
+                CycleCounter<uint64_t> c(&verifyChecksumTicks);
+                record.checkIntegrity();
+            });
+            if (expect_false(!checksumIsValid)) {
+                LOG(ERROR, "bad TxDecisionRecord checksum! leaseId: %lu",
+                    record.getLeaseId());
+                // TODO(cstlee): Should throw and try another segment replica?
+            }
+            if (txRecoveryManager->recoverRecovery(record)) {
+                CycleCounter<uint64_t> _(&segmentAppendTicks);
+                sideLog->append(LOG_ENTRY_TYPE_TXDECISION, buffer);
+                // TODO(cstlee) : What should we do if the append fails?
+                TableStats::increment(masterTableMetadata,
+                                      record.getTableId(),
+                                      buffer.size(),
+                                      1);
+            }
         }
 
     }
@@ -1821,6 +1845,8 @@ ObjectManager::getTimestamp(LogEntryType type, Buffer& buffer)
         return getObjectTimestamp(buffer);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
         return getTombstoneTimestamp(buffer);
+    else if (type == LOG_ENTRY_TYPE_TXDECISION)
+        return getTxDecisionRecordTimestamp(buffer);
     else
         return 0;
 }
@@ -2035,6 +2061,22 @@ ObjectManager::getTombstoneTimestamp(Buffer& buffer)
 {
     ObjectTombstone tomb(buffer);
     return tomb.getTimestamp();
+}
+
+/**
+ * Method used by the Lod to determine the age of a TxDecisionRecord.
+ *
+ * \param buffer
+ *      Buffer pointing to the transaction decision record from which the
+ *      timestamp is to be extracted.
+ * \return
+ *      The record's creation timestamp.
+ */
+uint32_t
+ObjectManager::getTxDecisionRecordTimestamp(Buffer& buffer)
+{
+    TxDecisionRecord record(buffer);
+    return record.getTimestamp();
 }
 
 /**
