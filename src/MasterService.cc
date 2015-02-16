@@ -1717,7 +1717,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
     // Temporary storage for completed RPCs; recordCompletion()
     // is called after log is synched with backup.
-    std::vector<std::pair<uint64_t, uint64_t>> completedRpcs(numRequests);
+    std::vector<std::pair<uint64_t, uint64_t>> completedRpcs;
+    completedRpcs.reserve(numRequests);
 
     // Each iteration extracts one request from the rpc, writes the object
     // if possible, and appends a status and version to the response buffer.
@@ -1847,6 +1848,15 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
         respHdr->common.status = objectManager.prepareOp(
                 *op, &rejectRules, &newOpPtr, &isCommitVote,
                 &rpcRecord, &rpcRecordPtr);
+        /*
+        printf("prep: type%u c%lu r%lu pc%u tid%lu   "
+               "rejectRule: v%lu option %02x:%02x:%02x:%02x\n",
+                    op->header.type, op->header.clientId,
+                    op->header.rpcId, op->header.participantCount,
+                    op->object.getTableId(), rejectRules.givenVersion,
+                    rejectRules.doesntExist & 0xff, rejectRules.exists & 0xff,
+                    rejectRules.versionLeGiven & 0xff,
+                    rejectRules.versionNeGiven & 0xff);*/
         if (!isCommitVote || respHdr->common.status != STATUS_OK) {
             respHdr->vote = WireFormat::TxPrepare::ABORT;
             break;

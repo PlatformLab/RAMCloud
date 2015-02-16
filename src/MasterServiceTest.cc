@@ -324,6 +324,30 @@ class MasterServiceTest : public ::testing::Test {
         appendRecoveryPartition(recoveryPartition, 0, 124, 20, 100, 0, 0);
     }
 
+    bool
+    isObjectLocked(Key& key)
+    {
+        service->objectManager.objectMap.prefetchBucket(key.getHash());
+        ObjectManager::HashTableBucketLock lock(service->objectManager, key);
+
+        TabletManager::Tablet tablet;
+        if (!service->objectManager.tabletManager->getTablet(key, &tablet))
+            throw UnknownTabletException(HERE);
+
+        LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
+        Buffer currentBuffer;
+        Log::Reference currentReference;
+
+        HashTable::Candidates currentHashTableEntry;
+
+        if (service->objectManager.lookup(lock, key, currentType, currentBuffer,
+                   0, &currentReference)) {
+            return service->objectManager.lockTable.isLockAcquired(
+                    currentReference.toInteger());
+        }
+        return false;
+    }
+
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
 };
 
@@ -1819,6 +1843,140 @@ TEST_F(MasterServiceTest, txDecision_abort) {
 }
 
 // TODO(cstlee) : Unit test MasterService::txHintFailed()
+
+TEST_F(MasterServiceTest, txPrepare_commitVote_basics) {
+    // 1. Test setup: Add objects to be used during experiment.
+    uint64_t version;
+    ramcloud->write(1, "key1", 4, "item1", 5);
+    ramcloud->write(1, "key2", 4, "item2", 5);
+    ramcloud->write(1, "key3", 4, "item3", 5);
+
+    // 2. Fabricate TxPrepare rpc with 1 READ, 1 REMOVE and 1 WRITE.
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    Key key1(1, "key1", 4);
+    Key key2(1, "key2", 4);
+    Key key3(1, "key3", 4);
+    Buffer buffer, buffer2;
+
+    WireFormat::TxParticipant participants[3];
+    participants[0] = TxParticipant(key1.getTableId(), key1.getHash(), 10U);
+    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
+    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
+
+    WireFormat::TxPrepare::Request reqHdr;
+    WireFormat::TxPrepare::Response respHdr;
+    Buffer reqBuffer, respBuffer;
+    Service::Rpc rpc(NULL, &reqBuffer, &respBuffer);
+
+    reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
+    reqHdr.common.service = WireFormat::MASTER_SERVICE;
+    reqHdr.lease = {1, 10, 5};
+    reqHdr.ackId = 9;
+    reqHdr.participantCount = 3;
+    reqHdr.opCount = 3;
+    reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
+    reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 3);
+
+    // 2A. ReadOp
+    RejectRules rejectRules;
+    rejectRules.givenVersion = 1U;
+    rejectRules.versionNeGiven = true;
+    TxPrepare::Request::ReadOp op1(key1.getTableId(),
+                                   10,
+                                   key1.getStringKeyLength(),
+                                   rejectRules);
+    reqBuffer.appendExternal(&op1, sizeof32(op1));
+    reqBuffer.appendExternal(key1.getStringKey(), key1.getStringKeyLength());
+
+    // 2B. RemoveOp
+    rejectRules.givenVersion = 2U;
+    rejectRules.versionNeGiven = true;
+    TxPrepare::Request::RemoveOp op2(key2.getTableId(),
+                                     11,
+                                     key2.getStringKeyLength(),
+                                     rejectRules);
+    reqBuffer.appendExternal(&op2, sizeof32(op2));
+    reqBuffer.appendExternal(key2.getStringKey(), key2.getStringKeyLength());
+
+    // 2C. WriteOp
+    rejectRules.givenVersion = 3U;
+    rejectRules.versionNeGiven = true;
+    Buffer keysAndValueBuf;
+    Object::appendKeysAndValueToBuffer(key3, "new", 3, &keysAndValueBuf);
+    TxPrepare::Request::WriteOp op3(key3.getTableId(),
+                                    12,
+                                    keysAndValueBuf.size(),
+                                    rejectRules);
+    reqBuffer.appendExternal(&op3, sizeof32(op3));
+    reqBuffer.appendExternal(&keysAndValueBuf);
+
+    // 3. Prepare.
+//    EXPECT_FALSE(isObjectLocked(key1));
+//    EXPECT_FALSE(isObjectLocked(key2));
+//    EXPECT_FALSE(isObjectLocked(key3));
+/*
+    for (uint32_t i = 0; i < reqBuffer.size(); i++){
+        printf("%02x ", *(reinterpret_cast<char*>(reqBuffer.
+                          getOffset<char>(i))) & 0xff);
+    }
+    printf("\n\n");
+    {
+        Buffer value;
+        ramcloud->read(1, "key1", 4, &value, NULL, &version);
+        EXPECT_EQ(1U, version);
+        EXPECT_EQ("item1", string(reinterpret_cast<const char*>(
+                                  value.getRange(0, value.size())),
+                                  value.size()));
+        value.reset();
+        ramcloud->read(1, "key2", 4, &value, NULL, &version);
+        EXPECT_EQ(2U, version);
+        EXPECT_EQ("item2", string(reinterpret_cast<const char*>(
+                                value.getRange(0, value.size())),
+                                value.size()));
+        value.reset();
+        ramcloud->read(1, "key3", 4, &value, NULL, &version);
+        EXPECT_EQ(3U, version);
+        EXPECT_EQ("item3", string(reinterpret_cast<const char*>(
+                                value.getRange(0, value.size())),
+                                value.size()));
+    }
+    for (uint32_t i = 0; i < reqBuffer.size(); i++){
+        printf("%02x ", *(reinterpret_cast<char*>(reqBuffer.
+                          getOffset<char>(i))) & 0xff);
+    }
+    printf("\n\n");
+*/
+    service->txPrepare(&reqHdr, &respHdr, &rpc);
+
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
+    EXPECT_EQ(TxPrepare::COMMIT, respHdr.vote);
+
+    // 4. Check outcome of Prepare.
+    EXPECT_EQ(3U, service->preparedWrites.items.size());
+    EXPECT_TRUE(isObjectLocked(key1));
+    EXPECT_TRUE(isObjectLocked(key2));
+    EXPECT_TRUE(isObjectLocked(key3));
+
+    Buffer value;
+    ramcloud->read(1, "key1", 4, &value, NULL, &version);
+    EXPECT_EQ(1U, version);
+    EXPECT_EQ("item1", string(reinterpret_cast<const char*>(
+                              value.getRange(0, value.size())),
+                              value.size()));
+    value.reset();
+    ramcloud->read(1, "key2", 4, &value, NULL, &version);
+    EXPECT_EQ(2U, version);
+    EXPECT_EQ("item2", string(reinterpret_cast<const char*>(
+                            value.getRange(0, value.size())),
+                            value.size()));
+    value.reset();
+    ramcloud->read(1, "key3", 4, &value, NULL, &version);
+    EXPECT_EQ(3U, version);
+    EXPECT_EQ("item3", string(reinterpret_cast<const char*>(
+                            value.getRange(0, value.size())),
+                            value.size()));
+}
 
 TEST_F(MasterServiceTest, write_basics) {
     ObjectBuffer value;
