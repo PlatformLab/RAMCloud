@@ -52,6 +52,9 @@ enum LogEntryType {
     /// See PreparedWrites.h::PreparedOp
     LOG_ENTRY_TYPE_PREP,
 
+    /// See PreparedWrites.h::PreparedOpTombstone
+    LOG_ENTRY_TYPE_PREPTOMB,
+
     /// See TxDecisionRecord
     LOG_ENTRY_TYPE_TXDECISION,
 

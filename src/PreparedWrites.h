@@ -98,6 +98,72 @@ class PreparedOp {
     DISALLOW_COPY_AND_ASSIGN(PreparedOp);
 };
 
+class PreparedOpTombstone {
+  public:
+    PreparedOpTombstone(PreparedOp& op, uint64_t segmentId);
+    explicit PreparedOpTombstone(Buffer& buffer, uint32_t offset = 0);
+
+    void assembleForLog(Buffer& buffer);
+    bool checkIntegrity();
+    uint32_t computeChecksum();
+
+    /**
+     * This data structure defines the format of an preparedOp's tombstone
+     * in a master server's log.
+     */
+    class Header {
+      public:
+        Header(uint64_t tableId,
+               KeyHash keyHash,
+               uint64_t leaseId,
+               uint64_t rpcId,
+               uint64_t segmentId)
+            : tableId(tableId),
+              keyHash(keyHash),
+              leaseId(leaseId),
+              rpcId(rpcId),
+              segmentId(segmentId),
+              checksum(0)
+        {
+        }
+
+        /// TableId for log distribution during recovery.
+        uint64_t tableId;
+
+        /// KeyHash for log distribution during recovery.
+        KeyHash keyHash;
+
+        /// leaseId given for the prepare that this tombstone is for.
+        /// A (leaseId, rpcId) tuple uniquely identifies a preparedOp log entry.
+        uint64_t leaseId;
+
+        /// rpcId given for the prepare that this tombstone is for.
+        /// A (leaseId, rpcId) tuple uniquely identifies a preparedOp log entry.
+        uint64_t rpcId;
+
+        /// The log segment that the dead preparedOp this tombstone refers to
+        /// was in. Once this segment is no longer in the system, this tombstone
+        /// is no longer necessary and may be garbage collected.
+        uint64_t segmentId;
+
+        /// CRC32C checksum covering everything but this field, including the
+        /// key.
+        uint32_t checksum;
+    } __attribute__((__packed__));
+    static_assert(sizeof(Header) == 44,
+        "Unexpected serialized ObjectTombstone size");
+
+    /// Copy of the tombstone header that is in, or will be written to, the log.
+    Header header;
+
+    /// If a tombstone is being read from a serialized copy (for instance, from
+    /// the log), this will point to the buffer that refers to the entire
+    /// tombstone. This is NULL for a new tombstone that is being constructed.
+    Buffer* tombstoneBuffer;
+
+    DISALLOW_COPY_AND_ASSIGN(PreparedOpTombstone);
+};
+
 /**
  * A table for all staged PreparedOp. Decision RPC handler fetches preparedOp
  * from this table.
@@ -107,10 +173,14 @@ class PreparedWrites {
     explicit PreparedWrites(Context* context);
     ~PreparedWrites();
 
-    void bufferWrite(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr);
+    void bufferWrite(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr,
+                     bool inRecovery = false);
     uint64_t popOp(uint64_t leaseId, uint64_t rpcId);
     uint64_t peekOp(uint64_t leaseId, uint64_t rpcId);
     void updatePtr(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr);
+
+    void markDeleted(uint64_t leaseId, uint64_t rpcId);
+    bool isDeleted(uint64_t leaseId, uint64_t rpcId);
     void regrabLocksAfterRecovery(ObjectManager* objectManager);
 
   PRIVATE:

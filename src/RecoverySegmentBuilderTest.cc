@@ -140,7 +140,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Buffer buffer;
         rpcRecord.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_RPCRECORD, buffer));
-    }{ // PreparedOp should go in partition 1.
+    }{ // PreparedOp and PreparedOpTombstone should go in partition 1.
         Key key(1, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
@@ -150,7 +150,12 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Buffer buffer;
         op.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREP, buffer));
-    }{ // PreparedOp should go in partition 0.
+
+        PreparedOpTombstone opTomb(op, 0);
+        buffer.reset();
+        opTomb.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREPTOMB, buffer));
+    }{ // PreparedOp and PreparedOpTombstone should go in partition 0.
         Key key(1, "2", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::READ,
@@ -160,7 +165,12 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Buffer buffer;
         op.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREP, buffer));
-    }{ // PreparedOp not in any partition.
+
+        PreparedOpTombstone opTomb(op, 0);
+        buffer.reset();
+        opTomb.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREPTOMB, buffer));
+    }{ // PreparedOp and PreparedOpTombstone not in any partition.
         Key key(10, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
@@ -170,7 +180,13 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Buffer buffer;
         op.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREP, buffer));
-    }{ // PreparedOp not written before the tablet existed.
+
+        PreparedOpTombstone opTomb(op, 0);
+        buffer.reset();
+        opTomb.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREPTOMB, buffer));
+    }{ // PreparedOp and PreparedOpTombstone not written
+       // before the tablet existed.
         Key key(2, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
@@ -180,6 +196,11 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Buffer buffer;
         op.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREP, buffer));
+
+        PreparedOpTombstone opTomb(op, 0);
+        buffer.reset();
+        opTomb.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREPTOMB, buffer));
     }{ // TxDecisionRecord should go in partition 1.
         Key key(1, "1", 1);
         TxDecisionRecord decisionRecord(1, key.getHash(), 6,
@@ -228,8 +249,10 @@ TEST_F(RecoverySegmentBuilderTest, build) {
             "rpcRecord at offset 85, length 44 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 5, rpcId 3 | "
             "preparedOp at offset 131, length 62 with tableId 1, key '2', "
-            "leaseId 1, rpcId 10 | "
-            "txDecision at offset 195, length 40 with tableId 1, "
+                    "leaseId 1, rpcId 10 | "
+            "preparedOpTombstone at offset 195, length 44 with tableId 1, "
+                    "keyHash 0x3554F985FBED3C16, leaseId 1, rpcId 10 | "
+            "txDecision at offset 241, length 40 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 5",
             ObjectManager::dumpSegment(&recoverySegments[0]));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
@@ -238,8 +261,10 @@ TEST_F(RecoverySegmentBuilderTest, build) {
             "rpcRecord at offset 85, length 44 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 6, rpcId 4 | "
             "preparedOp at offset 131, length 62 with tableId 1, key '1', "
-            "leaseId 1, rpcId 10 | "
-            "txDecision at offset 195, length 40 with tableId 1, "
+                    "leaseId 1, rpcId 10 | "
+            "preparedOpTombstone at offset 195, length 44 with tableId 1, "
+                    "keyHash 0xDD5D9F7F60D5B056, leaseId 1, rpcId 10 | "
+            "txDecision at offset 241, length 40 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 6",
             ObjectManager::dumpSegment(&recoverySegments[1]));
 

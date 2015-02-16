@@ -258,6 +258,10 @@ class MasterService : public Service {
                 const WireFormat::TakeIndexletOwnership::Request* reqHdr,
                 WireFormat::TakeIndexletOwnership::Response* respHdr,
                 Rpc* rpc);
+    void txDecision(
+                const WireFormat::TxDecision::Request* reqHdr,
+                WireFormat::TxDecision::Response* respHdr,
+                Rpc* rpc);
     void txHintFailed(
                 const WireFormat::TxHintFailed::Request* reqHdr,
                 WireFormat::TxHintFailed::Response* respHdr,

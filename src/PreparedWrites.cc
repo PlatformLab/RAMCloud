@@ -219,6 +219,64 @@ PreparedOp::computeChecksum()
     return crc.getResult();
 }
 
+PreparedOpTombstone::PreparedOpTombstone(PreparedOp& op, uint64_t segmentId)
+    : header(op.object.getTableId(),
+             Key::getHash(op.object.getTableId(),
+                          op.object.getKey(),
+                          op.object.getKeyLength()),
+             op.header.clientId,
+             op.header.rpcId,
+             segmentId)
+    , tombstoneBuffer()
+{
+}
+
+PreparedOpTombstone::PreparedOpTombstone(Buffer& buffer, uint32_t offset)
+    : header(*buffer.getOffset<Header>(offset))
+    , tombstoneBuffer(&buffer)
+{
+}
+
+/**
+ * Append the serialized header to the provided buffer.
+ *
+ * \param buffer
+ *      The buffer to append all data to.
+ */
+void
+PreparedOpTombstone::assembleForLog(Buffer& buffer)
+{
+    header.checksum = computeChecksum();
+    buffer.appendExternal(&header, sizeof32(Header));
+}
+
+/**
+ * Compute a checksum on the PreparedOpTombstone and determine whether
+ *  or not it matches what is stored in the PreparedOpTombstone.
+ *  Returns true if the checksum looks ok, otherwise returns false.
+ */
+bool
+PreparedOpTombstone::checkIntegrity()
+{
+    return computeChecksum() == header.checksum;
+}
+
+/**
+ * Compute the PreparedOpTombstone's checksum and return it.
+ */
+uint32_t
+PreparedOpTombstone::computeChecksum()
+{
+    Crc32C crc;
+    // first compute the checksum on the object header excluding the
+    // checksum field
+    crc.update(this,
+               downCast<uint32_t>(sizeof(header) -
+               sizeof(header.checksum)));
+
+    return crc.getResult();
+}
+
 /**
  * Construct PreparedWrites.
  */
@@ -254,11 +312,17 @@ PreparedWrites::~PreparedWrites()
  *      rpcId given for the preparedOp.
  * \param newOpPtr
  *      Log::Reference to preparedOp in main log.
+ * \param isRecovery
+ *      Caller should set this flag true if it is adding entries while
+ *      replaying recovery segments; With true value, it will not start
+ *      WorkerTimer. The timers will start during final stage of recovery
+ *      by #regrabLocksAfterRecovery().
  */
 void
 PreparedWrites::bufferWrite(uint64_t leaseId,
                             uint64_t rpcId,
-                            uint64_t newOpPtr)
+                            uint64_t newOpPtr,
+                            bool isRecovery)
 {
     Lock lock(mutex);
 
@@ -266,8 +330,10 @@ PreparedWrites::bufferWrite(uint64_t leaseId,
 
     PreparedItem* item = new PreparedItem(context, newOpPtr);
     items[std::make_pair(leaseId, rpcId)] = item;
-    item->start(Cycles::rdtsc() +
-                Cycles::fromMicroseconds(PreparedItem::TX_TIMEOUT_US));
+    if (!isRecovery) {
+        item->start(Cycles::rdtsc() +
+                    Cycles::fromMicroseconds(PreparedItem::TX_TIMEOUT_US));
+    }
 }
 
 /**
@@ -292,6 +358,11 @@ PreparedWrites::popOp(uint64_t leaseId,
     if (it == items.end()) {
         return 0;
     } else {
+        // During recovery, must check isDeleted before using this method.
+        // It is intentionally left as assertion error. (instead of return 0.)
+        // After the end of recovery all NULL entries should be removed.
+        assert(it->second);
+
         uint64_t newOpPtr = it->second->newOpPtr;
         delete it->second;
         items.erase(it);
@@ -321,6 +392,11 @@ PreparedWrites::peekOp(uint64_t leaseId,
     if (it == items.end()) {
         return 0;
     } else {
+        // During recovery, must check isDeleted before using this method.
+        // It is intentionally left as assertion error. (instead of return 0.)
+        // After the end of recovery all NULL entries should be removed.
+        assert(it->second);
+
         uint64_t newOpPtr = it->second->newOpPtr;
         return newOpPtr;
     }
@@ -371,16 +447,75 @@ void
 PreparedWrites::regrabLocksAfterRecovery(ObjectManager* objectManager)
 {
     Lock lock(mutex);
-    for (ItemsMap::iterator it = items.begin();
-        it != items.end();
-        ++it) {
+    ItemsMap::iterator it = items.begin();
+    while (it != items.end()) {
         PreparedItem *item = it->second;
-        Buffer buffer;
-        Log::Reference ref(item->newOpPtr);
-        objectManager->getLog()->getEntry(ref, buffer);
-        PreparedOp op(buffer, 0, buffer.size());
-        objectManager->tryGrabTxLock(op.object);
+
+        if (item == NULL) { //Cleanup marks for deleted.
+            items.erase(it++);
+        } else {
+            Buffer buffer;
+            Log::Reference ref(item->newOpPtr);
+            objectManager->getLog()->getEntry(ref, buffer);
+            PreparedOp op(buffer, 0, buffer.size());
+            objectManager->tryGrabTxLock(op.object);
+
+            if (!item->isRunning()) {
+                item->start(Cycles::rdtsc() +
+                        Cycles::fromMicroseconds(PreparedItem::TX_TIMEOUT_US));
+            }
+
+            ++it;
+        }
     }
 }
 
+/**
+ * Mark a specific preparedOp is deleted.
+ * This method is used by replaySegment during recovery when it finds
+ * a tombstone for PreparedOp.
+ *
+ * \param leaseId
+ *      leaseId given for the preparedOp.
+ * \param rpcId
+ *      rpcId given for the preparedOp.
+ */
+void
+PreparedWrites::markDeleted(uint64_t leaseId,
+                            uint64_t rpcId)
+{
+    Lock lock(mutex);
+    assert(items.find(std::make_pair(leaseId, rpcId)) == items.end() ||
+           items.find(std::make_pair(leaseId, rpcId))->second == NULL);
+    items[std::make_pair(leaseId, rpcId)] = NULL;
+}
+
+/**
+ * Check a specific preparedOp is marked as deleted.
+ * This method is used by replaySegment during recovery of preparedOp.
+ *
+ * \param leaseId
+ *      leaseId given for the preparedOp.
+ * \param rpcId
+ *      rpcId given for the preparedOp.
+ */
+bool
+PreparedWrites::isDeleted(uint64_t leaseId,
+                          uint64_t rpcId)
+{
+    Lock lock(mutex);
+
+    std::map<std::pair<uint64_t, uint64_t>,
+        PreparedItem*>::iterator it;
+    it = items.find(std::make_pair(leaseId, rpcId));
+    if (it == items.end()) {
+        return false;
+    } else {
+        if (it->second == NULL) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+}
 } // namespace RAMCloud
