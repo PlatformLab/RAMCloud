@@ -1395,7 +1395,6 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     if (rejectRules != NULL) {
         Status status = rejectOperation(rejectRules, currentVersion);
         if (status != STATUS_OK) {
-            assert(false);
             writePrepareFail(rpcRecord, rpcRecordPtr);
             return status;
         }
