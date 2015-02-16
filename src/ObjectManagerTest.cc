@@ -210,6 +210,33 @@ class ObjectManagerTest : public ::testing::Test {
     }
 
     /**
+     * Build a properly formatted segment containing a PreparedOpTombstone.
+     * This segment may be passed directly to the ObjectManager::replaySegment()
+     * routine.
+     */
+    uint32_t
+    buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
+                         PreparedOpTombstone &opTomb,
+                         Segment::Certificate* outCertificate)
+    {
+        Segment s;
+        Buffer newBuffer;
+        opTomb.assembleForLog(newBuffer);
+        bool success = s.append(LOG_ENTRY_TYPE_PREPTOMB,
+                                newBuffer);
+        EXPECT_TRUE(success);
+        s.close();
+
+        Buffer buffer;
+        s.appendToBuffer(buffer);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
+        s.getAppendedLength(outCertificate);
+
+        return buffer.size();
+    }
+
+    /**
      * Build a properly formatted segment containing a single TxDecisionRecord.
      * This segment may be passed directly to the ObjectManager::replaySegment()
      * routine.
@@ -1142,7 +1169,7 @@ TEST_F(ObjectManagerTest, replaySegment_rpcRecord) {
     EXPECT_EQ(1U, unackedRpcResults->clients.size());
 }
 
-TEST_F(ObjectManagerTest, replaySegment_preparedOp) {
+TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
@@ -1218,6 +1245,88 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp) {
     EXPECT_EQ(0UL, savedOp.header.participantCount);
     EXPECT_EQ(10UL, savedOp.object.getTableId());
     EXPECT_EQ(3UL, savedOp.object.header.version);
+}
+
+TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    PreparedWrites *preparedWrites = objectManager.preparedWrites;
+
+    EXPECT_EQ(0UL, preparedWrites->peekOp(1UL, 10UL));
+    EXPECT_FALSE(preparedWrites->isDeleted(1UL, 10UL));
+
+    ///////////////////////////////////////////////////////
+    // 1. Replays a preparedOp first, its tombstone second.
+    ///////////////////////////////////////////////////////
+    {   // 1A. Test regular PreparedOp
+        Segment::Certificate certificate;
+        Buffer buf;
+        Key key(10, "1", 1);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 10UL, 0, NULL,
+                      key, "hello", 6, 0, 0, buf);
+        len = buildRecoverySegment(seg, segLen, op, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_NE(0UL, preparedWrites->peekOp(1UL, 10UL));
+    EXPECT_FALSE(preparedWrites->isDeleted(1UL, 10UL));
+
+    {   // 1B. Tombstone for PreparedOp in 1.
+        Segment::Certificate certificate;
+        Buffer buf;
+        Key key(10, "1", 1);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 10UL, 0, NULL,
+                      key, "hello", 6, 0, 0, buf);
+        PreparedOpTombstone opTomb(op, 0);
+        len = buildRecoverySegment(seg, segLen, opTomb, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_TRUE(preparedWrites->isDeleted(1UL, 10UL));
+
+    ////////////////////////////////////////////////////////////
+    // 2. Replays a preparedOpTombsone first, preparedOp second.
+    ////////////////////////////////////////////////////////////
+    {   // Tombstone for PreparedOp.
+        Segment::Certificate certificate;
+        Buffer buf;
+        Key key(10, "2", 1);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 11UL, 0, NULL,
+                      key, "hello", 6, 0, 0, buf);
+        PreparedOpTombstone opTomb(op, 0);
+        len = buildRecoverySegment(seg, segLen, opTomb, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_TRUE(preparedWrites->isDeleted(1UL, 11UL));
+
+    {   // Regular PreparedOp
+        Segment::Certificate certificate;
+        Buffer buf;
+        Key key(10, "2", 1);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 11UL, 0, NULL,
+                      key, "hello", 6, 0, 0, buf);
+        len = buildRecoverySegment(seg, segLen, op, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_TRUE(preparedWrites->isDeleted(1UL, 11UL));
 }
 
 TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_basic) {
@@ -1469,6 +1578,197 @@ TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
               TestLog::get());
     EXPECT_EQ("found=true tableId=1 byteCount=88 recordCount=1"
               , verifyMetadata(1));
+}
+
+TEST_F(ObjectManagerTest, tryGrabTxLock) {
+    Key key(1, "1", 1);
+    Buffer buffer;
+    // create an object just so that buffer will be populated with the key
+    // and the value. This keeps the abstractions intact
+    Object obj(key, "value", 5, 0, 0, buffer);
+
+    // no tablet, no dice.
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
+        objectManager.tryGrabTxLock(obj));
+
+    // non-NORMAL tablet state, can grab txLock.
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    EXPECT_EQ(STATUS_OK, objectManager.tryGrabTxLock(obj));
+
+    // new object (No lock is grabbed. Currently broken.)
+    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+                                          TabletManager::NORMAL);
+    EXPECT_EQ(STATUS_OK, objectManager.tryGrabTxLock(obj));
+    EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
+
+    Object objToWrite(key, "diff", 4, 0, 0, buffer);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(objToWrite, 0, 0));
+    EXPECT_EQ("found=true tableId=1 byteCount=32 recordCount=1",
+              verifyMetadata(1));
+
+    // existing object (lock is grabbed.)
+    EXPECT_EQ(STATUS_OK, objectManager.tryGrabTxLock(obj));
+
+    //Object is locked and status retry is returned.
+    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(objToWrite, 0, 0));
+    EXPECT_EQ("found=true tableId=1 byteCount=32 recordCount=1",
+              verifyMetadata(1));
+}
+
+TEST_F(ObjectManagerTest, commitRead) {
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    Key key(1, "1", 1);
+    Key key2(1, "2", 1);
+    Key key3(2, "3", 1);
+    Buffer buffer, buffer2;
+    bool isCommit;
+    uint64_t newOpPtr;
+
+    WireFormat::TxParticipant participants[3];
+    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
+    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
+    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
+    // create an object just so that buffer will be populated with the key
+    // and the value. This keeps the abstractions intact
+    PreparedOp op(TxPrepare::READ, 1, 10,
+                  3, participants,
+                  key, "value", 5, 0, 0, buffer);
+
+    WireFormat::TxPrepare::Vote vote;
+    RpcRecord rpcRecord(key.getTableId(), key.getHash(),
+                        1, 10, 9, &vote, sizeof(vote));
+    uint64_t rpcRecordPtr;
+
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+
+    // new object
+    Object obj(key, "value", 5, 0, 0, buffer2);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+
+    EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
+                       op, 0, &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+    EXPECT_TRUE(isCommit);
+    EXPECT_EQ("found=true tableId=1 byteCount=214 recordCount=3"
+              , verifyMetadata(1));
+
+    // Check object is locked.
+    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+
+    // COMMIT read operation.
+    Log::Reference newOpRef(newOpPtr);
+    EXPECT_EQ(STATUS_OK, objectManager.commitRead(op, newOpRef));
+
+    // Check object is unlocked after commitRead.
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+}
+
+TEST_F(ObjectManagerTest, commitRemove) {
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    Key key(1, "1", 1);
+    Buffer buffer, buffer2;
+    Buffer value;
+    bool isCommit;
+    uint64_t newOpPtr;
+
+    WireFormat::TxParticipant participants[1];
+    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
+    // create an object just so that buffer will be populated with the key
+    // and the value. This keeps the abstractions intact
+    PreparedOp op(TxPrepare::REMOVE, 1, 10,
+                  1, participants,
+                  key, "", 0, 0, 0, buffer);
+
+    WireFormat::TxPrepare::Vote vote;
+    RpcRecord rpcRecord(key.getTableId(), key.getHash(),
+                        1, 10, 9, &vote, sizeof(vote));
+    uint64_t rpcRecordPtr;
+
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+
+    // new object
+    Object obj(key, "value", 5, 0, 0, buffer2);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+
+    EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
+                       op, 0, &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+    EXPECT_TRUE(isCommit);
+
+    // Check object is locked.
+    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+
+    // Object exists.
+//    value.reset();
+    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, 0, 0, true));
+    EXPECT_EQ("value", string(reinterpret_cast<const char*>(
+                              value.getRange(0, value.size())),
+                              value.size()));
+
+    // COMMIT remove operation.
+    Log::Reference newOpRef(newOpPtr);
+    EXPECT_EQ(STATUS_OK, objectManager.commitRemove(op, newOpRef));
+
+    // Check object is unlocked after commitRead.
+    value.reset();
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
+              objectManager.readObject(key, &value, 0, 0, true));
+}
+
+TEST_F(ObjectManagerTest, commitWrite) {
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    Key key(1, "1", 1);
+    Buffer buffer, buffer2;
+    Buffer value;
+    bool isCommit;
+    uint64_t newOpPtr;
+    uint64_t ver;
+
+    WireFormat::TxParticipant participants[1];
+    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
+    // create an object just so that buffer will be populated with the key
+    // and the value. This keeps the abstractions intact
+    PreparedOp op(TxPrepare::WRITE, 1, 10,
+                  1, participants,
+                  key, "new", 3, 0, 0, buffer);
+
+    WireFormat::TxPrepare::Vote vote;
+    RpcRecord rpcRecord(key.getTableId(), key.getHash(),
+                        1, 10, 9, &vote, sizeof(vote));
+    uint64_t rpcRecordPtr;
+
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+
+    // new object
+    Object obj(key, "old", 3, 0, 0, buffer2);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+
+    EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
+                       op, 0, &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+    EXPECT_TRUE(isCommit);
+
+    // Check object is locked.
+    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+
+    // Object exists.
+    value.reset();
+    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, 0, &ver, true));
+    EXPECT_EQ(1U, ver);
+    EXPECT_EQ("old", string(reinterpret_cast<const char*>(
+                            value.getRange(0, value.size())),
+                            value.size()));
+
+    // COMMIT write operation.
+    Log::Reference newOpRef(newOpPtr);
+    EXPECT_EQ(STATUS_OK, objectManager.commitWrite(op, newOpRef));
+    // Check the updated object value.
+    value.reset();
+    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, 0, &ver, true));
+    EXPECT_EQ(2U, ver);
+    EXPECT_EQ("new", string(reinterpret_cast<const char*>(
+                            value.getRange(0, value.size())),
+                            value.size()));
 }
 
 TEST_F(ObjectManagerTest, flushEntriesToLog) {
@@ -2125,7 +2425,7 @@ TEST_F(ObjectManagerTest, relocateObject_objectLocked) {
                    isLockAcquired(newReference2.toInteger()));
 }
 
-TEST_F(ObjectManagerTest, relocatePrepareOp_relocate) {
+TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
     Key key(0, "key0", 4);
     Buffer oldBuffer;
     bool success = false;
@@ -2171,7 +2471,7 @@ TEST_F(ObjectManagerTest, relocatePrepareOp_relocate) {
     EXPECT_EQ(relocator.getNewReference().toInteger(), newOpPtr);
 }
 
-TEST_F(ObjectManagerTest, relocatePrepareOp_clean) {
+TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
     Key key(0, "key0", 4);
     Buffer oldBuffer;
     bool success = false;
@@ -2347,6 +2647,80 @@ static bool
 segmentExists(string s)
 {
     return s == "segmentExists";
+}
+
+TEST_F(ObjectManagerTest, relocatePreparedOpTombstone_relocate) {
+    TestLog::Enable _(&segmentExists);
+    Key key(0, "key0", 4);
+    Buffer buffer;
+    bool success = false;
+
+    using WireFormat::TxParticipant;
+    TxParticipant participants[1];
+    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
+
+    Buffer value;
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 1U, participants,
+                  key, "item1", 5, 0, 0, value);
+    op.assembleForLog(buffer);
+
+    Log::Reference prepReference;
+    success = objectManager.log.append(LOG_ENTRY_TYPE_PREP,
+                                       buffer,
+                                       &prepReference);
+    objectManager.log.sync();
+    EXPECT_TRUE(success);
+
+    PreparedOpTombstone opTomb(op,
+                            objectManager.log.getSegmentId(prepReference));
+    buffer.reset();
+    opTomb.assembleForLog(buffer);
+
+    Log::Reference opTombReference;
+    success = objectManager.log.append(
+        LOG_ENTRY_TYPE_PREPTOMB, buffer, &opTombReference);
+    objectManager.log.sync();
+    EXPECT_TRUE(success);
+
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_PREPTOMB, buffer,
+                           opTombReference, relocator);
+    EXPECT_TRUE(relocator.didAppend);
+
+    // Check that tombstoneRelocationCallback() is checking the liveness
+    // of the right segment (in log.segmentExists() function call).
+    string comparisonString = "segmentExists: " +
+        format("%lu", objectManager.log.getSegmentId(opTombReference));
+    EXPECT_EQ(comparisonString, TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, relocatePreparedOpTombstone_clean) {
+    Key key(0, "key0", 4);
+    Buffer buffer;
+    bool success = false;
+
+    using WireFormat::TxParticipant;
+    TxParticipant participants[1];
+    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
+
+    Buffer value;
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 1U, participants,
+                  key, "item1", 5, 0, 0, value);
+    PreparedOpTombstone opTomb(op, 0xBAD);
+    opTomb.assembleForLog(buffer);
+
+    Log::Reference opTombReference;
+    success = objectManager.log.append(
+        LOG_ENTRY_TYPE_PREPTOMB, buffer, &opTombReference);
+    objectManager.log.sync();
+    EXPECT_TRUE(success);
+
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_PREPTOMB, buffer,
+                           opTombReference, relocator);
+    EXPECT_FALSE(relocator.didAppend);
 }
 
 TEST_F(ObjectManagerTest, relocateTombstone_basics) {

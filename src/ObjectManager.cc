@@ -939,7 +939,9 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 minSuccessor = currentVersion + 1;
             }
 
-            if (!preparedWrites->peekOp(op.header.clientId,
+            if (!preparedWrites->isDeleted(op.header.clientId,
+                                           op.header.rpcId) &&
+                !preparedWrites->peekOp(op.header.clientId,
                                         op.header.rpcId) &&
                 op.object.header.version >= minSuccessor) {
 
@@ -953,7 +955,49 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 }
                 preparedWrites->bufferWrite(op.header.clientId,
                                             op.header.rpcId,
-                                            newReference.toInteger());
+                                            newReference.toInteger(),
+                                            true);
+            }
+        } else if (type == LOG_ENTRY_TYPE_PREPTOMB) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+
+            PreparedOpTombstone opTomb(buffer, 0);
+
+            if (expect_false(!opTomb.checkIntegrity())) {
+                LOG(WARNING, "bad preparedOpTombstone checksum! tableId: %lu, "
+                             "keyHash: %lu, leaseId: %lu, rpcId: %lu",
+                             opTomb.header.tableId,
+                             opTomb.header.keyHash,
+                             opTomb.header.leaseId,
+                             opTomb.header.rpcId);
+            }
+
+            if (!preparedWrites->isDeleted(opTomb.header.leaseId,
+                                           opTomb.header.rpcId) &&
+                !preparedWrites->peekOp(opTomb.header.leaseId,
+                                        opTomb.header.rpcId)) {
+                // PreparedOp log entry is either deleted or
+                // not yet recovered. We will check whether it is marked
+                // for deletion and skip its recovery, so no need to recover
+                // this tombstone.
+                preparedWrites->markDeleted(opTomb.header.leaseId,
+                                            opTomb.header.rpcId);
+            } else {
+                // write to log (with lazy backup flush)
+                Log::Reference newReference;
+                {
+                    CycleCounter<uint64_t> _(&segmentAppendTicks);
+                    sideLog->append(LOG_ENTRY_TYPE_PREPTOMB,
+                                    buffer,
+                                    &newReference);
+                }
+                preparedWrites->popOp(opTomb.header.leaseId,
+                                      opTomb.header.rpcId);
+
+                // For idempodency of replaySegment.
+                preparedWrites->markDeleted(opTomb.header.leaseId,
+                                            opTomb.header.rpcId);
             }
         } else if (type == LOG_ENTRY_TYPE_TXDECISION) {
             Buffer buffer;
@@ -1379,6 +1423,11 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     newOp.assembleForLog(appends[0].buffer);
     appends[0].type = LOG_ENTRY_TYPE_PREP;
 
+    int rpcRecordIndex = 1;
+    assert(rpcRecord);
+    rpcRecord->assembleForLog(appends[1].buffer);
+    appends[1].type = LOG_ENTRY_TYPE_RPCRECORD;
+
     if (!log.hasSpaceFor(appends[0].buffer.size() + appends[1].buffer.size())) {
         // We must bound the amount of live data to ensure deletes are possible
         lockTable.releaseLock(currentReference.toInteger());
@@ -1389,10 +1438,6 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
         return STATUS_OK;
     }
 
-    int rpcRecordIndex = 1;
-    assert(rpcRecord);
-    rpcRecord->assembleForLog(appends[rpcRecordIndex].buffer);
-    appends[rpcRecordIndex].type = LOG_ENTRY_TYPE_RPCRECORD;
 
     if (!log.append(appends, 2)) {
         lockTable.releaseLock(currentReference.toInteger());
@@ -1520,6 +1565,241 @@ ObjectManager::writeTxDecisionRecord(TxDecisionRecord& record)
                           recordBuffer.size(),
                           1);
 
+    return STATUS_OK;
+}
+
+/**
+ * Transaction commit for a prepared read operation on an object.
+ * All this function does is removing TX lock held on the object.
+ * This is also used for aborting.
+ *
+ * \param op
+ *      Prepared read operation to commit.
+ * \param refToPreparedOp
+ *      Reference to the preparedOp entry in log.
+ *
+ * \return
+ *      Returns STATUS_OK if the remove succeeded. Other status values indicate
+ *      different failures (tablet doesn't exist, reject rules applied, etc).
+ */
+Status
+ObjectManager::commitRead(PreparedOp& op, Log::Reference& refToPreparedOp)
+{
+    uint16_t keyLength = 0;
+    const void *keyString = op.object.getKey(0, &keyLength);
+    Key key(op.object.getTableId(), keyString, keyLength);
+
+    HashTableBucketLock lock(*this, key);
+
+    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
+    TabletManager::Tablet tablet;
+    if (!tabletManager->getTablet(key, &tablet))
+        return STATUS_UNKNOWN_TABLET;
+    if (tablet.state != TabletManager::NORMAL)
+        return STATUS_UNKNOWN_TABLET;
+
+    LogEntryType type;
+    Buffer buffer;
+    Log::Reference reference;
+    if (lookup(lock, key, type, buffer, NULL, &reference)) {
+        lockTable.releaseLock(reference.toInteger());
+    }
+
+    PreparedOpTombstone prepOpTombstone(op, log.getSegmentId(refToPreparedOp));
+
+    Buffer prepTombBuffer;
+    prepOpTombstone.assembleForLog(prepTombBuffer);
+
+    if (!log.append(LOG_ENTRY_TYPE_PREPTOMB, prepTombBuffer)) {
+        // The log is out of space. Tell the client to retry and hope
+        // that either the cleaner makes space soon or we shift load
+        // off of this server.
+        if (reference.toInteger()) {
+            lockTable.acquireLock(reference.toInteger());
+        }
+        return STATUS_RETRY;
+    }
+
+    log.free(refToPreparedOp);
+    return STATUS_OK;
+}
+
+/**
+ * Transaction commit for a prepared remove operation on an object.
+ *
+ * \param op
+ *      Prepared remove operation to commit.
+ * \param refToPreparedOp
+ *      Reference to the preparedOp entry in log.
+ *
+ * \param[out] removedObjBuffer
+ *      If non-NULL, pointer to the buffer in log for the object being removed
+ *      is returned.
+ * \return
+ *      Returns STATUS_OK if the remove succeeded. Other status values indicate
+ *      different failures (tablet doesn't exist, reject rules applied, etc).
+ */
+Status
+ObjectManager::commitRemove(PreparedOp& op,
+                            Log::Reference& refToPreparedOp,
+                            Buffer* removedObjBuffer)
+{
+    uint16_t keyLength = 0;
+    const void *keyString = op.object.getKey(0, &keyLength);
+    Key key(op.object.getTableId(), keyString, keyLength);
+
+    HashTableBucketLock lock(*this, key);
+
+    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
+    TabletManager::Tablet tablet;
+    if (!tabletManager->getTablet(key, &tablet))
+        return STATUS_UNKNOWN_TABLET;
+    if (tablet.state != TabletManager::NORMAL)
+        return STATUS_UNKNOWN_TABLET;
+
+    LogEntryType type;
+    Buffer buffer;
+    Log::Reference reference;
+    if (!lookup(lock, key, type, buffer, NULL, &reference) ||
+            type != LOG_ENTRY_TYPE_OBJ) {
+        static RejectRules defaultRejectRules;
+        return rejectOperation(&defaultRejectRules, VERSION_NONEXISTENT);
+    }
+
+    Object object(buffer);
+
+    // Return a pointer to the buffer in log for the object being removed.
+    if (removedObjBuffer != NULL) {
+        removedObjBuffer->appendExternal(&buffer);
+    }
+
+    lockTable.releaseLock(reference.toInteger());
+
+    PreparedOpTombstone prepOpTombstone(op, log.getSegmentId(refToPreparedOp));
+    ObjectTombstone tombstone(object,
+                              log.getSegmentId(reference),
+                              WallTime::secondsTimestamp());
+
+    Log::AppendVector appends[2];
+    tombstone.assembleForLog(appends[0].buffer);
+    appends[0].type = LOG_ENTRY_TYPE_OBJTOMB;
+
+    prepOpTombstone.assembleForLog(appends[1].buffer);
+    appends[1].type = LOG_ENTRY_TYPE_PREPTOMB;
+
+    // Write the tombstone into the Log, increment the tablet version
+    // number, and remove from the hash table.
+    if (!log.append(appends, 2)) {
+        // The log is out of space. Tell the client to retry and hope
+        // that either the cleaner makes space soon or we shift load
+        // off of this server.
+        lockTable.acquireLock(reference.toInteger());
+        return STATUS_RETRY;
+    }
+
+    TableStats::increment(masterTableMetadata,
+                          tablet.tableId,
+                          appends[0].buffer.size(),
+                          1);
+    segmentManager.raiseSafeVersion(object.getVersion() + 1);
+    log.free(reference);
+    log.free(refToPreparedOp);
+    remove(lock, key);
+    return STATUS_OK;
+}
+
+/**
+ * Transaction commit for a prepared write operation on an object.
+ *
+ * \param op
+ *      Prepared write operation to commit.
+ * \param refToPreparedOp
+ *      Reference to the preparedOp entry in log.
+ *
+ * \param[out] removedObjBuffer
+ *      If non-NULL, pointer to the buffer in log for the object being removed
+ *      is returned.
+ * \return
+ *      STATUS_OK if the object was written. Otherwise, for example,
+ *      STATUS_UKNOWN_TABLE may be returned.
+ */
+Status
+ObjectManager::commitWrite(PreparedOp& op,
+                           Log::Reference& refToPreparedOp,
+                           Buffer* removedObjBuffer)
+{
+    uint16_t keyLength = 0;
+    const void *keyString = op.object.getKey(0, &keyLength);
+    Key key(op.object.getTableId(), keyString, keyLength);
+
+    objectMap.prefetchBucket(key.getHash());
+    HashTableBucketLock lock(*this, key);
+
+    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
+    TabletManager::Tablet tablet;
+    if (!tabletManager->getTablet(key, &tablet))
+        return STATUS_UNKNOWN_TABLET;
+    if (tablet.state != TabletManager::NORMAL)
+        return STATUS_UNKNOWN_TABLET;
+
+    LogEntryType type;
+    Buffer buffer;
+    Log::Reference oldReference;
+    HashTable::Candidates currentHashTableEntry;
+    if (!lookup(lock, key, type, buffer, NULL,
+                &oldReference, &currentHashTableEntry) ||
+            type != LOG_ENTRY_TYPE_OBJ) {
+
+        //Not possible to enter here with current prepareOp implementation.
+        static RejectRules defaultRejectRules;
+        return rejectOperation(&defaultRejectRules, VERSION_NONEXISTENT);
+    }
+
+    Object oldObject(buffer);
+
+    // Return a pointer to the buffer in log for the object being removed.
+    if (removedObjBuffer != NULL) {
+        removedObjBuffer->appendExternal(&buffer);
+    }
+
+    lockTable.releaseLock(oldReference.toInteger());
+
+    PreparedOpTombstone prepOpTombstone(op, log.getSegmentId(refToPreparedOp));
+    ObjectTombstone tombstone(oldObject,
+                              log.getSegmentId(oldReference),
+                              WallTime::secondsTimestamp());
+
+    Log::AppendVector appends[3];
+    tombstone.assembleForLog(appends[0].buffer);
+    appends[0].type = LOG_ENTRY_TYPE_OBJTOMB;
+
+    prepOpTombstone.assembleForLog(appends[1].buffer);
+    appends[1].type = LOG_ENTRY_TYPE_PREPTOMB;
+
+    op.object.assembleForLog(appends[2].buffer);
+    appends[2].type = LOG_ENTRY_TYPE_OBJ;
+
+    if (!log.hasSpaceFor(appends[2].buffer.size())) {
+        // We must bound the amount of live data to ensure deletes are possible
+        RAMCLOUD_CLOG(NOTICE, "Log is out of space, rejecting committing"
+                              " prepared write during transaction!");
+        throw RetryException(HERE, 1000, 2000, "Log is out of space!");
+    }
+
+    if (!log.append(appends, 3)) {
+        // The log is out of space. Tell the client to retry and hope
+        // that either the cleaner makes space soon or we shift load
+        // off of this server.
+        lockTable.acquireLock(oldReference.toInteger());
+        return STATUS_RETRY;
+    }
+
+    //TODO(seojin): TableStat.
+
+    log.free(oldReference);
+    log.free(refToPreparedOp);
+
+    currentHashTableEntry.setReference(appends[2].reference.toInteger());
     return STATUS_OK;
 }
 
@@ -1883,6 +2163,8 @@ ObjectManager::relocate(LogEntryType type, Buffer& oldBuffer,
         relocateRpcRecord(oldBuffer, relocator);
     else if (type == LOG_ENTRY_TYPE_PREP)
         relocatePreparedOp(oldBuffer, relocator);
+    else if (type == LOG_ENTRY_TYPE_PREPTOMB)
+        relocatePreparedOpTombstone(oldBuffer, relocator);
     else if (type == LOG_ENTRY_TYPE_TXDECISION)
         relocateTxDecisionRecord(oldBuffer, relocator);
 }
@@ -2012,6 +2294,16 @@ ObjectManager::dumpSegment(Segment* segment)
                     op.object.getTableId(), op.object.getKeyLength(),
                     static_cast<const char*>(op.object.getKey()),
                     op.header.clientId, op.header.rpcId);
+        } else if (type == LOG_ENTRY_TYPE_PREPTOMB) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            PreparedOpTombstone opTomb(buffer, 0);
+            result += format("%spreparedOpTombstone at offset %u, length %u "
+                    "with tableId %lu, keyHash 0x%016" PRIX64 ", leaseId %lu, "
+                    "rpcId %lu",
+                    separator, it.getOffset(), it.getLength(),
+                    opTomb.header.tableId, opTomb.header.keyHash,
+                    opTomb.header.leaseId, opTomb.header.rpcId);
         } else if (type == LOG_ENTRY_TYPE_TXDECISION) {
             Buffer buffer;
             it.appendToBuffer(buffer);
@@ -2505,6 +2797,42 @@ ObjectManager::relocatePreparedOp(Buffer& oldBuffer,
 
     //TODO(cstlee) : Should we be keeping track of table stats here?
 }
+
+/**
+ * Method used by the LogCleaner when it's cleaning a Segment and comes across
+ * an PreparedOpTombstone.
+ *
+ * This method will decide if the PreparedOpTombstone is still alive.
+ * If it is, it must move the record to a new location and update
+ * the PreparedWrites module.
+ *
+ * \param oldBuffer
+ *      Buffer pointing to the PreparedOp's current location, which will soon be
+ *      invalidated.
+ * \param relocator
+ *      The relocator may be used to store the PreparedOp in a new location if
+ *      it is still alive. It also provides a reference to the new location and
+ *      keeps track of whether this call wanted the PreparedOp anymore or not.
+ *
+ *      It is possible that relocation may fail (because more memory needs to
+ *      be allocated). In this case, the callback should just return. The
+ *      cleaner will note the failure, allocate more memory, and try again.
+ */
+void
+ObjectManager::relocatePreparedOpTombstone(Buffer& oldBuffer,
+        LogEntryRelocator& relocator)
+{
+    PreparedOpTombstone opTomb(oldBuffer, 0);
+
+    if (log.segmentExists(opTomb.header.segmentId)) {
+        // Try to relocate it. If it fails, just return. The cleaner will
+        // allocate more memory and retry.
+        if (!relocator.append(LOG_ENTRY_TYPE_PREPTOMB, oldBuffer))
+            return;
+    }
+    //TODO(cstlee) : Should we be keeping track of table stats here?
+}
+
 /**
  * Callback used by the LogCleaner when it's cleaning a Segment and comes
  * across a Tombstone.

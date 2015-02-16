@@ -88,6 +88,11 @@ class ObjectManager : public LogEntryHandlers {
                 RpcRecord* rpcRecord, uint64_t* rpcRecordPtr);
     Status tryGrabTxLock(Object& objToLock);
     Status writeTxDecisionRecord(TxDecisionRecord& record);
+    Status commitRead(PreparedOp& op, Log::Reference& refToPreparedOp);
+    Status commitRemove(PreparedOp& op, Log::Reference& refToPreparedOp,
+                        Buffer* removedObjBuffer = NULL);
+    Status commitWrite(PreparedOp& op, Log::Reference& refToPreparedOp,
+                        Buffer* removedObjBuffer = NULL);
 
     /**
      * The following three methods are used when multiple log entries
@@ -270,6 +275,8 @@ class ObjectManager : public LogEntryHandlers {
     void relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
                 LogEntryRelocator& relocator);
     void relocatePreparedOp(Buffer& oldBuffer, LogEntryRelocator& relocator);
+    void relocatePreparedOpTombstone(Buffer& oldBuffer,
+                                     LogEntryRelocator& relocator);
     void relocateRpcRecord(Buffer& oldBuffer, LogEntryRelocator& relocator);
     void relocateTombstone(Buffer& oldBuffer, Log::Reference oldReference,
             LogEntryRelocator& relocator);

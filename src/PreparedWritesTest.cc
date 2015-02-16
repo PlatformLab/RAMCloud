@@ -298,6 +298,134 @@ TEST_F(PreparedOpTest, checkIntegrity) {
     }
 }
 
+/**
+ * Unit tests for PreparedOpTombstone.
+ */
+class PreparedOpTombstoneTest : public ::testing::Test {
+  public:
+    PreparedOpTombstoneTest()
+        : stringKey()
+        , dataBlob()
+        , keyHash()
+        , buffer()
+        , buffer2()
+        , preparedOp()
+        , preparedOpTombstoneFromRpc()
+        , preparedOpTombstoneFromBuffer()
+    {
+        snprintf(stringKey, sizeof(stringKey), "key!");
+        snprintf(dataBlob, sizeof(dataBlob), "YO!");
+        Key key(572, stringKey, 5);
+
+        // this is the starting of keysAndValue in the keysAndValueBuffer
+        buffer.emplaceAppend<KeyCount>((unsigned char)1);
+        buffer.emplaceAppend<CumulativeKeyLength>((uint16_t) 5);
+        buffer.appendExternal(stringKey, sizeof(stringKey));
+        buffer.appendExternal(dataBlob, 4);
+
+        // construct participant list.
+        keyHash = key.getHash();
+        participants[0] = WireFormat::TxParticipant(572U, key.getHash(), 10U);
+        participants[1] = WireFormat::TxParticipant(573U, key.getHash(), 11U);
+        participants[2] = WireFormat::TxParticipant(574U, key.getHash(), 12U);
+
+        preparedOp.construct(WireFormat::TxPrepare::WRITE,
+                             1UL, 10UL, 3U, participants,
+                             key.getTableId(), 75, 723, buffer);
+
+        preparedOpTombstoneFromRpc.construct(*preparedOp, 999UL);
+
+        preparedOpTombstoneFromRpc->assembleForLog(buffer2);
+
+        // prepend some garbage to buffer2 so that we can test the constructor
+        // with a non-zero offset
+        memcpy(buffer2.allocPrepend(sizeof(stringKey)), &stringKey,
+                sizeof(stringKey));
+
+        preparedOpTombstoneFromBuffer.construct(buffer2, sizeof32(stringKey));
+
+        records[0] = &*preparedOpTombstoneFromRpc;
+        records[1] = &*preparedOpTombstoneFromBuffer;
+    }
+
+    ~PreparedOpTombstoneTest()
+    {
+    }
+
+    // Don't use static strings, since they'll be loaded into read-only
+    // memory and we can't mutate to test checksumming.
+    char stringKey[5];
+    char dataBlob[4];
+
+    uint64_t keyHash;
+    WireFormat::TxParticipant participants[3];
+
+    Buffer buffer;
+    Buffer buffer2;
+
+    Tub<PreparedOp> preparedOp;
+    Tub<PreparedOpTombstone> preparedOpTombstoneFromRpc;
+    Tub<PreparedOpTombstone> preparedOpTombstoneFromBuffer;
+
+    PreparedOpTombstone* records[2];
+
+    DISALLOW_COPY_AND_ASSIGN(PreparedOpTombstoneTest);
+};
+
+TEST_F(PreparedOpTombstoneTest, constructors) {
+    for (uint32_t i = 0; i < arrayLength(records); ++i) {
+        PreparedOpTombstone& record = *records[i];
+        EXPECT_EQ(1UL, record.header.leaseId);
+        EXPECT_EQ(10UL, record.header.rpcId);
+        EXPECT_EQ(999UL, record.header.segmentId);
+    }
+}
+
+TEST_F(PreparedOpTombstoneTest, assembleForLog) {
+    for (uint32_t i = 0; i < arrayLength(records); i++) {
+        Buffer buffer;
+        PreparedOpTombstone& record = *(records[i]);
+        record.assembleForLog(buffer);
+        const PreparedOpTombstone::Header* header =
+                buffer.getStart<PreparedOpTombstone::Header>();
+
+        EXPECT_EQ(sizeof(*header), buffer.size());
+
+        EXPECT_EQ(1UL, header->leaseId);
+        EXPECT_EQ(10UL, header->rpcId);
+        EXPECT_EQ(999UL, header->segmentId);
+        //EXPECT_EQ(0xE86291D1, op->header.checksum);
+    }
+}
+
+TEST_F(PreparedOpTombstoneTest, checkIntegrity) {
+    //TODO(seojin): revisit this and check correctness...
+    //              Not sure about testing on record[0].
+    for (uint32_t i = 0; i < arrayLength(records); i++) {
+        PreparedOpTombstone& record = *records[i];
+        Buffer buffer;
+        record.assembleForLog(buffer);
+        EXPECT_TRUE(record.checkIntegrity());
+
+        uint8_t* evil = reinterpret_cast<uint8_t*>(
+            const_cast<void*>(buffer.getRange(0, 1)));
+        uint8_t tmp = *evil;
+        *evil = static_cast<uint8_t>(~*evil);
+        EXPECT_FALSE(record.checkIntegrity());
+        *evil = tmp;
+
+        EXPECT_TRUE(record.checkIntegrity());
+        evil = reinterpret_cast<uint8_t*>(
+            const_cast<void*>(buffer.getRange(buffer.size() - 1, 1)));
+        tmp = *evil;
+        *evil = static_cast<uint8_t>(~*evil);
+        EXPECT_FALSE(record.checkIntegrity());
+        *evil = tmp;
+
+        EXPECT_TRUE(record.checkIntegrity());
+    }
+}
+
 class PreparedWritesTest : public ::testing::Test {
   public:
     Context context;
@@ -322,6 +450,12 @@ TEST_F(PreparedWritesTest, bufferWrite) {
     PreparedWrites::PreparedItem* item = writes.items[std::make_pair(2UL, 8UL)];
     EXPECT_EQ(1028UL, item->newOpPtr);
     EXPECT_TRUE(item->isRunning());
+
+    // Use during recovery. Should not set timer.
+    writes.bufferWrite(2, 9, 1029, true);
+    item = writes.items[std::make_pair(2UL, 9UL)];
+    EXPECT_EQ(1029UL, item->newOpPtr);
+    EXPECT_FALSE(item->isRunning());
 }
 
 TEST_F(PreparedWritesTest, popOp) {
@@ -338,6 +472,17 @@ TEST_F(PreparedWritesTest, peekOp) {
     EXPECT_EQ(0UL, writes.peekOp(1, 10));
     EXPECT_EQ(0UL, writes.peekOp(1, 11));
     EXPECT_EQ(0UL, writes.peekOp(2, 10));
+}
+
+TEST_F(PreparedWritesTest, markDeletedAndIsDeleted) {
+    EXPECT_FALSE(writes.isDeleted(1, 11));
+    writes.markDeleted(1, 11);
+    EXPECT_TRUE(writes.isDeleted(1, 11));
+
+    EXPECT_FALSE(writes.isDeleted(2, 9));
+    writes.bufferWrite(2, 9, 1029, true);
+    EXPECT_EQ(1029UL, writes.peekOp(2, 9));
+    EXPECT_FALSE(writes.isDeleted(2, 9));
 }
 
 } // namespace RAMCloud

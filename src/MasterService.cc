@@ -222,9 +222,17 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::TakeIndexletOwnership, MasterService,
                         &MasterService::takeIndexletOwnership>(rpc);
             break;
+        case WireFormat::TxDecision::opcode:
+            callHandler<WireFormat::TxDecision, MasterService,
+                        &MasterService::txDecision>(rpc);
+            break;
         case WireFormat::TxHintFailed::opcode:
             callHandler<WireFormat::TxHintFailed, MasterService,
                         &MasterService::txHintFailed>(rpc);
+            break;
+        case WireFormat::TxPrepare::opcode:
+            callHandler<WireFormat::TxPrepare, MasterService,
+                        &MasterService::txPrepare>(rpc);
             break;
         case WireFormat::Write::opcode:
             callHandler<WireFormat::Write, MasterService,
@@ -2209,6 +2217,93 @@ MasterService::takeIndexletOwnership(
 }
 
 /**
+ * Top-level server method to handle the TX_DECISION request.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request. Lists the number of writes
+ *      contained in this request.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param[out] rpc
+ *      Complete information about the remote procedure call.
+ */
+void
+MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
+        WireFormat::TxDecision::Response* respHdr,
+        Rpc* rpc)
+{
+    uint32_t reqOffset = sizeof32(*reqHdr);
+
+    // 1. Process participant list.
+    uint32_t participantCount = reqHdr->participantCount;
+    WireFormat::TxParticipant *participants =
+        (WireFormat::TxParticipant*)rpc->requestPayload->getRange(reqOffset,
+                sizeof32(WireFormat::TxParticipant) * participantCount);
+
+    if (reqHdr->decision == WireFormat::TxDecision::COMMIT) {
+        for (uint32_t i = 0; i < participantCount; ++i) {
+            uint64_t opPtr = preparedWrites.peekOp(reqHdr->leaseId,
+                                                   participants[i].rpcId);
+
+            // Skip if object is not prepared since it is already committed.
+            if (!opPtr) {
+                continue;
+            }
+
+            Buffer opBuffer;
+            Log::Reference opRef(opPtr);
+            objectManager.getLog()->getEntry(opRef, opBuffer);
+            PreparedOp op(opBuffer, 0, opBuffer.size());
+
+            if (op.header.type == WireFormat::TxPrepare::READ) {
+                objectManager.commitRead(op, opRef);
+            } else if (op.header.type == WireFormat::TxPrepare::REMOVE) {
+                objectManager.commitRemove(op, opRef);
+            } else if (op.header.type == WireFormat::TxPrepare::WRITE) {
+                objectManager.commitWrite(op, opRef);
+            }
+
+            preparedWrites.popOp(reqHdr->leaseId,
+                                 participants[i].rpcId);
+        }
+    } else if (reqHdr->decision == WireFormat::TxDecision::ABORT) {
+        for (uint32_t i = 0; i < participantCount; ++i) {
+            uint64_t opPtr = preparedWrites.peekOp(reqHdr->leaseId,
+                                                   participants[i].rpcId);
+
+            // Skip if object is not prepared since it is already committed
+            // or never prepared (abort-vote in prepare stage).
+            if (!opPtr) {
+                continue;
+            }
+
+            Buffer opBuffer;
+            Log::Reference opRef(opPtr);
+            objectManager.getLog()->getEntry(opRef, opBuffer);
+            PreparedOp op(opBuffer, 0, opBuffer.size());
+
+            objectManager.commitRead(op, opRef);
+
+            preparedWrites.popOp(reqHdr->leaseId,
+                                 participants[i].rpcId);
+        }
+    } else {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+    }
+
+    respHdr->common.status = STATUS_OK;
+
+    // Respond to the client RPC now. Removing old index entries can be
+    // done asynchronously while maintaining strong consistency.
+    rpc->sendReply();
+}
+
+
+/**
  * Top-level server method to handle the TX_HINT_FAILED request.
  *
  * This RPC is issued by another master when it thinks that the client running
@@ -2323,6 +2418,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             }
             tableId = currentReq->tableId;
             rpcId = currentReq->rpcId;
+            //TODO(seojin): apply default rejectRules?
+            //              or is it provided by client?
             rejectRules = currentReq->rejectRules;
 
             buffer.emplaceAppend<KeyCount>((unsigned char) 1);

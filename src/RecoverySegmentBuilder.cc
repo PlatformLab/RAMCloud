@@ -83,6 +83,7 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             && type != LOG_ENTRY_TYPE_SAFEVERSION
             && type != LOG_ENTRY_TYPE_RPCRECORD
             && type != LOG_ENTRY_TYPE_PREP
+            && type != LOG_ENTRY_TYPE_PREPTOMB
             && type != LOG_ENTRY_TYPE_TXDECISION)
             continue;
 
@@ -132,6 +133,10 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             keyHash = Key::getHash(tableId,
                                    op.object.getKey(),
                                    op.object.getKeyLength());
+        } else if (type == LOG_ENTRY_TYPE_PREPTOMB) {
+            PreparedOpTombstone opTomb(entryBuffer, 0);
+            tableId = opTomb.header.tableId;
+            keyHash = opTomb.header.keyHash;
         } else if (type == LOG_ENTRY_TYPE_TXDECISION) {
             TxDecisionRecord decisionRecord(entryBuffer);
             tableId = decisionRecord.getTableId();
