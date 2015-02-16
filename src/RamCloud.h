@@ -19,6 +19,7 @@
 #include "Common.h"
 
 #include "ClientLease.h"
+#include "ClientTransactionManager.h"
 #include "CoordinatorClient.h"
 #include "IndexRpcWrapper.h"
 #include "LinearizableObjectRpcWrapper.h"
@@ -28,6 +29,7 @@
 #include "ObjectRpcWrapper.h"
 #include "RpcTracker.h"
 #include "ServerMetrics.h"
+#include "Transaction.h"
 
 #include "LogMetrics.pb.h"
 #include "ServerConfig.pb.h"
@@ -200,6 +202,7 @@ class RamCloud {
     ClientLease clientLease;
     ObjectFinder objectFinder;
     RpcTracker rpcTracker;
+    ClientTransactionManager transactionManager;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);
