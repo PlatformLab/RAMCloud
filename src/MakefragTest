@@ -36,6 +36,8 @@ TESTS_SRCFILES := \
 		  src/CleanableSegmentManagerTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClientLeaseTest.cc \
+		  src/ClientTransactionManagerTest.cc \
+		  src/ClientTransactionTaskTest.cc \
 		  src/ClusterMetricsTest.cc \
 		  src/CRamCloudTest.cc \
 		  src/CommonTest.cc \

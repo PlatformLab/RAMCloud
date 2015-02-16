@@ -13,51 +13,31 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_TRANSACTION_H
-#define RAMCLOUD_TRANSACTION_H
+#ifndef RAMCLOUD_CLIENTTRANSACTIONMANAGER_H
+#define RAMCLOUD_CLIENTTRANSACTIONMANAGER_H
 
 #include <list>
-#include <map>
 #include <memory>
 
 #include "Common.h"
 
 namespace RAMCloud {
 
-class Buffer;
 class ClientTransactionTask;
 class RamCloud;
 
-class Transaction {
+class ClientTransactionManager : public Dispatch::Timer{
   PUBLIC:
-    explicit Transaction(RamCloud* ramcloud);
-
-    bool commit();
-
-    void read(uint64_t tableId, const void* key, uint16_t keyLength,
-            Buffer* value);
-
-    void remove(uint64_t tableId, const void* key, uint16_t keyLength);
-
-    void write(uint64_t tableId, const void* key, uint16_t keyLength,
-            const void* buf, uint32_t length);
+    explicit ClientTransactionManager(RamCloud* ramcloud);
+    void addTransactionTask(std::shared_ptr<ClientTransactionTask>& taskPtr);
+    virtual void handleTimerEvent();
 
   PRIVATE:
-    /// Overall client state information.
-    RamCloud* ramcloud;
+    std::list< std::shared_ptr<ClientTransactionTask> > taskList;
 
-    /// Pointer to the dynamically allocated transaction task that represents
-    /// that transaction.
-    std::shared_ptr<ClientTransactionTask> taskPtr;
-
-    /// Keeps track of whether commit has already been called to preclude
-    /// subsequent read, remove, write, and commit calls.
-    bool commitStarted;
-
-    DISALLOW_COPY_AND_ASSIGN(Transaction);
+    DISALLOW_COPY_AND_ASSIGN(ClientTransactionManager);
 };
 
 } // end RAMCloud
 
-#endif  /* RAMCLOUD_TRANSACTION_H */
-
+#endif  /* RAMCLOUD_CLIENTTRANSACTIONMANAGER_H */
