@@ -1400,7 +1400,8 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
         }
     }
 
-    if (!lockTable.tryAcquireLock(currentReference.toInteger())) {
+    if (currentReference.toInteger() == 0 ||
+        !lockTable.tryAcquireLock(currentReference.toInteger())) {
         //TODO(seojin): Just retry or abort?
         writePrepareFail(rpcRecord, rpcRecordPtr);
         return STATUS_OK;
