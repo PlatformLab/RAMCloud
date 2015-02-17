@@ -178,7 +178,7 @@ class ClientTransactionTask {
     /// commit protocol.
     CommitCacheMap::iterator nextCacheEntry;
 
-    void buildParticipantList();
+    void initTask();
     void processDecisionRpcs();
     void processPrepareRpcs();
     void sendDecisionRpc();
@@ -201,9 +201,6 @@ class ClientTransactionTask {
 
         /// Overall client state information.
         RamCloud* ramcloud;
-
-        /// Session that will be used to transmit the RPC.
-        Transport::SessionRef session;
 
         /// ClientTransactionTask that issued this rpc.
         ClientTransactionTask* task;
@@ -240,9 +237,6 @@ class ClientTransactionTask {
 
         /// Overall client state information.
         RamCloud* ramcloud;
-
-        /// Session that will be used to transmit the RPC.
-        Transport::SessionRef session;
 
         /// ClientTransactionTask that issued this rpc.
         ClientTransactionTask* task;

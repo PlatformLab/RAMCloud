@@ -416,20 +416,216 @@ TEST_F(ClientTransactionTaskTest, insertCacheEntry) {
     EXPECT_EQ("hello world", string(str, dataLength));
 }
 
-TEST_F(ClientTransactionTaskTest, buildParticipantList) {
+TEST_F(ClientTransactionTaskTest, performTask) {
+    // Make sure objects exist first.
+    ramcloud->write(tableId1, "test1", 5, "hello", 5);
+    ramcloud->write(tableId1, "test2", 5, "hello", 5);
+    ramcloud->write(tableId1, "test3", 5, "hello", 5);
+    ramcloud->write(tableId1, "test4", 5, "hello", 5);
+    ramcloud->write(tableId1, "test5", 5, "hello", 5);
+    ramcloud->write(tableId2, "test1", 5, "hello", 5);
+    ramcloud->write(tableId3, "test1", 5, "hello", 5);
+
+    insertWrite(tableId1, "test1", 5, "hello", 5);
+    insertWrite(tableId1, "test2", 5, "hello", 5);
+    insertWrite(tableId1, "test3", 5, "hello", 5);
+
+    insertWrite(tableId1, "test4", 5, "hello", 5);
+    insertWrite(tableId1, "test5", 5, "hello", 5);
+
+    insertWrite(tableId2, "test1", 5, "hello", 5);
+
+    insertWrite(tableId3, "test1", 5, "hello", 5);
+
+    EXPECT_EQ(ClientTransactionTask::INIT, transactionTask->state);
+    transactionTask->performTask();     // RPC 1 Sent
+    EXPECT_EQ(ClientTransactionTask::PREPARE, transactionTask->state);
+    transactionTask->performTask();     // RPC 2 Sent, RPC 1 Processed
+    EXPECT_EQ(ClientTransactionTask::PREPARE, transactionTask->state);
+    transactionTask->performTask();     // RPC 3 Sent, RPC 2 Processed
+    EXPECT_EQ(ClientTransactionTask::PREPARE, transactionTask->state);
+    transactionTask->performTask();     // RPC 4 Sent, RPC 3 Processed
+    EXPECT_EQ(ClientTransactionTask::PREPARE, transactionTask->state);
+    transactionTask->performTask();     // RPC 1 Sent, RPC 4 Processed
+    EXPECT_EQ(ClientTransactionTask::DECISION, transactionTask->state);
+    transactionTask->performTask();     // RPC 2 Sent, RPC 1 Processed
+    EXPECT_EQ(ClientTransactionTask::DECISION, transactionTask->state);
+    transactionTask->performTask();     // RPC 3 Sent, RPC 2 Processed
+    EXPECT_EQ(ClientTransactionTask::DECISION, transactionTask->state);
+    transactionTask->performTask();     // RPC 4 Sent, RPC 3 Processed
+    EXPECT_EQ(ClientTransactionTask::DECISION, transactionTask->state);
+    transactionTask->performTask();     // RPC 4 Processed
+    EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
+    transactionTask->performTask();
+    EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
+}
+
+TEST_F(ClientTransactionTaskTest, initTask) {
     insertWrite(1, "test", 4, "hello", 5);
     insertWrite(2, "test", 4, "hello", 5);
     insertWrite(3, "test", 4, "hello", 5);
 
-    transactionTask->buildParticipantList();
-    EXPECT_EQ("ParticipantList[ {1, 14087593745509316690, 1}"
-                              " {2, 2793085152624492990, 2}"
-                              " {3, 17667676865770333572, 3} ]",
+    transactionTask->initTask();
+    EXPECT_EQ(1U, transactionTask->txId);
+    EXPECT_EQ("ParticipantList[ {1, 14087593745509316690, 2}"
+                              " {2, 2793085152624492990, 3}"
+                              " {3, 17667676865770333572, 4} ]",
               participantListToString(transactionTask.get()));
 }
 
-// TODO(cstlee) : Unit test ClientTransactionTask::processDecisionRpcs()
-// TODO(cstlee) : Unit test ClientTransactionTask::processPrepareRpcs()
+TEST_F(ClientTransactionTaskTest, processDecisionRpcs_basic) {
+    // Must make sure the object exists before we try to transaction on it.
+    ramcloud->write(tableId1, "test", 4, "hello", 5);
+
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendDecisionRpc();
+
+    EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
+    TestLog::reset();
+    transactionTask->processDecisionRpcs();
+    EXPECT_EQ("processDecisionRpcs: STATUS_OK", TestLog::get());
+    EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
+}
+
+TEST_F(ClientTransactionTaskTest, processDecisionRpcs_unknownTablet) {
+    // Must make sure the object exists before we try to transaction on it.
+    ramcloud->write(tableId1, "test", 4, "hello", 5);
+
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendDecisionRpc();
+    // Resend to wrong session
+    transactionTask->decisionRpcs.begin()->session = session2;
+    transactionTask->decisionRpcs.begin()->send();
+
+    EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
+    TestLog::reset();
+    transactionTask->processDecisionRpcs();
+    EXPECT_EQ("processDecisionRpcs: STATUS_UNKNOWN_TABLET", TestLog::get());
+    EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
+}
+
+TEST_F(ClientTransactionTaskTest, processDecisionRpcs_notReady) {
+    // Must make sure the object exists before we try to transaction on it.
+    ramcloud->write(tableId1, "test", 4, "hello", 5);
+
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendDecisionRpc();
+
+    EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
+    transactionTask->decisionRpcs.begin()->state =
+            ClientTransactionTask::DecisionRpc::IN_PROGRESS;
+    transactionTask->processDecisionRpcs();
+    EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
+}
+
+// TODO(cstlee) : Unit test processDecisionRpcs_badStatus
+
+TEST_F(ClientTransactionTaskTest, processPrepareRpcs_basic) {
+    // Must make sure the object exists before we try to transaction on it.
+    ramcloud->write(tableId1, "test", 4, "hello", 5);
+
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+
+    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    transactionTask->processPrepareRpcs();
+    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+}
+
+TEST_F(ClientTransactionTaskTest, processPrepareRpcs_abort) {
+    // Must make sure the object exists before we try to transaction on it.
+    ramcloud->write(tableId1, "test", 4, "hello", 5);
+
+    // Start another transaction to cause a lock
+    {
+        ClientTransactionTask task(ramcloud.get());
+        ClientTransactionTask::CacheEntry* entry =
+                task.insertCacheEntry(tableId1, "test", 4, "hello", 5);
+        entry->type = ClientTransactionTask::CacheEntry::WRITE;
+        task.initTask();
+        task.nextCacheEntry = task.commitCache.begin();
+        task.sendPrepareRpc();
+    }
+
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+
+    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    transactionTask->processPrepareRpcs();
+    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+}
+
+TEST_F(ClientTransactionTaskTest, processPrepareRpcs_unknownTablet) {
+    // Must make sure the object exists before we try to transaction on it.
+    ramcloud->write(tableId1, "test", 4, "hello", 5);
+
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+    // Resend to wrong session
+    transactionTask->prepareRpcs.begin()->session = session2;
+    transactionTask->prepareRpcs.begin()->send();
+
+    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    TestLog::reset();
+    transactionTask->processPrepareRpcs();
+    EXPECT_EQ("processPrepareRpcs: STATUS_UNKNOWN_TABLET", TestLog::get());
+    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+}
+
+TEST_F(ClientTransactionTaskTest, processPrepareRpcs_badStatus) {
+    ClientTransactionTask::CacheEntry* entry =
+            transactionTask->insertCacheEntry(tableId1, "test", 4, "hello", 5);
+    entry->type = ClientTransactionTask::CacheEntry::WRITE;
+    entry->rejectRules.doesntExist = true;
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+
+    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ(STATUS_OK, transactionTask->status);
+    transactionTask->processPrepareRpcs();
+    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, transactionTask->status);
+}
+
+TEST_F(ClientTransactionTaskTest, processPrepareRpcs_notReady) {
+    // Must make sure the object exists before we try to transaction on it.
+    ramcloud->write(tableId1, "test", 4, "hello", 5);
+
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+
+    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    transactionTask->prepareRpcs.begin()->state =
+            ClientTransactionTask::PrepareRpc::IN_PROGRESS;
+
+    transactionTask->processPrepareRpcs();
+    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+}
 
 TEST_F(ClientTransactionTaskTest, sendDecisionRpc_basic) {
     insertWrite(tableId1, "test1", 5, "hello", 5);

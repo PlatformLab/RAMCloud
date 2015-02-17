@@ -616,6 +616,7 @@ TxRecoveryManager::RecoveryTask::processRequestAbortRpcs()
             } else if (respHdr->common.status == STATUS_UNKNOWN_TABLET) {
                 // Nothing to do.
             } else {
+                decision = WireFormat::TxDecision::ABORT;
                 RAMCLOUD_CLOG(WARNING, "unexpected return status %s while"
                               "trying to recover transaction for leaseId %lu",
                               statusToSymbol(respHdr->common.status), leaseId);
