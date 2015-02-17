@@ -2245,6 +2245,16 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
 
     if (reqHdr->decision == WireFormat::TxDecision::COMMIT) {
         for (uint32_t i = 0; i < participantCount; ++i) {
+            TabletManager::Tablet tablet;
+            if (!tabletManager.getTablet(participants[i].tableId,
+                                         participants[i].keyHash,
+                                         &tablet)
+                 || tablet.state != TabletManager::NORMAL) {
+                respHdr->common.status = STATUS_UNKNOWN_TABLET;
+                rpc->sendReply();
+                return;
+            }
+
             uint64_t opPtr = preparedWrites.peekOp(reqHdr->leaseId,
                                                    participants[i].rpcId);
 
@@ -2271,6 +2281,16 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
         }
     } else if (reqHdr->decision == WireFormat::TxDecision::ABORT) {
         for (uint32_t i = 0; i < participantCount; ++i) {
+            TabletManager::Tablet tablet;
+            if (!tabletManager.getTablet(participants[i].tableId,
+                                         participants[i].keyHash,
+                                         &tablet)
+                 || tablet.state != TabletManager::NORMAL) {
+                respHdr->common.status = STATUS_UNKNOWN_TABLET;
+                rpc->sendReply();
+                return;
+            }
+
             uint64_t opPtr = preparedWrites.peekOp(reqHdr->leaseId,
                                                    participants[i].rpcId);
 
