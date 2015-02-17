@@ -1741,7 +1741,6 @@ TEST_F(MasterServiceTest, txDecision_commit) {
 
 TEST_F(MasterServiceTest, txDecision_abort) {
     // 1. Test setup: Add objects to be used during experiment.
-    uint64_t version;
     ramcloud->write(1, "key1", 4, "item1", 5);
     ramcloud->write(1, "key2", 4, "item2", 5);
     ramcloud->write(1, "key3", 4, "item3", 5);
@@ -1813,33 +1812,78 @@ TEST_F(MasterServiceTest, txDecision_abort) {
     // 4. Check outcome of ABORT.
     EXPECT_EQ(0U, service->preparedWrites.items.size());
 
-    Buffer value;
-    ramcloud->read(1, "key1", 4, &value, NULL, &version);
-    EXPECT_EQ(1U, version);
-    EXPECT_EQ("item1", string(reinterpret_cast<const char*>(
-                              value.getRange(0, value.size())),
-                              value.size()));
-    value.reset();
-    ramcloud->read(1, "key2", 4, &value, NULL, &version);
-    EXPECT_EQ(2U, version);
-    EXPECT_EQ("item2", string(reinterpret_cast<const char*>(
-                            value.getRange(0, value.size())),
-                            value.size()));
-    value.reset();
-    ramcloud->read(1, "key3", 4, &value, NULL, &version);
-    EXPECT_EQ(3U, version);
-    EXPECT_EQ("item3", string(reinterpret_cast<const char*>(
-                            value.getRange(0, value.size())),
-                            value.size()));
+    // 5. check locks are released.
+    EXPECT_FALSE(isObjectLocked(key1));
+    EXPECT_FALSE(isObjectLocked(key2));
+    EXPECT_FALSE(isObjectLocked(key3));
+}
 
-    // 5. check locks are released. If the object is locked, we always get
-    //    STATUS_RETRY and ramcloud->write() won't return.
-    ramcloud->write(1, "key1", 4, "item1", 5, NULL, &version);
-    EXPECT_EQ(2U, version);
-    ramcloud->write(1, "key2", 4, "item2", 5, NULL, &version);
-    EXPECT_EQ(3U, version);
-    ramcloud->write(1, "key3", 4, "item3", 5, NULL, &version);
-    EXPECT_EQ(4U, version);
+TEST_F(MasterServiceTest, txDecision_unknownTablet) {
+    // 1. Test setup: Add objects to be used during experiment.
+    ramcloud->write(1, "key1", 4, "item1", 5);
+    ramcloud->write(1, "key3", 4, "item3", 5);
+
+    // 2. Test setup: Prepare a transaction with 1 READ, 1 REMOVE and 1 WRITE.
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    using WireFormat::TxDecision;
+    Key key1(1, "key1", 4);
+    Key key2(2, "key2", 4); // Unknown Tablet.
+    Key key3(1, "key3", 4);
+    Buffer buffer, buffer2;
+    bool isCommit;
+    uint64_t newOpPtr;
+
+    WireFormat::TxParticipant participants[3];
+    participants[0] = TxParticipant(key1.getTableId(), key1.getHash(), 10U);
+    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
+    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
+    // create an object just so that buffer will be populated with the key
+    // and the value. This keeps the abstractions intact
+    PreparedOp op1(TxPrepare::READ, 1, 10, 3, participants,
+                   key1, "", 0, 0, 0, buffer);
+    PreparedOp op3(TxPrepare::WRITE, 1, 12, 3, participants,
+                   key3, "new", 3, 0, 0, buffer);
+
+    WireFormat::TxPrepare::Vote vote;
+    uint64_t rpcRecordPtr;
+    {
+        RpcRecord rpcRecord(key1.getTableId(), key1.getHash(),
+                            1, 10, 9, &vote, sizeof(vote));
+        EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op1, 0,
+                            &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+        EXPECT_TRUE(isCommit);
+        service->preparedWrites.bufferWrite(1, 10, newOpPtr);
+    } {
+        RpcRecord rpcRecord(key3.getTableId(), key3.getHash(),
+                            1, 12, 9, &vote, sizeof(vote));
+        EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op3, 0,
+                            &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+        EXPECT_TRUE(isCommit);
+        service->preparedWrites.bufferWrite(1, 12, newOpPtr);
+    }
+
+    // 3. Fabricate TxDecision rpc and test.
+    WireFormat::TxDecision::Request reqHdr;
+    WireFormat::TxDecision::Response respHdr;
+    Buffer reqBuffer;
+    Service::Rpc rpc(NULL, &reqBuffer, NULL);
+
+    reqHdr.decision = TxDecision::COMMIT;
+    reqHdr.leaseId = 1U;
+    reqHdr.participantCount = 3U;
+    reqBuffer.appendExternal(&reqHdr, sizeof32(reqHdr));
+    reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 3);
+
+    service->txDecision(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET, respHdr.common.status);
+
+    // 4. Check outcome of ABORT. key1 is processed and key3 couldn't.
+    EXPECT_EQ(1U, service->preparedWrites.items.size());
+
+    // 5. check locks are released.
+    EXPECT_FALSE(isObjectLocked(key1));
+    EXPECT_TRUE(isObjectLocked(key3));
 }
 
 // TODO(cstlee) : Unit test MasterService::txHintFailed()
