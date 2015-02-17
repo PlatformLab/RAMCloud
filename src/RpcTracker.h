@@ -44,6 +44,10 @@ class RpcTracker {
 
     void rpcFinished(uint64_t rpcId);
     uint64_t newRpcId(LinearizableObjectRpcWrapper* ptr);
+    // TODO(cstlee) : remove the hack below.
+    uint64_t newRpcId(uint64_t i) {
+        return newRpcId(reinterpret_cast<LinearizableObjectRpcWrapper*>(i));
+    }
     uint64_t ackId();
     LinearizableObjectRpcWrapper* oldestOutstandingRpc();
 

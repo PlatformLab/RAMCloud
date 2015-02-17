@@ -65,7 +65,7 @@ TEST_F(ClientTransactionManagerTest, handleTimerEvent_basic) {
 
     txManager.handleTimerEvent();
 
-    EXPECT_EQ(ClientTransactionTask::DECISION, taskPtr.get()->state);
+    EXPECT_EQ(ClientTransactionTask::DONE, taskPtr.get()->state);
     EXPECT_EQ(ClientTransactionTask::DONE, taskPtrOther.get()->state);
     EXPECT_EQ(1U, txManager.taskList.size());
     EXPECT_TRUE(txManager.isRunning());

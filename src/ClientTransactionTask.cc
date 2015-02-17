@@ -128,17 +128,14 @@ void
 ClientTransactionTask::performTask()
 {
     if (state == INIT) {
-        lease = ramcloud->clientLease.getLease();
-        txId = ramcloud->rpcTracker.newRpcId(NULL);
         // Build participant list
-        buildParticipantList();
+        initTask();
 
         // TODO(cstlee) : handle buildParticipantList failure (namely failure
         // to aquire all the rpcIds we need).
         nextCacheEntry = commitCache.begin();
         state = PREPARE;
-    }   // Let execution continue since most of the time the INIT step should
-        // succeed so work can be done right away.
+    }
     if (state == PREPARE) {
         processPrepareRpcs();
         sendPrepareRpc();
@@ -146,7 +143,8 @@ ClientTransactionTask::performTask()
             nextCacheEntry = commitCache.begin();
             state = DECISION;
         }
-    } else if (state == DECISION) {
+    }
+    if (state == DECISION) {
         processDecisionRpcs();
         sendDecisionRpc();
         if (decisionRpcs.empty() && nextCacheEntry == commitCache.end()) {
@@ -157,18 +155,26 @@ ClientTransactionTask::performTask()
 }
 
 /**
- * Builds the send-ready buffer of participants to be included in every prepare
- * rpc.  Used in the commit method.  Factored out mostly for ease of testing.
+ * Initialize all necessary values of the commit task in preparation for the
+ * commit protocol.  This includes building the send-ready buffer of
+ * participants to be included in every prepare rpc and also the allocation of
+ * rpcIds.  Used in the commit method.  Factored out mostly for ease of testing.
  */
 void
-ClientTransactionTask::buildParticipantList()
+ClientTransactionTask::initTask()
 {
+    lease = ramcloud->clientLease.getLease();
+    txId = ramcloud->rpcTracker.newRpcId(1);    // TODO(cstlee) : see todo in
+                                                // the method call.
+
     nextCacheEntry = commitCache.begin();
     while (nextCacheEntry != commitCache.end()) {
         const CacheKey* key = &nextCacheEntry->first;
         CacheEntry* entry = &nextCacheEntry->second;
 
-        entry->rpcId = ramcloud->rpcTracker.newRpcId(NULL);
+        entry->rpcId = ramcloud->rpcTracker.newRpcId(1);    // TODO(cstlee) :
+                                                            // see todo in the
+                                                            // method call.
         participantList.emplaceAppend<WireFormat::TxParticipant>(
                 key->tableId,
                 static_cast<uint64_t>(key->keyHash),
@@ -195,10 +201,12 @@ ClientTransactionTask::processDecisionRpcs()
         }
 
         if (rpc->responseHeader->status == STATUS_OK) {
-            for (uint32_t i = 0; i < DecisionRpc::MAX_OBJECTS_PER_RPC; i++)
+            TEST_LOG("STATUS_OK");
+            for (uint32_t i = 0; i < rpc->reqHdr->participantCount; i++)
                 ramcloud->rpcTracker.rpcFinished(rpc->ops[i]->second.rpcId);
         } else if (rpc->responseHeader->status == STATUS_UNKNOWN_TABLET) {
             // Nothing to do.
+            TEST_LOG("STATUS_UNKNOWN_TABLET");
         } else {
             status = rpc->responseHeader->status;
         }
@@ -232,7 +240,9 @@ ClientTransactionTask::processPrepareRpcs()
             }
         } else if (rpc->responseHeader->status == STATUS_UNKNOWN_TABLET) {
             // Nothing to do.
+            TEST_LOG("STATUS_UNKNOWN_TABLET");
         } else {
+            decision = WireFormat::TxDecision::ABORT;
             status = rpc->responseHeader->status;
         }
 
@@ -347,9 +357,8 @@ ClientTransactionTask::sendPrepareRpc()
 ClientTransactionTask::DecisionRpc::DecisionRpc(RamCloud* ramcloud,
         Transport::SessionRef session,
         ClientTransactionTask* task)
-    : RpcWrapper(sizeof(WireFormat::TxDecision::Request))
+    : RpcWrapper(sizeof(WireFormat::TxDecision::Response))
     , ramcloud(ramcloud)
-    , session(session)
     , task(task)
     , ops()
     , reqHdr(allocHeader<WireFormat::TxDecision>())
@@ -357,6 +366,7 @@ ClientTransactionTask::DecisionRpc::DecisionRpc(RamCloud* ramcloud,
     reqHdr->decision = task->decision;
     reqHdr->leaseId = task->lease.leaseId;
     reqHdr->participantCount = 0;
+    this->session = session;
 }
 
 // See RpcWrapper for documentation.
@@ -442,9 +452,8 @@ ClientTransactionTask::DecisionRpc::retryRequest()
  */
 ClientTransactionTask::PrepareRpc::PrepareRpc(RamCloud* ramcloud,
         Transport::SessionRef session, ClientTransactionTask* task)
-    : RpcWrapper(sizeof(WireFormat::TxPrepare::Request))
+    : RpcWrapper(sizeof(WireFormat::TxPrepare::Response))
     , ramcloud(ramcloud)
-    , session(session)
     , task(task)
     , ops()
     , reqHdr(allocHeader<WireFormat::TxPrepare>())
@@ -453,6 +462,7 @@ ClientTransactionTask::PrepareRpc::PrepareRpc(RamCloud* ramcloud,
     reqHdr->participantCount = task->participantCount;
     reqHdr->opCount = 0;
     request.appendExternal(&task->participantList);
+    this->session = session;
 }
 
 // See RpcWrapper for documentation.
