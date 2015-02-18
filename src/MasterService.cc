@@ -1835,7 +1835,11 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                          currentReq->length);
 
             reqOffset += currentReq->length;
+        } else {
+            respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+            break;
         }
+
         void* result;
         if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
                                              rpcId,
@@ -1871,6 +1875,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
         if (!isCommitVote || respHdr->common.status != STATUS_OK) {
             respHdr->vote = WireFormat::TxPrepare::ABORT;
+            completedRpcs.emplace_back(rpcId, rpcRecordPtr);
             break;
         }
 

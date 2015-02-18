@@ -1227,10 +1227,10 @@ ObjectManager::writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
 }
 
 /**
- * Prepares an operation during transaction prepare stage.
+ Ma* Prepares an operation during transaction prepare stage.
  * It locks the corresponding object and writes logs for PreparedOp
  * and RpcRecord (for linearizablity of vote).
- *
+ *Ma
  * \param newOp
  *      The preparedOperation to be written to the log. It does not have
  *      a valid version and timestamp. So this function will update the version,
@@ -1242,16 +1242,16 @@ ObjectManager::writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
  * \param[out] newOpPtr
  *      The pointer to the PreparedOp in log is returned.
  * \param[out] isCommitVote
- *      Vote result after prepare is returned.
+ *      VoMate result after prepare is returned.
  * \param rpcRecord
  *      This method appends rpcRecord to the log atomically with
- *      the other record(s) for the write. The extra record is used to ensure
+ *      the Maother record(s) for the write. The extra record is used to ensure
  *      linearizability.
  * \param[out] rpcRecordPtr
- *      The pointer to the RpcRecord in log is returned.
+ *      The poMainter to the RpcRecord in log is returned.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
- *      STATUS_UKNOWN_TABLE may be returned.
+ *      STATUS_UMaKNOWN_TABLE may be returned.
  */
 Status
 ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
@@ -1312,14 +1312,22 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     if (rejectRules != NULL) {
         Status status = rejectOperation(rejectRules, currentVersion);
         if (status != STATUS_OK) {
+            RAMCLOUD_LOG(DEBUG, "TxPrepare fail. Type: %d Key: %.*s, "
+                "RejectRule outcome: %s rejectRule.givenVersion %lu "
+                "currentVersion %lu",
+                    newOp.header.type,
+                    keyLength, reinterpret_cast<const char*>(keyString),
+                    statusToString(status),
+                    rejectRules->givenVersion, currentVersion);
             writePrepareFail(rpcRecord, rpcRecordPtr);
-            return status;
+            return STATUS_OK;
         }
     }
 
     if (currentReference.toInteger() == 0 ||
         !lockTable.tryAcquireLock(currentReference.toInteger())) {
-        //TODO(seojin): Just retry or abort?
+        RAMCLOUD_LOG(DEBUG, "TxPrepare fail. Key: %.*s, object is already lock",
+                keyLength, reinterpret_cast<const char*>(keyString));
         writePrepareFail(rpcRecord, rpcRecordPtr);
         return STATUS_OK;
     }

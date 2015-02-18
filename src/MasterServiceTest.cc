@@ -2134,7 +2134,7 @@ TEST_F(MasterServiceTest, txPrepare_retriedPrepares) {
 
     service->txPrepare(&reqHdr, &respHdr, &rpc2);
 
-    EXPECT_EQ(STATUS_WRONG_VERSION, respHdr.common.status);
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
     EXPECT_EQ(TxPrepare::ABORT, respHdr.vote);
 
     EXPECT_EQ(3U, service->preparedWrites.items.size());
