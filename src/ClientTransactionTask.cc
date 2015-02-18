@@ -127,30 +127,38 @@ ClientTransactionTask::insertCacheEntry(uint64_t tableId, const void* key,
 void
 ClientTransactionTask::performTask()
 {
-    if (state == INIT) {
-        // Build participant list
-        initTask();
+    try {
+        if (state == INIT) {
+            // Build participant list
+            initTask();
 
-        // TODO(cstlee) : handle buildParticipantList failure (namely failure
-        // to aquire all the rpcIds we need).
-        nextCacheEntry = commitCache.begin();
-        state = PREPARE;
-    }
-    if (state == PREPARE) {
-        processPrepareRpcs();
-        sendPrepareRpc();
-        if (prepareRpcs.empty() && nextCacheEntry == commitCache.end()) {
+            // TODO(cstlee) : handle buildParticipantList failure (namely
+            // failure to aquire all the rpcIds we need).
             nextCacheEntry = commitCache.begin();
-            state = DECISION;
+            state = PREPARE;
         }
-    }
-    if (state == DECISION) {
-        processDecisionRpcs();
-        sendDecisionRpc();
-        if (decisionRpcs.empty() && nextCacheEntry == commitCache.end()) {
-            ramcloud->rpcTracker.rpcFinished(txId);
-            state = DONE;
+        if (state == PREPARE) {
+            processPrepareRpcs();
+            sendPrepareRpc();
+            if (prepareRpcs.empty() && nextCacheEntry == commitCache.end()) {
+                nextCacheEntry = commitCache.begin();
+                state = DECISION;
+            }
         }
+        if (state == DECISION) {
+            processDecisionRpcs();
+            sendDecisionRpc();
+            if (decisionRpcs.empty() && nextCacheEntry == commitCache.end()) {
+                ramcloud->rpcTracker.rpcFinished(txId);
+                state = DONE;
+            }
+        }
+    } catch (ClientException& e) {
+        // If there are any problems with the commit protocol, STOP.
+        prepareRpcs.clear();
+        decisionRpcs.clear();
+        status = e.status;
+        state = DONE;
     }
 }
 
@@ -208,7 +216,7 @@ ClientTransactionTask::processDecisionRpcs()
             // Nothing to do.
             TEST_LOG("STATUS_UNKNOWN_TABLET");
         } else {
-            status = rpc->responseHeader->status;
+            ClientException::throwException(HERE, rpc->responseHeader->status);
         }
 
         // Destroy object.
@@ -242,8 +250,7 @@ ClientTransactionTask::processPrepareRpcs()
             // Nothing to do.
             TEST_LOG("STATUS_UNKNOWN_TABLET");
         } else {
-            decision = WireFormat::TxDecision::ABORT;
-            status = rpc->responseHeader->status;
+            ClientException::throwException(HERE, rpc->responseHeader->status);
         }
 
         // Destroy object.
@@ -265,32 +272,26 @@ ClientTransactionTask::sendDecisionRpc()
         const CacheKey* key = &nextCacheEntry->first;
         CacheEntry* entry = &nextCacheEntry->second;
 
-        if (entry->state == CacheEntry::DECIDE ||
-            entry->state == CacheEntry::FAILED) {
+        if (entry->state == CacheEntry::DECIDE) {
             continue;
         }
 
-        try {
-            if (nextRpc == NULL) {
-                rpcSession =
-                        ramcloud->objectFinder.lookup(key->tableId,
-                                                      key->keyHash);
-                decisionRpcs.emplace_back(ramcloud, rpcSession, this);
-                nextRpc = &decisionRpcs.back();
-            }
+        if (nextRpc == NULL) {
+            rpcSession =
+                    ramcloud->objectFinder.lookup(key->tableId,
+                                                  key->keyHash);
+            decisionRpcs.emplace_back(ramcloud, rpcSession, this);
+            nextRpc = &decisionRpcs.back();
+        }
 
-            Transport::SessionRef session =
-                    ramcloud->objectFinder.lookup(key->tableId, key->keyHash);
-            if (session->getServiceLocator() == rpcSession->getServiceLocator()
-                && nextRpc->reqHdr->participantCount <
-                        DecisionRpc::MAX_OBJECTS_PER_RPC) {
-                nextRpc->appendOp(nextCacheEntry);
-            } else {
-                break;
-            }
-        } catch (TableDoesntExistException&) {
-            entry->state = CacheEntry::FAILED;
-            status = STATUS_TABLE_DOESNT_EXIST;
+        Transport::SessionRef session =
+                ramcloud->objectFinder.lookup(key->tableId, key->keyHash);
+        if (session->getServiceLocator() == rpcSession->getServiceLocator()
+            && nextRpc->reqHdr->participantCount <
+                    DecisionRpc::MAX_OBJECTS_PER_RPC) {
+            nextRpc->appendOp(nextCacheEntry);
+        } else {
+            break;
         }
     }
     if (nextRpc) {
@@ -312,31 +313,25 @@ ClientTransactionTask::sendPrepareRpc()
         const CacheKey* key = &nextCacheEntry->first;
         CacheEntry* entry = &nextCacheEntry->second;
 
-        if (entry->state == CacheEntry::PREPARE ||
-            entry->state == CacheEntry::FAILED) {
+        if (entry->state == CacheEntry::PREPARE) {
             continue;
         }
 
-        try {
-            if (nextRpc == NULL) {
-                rpcSession =
-                        ramcloud->objectFinder.lookup(key->tableId,
-                                                      key->keyHash);
-                prepareRpcs.emplace_back(ramcloud, rpcSession, this);
-                nextRpc = &prepareRpcs.back();
-            }
+        if (nextRpc == NULL) {
+            rpcSession =
+                    ramcloud->objectFinder.lookup(key->tableId,
+                                                  key->keyHash);
+            prepareRpcs.emplace_back(ramcloud, rpcSession, this);
+            nextRpc = &prepareRpcs.back();
+        }
 
-            Transport::SessionRef session =
-                    ramcloud->objectFinder.lookup(key->tableId, key->keyHash);
-            if (session->getServiceLocator() == rpcSession->getServiceLocator()
-                && nextRpc->reqHdr->opCount < PrepareRpc::MAX_OBJECTS_PER_RPC) {
-                nextRpc->appendOp(nextCacheEntry);
-            } else {
-                break;
-            }
-        } catch (TableDoesntExistException&) {
-            entry->state = CacheEntry::FAILED;
-            status = STATUS_TABLE_DOESNT_EXIST;
+        Transport::SessionRef session =
+                ramcloud->objectFinder.lookup(key->tableId, key->keyHash);
+        if (session->getServiceLocator() == rpcSession->getServiceLocator()
+            && nextRpc->reqHdr->opCount < PrepareRpc::MAX_OBJECTS_PER_RPC) {
+            nextRpc->appendOp(nextCacheEntry);
+        } else {
+            break;
         }
     }
     if (nextRpc) {

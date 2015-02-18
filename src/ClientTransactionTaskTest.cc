@@ -416,7 +416,7 @@ TEST_F(ClientTransactionTaskTest, insertCacheEntry) {
     EXPECT_EQ("hello world", string(str, dataLength));
 }
 
-TEST_F(ClientTransactionTaskTest, performTask) {
+TEST_F(ClientTransactionTaskTest, performTask_basic) {
     // Make sure objects exist first.
     ramcloud->write(tableId1, "test1", 5, "hello", 5);
     ramcloud->write(tableId1, "test2", 5, "hello", 5);
@@ -458,6 +458,16 @@ TEST_F(ClientTransactionTaskTest, performTask) {
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
     transactionTask->performTask();
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
+}
+
+TEST_F(ClientTransactionTaskTest, performTask_ClientException) {
+    insertWrite(0, "test1", 5, "hello", 5);
+
+    EXPECT_EQ(ClientTransactionTask::INIT, transactionTask->state);
+    EXPECT_EQ(STATUS_OK, transactionTask->getStatus());
+    transactionTask->performTask();
+    EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
+    EXPECT_EQ(STATUS_TABLE_DOESNT_EXIST, transactionTask->getStatus());
 }
 
 TEST_F(ClientTransactionTaskTest, initTask) {
@@ -587,26 +597,28 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_unknownTablet) {
     transactionTask->processPrepareRpcs();
     EXPECT_EQ("processPrepareRpcs: STATUS_UNKNOWN_TABLET", TestLog::get());
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
 }
 
-TEST_F(ClientTransactionTaskTest, processPrepareRpcs_badStatus) {
-    ClientTransactionTask::CacheEntry* entry =
-            transactionTask->insertCacheEntry(tableId1, "test", 4, "hello", 5);
-    entry->type = ClientTransactionTask::CacheEntry::WRITE;
-    entry->rejectRules.doesntExist = true;
-    transactionTask->initTask();
-    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
-    transactionTask->sendPrepareRpc();
-
-    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
-    EXPECT_EQ(STATUS_OK, transactionTask->status);
-    transactionTask->processPrepareRpcs();
-    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+// TODO(cstlee) : Unit test processPrepareRpcs_badStatus
+//TEST_F(ClientTransactionTaskTest, processPrepareRpcs_badStatus) {
+//    // Must make sure the object exists before we try to transaction on it.
+//    ramcloud->write(tableId1, "test", 4, "hello", 5);
+//
+//    insertWrite(tableId1, "test", 4, "hello", 5);
+//    transactionTask->initTask();
+//    transactionTask->lease.leaseId = 0;
+//    transactionTask->lease.leaseTerm = 0;
+//    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+//    transactionTask->sendPrepareRpc();
+//
+//    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+//    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+//    EXPECT_EQ(STATUS_OK, transactionTask->status);
+//    transactionTask->processPrepareRpcs();
+//    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
+//    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
 //    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, transactionTask->status);
-}
+//}
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcs_notReady) {
     // Must make sure the object exists before we try to transaction on it.
@@ -695,16 +707,8 @@ TEST_F(ClientTransactionTaskTest, sendDecisionRpc_basic) {
 TEST_F(ClientTransactionTaskTest, sendDecisionRpc_TableDoesntExist) {
     insertWrite(0, "test1", 5, "hello", 5);
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
-
-    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(STATUS_OK, transactionTask->status);
-    EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING,
-              transactionTask->commitCache.begin()->second.state);
-    transactionTask->sendPrepareRpc();
-    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(STATUS_TABLE_DOESNT_EXIST, transactionTask->status);
-    EXPECT_EQ(ClientTransactionTask::CacheEntry::FAILED,
-              transactionTask->commitCache.begin()->second.state);
+    EXPECT_THROW(transactionTask->sendDecisionRpc(),
+                 TableDoesntExistException);
 }
 
 TEST_F(ClientTransactionTaskTest, sendPrepareRpc_basic) {
@@ -770,16 +774,8 @@ TEST_F(ClientTransactionTaskTest, sendPrepareRpc_basic) {
 TEST_F(ClientTransactionTaskTest, sendPrepareRpc_TableDoesntExist) {
     insertWrite(0, "test1", 5, "hello", 5);
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
-
-    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(STATUS_OK, transactionTask->status);
-    EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING,
-              transactionTask->commitCache.begin()->second.state);
-    transactionTask->sendPrepareRpc();
-    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(STATUS_TABLE_DOESNT_EXIST, transactionTask->status);
-    EXPECT_EQ(ClientTransactionTask::CacheEntry::FAILED,
-              transactionTask->commitCache.begin()->second.state);
+    EXPECT_THROW(transactionTask->sendPrepareRpc(),
+                 TableDoesntExistException);
 }
 
 TEST_F(ClientTransactionTaskTest, DecisionRpc_constructor) {
