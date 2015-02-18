@@ -654,6 +654,62 @@ TEST_F(BtreeTest, node_moveFrontEntriesToBackOf) {
     }
 }
 
+TEST_F(BtreeTest, inner_node_setRightMostLeafKey) {
+    Buffer buff;
+    IndexBtree::InnerNode *n =
+                buff.emplaceAppend<IndexBtree::InnerNode>(&buff, uint16_t(6));
+
+    BtreeEntry query;
+    BtreeEntry entry0 = {"AaaaDFlkjasdf", 00};
+    BtreeEntry entry1 = {"bbb0aDFlkjasdasdfasdfasdfasdfsafasdff", 11};
+    BtreeEntry entry2 = {"bbbcaDFlasdf", 22};
+    BtreeEntry entry3 = {"zzcccsdf", 33};
+    BtreeEntry rightMost1 = {"zzzzzzzzzJLKDJFj", 55};
+    BtreeEntry rightMost2 = {"zzzzzzzzzzzzzJLKDJFj", 556};
+    BtreeEntry rightMost3 = {"zzzzzzzzzzzzzzzzzzLKDJFj", 755};
+
+    // Try a bunch of operations to see if the key gets overwritten
+    n->setRightMostLeafKey(rightMost1);
+    n->insertAt(0, entry0, 0, 1);
+    n->insertAt(1, entry1, 22, 333);
+    uint32_t nodeSize = sizeof(IndexBtree::InnerNode);
+
+    EXPECT_EQ(2U, n->slotuse);
+    EXPECT_EQ(uint32_t(rightMost1.keyLength
+                        + entry0.keyLength
+                        + entry1.keyLength
+                        + nodeSize), n->serializedLength());
+
+
+    EXPECT_EQ(rightMost1, n->getRightMostLeafKey());
+    EXPECT_EQ(entry0, n->getAt(0));
+    EXPECT_EQ(entry1, n->getAt(1));
+
+    n->pop_back();
+    EXPECT_EQ(rightMost1, n->getRightMostLeafKey());
+    EXPECT_EQ(entry0, n->getAt(0));
+    EXPECT_EQ(uint32_t(rightMost1.keyLength
+                        + entry0.keyLength
+                        + nodeSize), n->serializedLength());
+
+    n->setRightMostLeafKey(rightMost2);
+    EXPECT_EQ(uint32_t(rightMost2.keyLength + entry0.keyLength + nodeSize),
+                            n->serializedLength());
+    EXPECT_EQ(rightMost2, n->getRightMostLeafKey());
+    EXPECT_EQ(entry0, n->getAt(0));
+
+    n->insertAt(1, entry2, 333, 4444);
+    n->insertAt(2, entry3, 4444, 55555);
+
+    EXPECT_EQ(uint32_t(rightMost2.keyLength + entry0.keyLength
+                        + entry2.keyLength + entry3.keyLength + nodeSize),
+                            n->serializedLength());
+    EXPECT_EQ(rightMost2, n->getRightMostLeafKey());
+    EXPECT_EQ(entry0, n->getAt(0));
+    EXPECT_EQ(entry2, n->getAt(1));
+    EXPECT_EQ(entry3, n->getAt(2));
+}
+
 TEST_F(BtreeTest, inner_node_insertAt) {
     Buffer objBuffer;
     IndexBtree::InnerNode *n =
@@ -842,6 +898,37 @@ TEST_F(BtreeTest, writeReadFreeNode) {
   EXPECT_TRUE(NULL == bt.readNode(1000, &buffer_out));
 }
 
+TEST_F (BtreeTest, writeReadInnerNode) {
+    BtreeEntry eTest = {"Testing", 123};
+    BtreeEntry e0 = {"zero", 0};
+    BtreeEntry e1 = {"One", 1};
+
+    IndexBtree bt(tableId, &objectManager);
+    Buffer buffer_in, buffer_out;
+    IndexBtree::InnerNode *n = buffer_in.emplaceAppend<IndexBtree::InnerNode>(
+                                                    &buffer_in, uint16_t(17));
+
+    n->setRightMostLeafKey(eTest);
+    n->insertAt(0, e0, 0, 1);
+    n->insertAt(1, e1, 1, 2);
+
+    bt.writeNode(n, 1000);
+    bt.flush();
+
+    IndexBtree::InnerNode *rn =
+            static_cast<IndexBtree::InnerNode*>(bt.readNode(1000, &buffer_out));
+
+
+    BtreeEntry query = rn->getRightMostLeafKey();
+    EXPECT_EQ(eTest.pKHash, query.pKHash);
+    EXPECT_EQ(eTest.keyLength, query.keyLength);
+    EXPECT_STREQ((const char*) eTest.key,
+            string((const char*) query.key, query.keyLength).c_str());
+   
+    EXPECT_EQ(e0, rn->getAt(0));
+    EXPECT_EQ(e1, rn->getAt(1));
+}
+
 static void testBalanceWithRight(uint16_t leftSize, uint16_t rightSize) {
     Buffer b1, b2;
     std::vector<BtreeEntry> entries;
@@ -1007,6 +1094,40 @@ TEST_F(BtreeTest, InnerNode_mergeIntoRight) {
     }
 }
 
+TEST_F(BtreeTest, InnerNode_serializeAppendToBuffer) {
+    BtreeEntry eTest = {"Testing", 123};
+    BtreeEntry e0 = {"zero", 0};
+    BtreeEntry e1 = {"One", 1};
+    Buffer buffer_in, buffer_out;
+    IndexBtree::InnerNode *n = buffer_in.emplaceAppend<IndexBtree::InnerNode>(
+                                                    &buffer_in, uint16_t(17));
+
+    n->setRightMostLeafKey(eTest);
+    n->insertAt(0, e0, 0, 1);
+    n->insertAt(1, e1, 1, 2);
+
+    IndexBtree::InnerNode *rn =static_cast<IndexBtree::InnerNode*>(
+                                    n->serializeAppendToBuffer(&buffer_out));
+
+    BtreeEntry query = rn->getRightMostLeafKey();
+    EXPECT_EQ(eTest.pKHash, query.pKHash);
+    EXPECT_EQ(eTest.keyLength, query.keyLength);
+    EXPECT_STREQ((const char*) eTest.key,
+            string((const char*) query.key, query.keyLength).c_str());
+
+    query = rn->getAt(0);
+    EXPECT_EQ(e0.pKHash, query.pKHash);
+    EXPECT_EQ(e0.keyLength, query.keyLength);
+    EXPECT_STREQ((const char*) e0.key,
+            string((const char*) query.key, query.keyLength).c_str());
+    
+    query = rn->getAt(1);
+    EXPECT_EQ(e1.pKHash, query.pKHash);
+    EXPECT_EQ(e1.keyLength, query.keyLength);
+    EXPECT_STREQ((const char*) e1.key,
+            string((const char*) query.key, query.keyLength).c_str());
+}
+
 TEST_F(BtreeTest, LeafNode_balanceWithRight) {
     Buffer b1, b2;
     std::vector<BtreeEntry> entries;
@@ -1137,12 +1258,14 @@ TEST_F(BtreeTest, InnerNode_toString_printToLog) {
     for (uint16_t i = 0; i < IndexBtree::innerslotmax/2; ++i)
         n->insertAt(i, entries[i], i + 10, i + 11);
 
+    n->setRightMostLeafKey({"Yello Cah", 1337});
+
     EXPECT_STREQ("Printing inner node\r\n"
             "NodeId: 10 <==  ( pKHash: 0 keyLength: 10 key: 0000000000 )\r\n"
             "NodeId: 11 <==  ( pKHash: 1 keyLength: 10 key: 0000000001 )\r\n"
             "NodeId: 12 <==  ( pKHash: 2 keyLength: 10 key: 0000000002 )\r\n"
             "NodeId: 13 <==  ( pKHash: 3 keyLength: 10 key: 0000000003 )\r\n"
-            "NodeId: 14\r\n"
+            "NodeId: 14 <==  ( pKHash: 1337 keyLength: 9 key: Yello Cah )\r\n"
             , n->toString().c_str());
 
     TestLog::Enable _;
@@ -1152,8 +1275,53 @@ TEST_F(BtreeTest, InnerNode_toString_printToLog) {
             "NodeId: 11 <==  ( pKHash: 1 keyLength: 10 key: 0000000001 )\r\n"
             "NodeId: 12 <==  ( pKHash: 2 keyLength: 10 key: 0000000002 )\r\n"
             "NodeId: 13 <==  ( pKHash: 3 keyLength: 10 key: 0000000003 )\r\n"
-            "NodeId: 14\r\n"
+            "NodeId: 14 <==  ( pKHash: 1337 keyLength: 9 key: Yello Cah )\r\n"
             , TestLog::get().c_str());
+}
+
+TEST_F(BtreeTest, isGreaterOrEqual_nodeOnly) {
+    IndexBtree bt(tableId, &objectManager);
+    Buffer buffer;
+    IndexBtree::InnerNode *in = 
+            buffer.emplaceAppend<IndexBtree::InnerNode>(&buffer, uint16_t(10));
+    IndexBtree::LeafNode *ln =
+            buffer.emplaceAppend<IndexBtree::LeafNode>(&buffer);
+
+    uint32_t numEntries = IndexBtree::innerslotmax + 1;
+    std::vector<BtreeEntry> entries;
+    std::vector<std::string> entryKeys;
+    generateKeysInRange(0, numEntries, entryKeys, entries);
+
+    uint16_t i = 0;
+    for (; i < IndexBtree::innerslotmax; i++)
+        in->insertAt(i, entries[i], i, uint16_t(i + 1));
+    in->setRightMostLeafKey(entries[i]);
+
+    for (uint16_t i = 0; i < IndexBtree::leafslotmax; i++)
+        ln->insertAt(i, entries[i]);
+
+    BtreeEntry less = {"0000000000", 0};
+    BtreeEntry mid =  entries[numEntries/2];
+    BtreeEntry max = entries.back();
+    BtreeEntry largest = {"lola", 9999};
+
+    NodeId inId = 200, lnId = 300;
+    Key inKey(bt.treeTableId, &inId, sizeof(NodeId));
+    Key lnKey(bt.treeTableId, &lnId, sizeof(NodeId));
+    
+    bt.writeNode(in, inId);
+    bt.writeNode(ln, lnId);
+    bt.flush();
+
+    EXPECT_TRUE(bt.isGreaterOrEqual(inKey, less));
+    EXPECT_TRUE(bt.isGreaterOrEqual(inKey, mid));
+    EXPECT_TRUE(bt.isGreaterOrEqual(inKey, max));
+    EXPECT_FALSE(bt.isGreaterOrEqual(inKey, largest));
+
+    EXPECT_TRUE(bt.isGreaterOrEqual(lnKey, less));
+    EXPECT_TRUE(bt.isGreaterOrEqual(lnKey, mid));
+    EXPECT_FALSE(bt.isGreaterOrEqual(lnKey, max));
+    EXPECT_FALSE(bt.isGreaterOrEqual(lnKey, largest));
 }
 
 TEST_F(BtreeTest, clear) {
@@ -1213,9 +1381,9 @@ TEST_F(BtreeTest, begin_end_size_exists_find_empty) {
     it = bt.begin();
     EXPECT_EQ(entries[0], *it);
     for (uint32_t i = 0; i < numEntries; i++) {
-        EXPECT_EQ(numEntries - i, bt.size());
-        bt.erase(entries[i]);
-        EXPECT_EQ(numEntries - i - 1, bt.size());
+        ASSERT_EQ(numEntries - i, bt.size());
+        ASSERT_TRUE(bt.erase(entries[i]));
+        ASSERT_EQ(numEntries - i - 1, bt.size());
     }
 
     EXPECT_EQ(bt.end(), bt.begin());
@@ -1408,6 +1576,30 @@ TEST_F(BtreeTest, insert_superLargeKeys) {
     }
 }
 
+TEST_F(BtreeTest, insert_alot) {
+    uint16_t slots = IndexBtree::innerslotmax;
+    uint32_t numEntries = static_cast<uint32_t>(slots*slots*slots);
+
+    std::vector<BtreeEntry> entries;
+    std::vector<std::string> entryKeys;
+    generateKeysInRange(0, numEntries, entryKeys, entries);
+
+    IndexBtree bt(tableId, &objectManager);
+    while (entries.size() > 0) {
+        bt.insert(entries.back());
+        entries.pop_back();
+        ASSERT_EQ("", bt.verify());
+    }
+
+    EXPECT_EQ("", bt.verify());
+    for (uint32_t j = 0; j < numEntries; j++) {
+        BtreeEntry entry = entries[j];
+        IndexBtree::iterator it = bt.find(entry);
+        EXPECT_STREQ(
+                string((const char*)entry.key, entry.keyLength).c_str(),
+                string((const char*)it->key, it->keyLength).c_str());
+    }
+}
 TEST_F(BtreeTest, insert_random) {
     srand(0);
     uint16_t slots = IndexBtree::innerslotmax;
@@ -1425,7 +1617,7 @@ TEST_F(BtreeTest, insert_random) {
         BtreeEntry entry = entries[index];
         bt.insert(entry);
         scrambled.push_back(entry);
-        EXPECT_EQ("", bt.verify());
+        ASSERT_EQ("", bt.verify());
 
     }
 
@@ -1613,6 +1805,7 @@ TEST_F(BtreeTest, erase_one_level1Merge) {
 
     for (uint16_t i = 0; i < slots; i++) {
         bt.insert(entries[i]);
+        ASSERT_EQ("", bt.verify());
     }
 
     // Right now, the root should have, in order, 3 children that are at half
@@ -1667,7 +1860,7 @@ TEST_F(BtreeTest, erase_one_level1Merge) {
 
 TEST_F(BtreeTest, erase_one_alot) {
     uint16_t slots = IndexBtree::innerslotmax;
-    uint32_t numEntries = static_cast<uint32_t>((slots*slots*slots>>1));
+    uint32_t numEntries = static_cast<uint32_t>((slots*slots*slots/2)); //TODO(syang0) slots^3/2
 
     std::vector<BtreeEntry> entries;
     std::vector<std::string> entryKeys;
@@ -1676,7 +1869,7 @@ TEST_F(BtreeTest, erase_one_alot) {
     IndexBtree bt(tableId, &objectManager);
     for (uint32_t i = 0; i < numEntries; i++) {
         bt.insert(entries[i]);
-        EXPECT_EQ("", bt.verify());
+        ASSERT_EQ("", bt.verify());
     }
     
     srand(0);
@@ -1687,7 +1880,7 @@ TEST_F(BtreeTest, erase_one_alot) {
         EXPECT_TRUE(bt.erase(entry));
         entries.erase(entries.begin() + index);
         EXPECT_EQ(bt.end(), bt.find(entry));
-        EXPECT_EQ("", bt.verify());
+        ASSERT_EQ("", bt.verify());
     }
 
     EXPECT_EQ(0U, bt.size());

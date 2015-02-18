@@ -220,28 +220,24 @@ def broadcast(name, options, cluster_args, client_args):
 
 def indexBasic(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '--masterServiceThreads 1'
+        cluster_args['master_args'] = '--masterServiceThreads 1 --totalMasterMemory 1500'
     if cluster_args['timeout'] < 200:
         cluster_args['timeout'] = 200
     # Ensure at least 5 hosts for optimal performance
     if options.num_servers == None:
         cluster_args['num_servers'] = len(hosts)
-    # using 20GB for servers so that we don't run out of memory when inserting
-    # 10 million objects/index entries
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def indexRange(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '--masterServiceThreads 1'
+        cluster_args['master_args'] = '--masterServiceThreads 1 --totalMasterMemory 1500'
     if cluster_args['timeout'] < 200:
         cluster_args['timeout'] = 200
     # Ensure at least 5 hosts for optimal performance
     if options.num_servers == None:
         cluster_args['num_servers'] = len(hosts)
-    # using 20GB for servers so that we don't run out of memory when inserting
-    # 10 million objects/index entries
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -366,7 +362,7 @@ def readRandom(name, options, cluster_args, client_args):
     cluster_args['backups_per_server'] = 0
     cluster_args['replicas'] = 0
     if 'num_clients' not in cluster_args:
-        cluster_args['num_clients'] = 16 
+        cluster_args['num_clients'] = 16
     if options.num_servers == None:
         cluster_args['num_servers'] = 1
     client_args['--numTables'] = cluster_args['num_servers'];

@@ -321,6 +321,12 @@ PRIVATE:
      * The always-appending-a-copy-of-keys-to-the-end property ensures pointer
      * safety within the B+ tree code and allows multiple nodes to share one
      * keyBuffer without using additional space.
+     *
+     * To support additional structures in subclasses, the base Node class
+     * makes the serializeAppendToBuffer() and reinitFromRead() both virtual
+     * to support subclasses that need read/write additional data in a buffer
+     * for an objectManager read/write. Additionally serializedLength() is
+     * also virtual.
      */
     struct Node {
         // Stores the metadata associated with every Secondary Key to
@@ -328,7 +334,7 @@ PRIVATE:
         struct KeyInfo {
             // offset of the key blob within the Node's key Buffer relative
             // to the beginning of key array in the Buffer
-            uint32_t relOffset;
+            int32_t relOffset;
 
             // Length of the key blob
             uint16_t keyLength;
@@ -341,6 +347,9 @@ PRIVATE:
             uint32_t endRelOffset() {
               return relOffset + keyLength;
             }
+
+            // Default constructor
+            KeyInfo() : relOffset(0), keyLength(0), pkHash(0) {};
         };
 
         // Buffer that stores the variable sized entries/keys. Typically, the
@@ -397,7 +406,7 @@ PRIVATE:
          *
          * The entry returned will remain valid as long as the node is not
          * destructed. An optional Buffer can be passed in to retain
-         *  the contents of the entry beyond destruction.
+         * the contents of the entry beyond destruction.
          *
          * \param index
          *      Index within range [0, slotuse) to access in the node
@@ -409,7 +418,9 @@ PRIVATE:
          * \return
          *      The BtreeEntry at the index
          */
-        inline BtreeEntry getAt(uint16_t index, Buffer *keyOutBuffer = NULL) const {
+        inline BtreeEntry
+        getAt(uint16_t index, Buffer *keyOutBuffer = NULL) const
+        {
           assert(index < Node::slotuse);
 
           uint32_t start = keysBeginOffset + keys[index].relOffset;
@@ -443,7 +454,9 @@ PRIVATE:
          * \param entry
          *      the entry to store
          */
-        inline void setAt(uint16_t index, BtreeEntry entry) {
+        inline void
+        setAt(uint16_t index, BtreeEntry entry)
+        {
             assert(index <= Node::slotuse);
 
             if (index < Node::slotuse) {
@@ -482,7 +495,6 @@ PRIVATE:
             }
         }
 
-
         /**
          * Returns the last entry stored within the Node.
          *
@@ -497,7 +509,9 @@ PRIVATE:
          * \return
          *      The BtreeEntry at the index.
          */
-        inline BtreeEntry back(Buffer *keyOutBuffer = NULL) const {
+        inline BtreeEntry
+        back(Buffer *keyOutBuffer = NULL) const
+        {
             assert(0 < Node::slotuse);
             return getAt(uint16_t(slotuse - 1), keyOutBuffer);
         }
@@ -510,7 +524,9 @@ PRIVATE:
          * \param n
          *      The number of Entries at the end to remove.
          */
-        inline void pop_back(uint16_t n = 1) {
+        inline void
+        pop_back(uint16_t n = 1)
+        {
             assert(Node::slotuse >= n);
 
             // Do a virtual copy instead of just decrementing buffer size so
@@ -522,9 +538,9 @@ PRIVATE:
         }
 
         /**
-         * Copies the entirety of this node (including keysBuffer) to a Buffer
-         * and returns a pointer to the copied node. After this operation, the
-         * copy and original are completely independent.
+         * Copies the entirety of this node's metadata and the keys managed
+         * by this base class to a Buffer and returns a pointer to the copied
+         * node. After this operation, the copy and original are independent.
          *
          * \param toBuffer
          *      The buffer to copy to.
@@ -532,11 +548,15 @@ PRIVATE:
          * \return
          *      A pointer to the copied node
          */
-        inline Node* serializeAppendToBuffer(Buffer *toBuffer) const {
-            uint32_t nodeSize = (isLeaf()) ? sizeof(LeafNode) : sizeof(InnerNode);
+        virtual Node*
+        serializeAppendToBuffer(Buffer *toBuffer) const
+        {
+            uint32_t nodeSize = (isLeaf()) ?
+                                        sizeof(LeafNode) : sizeof(InnerNode);
 
             // Copy metadata
-            uint8_t *writePtr = static_cast<uint8_t*>(toBuffer->alloc(serializedLength()));
+            uint8_t *writePtr = static_cast<uint8_t*>(
+                                    toBuffer->alloc(nodeSize + keyStorageUsed));
             memmove(writePtr, this, nodeSize);
 
             // Copy over keys
@@ -563,24 +583,49 @@ PRIVATE:
         }
 
         /**
+         * Reinitializes the node after a read from ObjectManager. This assumes
+         * that the Node was serialized via serializeAppendToBuffer() and is now
+         * logically contiguous within a buffer starting at a specified offset.
+         *
+         * \param serializedNodeBuffer
+         *      Buffer that contains the Node to be reinitialized. Note that
+         *      (a) the metadata portion of the node should be in contiguous
+         *      memory and (b) any modification via the Node API will cause
+         *      writes to the buffer.
+         *
+         * \param offset
+         *      Where the Node is logically within the buffer.
+         */
+        virtual void
+        reinitFromRead(Buffer *serializedNodeBuffer, uint32_t offset)
+        {
+            uint32_t nodeSize =
+                    (level == 0) ? sizeof(LeafNode) : sizeof(InnerNode);
+            keyBuffer = serializedNodeBuffer;
+            keysBeginOffset = offset + nodeSize;
+        }
+
+        /**
          * Returns the total byte length of the Node (metadata + keys)
          */
-        inline uint32_t serializedLength() const {
-          uint32_t nodeSize = (isLeaf()) ? sizeof(LeafNode) : sizeof(InnerNode);
-          return nodeSize + keyStorageUsed;
-        }
+        virtual uint32_t
+        serializedLength() const=0;
 
         /**
          * Returns true if the Node is a leaf Node
          */
-        inline bool isLeaf() const {
+        inline bool
+        isLeaf() const
+        {
             return (level == 0);
         }
 
         /**
          *  Returns true if the Node is an inner Node
          */
-        inline bool isinnernode() const {
+        inline bool
+        isinnernode() const
+        {
           return !isLeaf();
         }
 
@@ -588,7 +633,9 @@ PRIVATE:
          * Returns true if the node is full and actions should be taken
          * before inserting a new item.
          */
-        inline bool isfull() const {
+        inline bool
+        isfull() const
+        {
             return (Node::slotuse == innerslotmax);
         }
 
@@ -596,21 +643,27 @@ PRIVATE:
          * Returns true if the node half full or less, indicative of a node
          * that is either underflowing or about to underflow.
          */
-        inline bool isfew() const {
+        inline bool
+        isfew() const
+        {
             return (Node::slotuse <= mininnerslots);
         }
 
         /**
          * Returns true if the node is underflowing
          */
-        inline bool isunderflow() const {
+        inline bool
+        isunderflow() const
+        {
             return (Node::slotuse < mininnerslots);
         }
 
         /**
          * Returns a string representation of the node, useful for debugging.
          */
-        virtual std::string toString() const {
+        virtual std::string
+        toString() const
+        {
             std::ostringstream oStr;
             oStr << "Printing Node keys\r\n";
             for (uint16_t slot = 0; slot < slotuse; ++slot) {
@@ -630,7 +683,9 @@ PRIVATE:
          * \param logLevel
          *      Log Level at which to print the node.
          */
-        virtual void printToLog(enum LogLevel logLevel) {
+        virtual void
+        printToLog(enum LogLevel logLevel)
+        {
             RAMCLOUD_LOG(logLevel, "%s", toString().c_str());
         }
 
@@ -652,7 +707,9 @@ PRIVATE:
           * \param entry
           *      entry to insert
           */
-        inline void insertAtEntryOnly(uint16_t index, BtreeEntry entry) {
+        inline void
+        insertAtEntryOnly(uint16_t index, BtreeEntry entry)
+        {
             assert(index <= Node::slotuse);
 
             // If the slot existed, shift everything to the right by 1 entry
@@ -695,7 +752,9 @@ PRIVATE:
          * \param index
          *      Index to remove between [0, slotuse)
          */
-        inline void eraseAtEntryOnly(uint16_t index) {
+        inline void
+        eraseAtEntryOnly(uint16_t index)
+        {
             assert(index <= Node::slotuse);
 
             uint32_t keyLength = keys[index].keyLength;
@@ -732,7 +791,9 @@ PRIVATE:
          * \param numEntries
          *      Number of entries to move
          */
-        inline void moveBackEntriesToFrontOf(Node *dest, uint16_t numEntries) {
+        inline void
+        moveBackEntriesToFrontOf(Node *dest, uint16_t numEntries)
+        {
             assert(numEntries + dest->slotuse <= IndexBtree::innerslotmax);
             assert (numEntries <= slotuse);
 
@@ -781,7 +842,9 @@ PRIVATE:
          * \param numEntries
          *      Number of entries to move
          */
-        inline void moveFrontEntriesToBackOf(Node *dest, uint16_t numEntries) {
+        inline void
+        moveFrontEntriesToBackOf(Node *dest, uint16_t numEntries)
+        {
             assert(numEntries + dest->slotuse <= IndexBtree::innerslotmax);
             assert(numEntries <= slotuse);
 
@@ -825,11 +888,31 @@ PRIVATE:
     /**
      * Extended structure of an inner node for the Btree that additionally
      * manages child Node pointers/NodeIds associated with each BtreeEntry.
+     * The InnerNode is structured such that there can be up to innerslotmax + 1
+     * BtreeEntry's and child NodeId pointers and the relationship between the
+     * two is that a BtreeEntry at index i corresponds to the maximum possible
+     * BtreeEntry that can be encountered if one were to traverse the subtree
+     * pointed to by the child NodeId at index i.
+     *
+     * One complication that arises with InnerNode is that it needs to keep
+     * track of one additional key separate from the Node base class, the
+     * rightMostLeafKey. This key is managed independently from the base
+     * class's keys and is appended to the end of the buffer when set or
+     * serialized to the buffer. Otherwise, it stays in the same place
+     * relative to the beginning of the buffer, even in light of modifications
+     * to Node base class.
+     *
+     *
      */
     struct InnerNode : public Node {
         /// Stores the children of the inner_node. There should always be
         /// one more child than Btree Entry's.
         NodeId child[IndexBtree::innerslotmax + 1];
+
+        // Keep track of the right most leaf key reachable by this node. Note
+        // the relOffset here is relative to the beginning of the buffer,
+        // not to the keysBeginOffset
+        KeyInfo rightMostLeafKey;
 
          /**
          * Constructs a new inner node specifying a Buffer to use as Key
@@ -847,7 +930,41 @@ PRIVATE:
         InnerNode(Buffer *keyBuffer, uint16_t level)
             : Node(keyBuffer, level)
             , child()
+            , rightMostLeafKey()
         { }
+
+
+        /**
+         * Sets the right most leaf key to a particular BtreeEntry.
+         *
+         * \param entry
+         *      BtreeEntry to set right most leaf key to
+         */
+        void
+        setRightMostLeafKey(BtreeEntry entry) {
+            // manage the rightmost key separately from the rest of the
+            // base class keys
+            keyBuffer->appendCopy(entry.key, entry.keyLength);
+
+            // Here, relOffset is relative to beginning of buffer.
+            rightMostLeafKey.relOffset = keyBuffer->size() - entry.keyLength;
+            rightMostLeafKey.keyLength = entry.keyLength;
+            rightMostLeafKey.pkHash = entry.pKHash;
+        }
+
+        /**
+         * Retrieves the right most leaf key.
+         *
+         * \return
+         *      BtreeEntry signifying the rightmost leaf key.
+         */
+        BtreeEntry
+        getRightMostLeafKey() const {
+            void *key = keyBuffer->getRange(rightMostLeafKey.relOffset,
+                                            rightMostLeafKey.keyLength);
+
+            return {key, rightMostLeafKey.keyLength, rightMostLeafKey.pkHash};
+        }
 
         virtual ~InnerNode() {}
 
@@ -938,7 +1055,10 @@ PRIVATE:
                                                 entry, childId, rightChildId);
             }
 
+            // Migrate rightmost leaf key and set a new one for self.
             BtreeEntry ret = Node::back();
+            emptyRightSibling->setRightMostLeafKey(getRightMostLeafKey());
+            setRightMostLeafKey(ret); //TODO(syang0) inefficient!
             Node::pop_back();
             return ret;
         }
@@ -953,13 +1073,15 @@ PRIVATE:
          */
         inline void eraseAt(uint16_t index) {
             // Special case for inner nodes. Since inner nodes can have
-            // n keys and n + 1 pointers, erasing the last pointer is
+            // n + 1 keys and n + 1 pointers, erasing the last pointer is
             // equivalent to promoting the nth pointer to the last pointer.
-            // This means the last entry is dropped as its no longer needed
-            // to index the nth pointer.
             if ( index == slotuse) {
                 slotuse--;
                 keyStorageUsed -= keys[slotuse].keyLength;
+                rightMostLeafKey.keyLength = keys[slotuse].keyLength;
+                rightMostLeafKey.pkHash = keys[slotuse].pkHash;
+                rightMostLeafKey.relOffset =
+                        keysBeginOffset + keys[slotuse].relOffset;
 
                 // Reappend to the back to keep references valid.
                 keyBuffer->appendExternal(keyBuffer, keysBeginOffset,
@@ -997,7 +1119,7 @@ PRIVATE:
          * \param right
         *      right inner node sibling to balance with
          *
-         * \param inbetween
+         * \param inbetween TODO(syang0) We don't need inbetween if we save the righmost guy anyway..
          *      BtreeEntry to insert between the two nodes to maintain the
          *      one more child than entries invariant during the balance
          *
@@ -1045,6 +1167,7 @@ PRIVATE:
             }
 
             BtreeEntry ret = back();
+            setRightMostLeafKey(ret); //TODO(syang0) inefficient along with inbetween!
             Node::pop_back();
             return ret;
         }
@@ -1076,6 +1199,62 @@ PRIVATE:
         }
 
         /**
+         * Copies the entirety of this node (metadata and keys) to a Buffer and
+         * returns a pointer to the copied node. After this operation, the
+         * copy and original are independent.
+         *
+         * \param toBuffer
+         *      The buffer to copy to
+         *
+         * \return
+         *      A pointer to the copied node
+         */
+        virtual InnerNode*
+        serializeAppendToBuffer(Buffer *toBuffer) const {
+            InnerNode *n = static_cast<InnerNode*>(
+                        Node::serializeAppendToBuffer(toBuffer));
+
+            // Add in our rightmost key
+            void *key = keyBuffer->getRange(rightMostLeafKey.relOffset,
+                                                    rightMostLeafKey.keyLength);
+            toBuffer->appendCopy(key, rightMostLeafKey.keyLength);
+            n->rightMostLeafKey.relOffset =
+                                toBuffer->size() - rightMostLeafKey.keyLength;
+
+            return n;
+        }
+
+        /**
+         * Reinitializes the node after a read from ObjectManager. This assumes
+         * that the Node is serialized via serializeAppendToBuffer() and is now
+         * logically contiguous within a buffer.
+         *
+         * \param serializedNodeBuffer
+         *      Buffer that contains the Node to be reinitialized. Note that
+         *      (a) the metadata portion of the node should be in contiguous
+         *      memory and (b) any modification via the Node API will cause
+         *      writes to the buffer.
+         *
+         * \param offset
+         *      Where the Node is logically within the buffer.
+         */
+        virtual void
+        reinitFromRead(Buffer *serializedNodeBuffer, uint32_t offset) {
+            Node::reinitFromRead(serializedNodeBuffer, offset);
+            rightMostLeafKey.relOffset = keysBeginOffset + keyStorageUsed;
+        }
+
+        /**
+         * Returns the total byte length of the Node (metadata + keys)
+         */
+        virtual uint32_t
+        serializedLength() const {
+            return uint32_t(sizeof(InnerNode)
+                                + keyStorageUsed
+                                + rightMostLeafKey.keyLength);
+        }
+
+        /**
          * Returns a string representation of the node, useful for debugging
          *
          * \return
@@ -1090,7 +1269,8 @@ PRIVATE:
                         << e.toString() << "\r\n";
             }
 
-            oStr << "NodeId: " << child[slotuse] << "\r\n";
+            oStr << "NodeId: " << child[slotuse] << " <== "
+                    << getRightMostLeafKey().toString() <<"\r\n";
             return oStr.str();
         }
 
@@ -1145,7 +1325,8 @@ PRIVATE:
          * \return
          *      Last entry
          */
-        inline BtreeEntry split(uint16_t numEntries, LeafNode *rightSibling) {
+        inline BtreeEntry
+        split(uint16_t numEntries, LeafNode *rightSibling) {
             Node::moveBackEntriesToFrontOf(rightSibling, numEntries);
             return Node::back();
         }
@@ -1159,7 +1340,8 @@ PRIVATE:
           * \param entry
           *      entry to insert
           */
-        inline void insertAt(uint16_t index, BtreeEntry entry) {
+        inline void
+        insertAt(uint16_t index, BtreeEntry entry) {
             Node::insertAtEntryOnly(index, entry);
         }
 
@@ -1169,7 +1351,8 @@ PRIVATE:
          * \param index
          *      Index to remove between [0, slotuse)
          */
-        inline void eraseAt(uint16_t index) {
+        inline void
+        eraseAt(uint16_t index) {
             Node::eraseAtEntryOnly(index);
         }
 
@@ -1184,7 +1367,8 @@ PRIVATE:
          * \return
          *      this leaf node's last entry
          */
-        inline BtreeEntry balanceWithRight(LeafNode *right) {
+        inline BtreeEntry
+        balanceWithRight(LeafNode *right) {
             uint16_t toMove, half = uint16_t((slotuse + right->slotuse) >> 1);
             if (right->slotuse < slotuse) {
                 toMove = uint16_t(half - right->slotuse);
@@ -1204,11 +1388,20 @@ PRIVATE:
          * \param right
         *      right leaf node sibling to merge with
          */
-        inline void mergeIntoRight(LeafNode *right) {
+        inline void
+        mergeIntoRight(LeafNode *right) {
             Node::moveBackEntriesToFrontOf(right, slotuse);
             keysBeginOffset = keyBuffer->size();
             keyStorageUsed = 0;
             slotuse = 0;
+        }
+
+        /**
+         * Returns the total byte length of the Node (metadata + keys)
+         */
+        virtual uint32_t
+        serializedLength() const {
+            return uint32_t(sizeof(LeafNode) + keyStorageUsed);
         }
 
         /**
@@ -1217,13 +1410,14 @@ PRIVATE:
          * \return
          *      std::string representing the node.
          */
-        virtual std::string toString() const {
+        virtual std::string
+        toString() const {
             std::ostringstream oStr;
             oStr << "Printing leaf node\r\n";
             oStr << prevleaf << " <- prev | next -> " << nextleaf << "\r\n";
             for (uint16_t slot = 0; slot < slotuse; ++slot) {
                 BtreeEntry e = getAt(slot);
-                oStr << e.toString() << "\r\n";
+                oStr << e.toString().c_str() << "\r\n";
             }
 
             return oStr.str();
@@ -1238,7 +1432,8 @@ PRIVATE:
          * \param logLevel
          *      Log Level at which to print the node.
          */
-        virtual void printToLog(enum LogLevel logLevel) {
+        virtual void
+        printToLog(enum LogLevel logLevel) {
             RAMCLOUD_LOG(logLevel, "%s", toString().c_str());
         }
     };
@@ -1289,27 +1484,46 @@ PUBLIC:
 
     /// Returns the NodeId that will be assigned to the next new node written.
     /// The value will be equal to ROOT_ID when the tree is empty.
-    NodeId getNextNodeId() {
+    NodeId
+    getNextNodeId() {
         return nextNodeId;
     }
 
     /// Sets the NodeId that will be assigned to the next new node written.
     /// This should be set carefully, as setting it to a value too low would
     /// result in live nodes being overwritten.
-    void setNextNodeId(NodeId newNodeId) {
+    void
+    setNextNodeId(NodeId newNodeId) {
         nextNodeId = newNodeId;
     }
 
-    // Returns true if node specified by nodeKey contains any entries
-    // that have key greater than or equal to compareKey; false otherwise.
-    // TODO(syang0) This function does not achieve the effect that Ankitak
-    // wants. Need to rethink it.
-    bool isGreaterOrEqual(Key& nodeKey, BtreeEntry entry) {
+    /**
+     * Returns true if the node specified by the nodeKey contains any
+     * BtreeEntry's (or in the case of InnerNodes, have a path to BtreeEntry's)
+     * that are greater than or equal to compare key; otherwise false.
+     *
+     * \param nodeKey
+     *      Key Object that contains the NodeId of the node to check
+     *
+     * \param compareKey
+     *      BtreeEntry to compare against
+     *
+     * \return
+     *      true if the LeafNode/InnerNode contains any BtreeEntry's/paths to
+     *      BtreeEntry's that are greater than or equal to the compareKey
+     */
+    bool
+    isGreaterOrEqual(Key& nodeKey, BtreeEntry compareKey) {
         Buffer b;
         const NodeId nodeId =
             *(static_cast<const NodeId*>(nodeKey.getStringKey()));
         Node *n = readNode(nodeId, &b);
-        return key_greaterequal(n->back(), entry);
+
+        if (n->isLeaf())
+            return key_greaterequal(n->back(), compareKey);
+
+        InnerNode *inner = static_cast<InnerNode*>(n);
+        return key_greaterequal(inner->getRightMostLeafKey(), compareKey);
     }
 
     PUBLIC:
@@ -1322,7 +1536,8 @@ PUBLIC:
      * future writes into the btree, eventually all the old nodes will be
      * overwritten.
      */
-    void clear_fast() {
+    void
+    clear_fast() {
         if (nextNodeId > ROOT_ID) {
             nextNodeId = ROOT_ID;
             m_stats = tree_stats();
@@ -1333,15 +1548,14 @@ PUBLIC:
     /**
      * Destroys the B+ tree by recursively freeing all the nodes *expensive*
      */
-    void clear() {
+    void
+    clear() {
         if (nextNodeId > ROOT_ID) {
             clear_recursive(ROOT_ID);
             m_stats = tree_stats();
         }
 
-        bool status = objMgr->flushEntriesToLog(&logBuffer, numEntries);
-        assert(status == true);
-        cache.clear();
+        flush();
     }
 
     class iterator; // Forward Declaration
@@ -1358,7 +1572,8 @@ PUBLIC:
      * \return
      *      Iterator starting at the first entry in the B+ tree.
      */
-    iterator begin()
+    iterator
+    begin()
     {
         if (nextNodeId <= ROOT_ID)
             return iterator(this, INVALID_NODEID, 0);
@@ -1380,7 +1595,8 @@ PUBLIC:
 
     /// Constructs a read iterator that points to the first invalid
     /// slot in the last leaf of the B+ tree.
-    iterator end() {
+    iterator
+    end() {
         return iterator(this, INVALID_NODEID, 0);
     }
 
@@ -1394,7 +1610,8 @@ PUBLIC:
      * \return
      *      Number of BtreeEntry's in the B+ tree
      */
-    uint64_t size() const {
+    uint64_t
+    size() const {
         if (nextNodeId <= ROOT_ID)
             return 0;
         else
@@ -1402,7 +1619,8 @@ PUBLIC:
     }
 
     /// Returns true if there is at least one key/data pair in the B+ tree
-    bool empty() const {
+    bool
+    empty() const {
         return (nextNodeId == ROOT_ID);
     }
 
@@ -1417,7 +1635,8 @@ PUBLIC:
      * \return
      *      true if the entry exists in the B+ tree.
      */
-    bool exists(const BtreeEntry &key) {
+    bool
+    exists(const BtreeEntry &key) {
         return find(key) != end();
     }
 
@@ -1435,7 +1654,8 @@ PUBLIC:
      * \return
      *      iterator pointing to entry, or end() if not found.
      */
-    iterator find(const BtreeEntry &key)
+    iterator
+    find(const BtreeEntry &key)
     {
         if (nextNodeId <= ROOT_ID)
             return end();
@@ -1468,7 +1688,8 @@ PUBLIC:
      * \return
      *      number of entries found.
      */
-    uint64_t count(const BtreeEntry &key) const
+    uint64_t
+    count(const BtreeEntry &key) const
     {
         if (nextNodeId <= ROOT_ID)
             return 0;
@@ -1476,8 +1697,7 @@ PUBLIC:
         Buffer buffer;
         NodeId childId = m_rootId;
         Node *n = readNode(m_rootId, &buffer);
-        while(!n->isLeaf())
-        {
+        while(!n->isLeaf()) {
             const InnerNode *inner = static_cast<const InnerNode*>(n);
             uint16_t slot = findEntryGE(inner, key);
             childId = inner->getChildAt(slot);
@@ -1519,7 +1739,8 @@ PUBLIC:
      * \return
      *      B+ tree iterator to the first entry >= key
      */
-    iterator lower_bound(const BtreeEntry key)
+    iterator
+    lower_bound(const BtreeEntry key)
     {
         if (nextNodeId <= ROOT_ID)
             return end();
@@ -1560,7 +1781,8 @@ PUBLIC:
      * \return
      *      B+ tree iterator to the first entry > key
      */
-    iterator upper_bound(const BtreeEntry& key)
+    iterator
+    upper_bound(const BtreeEntry& key)
     {
         if (nextNodeId <= ROOT_ID)
             return end();
@@ -1593,7 +1815,8 @@ PUBLIC:
      * \param entry
      *      Entry to insert into the B+tree
      */
-    void insert(const BtreeEntry entry) {
+    void
+    insert(const BtreeEntry entry) {
         Buffer rootBuffer;
 
         if (nextNodeId == ROOT_ID) {
@@ -1607,7 +1830,7 @@ PUBLIC:
             insertDescend(ROOT_ID, entry, &info);
 
             // Root node was split
-            if (info.isValid()) {
+            if (info.childSplit) {
                 uint16_t rootLevel = uint16_t(info.getChildLevel() + 1);
                 InnerNode *newRoot =
                         rootBuffer.emplaceAppend<InnerNode>(&rootBuffer, rootLevel);
@@ -1615,6 +1838,7 @@ PUBLIC:
                         info.newChild,
                         info.newChildId,
                         info.rightSiblingId);
+                newRoot->setRightMostLeafKey(info.rightMostLeafKey);
                 writeNode(newRoot, ROOT_ID);
                 m_stats.innernodes++;
             }
@@ -1633,7 +1857,8 @@ PUBLIC:
      * \return
      *      true if the entry was found and erased.
      */
-    bool erase(BtreeEntry entry) {
+    bool
+    erase(BtreeEntry entry) {
         if (selfverify) verify();
 
         // The tree is empty; do nothing.
@@ -1648,12 +1873,12 @@ PUBLIC:
         return success;
     }
 
-
 PRIVATE:
     // *** Search functions to be used internally on nodes
 
     /// Returns true if a < b first according to IndexKey and then by pKHash
-    inline bool key_less(const BtreeEntry a, const BtreeEntry b) const
+    inline bool
+    key_less(const BtreeEntry a, const BtreeEntry b) const
     {
         int keyComparison = IndexKey::keyCompare(a.key, a.keyLength,
                                                  b.key, b.keyLength);
@@ -1663,24 +1888,28 @@ PRIVATE:
     // *** Convenient Key Comparison Functions Generated From key_less
 
     /// True if a <= b ? constructed from key_less()
-    inline bool key_lessequal(const BtreeEntry a, const BtreeEntry b) const {
+    inline bool
+    key_lessequal(const BtreeEntry a, const BtreeEntry b) const {
         return !key_less(b, a);
     }
 
     /// True if a > b ? constructed from key_less()
-    inline bool key_greater(const BtreeEntry a, const BtreeEntry &b) const
+    inline bool
+    key_greater(const BtreeEntry a, const BtreeEntry &b) const
     {
         return key_less(b, a);
     }
 
     /// True if a >= b ? constructed from key_less()
-    inline bool key_greaterequal(const BtreeEntry a, const BtreeEntry b) const {
+    inline bool
+    key_greaterequal(const BtreeEntry a, const BtreeEntry b) const {
         return !key_less(a, b);
     }
 
     /// True if a == b ? constructed from key_less(). This requires the <
     /// relation to be a total order, otherwise the B+ tree cannot be sorted.
-    inline bool key_equal(const BtreeEntry a, const BtreeEntry b) const {
+    inline bool
+    key_equal(const BtreeEntry a, const BtreeEntry b) const {
       return IndexKey::keyCompare(a.key, a.keyLength, b.key, b.keyLength) == 0
               && a.pKHash == b.pKHash;
     }
@@ -1700,7 +1929,8 @@ PRIVATE:
      * \return
      *      Index within the Node
      */
-    inline int findEntryGE(const Node *n, BtreeEntry entry) const
+    inline int
+    findEntryGE(const Node *n, BtreeEntry entry) const
     {
         if ( useBinarySearch ) {
             if (n->slotuse == 0)
@@ -1746,7 +1976,8 @@ PRIVATE:
      * \return
      *      Index within the Node
      */
-    inline int findEntryGreater(const Node *n, const BtreeEntry entry) const
+    inline int
+    findEntryGreater(const Node *n, const BtreeEntry entry) const
     {
         if ( useBinarySearch ) {
             if (n->slotuse == 0)
@@ -1792,7 +2023,8 @@ PRIVATE:
      *      The id of the node to be deleted from the backing table.
      *
      */
-    inline void freeNode(NodeId nodeId)
+    inline void
+    freeNode(NodeId nodeId)
     {
         Key key(treeTableId, &nodeId, sizeof(NodeId));
         Status status = objMgr->writeTombstone(key, &logBuffer);
@@ -1817,7 +2049,8 @@ PRIVATE:
      * \return
      *      A pointer the Node
      */
-    inline Node* readNode(NodeId nodeId, Buffer* outBuffer) const {
+    inline Node*
+    readNode(NodeId nodeId, Buffer* outBuffer) const {
         // Read from objMaster
         uint32_t sizeBeforeRead = outBuffer->size();
         Key key(treeTableId, &nodeId, sizeof(NodeId));
@@ -1847,8 +2080,7 @@ PRIVATE:
         RAMCLOUD_LOG(DEBUG, "Read object from log, nodeId = %lu, size = %d",
                      nodeId, ptr->serializedLength());
 
-        ptr->keyBuffer = outBuffer;
-        ptr->keysBeginOffset = sizeBeforeRead + nodeSize;
+        ptr->reinitFromRead(outBuffer, sizeBeforeRead);
         return ptr;
     }
 
@@ -1868,7 +2100,8 @@ PRIVATE:
      * \return
      *      The nodeId (primary key) used for this object.
      */
-    inline NodeId writeNode(const Node *node, NodeId nodeId = INVALID_NODEID) {
+    inline NodeId
+    writeNode(const Node *node, NodeId nodeId = INVALID_NODEID) {
       if (nodeId == INVALID_NODEID)
         nodeId = nextNodeId++;
 
@@ -1908,7 +2141,8 @@ PRIVATE:
      * \param nodeId
      *      Node to start deletion at
      */
-    void clear_recursive(NodeId nodeId) {
+    void
+    clear_recursive(NodeId nodeId) {
         Buffer buffer;
         Node *n = readNode(nodeId, &buffer);
 
@@ -1924,7 +2158,8 @@ PRIVATE:
     /**
      * Flushes Node writes and tombstones to log atomically.
      */
-    inline void flush() {
+    inline void
+    flush() {
         bool status = objMgr->flushEntriesToLog(&logBuffer, numEntries);
         assert(status == true);
         cache.clear();
@@ -1936,9 +2171,10 @@ PRIVATE:
      * Stores the result of an insert operation on a subtree, used to determine
      * whether the parent call/node needs to be updated.
      *
-     * The only tree modification that can happen in an insert is that a
-     * new child was created due to an overflowing node. This structure
-     * stores information about that node.
+     * The only tree modifications that can happen in an insert is that a
+     * new child was created due to an overflowing node or the insert happened
+     * to be the new rightmost key of a leaf node and thus must be propagated
+     * up. This structure stores information about that node.
      */
     struct ChildUpdateInfo {
 
@@ -1954,9 +2190,17 @@ PRIVATE:
       // Stores the level at which the new child resides.
       uint16_t childLevel;
 
-      // Whether the contents of this struct should be used or not. A value of
-      // false typically means that no updates are required.
-      bool valid;
+      // Indicates whether a child split occurred and whether the values
+      // above are valid or not.
+      bool childSplit;
+
+      // Indicates that the rightmost leaf key was updated in a descendant node
+      // and should be propagated upward into the parent. This should be cleared
+      // when the child is no longer the rightmost.
+      bool rightMostKeyUpdated;
+
+      // Stores the rightmost leaf key.
+      BtreeEntry rightMostLeafKey;
 
       /// Used to store the variable sized keys so that the original entry
       /// referenced can be deleted
@@ -1967,41 +2211,92 @@ PRIVATE:
         , newChildId(INVALID_NODEID)
         , rightSiblingId(INVALID_NODEID)
         , childLevel(0)
-        , valid(false)
+        , childSplit(false)
+        , rightMostKeyUpdated(false)
+        , rightMostLeafKey()
         , keyBuffer()
       {}
 
-      void set(BtreeEntry newLastEntry, NodeId childId, NodeId rightSibling,
+      /**
+       * Sets this structure to reflect the result of a split operation for
+       * a parent InnerNode to consume. Here, 'curr' refers to the left half
+       * of a resulting split after an insert and 'right' refers to the right
+       * half of said split.
+       *
+       * \param currLastEntry
+       *      rightmost leaf key contained within the left split of the subtree
+       *
+       * \param currChildId
+       *      the NodeId of the left child node
+       *
+       * \param rightSibLastEntry
+       *      rightmost leaf key contained within the right split of the subtree
+       *
+       * \param rightSiblingId
+       *      the NodeId of the right child node
+       *
+       * \param level
+       *      The level in the B+ tree where the split occurred. The parent
+       *      should always be one more than this parameter.
+       */
+      void setSplit(BtreeEntry currLastEntry, NodeId currChildId,
+                BtreeEntry rightSibLastEntry, NodeId rightSiblingId,
                 uint16_t level) {
-        newChild.keyLength = newLastEntry.keyLength;
-        newChild.pKHash = newLastEntry.pKHash;
-        void* ptr = keyBuffer.alloc(newLastEntry.keyLength);
-        memcpy(ptr, newLastEntry.key, newLastEntry.keyLength);
+        void *ptr;
+        newChild.keyLength = currLastEntry.keyLength;
+        newChild.pKHash = currLastEntry.pKHash;
+        ptr = keyBuffer.alloc(currLastEntry.keyLength);
+        memcpy(ptr, currLastEntry.key, currLastEntry.keyLength);
         newChild.key = ptr;
 
-        newChildId = childId;
-        this->rightSiblingId = rightSibling;
+        rightMostLeafKey.keyLength = rightSibLastEntry.keyLength;
+        rightMostLeafKey.pKHash = rightSibLastEntry.pKHash;
+        ptr = keyBuffer.alloc(rightMostLeafKey.keyLength);
+        memcpy(ptr, rightSibLastEntry.key, rightSibLastEntry.keyLength);
+        rightMostLeafKey.key = ptr;
+
+        newChildId = currChildId;
+        this->rightSiblingId = rightSiblingId;
         childLevel = level;
-        valid = true;
+        childSplit = true;
+        rightMostKeyUpdated = true; //TODO(syang0) expensive.. consider passing in bool
       }
 
-      void clear() {
-        valid = false;
+
+      /**
+       * Indicates to the parent node that the insert affected the right most
+       * leaf key in the subtree it called the recursive insertDescend on.
+       *
+       * \param lastKeyIn
+       *        The new right most leaf key
+       */
+      void setLastKeyUpdated(BtreeEntry lastKeyIn) {
+            rightMostKeyUpdated = true;
+
+            rightMostLeafKey.keyLength = lastKeyIn.keyLength;
+            rightMostLeafKey.pKHash = lastKeyIn.pKHash;
+            void *ptr = keyBuffer.alloc(rightMostLeafKey.keyLength);
+            memcpy(ptr, lastKeyIn.key, lastKeyIn.keyLength);
+            rightMostLeafKey.key = ptr;
       }
 
-      BtreeEntry getChild() {
+      void
+      clear() {
+        childSplit = false;
+      }
+
+      BtreeEntry
+      getChild() {
         return newChild;
       }
 
-      NodeId getRightSiblingId() {
+      NodeId
+      getRightSiblingId() {
         return rightSiblingId;
       }
 
-      bool isValid() {
-        return valid;
-      }
-
-      uint16_t getChildLevel() {
+      uint16_t
+      getChildLevel() {
         return childLevel;
       }
     };
@@ -2074,7 +2369,6 @@ PRIVATE:
         }
     };
 
-
     /**
      * Descends down a subtree to insert an entry into the B+ tree correctly.
      * Any Node overflows are handled along the way by splitting the node
@@ -2086,47 +2380,64 @@ PRIVATE:
      * \param entry
      *      BtreeEntry to insert
      *
-     * \param newChildCreated
+     * \param updateInfo
      *      Tracks changes made during the insert that need to be reflected
      *      in parent node.
      */
-    void insertDescend(NodeId currentId, BtreeEntry entry,
-                       ChildUpdateInfo *newChildCreated) {
+    void
+    insertDescend(NodeId currentId, BtreeEntry entry,
+                       ChildUpdateInfo *updateInfo) {
       Buffer buffer;
       Node *n = readNode(currentId, &buffer);
 
       /* -Clever Trick-
       * First note that an inner node indexes its left children by
-      * storing their rightmost leaf key s a branching point. Now, if the
+      * storing their rightmost leaf keys a branching point. Now, if the
       * parent call into insertDescend finds the first branching point that is
       * greater than or equal to the entry to be inserted, then new entry
       * will never be inserted at the end of the child. This saves us a
       * parent update if no splits occur.
       *
-      * (The never-insert-at-end property doesn't hold for the rightmost
-      * node, but since the parent node doesn't store a key for the
-      * rightmost node, it doesn't matter).
+      * (Note: The never-insert-at-end property doesn't hold for the rightmost
+      * key since those need to be propagated up the tree. )
       */
       uint16_t insertIndex = findEntryGE(n, entry);
 
       if (n->isinnernode()) {
         InnerNode* inner = (InnerNode*) n;
 
-        newChildCreated->clear();
-        insertDescend(inner->getChildAt(insertIndex), entry, newChildCreated);
+        updateInfo->clear();
+        insertDescend(inner->getChildAt(insertIndex), entry, updateInfo);
+
+        if (updateInfo->rightMostKeyUpdated) {
+            // Propagate only if it's the rightmost child.
+            if (insertIndex != inner->slotuse) {
+                updateInfo->rightMostKeyUpdated = false;
+                inner->setAt(insertIndex, updateInfo->rightMostLeafKey);
+            } else {
+                inner->setRightMostLeafKey(updateInfo->rightMostLeafKey);
+            }
+
+            if (!updateInfo->childSplit) {
+                writeNode(inner, currentId);
+                return;
+            }
+        }
 
         // No split, so we're done.
-        if (!newChildCreated->isValid())
-          return;
+        if (!updateInfo->childSplit)
+            return;
 
         if (!inner->isfull()) {
           inner->insertAt(insertIndex,
-                  newChildCreated->newChild,
-                  newChildCreated->newChildId,
-                  newChildCreated->rightSiblingId);
+                  updateInfo->newChild,
+                  updateInfo->newChildId,
+                  updateInfo->rightSiblingId);
           writeNode(inner, currentId);
-          newChildCreated->clear();
+          updateInfo->clear();
 
+          if (insertIndex == (inner->slotuse - 1))
+              updateInfo->rightMostKeyUpdated = true;
           return;
         }
 
@@ -2135,10 +2446,10 @@ PRIVATE:
                 buffer.emplaceAppend<InnerNode>(&buffer, inner->level);
         m_stats.innernodes++;
         BtreeEntry newLastEntry = inner->insertSplit(insertIndex,
-                            newChildCreated->getChild(),
-                            newRightSibling,
-                            newChildCreated->newChildId,
-                            newChildCreated->getRightSiblingId());
+                                    updateInfo->getChild(),
+                                    newRightSibling,
+                                    updateInfo->newChildId,
+                                    updateInfo->getRightSiblingId());
 
 
 
@@ -2149,7 +2460,8 @@ PRIVATE:
 
         // In an inner split, the last entry in the lesser split will
         // migrate up to the parent.
-        newChildCreated->set(newLastEntry, leftId, rightId, inner->level);
+        updateInfo->setSplit(newLastEntry, leftId,
+                newRightSibling->getRightMostLeafKey(), rightId, inner->level);
 
         writeNode(inner, leftId);
         writeNode(newRightSibling, rightId);
@@ -2158,7 +2470,10 @@ PRIVATE:
         if (!leaf->isfull()) {
           leaf->insertAt(insertIndex, entry);
           writeNode(leaf, currentId);
-          newChildCreated->clear();
+          updateInfo->clear();
+
+          if (insertIndex == (leaf->slotuse - 1))
+              updateInfo->setLastKeyUpdated(entry);
 
           return;
         }
@@ -2180,8 +2495,8 @@ PRIVATE:
         NodeId rightId = (currentId == m_rootId) ? nextNodeId++ : currentId;
         NodeId leftId = nextNodeId++;
 
-        BtreeEntry lastEntry = leaf->getAt(uint16_t(leaf->slotuse - 1));
-        newChildCreated->set(lastEntry, leftId, rightId, leaf->level);
+        updateInfo->setSplit(leaf->back(), leftId, newRightSibling->back(),
+                rightId, leaf->level);
 
         // Adjust the leaf pointers and write
         newRightSibling->nextleaf = leaf->nextleaf;
@@ -2229,7 +2544,8 @@ PRIVATE:
      *
      * \return
      */
-    bool eraseOneDescend(BtreeEntry key, NodeId currentId,
+    bool
+    eraseOneDescend(BtreeEntry key, NodeId currentId,
                              const InnerNode *parent, uint16_t parentSlot,
                              EraseUpdateInfo *info)
     {
@@ -2250,7 +2566,7 @@ PRIVATE:
             m_stats.itemcount--;
 
             if (slot == currLeaf->slotuse && currentId != ROOT_ID) {
-                info->setLastKey(currLeaf->getAt(uint16_t(slot - 1)));
+                info->setLastKey(currLeaf->back());
             }
         }
         else
@@ -2263,10 +2579,14 @@ PRIVATE:
             if (!success)
                 return false;
 
-            // If it's no longer at the end, then integrate it and clear.
-            if (info->lastEntryUpdated && slot < node->slotuse) {
-                inner->setAt(slot, info->lastEntry);
-                info->lastEntryUpdated = false;
+            if (info->lastEntryUpdated) {
+                // If it's no longer at the end, then integrate it and clear.
+                if (slot < node->slotuse) {
+                    inner->setAt(slot, info->lastEntry);
+                    info->lastEntryUpdated = false;
+                } else {
+                    inner->setRightMostLeafKey(info->lastEntry);
+                }
             }
 
             // Apply the updates from our children; The goal here is to apply
@@ -2325,7 +2645,8 @@ PRIVATE:
      *      If the parent node needs to be modified because of this call,
      *      the info needed to do so will be stored here.
      */
-    inline void handleUnderflowAndWrite(Node *curr, NodeId currId,
+    inline void
+    handleUnderflowAndWrite(Node *curr, NodeId currId,
                          const InnerNode *parent, uint16_t parentSlot,
                          EraseUpdateInfo *info)
     {
@@ -2352,11 +2673,7 @@ PRIVATE:
                                 logBuffer.getRange(it->second, sizeof(Node)));
 
                 // Readjust buffer
-                uint32_t nodeMetaDataSize =
-                        newRoot->serializedLength() - newRoot->keyStorageUsed;
-                newRoot->keyBuffer = &logBuffer;
-                newRoot->keysBeginOffset = it->second + nodeMetaDataSize;
-
+                newRoot->reinitFromRead(&logBuffer, it->second);
             }
 
             writeNode(newRoot, m_rootId);
@@ -2486,7 +2803,9 @@ PRIVATE:
      *     BtreeEntry that should be used to update the parent's entry
      *     for the left node.
      */
-    inline BtreeEntry balance(Node *left, Node *right, BtreeEntry leftParentEntry) {
+    inline BtreeEntry
+    balance(Node *left, Node *right, BtreeEntry leftParentEntry)
+    {
         if (left->isinnernode()) {
             InnerNode *leftIn = static_cast<InnerNode*>(left);
             InnerNode *rightIn = static_cast<InnerNode*>(right);
@@ -2516,7 +2835,9 @@ PRIVATE:
      * \param leftParentEntry
      *      The entry stored in the parent indexing the left node.
      */
-    inline void merge(Node *left, Node *right, BtreeEntry leftParentEntry) {
+    inline void
+    merge(Node *left, Node *right, BtreeEntry leftParentEntry)
+    {
 
         // If these are leaf nodes, we need to adjust pointers
         if (left->isLeaf()) {
@@ -2556,7 +2877,8 @@ PUBLIC:
      * \return
      *      Human readable string indicating errors.
      */
-    string verify(bool checkStats = false)
+    string
+    verify(bool checkStats = false)
     {
         std::stringstream ss;
         Buffer keyBuffer;
@@ -2608,7 +2930,9 @@ PUBLIC:
      * \return
      *      string representation of the tree
      */
-    string toString() {
+    string
+    toString()
+    {
         std::ostringstream output;
 
         // Do a breath first print of the tree
@@ -2649,17 +2973,22 @@ PUBLIC:
 
     /**
      * Preforms a breath first traversal of the tree and prints a human
-     * readable string representation of the string to the logs
+     * readable string representation of the string to the logs. This function
+     * is useful for cases where the B+ tree is so large it will no longer
+     * fit in a single log message.
      *
      * \return
      *      string representation of the tree
      */
-    void printToLog(enum LogLevel logLevel) {
+    void
+    printToLog(enum LogLevel logLevel)
+    {
         std::deque<NodeId> toVisit;
         toVisit.push_back(ROOT_ID);
 
         if (nextNodeId <= ROOT_ID) {
             RAMCLOUD_LOG(logLevel, "Empty Tree!");
+            return;
         }
 
         Buffer buff;
@@ -2673,7 +3002,7 @@ PUBLIC:
             if (node->level != level) {
                 level = node->level;
                 RAMCLOUD_LOG(logLevel, "=================== "
-                        "NEW LEVEL (%u ====================)", level);
+                        "NEW LEVEL (%u) ====================", level);
             }
 
             RAMCLOUD_LOG(logLevel, "NodeID: %lu\r\n%s", curr, node->toString().c_str());
@@ -2758,7 +3087,8 @@ PUBLIC:
 
         /// Implement the = operator to avoid invocation of the operator=
         /// method on the Buffer class which does not exist
-        inline iterator& operator=(const iterator &it)
+        inline iterator&
+        operator=(const iterator &it)
         {
             parentBtree = it.parentBtree;
             currentNodeId = it.currentNodeId;
@@ -2771,7 +3101,9 @@ PUBLIC:
         inline ~iterator() { }
 
         /// Dereference the iterator
-        inline BtreeEntry& operator*() {
+        inline BtreeEntry&
+        operator*()
+        {
             if (!currnode)
                   currnode = static_cast<const LeafNode *>(
                         parentBtree->readNode(currentNodeId, &buffer));
@@ -2781,7 +3113,9 @@ PUBLIC:
         }
 
         /// Dereference the iterator
-        inline BtreeEntry* operator->() {
+        inline BtreeEntry*
+        operator->()
+        {
             if (!currnode)
                 currnode = static_cast<const LeafNode *>(
                         parentBtree->readNode(currentNodeId, &buffer));
@@ -2792,7 +3126,9 @@ PUBLIC:
 
         /// Prefix++ advance the iterator to the next slot.
         /// Note: This invalidates values returned by any previous dereferences.
-        inline iterator& operator++() {
+        inline iterator&
+        operator++()
+        {
             if (!currnode)
                 currnode = static_cast<const LeafNode*>(
                         parentBtree->readNode(currentNodeId, &buffer));
@@ -2818,7 +3154,9 @@ PUBLIC:
 
         /// Postfix++ advance the iterator to the next slot
         /// Note: This invalidates values returned by any previous dereferences.
-        inline iterator operator++(int) {
+        inline iterator
+        operator++(int)
+        {
             iterator tmp = *this;   // copy ourselves
 
             if (!currnode)
@@ -2845,7 +3183,9 @@ PUBLIC:
 
         /// Prefix-- backstep the iterator to the last slot
         /// Note: This invalidates values returned by any previous dereferences.
-        inline iterator& operator--() {
+        inline iterator&
+        operator--()
+        {
             if (!currnode)
                 currnode = static_cast<const LeafNode*>(
                         parentBtree->readNode(currentNodeId, &buffer));
@@ -2870,7 +3210,9 @@ PUBLIC:
 
         /// Postfix-- backstep the iterator to the last slot
         /// Note: This invalidates values returned by any previous dereferences.
-        inline iterator operator--(int) {
+        inline iterator
+        operator--(int)
+        {
             iterator tmp = *this;   // copy ourselves
 
             if (!currnode)
@@ -2895,14 +3237,18 @@ PUBLIC:
         }
 
         /// Equality of iterators
-        inline bool operator==(const iterator& x) const {
+        inline bool
+        operator==(const iterator& x) const
+        {
             return (x.parentBtree == parentBtree)
                     &&(x.currentNodeId == currentNodeId)
                     && (x.currslot == currslot);
         }
 
         /// Inequality of iterators
-        inline bool operator!=(const iterator& x) const {
+        inline bool
+        operator!=(const iterator& x) const
+        {
             return !operator==(x);
         }
     };
@@ -2931,8 +3277,10 @@ PRIVATE:
      *      A human readable string specifying an error in the Btree.
      *      Empty string means that no invariants are violated
      */
-    string verify_node(NodeId nodeId, BtreeEntry *minkey, BtreeEntry *maxkey,
-                        Buffer *keyBuffer, tree_stats &vstats) const {
+    string
+    verify_node(NodeId nodeId, BtreeEntry *minkey, BtreeEntry *maxkey,
+                        Buffer *keyBuffer, tree_stats &vstats) const
+    {
         Buffer buffer;
         std::ostringstream errors;
         Node* n = readNode(nodeId, &buffer);
@@ -2977,6 +3325,19 @@ PRIVATE:
             const InnerNode *inner = static_cast<const InnerNode*>(n);
             vstats.innernodes++;
 
+            BtreeEntry rightmostLeafKey = inner->getRightMostLeafKey();
+            if (!key_lessequal(inner->back(), rightmostLeafKey)) {
+                errors << "Inner node ("
+                        << nodeId
+                        << ") rightmost leaf key variable "
+                        << rightmostLeafKey.toString()
+                        << " is not greater than or equal to the last key in "
+                        << "the node "
+                        << inner->getAt(uint16_t(n->slotuse - 1)).toString()
+                        << "\r\n";
+                return errors.str();
+            }
+
             for(uint16_t slot = 0; slot <= inner->slotuse; ++slot) {
                 Buffer subnodeBuffer;
                 NodeId subnodeId = inner->getChildAt(slot);
@@ -3015,9 +3376,18 @@ PRIVATE:
                     return errors.str();
                 }
 
-                if (slot == inner->slotuse)
+                if (slot == inner->slotuse) {
                     *maxkey = submaxkey;
-                else {
+
+                    BtreeEntry rightmost = inner->getRightMostLeafKey();
+                    if (!key_equal(rightmost, submaxkey)) {
+                        errors << "Inner Node " << nodeId << " rightmost key "
+                                << rightmost.toString() << " not equal "
+                                << "to rightmost leaf key "
+                                << submaxkey.toString() << " at slot " << slot;
+                        return errors.str();
+                    }
+                } else {
                     if (!key_equal(inner->getAt(slot), submaxkey)) {
                         errors << "Inner Node " << nodeId << " key not equal "
                                 << "to rightmost leaf key "
