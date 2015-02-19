@@ -1523,8 +1523,8 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
         uint64_t firstAllowedKeyHash,
         const void* lastKey, uint16_t lastKeyLength,
         uint32_t maxNumHashes,
-        Buffer* responseBuffer, uint32_t* numHashes, uint16_t* nextKeyLength,
-        uint64_t* nextKeyHash)
+        Buffer* responseBuffer, uint32_t* numHashes,
+        uint16_t* nextKeyLength, uint64_t* nextKeyHash)
 {
     LookupIndexKeysRpc rpc(this, tableId, indexId,
             firstKey, firstKeyLength, firstAllowedKeyHash,

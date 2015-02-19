@@ -354,13 +354,13 @@ class GetMetricsLocatorRpc : public RpcWrapper {
  * allowing to execute asynchronously.
  */
 class GetRuntimeOptionRpc : public CoordinatorRpcWrapper{
-    public:
-        GetRuntimeOptionRpc(RamCloud* ramcloud, const char* option,
-                         Buffer* value);
-        ~GetRuntimeOptionRpc() {}
-        void wait();
-    PRIVATE:
-        DISALLOW_COPY_AND_ASSIGN(GetRuntimeOptionRpc);
+  public:
+    GetRuntimeOptionRpc(RamCloud* ramcloud, const char* option,
+            Buffer* value);
+    ~GetRuntimeOptionRpc() {}
+    void wait();
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(GetRuntimeOptionRpc);
 };
 
 /**
@@ -445,8 +445,8 @@ class IncrementInt64Rpc : public ObjectRpcWrapper {
  */
 class ReadHashesRpc : public ObjectRpcWrapper {
   public:
-      ReadHashesRpc(RamCloud* ramcloud, uint64_t tableId, uint32_t numHashes,
-              Buffer* pKHashes, Buffer* response);
+    ReadHashesRpc(RamCloud* ramcloud, uint64_t tableId, uint32_t numHashes,
+            Buffer* pKHashes, Buffer* response);
     ~ReadHashesRpc() {}
     /// \copydoc RpcWrapper::docForWait
     uint32_t wait(uint32_t* numObjects);
@@ -462,8 +462,9 @@ class ReadHashesRpc : public ObjectRpcWrapper {
 class IndexServerControlRpc : public IndexRpcWrapper {
   public:
     IndexServerControlRpc(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
-        const void* key, uint16_t keyLength, WireFormat::ControlOp controlOp,
-        const void* inputData, uint32_t inputLength, Buffer* outputData);
+            const void* key, uint16_t keyLength,
+            WireFormat::ControlOp controlOp,
+            const void* inputData, uint32_t inputLength, Buffer* outputData);
     ~IndexServerControlRpc() {}
     void wait();
   PRIVATE:
@@ -498,15 +499,15 @@ class KillRpc : public ObjectRpcWrapper {
 class LookupIndexKeysRpc : public IndexRpcWrapper {
   public:
     LookupIndexKeysRpc(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
-                       const void* firstKey, uint16_t firstKeyLength,
-                       uint64_t firstAllowedKeyHash,
-                       const void* lastKey, uint16_t lastKeyLength,
-                       uint32_t maxNumHashes, Buffer* responseBuffer);
+            const void* firstKey, uint16_t firstKeyLength,
+            uint64_t firstAllowedKeyHash,
+            const void* lastKey, uint16_t lastKeyLength,
+            uint32_t maxNumHashes, Buffer* responseBuffer);
     ~LookupIndexKeysRpc() {}
 
     void indexNotFound();
     void wait(uint32_t* numHashes, uint16_t* nextKeyLength,
-              uint64_t* nextKeyHash);
+            uint64_t* nextKeyHash);
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(LookupIndexKeysRpc);
@@ -626,8 +627,8 @@ struct MultiIncrementObject : public MultiOpObject {
     } newValue;
 
     MultiIncrementObject(uint64_t tableId, const void* key, uint16_t keyLength,
-                 int64_t incrementInt64, double incrementDouble,
-                 const RejectRules* rejectRules = NULL)
+                int64_t incrementInt64, double incrementDouble,
+                const RejectRules* rejectRules = NULL)
         : MultiOpObject(tableId, key, keyLength)
         , incrementInt64(incrementInt64)
         , incrementDouble(incrementDouble)
