@@ -33,6 +33,8 @@ class Transaction {
     explicit Transaction(RamCloud* ramcloud);
 
     bool commit();
+    void sync();
+    bool commitAndSync();
 
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
             Buffer* value);

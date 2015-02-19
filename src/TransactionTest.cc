@@ -94,7 +94,127 @@ class TransactionTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(TransactionTest);
 };
 
-// TODO(cstlee) : Unit test Transaction::commit()
+TEST_F(TransactionTest, commit_basic) {
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    Buffer value;
+    transaction->read(tableId1, "0", 1, &value);
+    transaction->write(tableId1, "0", 1, "hello", 5);
+
+    EXPECT_FALSE(transaction->commitStarted);
+    EXPECT_EQ(ClientTransactionTask::INIT,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commit());
+    EXPECT_EQ(ClientTransactionTask::DECISION,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+    EXPECT_TRUE(transaction->commit());
+    EXPECT_EQ(ClientTransactionTask::DECISION,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+}
+
+TEST_F(TransactionTest, commit_abort) {
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    Buffer value;
+    transaction->read(tableId1, "0", 1, &value);
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+    transaction->write(tableId1, "0", 1, "hello", 5);
+
+    EXPECT_FALSE(transaction->commitStarted);
+    EXPECT_EQ(ClientTransactionTask::INIT,
+              transaction->taskPtr.get()->state);
+    EXPECT_FALSE(transaction->commit());
+    EXPECT_EQ(ClientTransactionTask::DECISION,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+    EXPECT_FALSE(transaction->commit());
+    EXPECT_EQ(ClientTransactionTask::DECISION,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+}
+
+TEST_F(TransactionTest, sync_basic) {
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    Buffer value;
+    transaction->read(tableId1, "0", 1, &value);
+    transaction->write(tableId1, "0", 1, "hello", 5);
+
+    EXPECT_FALSE(transaction->commitStarted);
+    EXPECT_EQ(ClientTransactionTask::INIT,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commit());
+    EXPECT_EQ(ClientTransactionTask::DECISION,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+    transaction->sync();
+    EXPECT_EQ(ClientTransactionTask::DONE,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+}
+
+TEST_F(TransactionTest, sync_beforeCommit) {
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    Buffer value;
+    transaction->read(tableId1, "0", 1, &value);
+    transaction->write(tableId1, "0", 1, "hello", 5);
+
+    EXPECT_FALSE(transaction->commitStarted);
+    EXPECT_EQ(ClientTransactionTask::INIT,
+              transaction->taskPtr.get()->state);
+    transaction->sync();
+    EXPECT_EQ(ClientTransactionTask::DONE,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+    EXPECT_TRUE(transaction->commit());
+    EXPECT_EQ(ClientTransactionTask::DONE,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+}
+
+TEST_F(TransactionTest, commitAndSync_basic) {
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    Buffer value;
+    transaction->read(tableId1, "0", 1, &value);
+    transaction->write(tableId1, "0", 1, "hello", 5);
+
+    EXPECT_FALSE(transaction->commitStarted);
+    EXPECT_EQ(ClientTransactionTask::INIT,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitAndSync());
+    EXPECT_EQ(ClientTransactionTask::DONE,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+    EXPECT_TRUE(transaction->commitAndSync());
+    EXPECT_EQ(ClientTransactionTask::DONE,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+}
+
+TEST_F(TransactionTest, commitAndSync_abort) {
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    Buffer value;
+    transaction->read(tableId1, "0", 1, &value);
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+    transaction->write(tableId1, "0", 1, "hello", 5);
+
+    EXPECT_FALSE(transaction->commitStarted);
+    EXPECT_EQ(ClientTransactionTask::INIT,
+              transaction->taskPtr.get()->state);
+    EXPECT_FALSE(transaction->commitAndSync());
+    EXPECT_EQ(ClientTransactionTask::DONE,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+    EXPECT_FALSE(transaction->commitAndSync());
+    EXPECT_EQ(ClientTransactionTask::DONE,
+              transaction->taskPtr.get()->state);
+    EXPECT_TRUE(transaction->commitStarted);
+}
 
 TEST_F(TransactionTest, read_basic) {
     ramcloud->write(tableId1, "0", 1, "abcdef", 6);
