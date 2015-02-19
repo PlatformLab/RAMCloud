@@ -1791,6 +1791,7 @@ ObjectManager::commitWrite(PreparedOp& op,
         // We must bound the amount of live data to ensure deletes are possible
         RAMCLOUD_CLOG(NOTICE, "Log is out of space, rejecting committing"
                               " prepared write during transaction!");
+        lockTable.acquireLock(oldReference.toInteger());
         throw RetryException(HERE, 1000, 2000, "Log is out of space!");
     }
 
