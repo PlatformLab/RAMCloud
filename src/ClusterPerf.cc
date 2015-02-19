@@ -51,6 +51,7 @@ namespace po = boost::program_options;
 #include "RamCloud.h"
 #include "Util.h"
 #include "TimeTrace.h"
+#include "Transaction.h"
 
 using namespace RAMCloud;
 
@@ -1771,19 +1772,19 @@ doTransaction(int dataLength, uint16_t keyLength,
                              dataLength);
                 }
             }
-            printf(" %d", count);
             txSucceed = timedCommit(t, &elapsed, &cumulativeElapsed);
             if (!txSucceed) {
                 abortCount++;
-                printf("A");
             }
+
+            // Make sure decisions are sent.
+            t.sync();
         } while (!txSucceed);
 
         count++;
         if (cumulativeElapsed >= runCycles)
             break;
     }
-    printf(" [# TX Done: %d # Aborts: %d]\n", count, abortCount);
     return Cycles::toSeconds(cumulativeElapsed)/count;
 }
 
