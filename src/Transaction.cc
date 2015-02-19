@@ -34,7 +34,8 @@ Transaction::Transaction(RamCloud* ramcloud)
 
 /**
  * Commits the transaction defined by the operations performed on this
- * transaction (read, remove, write).
+ * transaction (read, remove, write).  This method blocks until a decision is
+ * reached but not until the decisions are synced.
  *
  * \return
  *      True if the transaction was able to commit.  False otherwise.
@@ -42,12 +43,10 @@ Transaction::Transaction(RamCloud* ramcloud)
 bool
 Transaction::commit()
 {
-    if (expect_false(commitStarted)) {
-        throw TxOpAfterCommit(HERE);
+    if (!commitStarted) {
+        commitStarted = true;
+        ramcloud->transactionManager.addTransactionTask(taskPtr);
     }
-
-    commitStarted = true;
-    ramcloud->transactionManager.addTransactionTask(taskPtr);
 
     ClientTransactionTask* task = taskPtr.get();
 
@@ -59,6 +58,46 @@ Transaction::commit()
         ClientException::throwException(HERE, task->getStatus());
     }
 
+    return (task->getDecision() == WireFormat::TxDecision::COMMIT);
+}
+
+/**
+ * Block until the decision of this transaction commit is accepted by all
+ * participant servers.  If the commit has not yet occurred and a decision is
+ * not yet reached, this method will also start the commit.
+ */
+void
+Transaction::sync()
+{
+    if (!commitStarted) {
+        commitStarted = true;
+        ramcloud->transactionManager.addTransactionTask(taskPtr);
+    }
+
+    ClientTransactionTask* task = taskPtr.get();
+
+    while (!task->isReady()) {
+        ramcloud->poll();
+    }
+
+    if (task->getStatus() != STATUS_OK) {
+        ClientException::throwException(HERE, task->getStatus());
+    }
+}
+
+/**
+ * Commits the transaction defined by the operations performed on this
+ * transaction (read, remove, write).  This method blocks until a participant
+ * servers have accepted the decision.
+ *
+ * \return
+ *      True if the transaction was able to commit.  False otherwise.
+ */
+bool
+Transaction::commitAndSync()
+{
+    sync();
+    ClientTransactionTask* task = taskPtr.get();
     return (task->getDecision() == WireFormat::TxDecision::COMMIT);
 }
 

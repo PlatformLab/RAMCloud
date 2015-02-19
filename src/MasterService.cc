@@ -1673,6 +1673,8 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
         rpc->sendReply();
     }
 
+    objectManager.syncChanges();
+
     respHdr->common.status = STATUS_OK;
 
     // Respond to the client RPC now. Removing old index entries can be
