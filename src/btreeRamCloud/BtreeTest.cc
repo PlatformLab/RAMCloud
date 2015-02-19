@@ -75,6 +75,7 @@ void generateKeysInRange(int start, int end,
         entries.emplace_back(keys[i].c_str(), i);
     }
 }
+
 TEST_F(BtreeTest, node_getAt_setAt) {
     Buffer buffer1;
     IndexBtree::LeafNode *n = buffer1.emplaceAppend<IndexBtree::LeafNode>(&buffer1);
@@ -1600,6 +1601,7 @@ TEST_F(BtreeTest, insert_alot) {
                 string((const char*)it->key, it->keyLength).c_str());
     }
 }
+
 TEST_F(BtreeTest, insert_random) {
     srand(0);
     uint16_t slots = IndexBtree::innerslotmax;
@@ -2097,5 +2099,46 @@ TEST_F(BtreeTest, handleUnderflowAndWrite) {
     parent->insertAt(1, fakeEntry, currId, manyId);
     bt.handleUnderflowAndWrite(curr, currId, parent, 1, &info);
     EXPECT_EQ(IndexBtree::EraseUpdateInfo::setLeft, info.op);
+}
+
+TEST_F(BtreeTest, invariant_BtreeCanOperateWithoutMetadata) {
+    uint16_t slots = IndexBtree::innerslotmax;
+    uint32_t numEntries = static_cast<uint32_t>(slots*slots*slots);
+
+    std::vector<BtreeEntry> entries;
+    std::vector<std::string> entryKeys;
+    generateKeysInRange(0, numEntries, entryKeys, entries);
+
+    IndexBtree origBtree(tableId, &objectManager);
+    for (uint32_t i = 0; i < numEntries/2; i++)
+        origBtree.insert(entries.at(i));
+
+    IndexBtree recoveredBtree(tableId, &objectManager);
+    recoveredBtree.setNextNodeId(origBtree.getNextNodeId());
+
+    for (uint32_t i = 0; i < numEntries/2; i++)
+        EXPECT_NE(recoveredBtree.end(), recoveredBtree.find(entries.at(i)));
+
+    // Make modifications and makes ure nothing breaks
+    for (uint32_t i = numEntries/2; i < numEntries; i++)
+        recoveredBtree.insert(entries.at(i));
+
+    for (uint32_t i = 0; i < numEntries/4; i++)
+        recoveredBtree.erase(entries.at(i));
+
+    // Check everything is reachable.
+    for (uint32_t i = 0; i < numEntries/4; i++)
+        EXPECT_FALSE(recoveredBtree.exists(entries[i]));
+
+    for (uint32_t i = numEntries/4; i < numEntries; i++)
+        EXPECT_TRUE(recoveredBtree.exists(entries[i]));
+
+    IndexBtree::iterator it = recoveredBtree.begin();
+    for (uint32_t i = numEntries/4; i < numEntries; i++) {
+        ASSERT_EQ(entries[i], *it);
+        it++;
+    }
+
+    EXPECT_STREQ("", recoveredBtree.verify(false).c_str());
 }
 }
