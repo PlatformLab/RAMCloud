@@ -3142,6 +3142,66 @@ transaction_collision()
     }
 }
 
+// Commit a transactional read-write on randomly-chosen objects from a large
+// table.  Similar to writeDistRandom.
+void
+transactionDistRandom()
+{
+    int numKeys = 2000000;
+    if (clientIndex != 0)
+        return;
+
+    const uint16_t keyLength = 30;
+
+    char key[keyLength];
+    char value[objectSize];
+
+    fillTable(dataTable, numKeys, keyLength, objectSize);
+
+    // Issue the writes back-to-back, and save the times.
+    std::vector<uint64_t> ticks;
+    ticks.resize(count);
+    for (int i = 0; i < count; i++) {
+        // We generate the random number separately to avoid timing potential
+        // cache misses on the client side.
+        makeKey(downCast<int>(generateRandom() % numKeys), keyLength, key);
+        Util::genRandomString(value, objectSize);
+        Transaction t(cluster);
+        Buffer buffer;
+        t.read(dataTable, key, keyLength, &buffer);
+        t.write(dataTable, key, keyLength, value, objectSize);
+        // Do the benchmark
+        uint64_t start = Cycles::rdtsc();
+        t.commit();
+        ticks[i] = Cycles::rdtsc() - start;
+        t.sync();
+    }
+
+    // Dump both time and cache traces. This amounts to almost a no-op if there
+    // are no traces, and we do not currently expect traces in production code.
+    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
+    cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
+
+    // Dump client side time trace
+    cluster->clientContext->timeTrace->printToLog();
+
+    // Output the times (several comma-separated values on each line).
+    int valuesInLine = 0;
+    for (int i = 0; i < count; i++) {
+        if (valuesInLine >= 10) {
+            valuesInLine = 0;
+            printf("\n");
+        }
+        if (valuesInLine != 0) {
+            printf(",");
+        }
+        double micros = Cycles::toSeconds(ticks[i])*1.0e06;
+        printf("%.2f", micros);
+        valuesInLine++;
+    }
+    printf("\n");
+}
+
 // This benchmark measures overall network bandwidth using many clients, each
 // reading repeatedly a single large object on a different server.  The goal
 // is to stress the internal network switching fabric without overloading any
@@ -4139,6 +4199,7 @@ TestInfo tests[] = {
     {"indexScalability", indexScalability},
     {"transaction_oneMaster", transaction_oneMaster},
     {"transaction_collision", transaction_collision},
+    {"transactionDistRandom", transactionDistRandom},
     {"multiWrite_oneMaster", multiWrite_oneMaster},
     {"multiRead_oneMaster", multiRead_oneMaster},
     {"multiRead_oneObjectPerMaster", multiRead_oneObjectPerMaster},
