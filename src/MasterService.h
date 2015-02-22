@@ -167,6 +167,16 @@ class MasterService : public Service {
     void lookupIndexKeys(const WireFormat::LookupIndexKeys::Request* reqHdr,
                 WireFormat::LookupIndexKeys::Response* respHdr,
                 Rpc* rpc);
+    int migrateSingleIndexObject(
+                ServerId newOwnerMasterId, uint64_t tableId, uint8_t indexId,
+                uint64_t currentBackingTableId, uint64_t newBackingTableId,
+                const void* splitKey, uint16_t splitKeyLength,
+                LogIterator& it,
+                Tub<Segment>& transferSeg,
+                uint64_t& totalObjects,
+                uint64_t& totalTombstones,
+                uint64_t& totalBytes,
+                WireFormat::SplitAndMigrateIndexlet::Response* respHdr);
     int migrateSingleObject(LogIterator& it,
                 Tub<Segment>& transferSeg,
                 uint64_t& totalObjects,

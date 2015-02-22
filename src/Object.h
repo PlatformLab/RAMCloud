@@ -101,6 +101,8 @@ class Object {
             Buffer* buffer, uint32_t *length = NULL);
     void appendKeysAndValueToBuffer(Buffer& buffer);
 
+    void changeTableId(uint64_t newTableId);
+
     bool fillKeyOffsets();
 
     /**
@@ -253,11 +255,13 @@ class ObjectTombstone {
   public:
     ObjectTombstone(Object& object, uint64_t segmentId, uint32_t timestamp);
     explicit ObjectTombstone(Buffer& buffer, uint32_t offset = 0,
-                             uint32_t length = 0);
+            uint32_t length = 0);
 
     void assembleForLog(Buffer& buffer);
     void assembleForLog(void* buffer);
     void appendKeyToBuffer(Buffer& buffer);
+
+    void changeTableId(uint64_t newTableId);
 
     uint64_t getTableId();
     const void* getKey();

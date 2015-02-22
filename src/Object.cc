@@ -420,6 +420,20 @@ Object::appendKeysAndValueToBuffer(
 }
 
 /**
+ * Change the tableId for the object, and correspondingly, recompute
+ * the checksum.
+ * 
+ * \param newTableId
+ *      The tableId that this tombstone should refer to.
+ */
+void
+Object::changeTableId(uint64_t newTableId)
+{
+    header.tableId = newTableId;
+    header.checksum = computeChecksum();
+}
+
+/**
  * Populate the keyOffsets structure so that it makes operations like
  * getKey() efficient. It is a NO-OP if is already populated.
  *
@@ -882,6 +896,20 @@ ObjectTombstone::appendKeyToBuffer(Buffer& buffer)
     }
 
     buffer.append(tombstoneBuffer, keyOffset, getKeyLength());
+}
+
+/**
+ * Change the tableId for the tombstone, and correspondingly, recompute
+ * the checksum.
+ * 
+ * \param newTableId
+ *      The tableId that this tombstone should refer to.
+ */
+void
+ObjectTombstone::changeTableId(uint64_t newTableId)
+{
+    header.tableId = newTableId;
+    header.checksum = computeChecksum();
 }
 
 /**

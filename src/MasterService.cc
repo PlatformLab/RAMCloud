@@ -1766,6 +1766,164 @@ MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
 }
 
 /**
+ * Helper function to avoid code duplication in splitAndMigrateIndexlet
+ * which copies a log entry to a segment for migration if it is a living object
+ * or a tombstone that belongs to the partition being migrated, after changing
+ * its table id to that of the new backing table.
+ *
+ * If the segment is full, it will send the segment to the target of the
+ * migration, destroy the segment, and create a new one.
+ *
+ * It returns 0 on success (either the entry is ignored because it is neither
+ * object nor tombstone or successfully added to the segmetn) and 1 on failure
+ * (an object or tombstone could not be successfully appended to an empty
+ * segment).
+ * If there is an error, this method will set the status code of the response
+ * to the client to be an error.
+ *
+ * \param newOwnerMasterId
+ *      Identifier for the master that will receive the split indexlet.
+ * \param tableId
+ *      Identifier for the table.
+ * \param indexId
+ *      Id for a particular secondary index associated with tableId.
+ * \param currentBackingTableId
+ *      Id of the backing table that holds objects for the indexlet that will
+ *      be split.
+ * \param newBackingTableId
+ *      Id of the backing table on newOwner that will old objects for the
+ *      split indexlet that will be migrated to newOwner.
+ * \param splitKey
+ *      Key blob marking the split point in the indexlet.
+ * \param splitKeyLength
+ *      Number of bytes in splitKey.
+ * \param it
+ *      The iterator that points at the object we are attempting to migrate.
+ * \param[out] transferSeg
+ *      Segment object that we append objects to, and possibly send when it gets full.
+ * \param[out] totalObjects
+ *      The total number of objects copied into segments for transfer thus far,
+ *      which we increment whenever we append an object to a transfer segment.
+ * \param[out] totalTombstones
+ *      The total number of tombstones copied into segments for transfer thus
+ *      far, which we increment whenever we append a tombstones to a transfer
+ *      segment.
+ * \param[out] totalBytes
+ *      The total number of bytes copied into segments for transfer thus
+ *      far, which we add to whenever we append any entry to a transfer
+ *      segment.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ */
+int
+MasterService::migrateSingleIndexObject(
+        ServerId newOwnerMasterId, uint64_t tableId, uint8_t indexId,
+        uint64_t currentBackingTableId, uint64_t newBackingTableId,
+        const void* splitKey, uint16_t splitKeyLength,
+        LogIterator& it,
+        Tub<Segment>& transferSeg,
+        uint64_t& totalObjects,
+        uint64_t& totalTombstones,
+        uint64_t& totalBytes,
+        WireFormat::SplitAndMigrateIndexlet::Response* respHdr)
+{
+    LogEntryType type = it.getType();
+    if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
+        // We aren't interested in any other types.
+        return 0;
+    }
+
+    Buffer logEntryBuffer;
+    it.appendToBuffer(logEntryBuffer);
+    Key indexNodeKey(type, logEntryBuffer);
+
+    // Skip if not applicable.
+    if (indexNodeKey.getTableId() != currentBackingTableId) {
+        LOG(DEBUG, "Found entry that doesn't belong to "
+                "the table being migrated. Continuing to the next.");
+        return 0;
+    }
+
+    if (!indexletManager.isGreaterOrEqual(indexNodeKey, tableId, indexId,
+            splitKey, splitKeyLength)) {
+        LOG(DEBUG, "Found entry that doesn't belong to "
+                "the partition being migrated. Continuing to the next.");
+        return 0;
+    }
+
+    // TODO(ankitak): See if I can get away with only logEntryBuffer.
+    Buffer dataBufferToTransfer;
+
+    if (type == LOG_ENTRY_TYPE_OBJ) {
+        // Only send objects when they're currently in the hash table.
+        // Otherwise they're dead.
+        if (!objectManager.keyPointsAtReference(
+                indexNodeKey, it.getReference())) {
+            return 0;
+        }
+
+        totalObjects++;
+
+        Object object(logEntryBuffer);
+        object.changeTableId(newBackingTableId);
+        object.assembleForLog(dataBufferToTransfer);
+
+    } else {
+        // We must always send tombstones, since an object we may have sent
+        // could have been deleted more recently. We could be smarter and
+        // more selective here, but that'd require keeping extra state to
+        // know what we've already sent.
+
+        // Note that we can do better. The stupid way
+        // is to track each object or tombstone we've sent. The smarter
+        // way is to just record the Log::Position when we started
+        // iterating and only send newer tombstones.
+
+        totalTombstones++;
+
+        ObjectTombstone tombstone(logEntryBuffer);
+        tombstone.changeTableId(newBackingTableId);
+        tombstone.assembleForLog(dataBufferToTransfer);
+
+    }
+
+    totalBytes += dataBufferToTransfer.size();
+
+    if (!transferSeg)
+        transferSeg.construct();
+
+    // If we can't fit it, send the current buffer and retry.
+    if (!transferSeg->append(type, dataBufferToTransfer)) {
+        transferSeg->close();
+        LOG(DEBUG, "Couldn't fit segment.");
+        // The firstKeyHash param for receiveMigrationData is zero
+        // as we're transferring contents to a new backing table (id-ed
+        // by newBackingTableId) and
+        // the newOwner has a tablet that spans the entire key hash
+        // range of this backing table.
+        MasterClient::receiveMigrationData(context, newOwnerMasterId,
+                transferSeg.get(), newBackingTableId, 0);
+
+        transferSeg.destroy();
+        transferSeg.construct();
+
+        // If it doesn't fit this time, we're in trouble.
+        if (!transferSeg->append(type, dataBufferToTransfer)) {
+            LOG(ERROR, "Indexlet migration failed: could not fit object "
+                    "into empty segment (obj bytes %u)",
+                    dataBufferToTransfer.size());
+            respHdr->common.status = STATUS_INTERNAL_ERROR;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+/**
  * Top-level server method to handle the SPLIT_AND_MIGRAGE_INDEXLET request.
  *
  * This RPC is issued when an indexlet located on this master should be split
@@ -1830,129 +1988,63 @@ MasterService::splitAndMigrateIndexlet(
     // efficiency and convenience.
     Tub<Segment> transferSeg;
 
-    Buffer logEntryBuffer;
-    Buffer objectBufferToTransfer;
-    Buffer keysAndValue;
-
     uint64_t totalObjects = 0;
     uint64_t totalTombstones = 0;
     uint64_t totalBytes = 0;
 
-    // Hold on to the iterator since it locks the head Segment, avoiding any
-    // additional appends once we've finished iterating.
-    LogIterator it(*objectManager.getLog());
+    LogIterator it(*objectManager.getLog(), false);
+
+    // Scan the log from oldest to newest entries until we reach the head.
     for (; !it.isDone(); it.next()) {
-
-        logEntryBuffer.reset();
-        objectBufferToTransfer.reset();
-        keysAndValue.reset();
-
-        LogEntryType type = it.getType();
-        if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
-            // We aren't interested in any other types.
-            continue;
-        }
-
-        it.appendToBuffer(logEntryBuffer);
-        Key indexNodeKey(type, logEntryBuffer);
-
-        // Skip if not applicable.
-        if (indexNodeKey.getTableId() != currentBackingTableId) {
-            LOG(DEBUG, "Found entry that doesn't belong to "
-                    "the table being migrated. Continuing to the next.");
-            continue;
-        }
-
-        if (!indexletManager.isGreaterOrEqual(indexNodeKey, tableId, indexId,
-                splitKey, splitKeyLength)) {
-            LOG(DEBUG, "Found entry that doesn't belong to "
-                    "the partition being migrated. Continuing to the next.");
-            continue;
-        }
-
-        if (type == LOG_ENTRY_TYPE_OBJ) {
-            // Only send objects when they're currently in the hash table.
-            // Otherwise they're dead.
-            Buffer dummyBuffer;
-            uint64_t versionFromHashTable;
-            if (objectManager.readObject(indexNodeKey, &dummyBuffer, 0,
-                    &versionFromHashTable) != STATUS_OK) {
-                continue;
-            }
-
-            // Skip objects older than what is currently in the hash table.
-            Object currentObject(logEntryBuffer);
-            if (currentObject.getVersion() < versionFromHashTable)
-                continue;
-
-            // Create new object and append to a new buffer so that we can
-            // change table Id to the new backing table Id.
-            currentObject.appendKeysAndValueToBuffer(keysAndValue);
-            Object newObject(newBackingTableId, currentObject.getVersion(),
-                    currentObject.getTimestamp(), keysAndValue);
-
-//            LOG(DEBUG, "Old object: tableId %lu, key %s, keylength %u AND "
-//                    "New object: tableId %lu, key %s, keylength %u",
-//                    currentObject.getTableId(),
-//                    static_cast<const char*>(currentObject.getKey()),
-//                    currentObject.getKeyLength(),
-//                    newObject.getTableId(),
-//                    static_cast<const char*>(newObject.getKey()),
-//                    newObject.getKeyLength());
-
-            newObject.assembleForLog(objectBufferToTransfer);
-            totalObjects++;
-        } else {
-            // We must always send tombstones, since an object we may have sent
-            // could have been deleted more recently. We could be smarter and
-            // more selective here, but that'd require keeping extra state to
-            // know what we've already sent.
-
-            // Note that we can do better. The stupid way
-            // is to track each object or tombstone we've sent. The smarter
-            // way is to just record the Log::Position when we started
-            // iterating and only send newer tombstones.
-
-            totalTombstones++;
-        }
-
-        totalBytes += objectBufferToTransfer.size();
-
-        if (!transferSeg)
-            transferSeg.construct();
-
-        // If we can't fit it, send the current buffer and retry.
-        if (!transferSeg->append(type, objectBufferToTransfer)) {
-            transferSeg->close();
-            LOG(DEBUG, "Couldn't fit segment.");
-            // The firstKeyHash param for receiveMigrationData is zero
-            // as we're transferring contents to a new backing table (id-ed
-            // by newBackingTableId) and
-            // the newOwner has a tablet that spans the entire key hash
-            // range of this backing table.
-            MasterClient::receiveMigrationData(context, newOwnerMasterId,
-                    transferSeg.get(), newBackingTableId, 0);
-
-            transferSeg.destroy();
-            transferSeg.construct();
-
-            // If it doesn't fit this time, we're in trouble.
-            if (!transferSeg->append(type, objectBufferToTransfer)) {
-                LOG(ERROR, "Indexlet migration failed: could not fit object "
-                        "into empty segment (obj bytes %u)",
-                        objectBufferToTransfer.size());
-                respHdr->common.status = STATUS_INTERNAL_ERROR;
-                return;
-            }
-        }
+        int error = migrateSingleIndexObject(
+                newOwnerMasterId, tableId, indexId,
+                currentBackingTableId, newBackingTableId,
+                splitKey, splitKeyLength,
+                it, transferSeg, totalObjects, totalTombstones, totalBytes,
+                respHdr);
+        if (error) return;
     }
 
-    // Truncate indexlet such that we don't own the part of the indexlet that
-    // is being migrated before completing the migration. This is so that we
-    // don't get any more data for that part of the indexlet after it has been
-    // migrated.
-    indexletManager.truncateIndexlet(
-            tableId, indexId, splitKey, splitKeyLength);
+    // Phase 2 block new writes and let current writes finish
+    if (it.onHead()) {
+
+        // Truncate indexlet such that we don't own the part of the indexlet
+        // that is being migrated before completing the migration. This is so
+        // that we don't get any more data for that part of the indexlet after
+        // it has been migrated.
+        indexletManager.truncateIndexlet(
+                tableId, indexId, splitKey, splitKeyLength);
+
+        // Increment the current epoch and save the last epoch any
+        // currently running RPC could have been a part of
+        uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
+
+        // Increase our epoch nuumber to the current epoch number so we do not
+        // wait on ourselves
+        rpc->worker->rpc->epoch = epoch + 1;
+
+        // Wait for the remainder of already running writes to finish.
+        while (true) {
+            uint64_t earliestEpoch =
+                ServerRpcPool<>::getEarliestOutstandingEpoch(context);
+            if (earliestEpoch > epoch)
+                break;
+        }
+
+        // Now we mark the position and finish the migration
+        Log::Position position = objectManager.getLog()->getHead();
+        it.refresh();
+
+        for (; it.getPosition() < position; it.next()) {
+            int error = migrateSingleIndexObject(
+                    newOwnerMasterId, tableId, indexId,
+                    currentBackingTableId, newBackingTableId,
+                    splitKey, splitKeyLength,
+                    it, transferSeg, totalObjects, totalTombstones, totalBytes,
+                    respHdr);
+            if (error) return;
+        }
+    }
 
     if (transferSeg) {
         transferSeg->close();

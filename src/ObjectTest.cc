@@ -576,6 +576,58 @@ TEST_F(ObjectTest, appendKeysAndValueToBuffer_writeSingleKey) {
                     buffer.getRange(6, 4))));
 }
 
+TEST_F(ObjectTest, changeTableId)
+{
+    Object& object = *objectDataFromBuffer;
+    object.changeTableId(899U);
+
+    EXPECT_EQ(899U, object.header.tableId);
+    EXPECT_EQ(75U, object.header.version);
+    EXPECT_EQ(723U, object.header.timestamp);
+    EXPECT_TRUE(object.checkIntegrity());
+
+    const uint8_t *keysAndValue = reinterpret_cast<const uint8_t *>(
+                            object.getKeysAndValue());
+
+    KeyCount numKeys = *keysAndValue;
+    EXPECT_EQ(3U, numKeys);
+
+    // skip ahead past numKeys
+    keysAndValue = keysAndValue + sizeof(KeyCount);
+
+    const CumulativeKeyLength cumulativeKeyLengthOne = *(reinterpret_cast<
+                                                const CumulativeKeyLength *>(
+                                                keysAndValue));
+    const CumulativeKeyLength cumulativeKeyLengthTwo = *(reinterpret_cast<
+                                                const CumulativeKeyLength *>(
+                                                keysAndValue + 2));
+    const CumulativeKeyLength cumulativeKeyLengthThree = *(reinterpret_cast<
+                                                const CumulativeKeyLength *>(
+                                                keysAndValue + 4));
+
+    EXPECT_EQ(3, cumulativeKeyLengthOne);
+    EXPECT_EQ(6, cumulativeKeyLengthTwo);
+    EXPECT_EQ(9, cumulativeKeyLengthThree);
+
+    // the keys are NULL terminated anyway
+    EXPECT_EQ("ha", string(reinterpret_cast<const char*>(
+                    keysAndValue + 3 * sizeof(CumulativeKeyLength))));
+    EXPECT_EQ("hi", string(reinterpret_cast<const char*>(
+                    keysAndValue + 3 * sizeof(CumulativeKeyLength) + 3)));
+    EXPECT_EQ("ho", string(reinterpret_cast<const char*>(
+                    keysAndValue + 3 * sizeof(CumulativeKeyLength) + 6)));
+
+    EXPECT_EQ(20U, object.keysAndValueLength);
+    EXPECT_FALSE(object.keysAndValue);
+    EXPECT_TRUE(object.keysAndValueBuffer);
+
+    // offset into what getKeysAndValue() returns, to point to the actual data
+    // blob. Skip the cumulative key length values and the key values
+    // numKeys = 3, total length of all 3 keys is 9
+    EXPECT_EQ("YO!", string(reinterpret_cast<const char*>(
+                    keysAndValue + 3 * sizeof(CumulativeKeyLength) + 9)));
+}
+
 TEST_F(ObjectTest, fillKeyOffsets)
 {
     for (uint32_t i = 0; i < arrayLength(objects); i++) {
@@ -937,6 +989,22 @@ TEST_F(ObjectTombstoneTest, appendKeyToBuffer) {
         EXPECT_EQ("key!", string(reinterpret_cast<const char*>(
                           buffer.getRange(0, 5))));
     }
+}
+
+TEST_F(ObjectTombstoneTest, changeTableId) {
+    ObjectTombstone& tombstone = *tombstones[0];
+    tombstone.changeTableId(899U);
+
+    EXPECT_EQ(899U, tombstone.header.tableId);
+    EXPECT_EQ(925U, tombstone.header.segmentId);
+    EXPECT_EQ(58U, tombstone.header.objectVersion);
+    EXPECT_EQ(335U, tombstone.header.timestamp);
+    EXPECT_TRUE(tombstone.checkIntegrity());
+
+    EXPECT_TRUE(tombstone.key);
+    EXPECT_FALSE(tombstone.tombstoneBuffer);
+    EXPECT_EQ("key!", string(reinterpret_cast<const char*>(
+                      tombstone.key)));
 }
 
 TEST_F(ObjectTombstoneTest, getTableId) {

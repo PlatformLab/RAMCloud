@@ -1801,28 +1801,30 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_migrateToSelf) {
 
 TEST_F(MasterServiceTest, splitAndMigrateIndexlet_wrongTable) {
     uint64_t dataTableId = ramcloud->createTable("dataTable");
-    uint64_t backingTableId = ramcloud->createTable("backingTable");
 
-    Key key(dataTableId, "dummyKey", 8);
-    Buffer dummyDataBuffer;
-    Object o(key, "dummyValue", 10, 0, 0, dummyDataBuffer);
-    RejectRules dummyRejectRules;
-    uint64_t dummyVersion;
-    Buffer dummyOldBuffer;
-    // Querying for status pushes the object to log, and not querying doesn't.
-    Status status = service->objectManager.writeObject(
-            o, &dummyRejectRules, &dummyVersion, &dummyOldBuffer);
-    EXPECT_EQ(0, status);
-    service->objectManager.log.sync();
-
-    uint8_t indexId = 1;
     string firstKey = "abc";
     string splitKey = "pqr";
     string firstNotOwnedKey = "xyz";
 
+    uint8_t indexId = 1;
+    uint64_t backingTableId = ramcloud->createTable("backingTable");
     service->indexletManager.addIndexlet(dataTableId, indexId, backingTableId,
             firstKey.c_str(), (uint16_t)firstKey.length(),
             firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    // Create an extra index and insert an entry into it. This entry should
+    // belong to the "wrong table" (table refers to the backing table)
+    // while the previous index is being split and migrated.
+    uint8_t irrelevantIndexId = 2;
+    uint64_t irrelevantTableId = ramcloud->createTable("irrelevantTable");
+    service->indexletManager.addIndexlet(
+            dataTableId, irrelevantIndexId, irrelevantTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    service->indexletManager.insertEntry(dataTableId, irrelevantIndexId,
+            "alpha", 5, 12345U);
+    service->objectManager.log.sync();
 
     // Add new server after creating the data table and the backing table for
     // the indexlet, so that those tables get forced on masterServer.
@@ -1834,7 +1836,8 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_wrongTable) {
     master2Log->sync();
     uint64_t newBackingTableId = ramcloud->createTable("newBackingTable");
 
-    TestLog::Enable _("splitAndMigrateIndexlet");
+    TestLog::Enable _("splitAndMigrateIndexlet",
+            "migrateSingleIndexObject", NULL);
     EXPECT_NO_THROW(MasterClient::splitAndMigrateIndexlet(
             &context, masterServer->serverId, master2->serverId,
             dataTableId, indexId,
@@ -1844,7 +1847,7 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_wrongTable) {
             "in indexId 1 in tableId 1 "
             "from server 2.0 at mock:host=master (this server) "
             "to server 3.0 at mock:host=master2. | "
-            "splitAndMigrateIndexlet: Found entry that doesn't belong to the "
+            "migrateSingleIndexObject: Found entry that doesn't belong to the "
             "table being migrated. Continuing to the next. | "
             "splitAndMigrateIndexlet: Sent 0 total objects, "
             "0 total tombstones, 0 total bytes.",
@@ -1878,7 +1881,8 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_wrongPartition) {
     master2Log->sync();
     uint64_t newBackingTableId = ramcloud->createTable("newBackingTable");
 
-    TestLog::Enable _("splitAndMigrateIndexlet");
+    TestLog::Enable _("splitAndMigrateIndexlet",
+            "migrateSingleIndexObject", NULL);
     EXPECT_NO_THROW(MasterClient::splitAndMigrateIndexlet(
             &context, masterServer->serverId, master2->serverId,
             dataTableId, indexId,
@@ -1888,7 +1892,7 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_wrongPartition) {
             "in indexId 1 in tableId 1 "
             "from server 2.0 at mock:host=master (this server) "
             "to server 3.0 at mock:host=master2. | "
-            "splitAndMigrateIndexlet: Found entry that doesn't belong to the "
+            "migrateSingleIndexObject: Found entry that doesn't belong to the "
             "partition being migrated. Continuing to the next. | "
             "splitAndMigrateIndexlet: Sent 0 total objects, "
             "0 total tombstones, 0 total bytes.",
@@ -1910,6 +1914,9 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_moveData) {
 
     service->indexletManager.insertEntry(dataTableId, indexId,
             "queen", 5, 12345U);
+    service->objectManager.log.sync();
+    service->indexletManager.insertEntry(dataTableId, indexId,
+            "queeN", 5, 1234U);
     service->objectManager.log.sync();
 
     // Add new server after creating the data table and the backing table for
@@ -1940,7 +1947,7 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_moveData) {
             "(this server) to server 3.0 at mock:host=master2. | "
             "splitAndMigrateIndexlet: Sending last migration segment | "
             "splitAndMigrateIndexlet: Sent 1 total objects, "
-            "0 total tombstones, 216 total bytes.",
+            "1 total tombstones, 261 total bytes.",
                     TestLog::get());
 }
 
