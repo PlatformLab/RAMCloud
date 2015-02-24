@@ -379,6 +379,18 @@ def readThroughput(name, options, cluster_args, client_args):
             (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
+def txCollision(name, options, cluster_args, client_args):
+    if cluster_args['timeout'] < 100:
+        cluster_args['timeout'] = 100
+    if options.num_servers == None:
+        cluster_args['num_servers'] = len(hosts)
+    #client_args['--numTables'] = cluster_args['num_servers'];
+    if 'num_clients' not in cluster_args:
+        cluster_args['num_clients'] = 5
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
+    print(get_client_log(), end='')
+
 def writeDist(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '-t 2000'
@@ -426,13 +438,14 @@ graph_tests = [
     Test("multiRead_oneObjectPerMaster", multiOp),
     Test("multiReadThroughput", readThroughput),
     Test("multiWrite_oneMaster", multiOp),
-    Test("transaction_oneMaster", multiOp),
     Test("readDist", readDist),
     Test("readDistRandom", readDistRandom),
     Test("readLoaded", readLoaded),
     Test("readRandom", readRandom),
     Test("readThroughput", readThroughput),
     Test("readVaryingKeyLength", default),
+    Test("transaction_oneMaster", multiOp),
+    Test("transaction_collision", txCollision),
     Test("writeAsyncSync", default),
     Test("writeVaryingKeyLength", default),
     Test("writeDistRandom", writeDist),

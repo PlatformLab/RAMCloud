@@ -1214,6 +1214,33 @@ createTables(int numTables, int objectSize, const void* key, uint16_t keyLength)
 }
 
 /**
+ * Obtain tableIds for tables created on multiple maters by createTable().
+ *
+ * \param numTables
+ *      How many tables created before using #createTables().
+ *
+ * \return
+ *      Pointer to array of tableIds.
+ */
+uint64_t*
+getTableIds(int numTables)
+{
+    uint64_t* tableIds = new uint64_t[numTables];
+
+    // Create the tables in backwards order to reduce possible correlations
+    // between clients, tables, and servers (if we have 60 clients and 60
+    // servers, with clients and servers colocated and client i accessing
+    // table i, we wouldn't want each client reading a table from the
+    // server on the same machine).
+    for (int i = numTables-1; i >= 0;  i--) {
+        char tableName[20];
+        snprintf(tableName, sizeof(tableName), "table%d", i);
+        tableIds[i] = cluster->getTableId(tableName);
+    }
+    return tableIds;
+}
+
+/**
  * Slaves invoke this method to return one or more performance measurements
  * back to the master.
  *
@@ -1679,115 +1706,6 @@ doMultiRead(int dataLength, uint16_t keyLength,
 
     return latency;
 }
-
-static
-bool
-timedCommit(Transaction& t, uint64_t *elapsed, uint64_t *cummulativeElapsed)
-{
-    uint64_t start = Cycles::rdtsc();
-    bool success = t.commit();
-    *elapsed = Cycles::rdtsc() - start;
-    *cummulativeElapsed += *elapsed;
-    return success;
-}
-
-/**
- * This method contains the core of all the transaction tests.
- * It writes objsPerMaster objects on numMasters servers.
- *
- * \param dataLength
- *      Length of data for each object to be written.
- * \param keyLength
- *      Length of key for each object to be written.
- * \param numMasters
- *      The number of master servers across which the objects written
- *      should be distributed.
- * \param objsPerMaster
- *      The number of objects to be read on each master server.
- * \param writeOpPerMaster
- *      The number of objects to be written to each master server.
- * \param randomize
- *      Randomize the order of requests sent from the client.
- *      Note: Randomization can cause bad cache effects on the client
- *      and cause slower than normal operation.
- *
- * \return
- *      The average time, in seconds, to read all the objects in a single
- *      multiRead operation.
- */
-double
-doTransaction(int dataLength, uint16_t keyLength,
-            int numMasters, int objsPerMaster, int writeOpPerMaster,
-            bool randomize = false)
-{
-    assert(writeOpPerMaster <= objsPerMaster);
-    // First 'writeOpPerMaster' objects are read & write operations.
-    // 'objsPerMaster - writeOpPerMaster' objects are read-only opeartions.
-
-    if (clientIndex != 0)
-        return 0;
-
-    Buffer values[numMasters][writeOpPerMaster];
-    char keys[numMasters][objsPerMaster][keyLength];
-
-    uint64_t* tableIds = createTables(numMasters, dataLength, "0", 1);
-
-    for (int tableNum = 0; tableNum < numMasters; tableNum++) {
-        for (int i = 0; i < objsPerMaster; i++) {
-            Util::genRandomString(keys[tableNum][i], keyLength);
-
-            // Adds default object. (Since our tx depends on the existence of
-            // current object to lock.)
-            cluster->write(tableIds[tableNum], keys[tableNum][i], keyLength,
-                           "default", 6);
-        }
-        for (int i = 0; i < writeOpPerMaster; i++) {
-            fillBuffer(values[tableNum][i], dataLength,
-                    tableIds[tableNum], keys[tableNum][i], keyLength);
-        }
-    }
-
-    // Scramble the requests. Checking code below it stays valid
-    // since the value buffer is a pointer to a Buffer in the request.
-
-    // TODO(seojin) randomize
-
-    uint64_t runCycles = Cycles::fromSeconds(50/1e03);
-    uint64_t elapsed, cumulativeElapsed = 0;
-    int count = 0;
-    int abortCount = 0;
-    Buffer value;
-    while (true) {
-        bool txSucceed = false;
-        do {
-            Transaction t(cluster);
-            for (int tableNum = 0; tableNum < numMasters; tableNum++) {
-                for (int i = 0; i < objsPerMaster; i++) {
-                    t.read(tableIds[tableNum], keys[tableNum][i],
-                           keyLength, &value);
-                }
-                for (int i = 0; i < writeOpPerMaster; i++) {
-                    t.write(tableIds[tableNum], keys[tableNum][i], keyLength,
-                             values[tableNum][i].getRange(0, dataLength),
-                             dataLength);
-                }
-            }
-            txSucceed = timedCommit(t, &elapsed, &cumulativeElapsed);
-            if (!txSucceed) {
-                abortCount++;
-            }
-
-            // Make sure decisions are sent.
-            t.sync();
-        } while (!txSucceed);
-
-        count++;
-        if (cumulativeElapsed >= runCycles)
-            break;
-    }
-    return Cycles::toSeconds(cumulativeElapsed)/count;
-}
-
 
 /**
  * This method contains the core of all the "multiWrite" tests.
@@ -2653,6 +2571,114 @@ multiWrite_oneMaster()
 
 }
 
+static
+bool
+timedCommit(Transaction& t, uint64_t *elapsed, uint64_t *cummulativeElapsed)
+{
+    uint64_t start = Cycles::rdtsc();
+    bool success = t.commit();
+    *elapsed = Cycles::rdtsc() - start;
+    *cummulativeElapsed += *elapsed;
+    return success;
+}
+
+/**
+ * This method contains the core of all the transaction tests.
+ * It writes objsPerMaster objects on numMasters servers.
+ *
+ * \param dataLength
+ *      Length of data for each object to be written.
+ * \param keyLength
+ *      Length of key for each object to be written.
+ * \param numMasters
+ *      The number of master servers across which the objects written
+ *      should be distributed.
+ * \param objsPerMaster
+ *      The number of objects to be read on each master server.
+ * \param writeOpPerMaster
+ *      The number of objects to be written to each master server.
+ * \param randomize
+ *      Randomize the order of requests sent from the client.
+ *      Note: Randomization can cause bad cache effects on the client
+ *      and cause slower than normal operation.
+ *
+ * \return
+ *      The average time, in seconds, to read all the objects in a single
+ *      multiRead operation.
+ */
+double
+doTransaction(int dataLength, uint16_t keyLength,
+            int numMasters, int objsPerMaster, int writeOpPerMaster,
+            bool randomize = false)
+{
+    assert(writeOpPerMaster <= objsPerMaster);
+    // First 'writeOpPerMaster' objects are read & write operations.
+    // 'objsPerMaster - writeOpPerMaster' objects are read-only opeartions.
+
+    if (clientIndex != 0)
+        return 0;
+
+    Buffer values[numMasters][writeOpPerMaster];
+    char keys[numMasters][objsPerMaster][keyLength];
+
+    uint64_t* tableIds = createTables(numMasters, dataLength, "0", 1);
+
+    for (int tableNum = 0; tableNum < numMasters; tableNum++) {
+        for (int i = 0; i < objsPerMaster; i++) {
+            Util::genRandomString(keys[tableNum][i], keyLength);
+
+            // Adds default object. (Since our tx depends on the existence of
+            // current object to lock.)
+            cluster->write(tableIds[tableNum], keys[tableNum][i], keyLength,
+                           "default", 6);
+        }
+        for (int i = 0; i < writeOpPerMaster; i++) {
+            fillBuffer(values[tableNum][i], dataLength,
+                    tableIds[tableNum], keys[tableNum][i], keyLength);
+        }
+    }
+
+    // Scramble the requests. Checking code below it stays valid
+    // since the value buffer is a pointer to a Buffer in the request.
+
+    // TODO(seojin) randomize
+
+    uint64_t runCycles = Cycles::fromSeconds(50/1e03);
+    uint64_t elapsed, cumulativeElapsed = 0;
+    int count = 0;
+    int abortCount = 0;
+    Buffer value;
+    while (true) {
+        bool txSucceed = false;
+        do {
+            Transaction t(cluster);
+            for (int tableNum = 0; tableNum < numMasters; tableNum++) {
+                for (int i = 0; i < objsPerMaster; i++) {
+                    t.read(tableIds[tableNum], keys[tableNum][i],
+                           keyLength, &value);
+                }
+                for (int i = 0; i < writeOpPerMaster; i++) {
+                    t.write(tableIds[tableNum], keys[tableNum][i], keyLength,
+                             values[tableNum][i].getRange(0, dataLength),
+                             dataLength);
+                }
+            }
+            txSucceed = timedCommit(t, &elapsed, &cumulativeElapsed);
+            if (!txSucceed) {
+                abortCount++;
+            }
+
+            // Make sure decisions are sent.
+            t.sync();
+        } while (!txSucceed);
+
+        count++;
+        if (cumulativeElapsed >= runCycles)
+            break;
+    }
+    return Cycles::toSeconds(cumulativeElapsed)/count;
+}
+
 // This benchmark measures the transaction commit times for multiple
 // 100B objects with 30B keys on a single master server.
 void
@@ -2684,6 +2710,246 @@ transaction_oneMaster()
         printf("%10d %14d %14d %14d %14.1f %18.2f\n",
             numMasters*objsPerMaster, numMasters, objsPerMaster, objsPerMaster,
             1e06*latency, 1e06*latency/numMasters/objsPerMaster);
+    }
+}
+
+uint64_t
+doShuffleValues(int numIter, int selectivity, int numMasters, int objsPerMaster)
+{
+    uint64_t elapsed, cumulativeElapsed = 0;
+    int commitCount = 0, abortCount = 0;
+    int totalObjsSelected = 0;
+    int totalTxServerSpan = 0;
+
+
+    uint64_t* tableIds = getTableIds(numMasters);
+    const int keyLength = 4;
+    char keys[objsPerMaster][keyLength];
+
+    for (int i = 0; i < objsPerMaster; i++) {
+        snprintf(keys[i], keyLength, "%3d", i);
+    }
+
+    uint64_t runCycles = Cycles::fromSeconds(5);
+    uint64_t start = Cycles::rdtsc();
+    while (true) {
+        bool txSucceed = false;
+        if (Cycles::rdtsc() - start > runCycles) {
+            break;
+        }
+        int serverSpan = 0;
+        std::vector<std::pair<int, int> > workingSet;
+        RAMCLOUD_LOG(NOTICE, "Selecting objs.");
+        for (int tableNum = 0; tableNum < numMasters; tableNum++) {
+            bool serverSelected = false;
+            for (int i = 0; i < objsPerMaster; i++) {
+                if (generateRandom() % selectivity == 0) {
+                    workingSet.push_back(std::make_pair(tableNum, i));
+                    serverSelected = true;
+                }
+            }
+            if (serverSelected)
+                serverSpan++;
+        }
+        if (workingSet.size() < 2) {
+            continue;
+        }
+
+        RAMCLOUD_LOG(NOTICE, "Objs selected.");
+        do {
+            if (Cycles::rdtsc() - start > runCycles) {
+                break;
+            }
+            Transaction t(cluster);
+            int sum = 0;
+            int written = 0;
+
+            std::vector<std::pair<int, int> >::iterator it;
+            for (it = workingSet.begin(); it != workingSet.end(); ++it){
+                Buffer value;
+                t.read(tableIds[(*it).first], keys[(*it).second], keyLength,
+                       &value);
+                sum += *(value.getStart<int>());
+            }
+
+            it = workingSet.begin();
+            for (++it; it != workingSet.end(); ++it) {
+                int valToWrite = sum / downCast<int>(workingSet.size()) +
+                                 downCast<int>(generateRandom() % 21 - 10);
+                t.write(tableIds[(*it).first], keys[(*it).second], keyLength,
+                        &valToWrite, sizeof32(valToWrite));
+                written += valToWrite;
+            }
+
+            it = workingSet.begin();
+            int valToWrite = sum - written;
+            t.write(tableIds[(*it).first], keys[(*it).second], keyLength,
+                    &valToWrite, sizeof32(valToWrite));
+
+            RAMCLOUD_LOG(NOTICE, "Trying to commit. %zu objs selected.",
+                         workingSet.size());
+            txSucceed = timedCommit(t, &elapsed, &cumulativeElapsed);
+            t.sync();
+            if (txSucceed) {
+                commitCount++;
+            } else {
+                abortCount++;
+            }
+            totalTxServerSpan += serverSpan;
+            totalObjsSelected += downCast<int>(workingSet.size());
+            RAMCLOUD_LOG(NOTICE, "Commit() returned. %zu objs selected. "
+                         "Outcome:%d\n", workingSet.size(), txSucceed);
+        } while (!txSucceed);
+    }
+
+    double latency = Cycles::toSeconds(cumulativeElapsed) *1e06
+                     / (commitCount + abortCount);
+    RAMCLOUD_LOG(NOTICE, "Average latency: %.1fus", latency);
+
+    {
+        char key[30];
+        snprintf(key, sizeof(key), "abortCount %3d", clientIndex);
+        cluster->write(dataTable, key, (uint16_t)strlen(key),
+                       &abortCount, sizeof(abortCount));
+    } {
+        char key[30];
+        snprintf(key, sizeof(key), "commitCount %3d", clientIndex);
+        cluster->write(dataTable, key, (uint16_t)strlen(key),
+                       &commitCount, sizeof32(commitCount));
+    } {
+        char key[30];
+        snprintf(key, sizeof(key), "latency %3d", clientIndex);
+        cluster->write(dataTable, key, (uint16_t)strlen(key),
+                       &latency, sizeof32(latency));
+    } {
+        char key[30];
+        snprintf(key, sizeof(key), "serverSpan %3d", clientIndex);
+        cluster->write(dataTable, key, (uint16_t)strlen(key),
+                       &totalTxServerSpan, sizeof32(totalTxServerSpan));
+    } {
+        char key[30];
+        snprintf(key, sizeof(key), "objsSelected %3d", clientIndex);
+        cluster->write(dataTable, key, (uint16_t)strlen(key),
+                       &totalObjsSelected, sizeof32(totalObjsSelected));
+    }
+
+    return cumulativeElapsed;
+}
+
+// This benchmark measures test consistency guarantee of transaction
+// by several clients trasfer balances among many objects.
+void
+transaction_collision()
+{
+    int numMasters = 5;
+    const int numObjs = 20, keyLength = 4;
+    char keys[numObjs][keyLength];
+    int objsPerMaster = numObjs;
+
+    for (int i = 0; i < numObjs; i++) {
+        snprintf(keys[i], keyLength, "%3d", i);
+    }
+
+    if (clientIndex > 0) {
+        // Slaves execute the following code, which moves balances
+        // around objects.
+        while (true) {
+            char command[20];
+            getCommand(command, sizeof(command));
+            if (strcmp(command, "run") == 0) {
+                setSlaveState("running");
+
+                RAMCLOUD_LOG(NOTICE, "Strating shuffling test.");
+                doShuffleValues(20, 15, numMasters, objsPerMaster);
+                //setSlaveState("idle");
+                setSlaveState("done");
+                return;
+            }  else {
+                RAMCLOUD_LOG(ERROR, "unknown command %s", command);
+                return;
+            }
+        }
+    }
+
+    // The master executes the following code, which starts up zero or more
+    // slaves to generate load, then times the performance of reading.
+
+    uint64_t* tableIds = createTables(numMasters, 0, "0", 1);
+
+    int startingValue = 100;
+    for (int tableNum = 0; tableNum < numMasters; tableNum++) {
+        for (int i = 0; i < objsPerMaster; i++) {
+            cluster->write(tableIds[tableNum], keys[i], keyLength,
+                           &startingValue, sizeof32(startingValue));
+        }
+    }
+    printf("# RAMCloud transaction collision stress test\n");
+    printf("#----------------------------------------------------------\n");
+    printf("# Balances after all transactions\n");
+
+    sendCommand("run", NULL, 1, numClients-1);
+
+    for (int i = 1; i < numClients; i++) {
+        waitSlave(i, "done", 60);
+        RAMCLOUD_LOG(NOTICE, "slave %d is done.", i);
+    }
+
+    RAMCLOUD_LOG(NOTICE, "All slaves are done.");
+    int sum = 0;
+    for (int tableNum = 0; tableNum < numMasters; tableNum++) {
+        int localSum = 0;
+        printf("master %d | ", tableNum);
+        for (int i = 0; i < objsPerMaster; i++) {
+            Buffer value;
+            cluster->read(tableIds[tableNum], keys[i],
+                          keyLength, &value);
+            printf("%3d ", *(value.getStart<int>()));
+            sum += *(value.getStart<int>());
+            localSum += *(value.getStart<int>());
+        }
+        printf(" | row sum: %d\n", localSum);
+    }
+
+    printf("#------------------------------------------------------------\n");
+    printf("# Total sum: %d\n", sum);
+
+    printf("# clientID | # of commits | # of aborts | avg. serverSpan | "
+           "avg. objs | Avg. Latency (us) |\n");
+    printf("#------------------------------------------------------------\n");
+    for (int i = 1; i < numClients; ++i) {
+        char abortCountKey[20], commitCountKey[20], latencyKey[20],
+             serverSpanKey[20], objsSelectedKey[20];
+        snprintf(abortCountKey, sizeof(abortCountKey), "abortCount %3d", i);
+        Buffer value;
+        cluster->read(dataTable, abortCountKey, (uint16_t)strlen(abortCountKey),
+                      &value);
+        int aborts = *(value.getStart<int>());
+        value.reset();
+        snprintf(commitCountKey, sizeof(commitCountKey), "commitCount %3d", i);
+        cluster->read(dataTable, commitCountKey,
+                      (uint16_t)strlen(commitCountKey), &value);
+        int commits = *(value.getStart<int>());
+        snprintf(latencyKey, sizeof(latencyKey), "latency %3d", i);
+        value.reset();
+        cluster->read(dataTable, latencyKey,
+                      (uint16_t)strlen(latencyKey), &value);
+        double latency = *(value.getStart<double>());
+        value.reset();
+        snprintf(serverSpanKey, sizeof(serverSpanKey), "serverSpan %3d", i);
+        cluster->read(dataTable, serverSpanKey,
+                      (uint16_t)strlen(serverSpanKey), &value);
+        int totalServerSpan = *(value.getStart<int>());
+        value.reset();
+        snprintf(objsSelectedKey, sizeof(objsSelectedKey),
+                 "objsSelected %3d", i);
+        cluster->read(dataTable, objsSelectedKey,
+                      (uint16_t)strlen(objsSelectedKey), &value);
+        int totalObjsSelected = *(value.getStart<int>());
+        printf(" %9d | %12d | %11d | %15.2f | %9.2f | %6.1fus\n",
+               i, commits, aborts,
+               static_cast<double>(totalServerSpan) / (commits + aborts),
+               static_cast<double>(totalObjsSelected) / (commits + aborts),
+               latency);
     }
 }
 
@@ -3684,6 +3950,7 @@ TestInfo tests[] = {
     {"indexMultiple", indexMultiple},
     {"indexScalability", indexScalability},
     {"transaction_oneMaster", transaction_oneMaster},
+    {"transaction_collision", transaction_collision},
     {"multiWrite_oneMaster", multiWrite_oneMaster},
     {"multiRead_oneMaster", multiRead_oneMaster},
     {"multiRead_oneObjectPerMaster", multiRead_oneObjectPerMaster},
