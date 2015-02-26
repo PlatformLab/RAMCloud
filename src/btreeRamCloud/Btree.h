@@ -914,6 +914,10 @@ PRIVATE:
         // not to the keysBeginOffset
         KeyInfo rightMostLeafKey;
 
+        // True if this node is along the path to the rightmost/largest key
+        // in the Btree.
+        bool rightMostLeafKeyIsInfinite;
+
          /**
          * Constructs a new inner node specifying a Buffer to use as Key
          * Storage and a tree level for the Node.
@@ -931,6 +935,7 @@ PRIVATE:
             : Node(keyBuffer, level)
             , child()
             , rightMostLeafKey()
+            , rightMostLeafKeyIsInfinite(true)
         { }
 
 
@@ -950,10 +955,13 @@ PRIVATE:
             rightMostLeafKey.relOffset = keyBuffer->size() - entry.keyLength;
             rightMostLeafKey.keyLength = entry.keyLength;
             rightMostLeafKey.pkHash = entry.pKHash;
+
+            rightMostLeafKeyIsInfinite = false;
         }
 
         /**
-         * Retrieves the right most leaf key.
+         * Retrieves the right most leaf key; This entry is invalid if the
+         * rightMostLeafKeyIsInfinite bool is set.
          *
          * \return
          *      BtreeEntry signifying the rightmost leaf key.
@@ -987,7 +995,8 @@ PRIVATE:
          *      The NodeId pointer to the right of the entry.
          *
          */
-        inline void insertAt(uint16_t index, BtreeEntry entry, NodeId childId,
+        inline void
+        insertAt(uint16_t index, BtreeEntry entry, NodeId childId,
                                NodeId rightChild = INVALID_NODEID)
         {
             Node::insertAtEntryOnly(index, entry);
@@ -1025,7 +1034,8 @@ PRIVATE:
          *      to maintain the invariant of having 1 more child than entries.
          *
          */
-        inline BtreeEntry insertSplit(uint16_t insertIndex, BtreeEntry entry,
+        inline BtreeEntry
+        insertSplit(uint16_t insertIndex, BtreeEntry entry,
                                 InnerNode *emptyRightSibling, NodeId childId,
                                 NodeId rightChildId = INVALID_NODEID)
         {
@@ -1056,11 +1066,17 @@ PRIVATE:
             }
 
             // Migrate rightmost leaf key and set a new one for self.
-            BtreeEntry ret = Node::back();
-            emptyRightSibling->setRightMostLeafKey(getRightMostLeafKey());
-            setRightMostLeafKey(ret); //TODO(syang0) inefficient!
+            BtreeEntry back = Node::back();
+            if (!rightMostLeafKeyIsInfinite)
+                emptyRightSibling->setRightMostLeafKey(getRightMostLeafKey());
+
+            rightMostLeafKeyIsInfinite = false;
+            rightMostLeafKey.keyLength = back.keyLength;
+            rightMostLeafKey.pkHash = back.pKHash;
+            rightMostLeafKey.relOffset =
+                    keysBeginOffset + keys[slotuse - 1].relOffset;
             Node::pop_back();
-            return ret;
+            return back;
         }
 
         /**
@@ -1071,7 +1087,8 @@ PRIVATE:
          * \param index
          *      Index to remove between [0, slotuse] inclusive
          */
-        inline void eraseAt(uint16_t index) {
+        inline void
+        eraseAt(uint16_t index) {
             // Special case for inner nodes. Since inner nodes can have
             // n + 1 keys and n + 1 pointers, erasing the last pointer is
             // equivalent to promoting the nth pointer to the last pointer.
@@ -1103,7 +1120,8 @@ PRIVATE:
          * \return
          *      NodeId of the child at the index
          */
-        inline NodeId getChildAt(uint16_t index) const {
+        inline NodeId
+        getChildAt(uint16_t index) const {
           if (index > Node::slotuse) {
             DIE("Attempted to get a child at an index larger than slotuse");
           }
@@ -1119,7 +1137,7 @@ PRIVATE:
          * \param right
         *      right inner node sibling to balance with
          *
-         * \param inbetween TODO(syang0) We don't need inbetween if we save the righmost guy anyway..
+         * \param inbetween
          *      BtreeEntry to insert between the two nodes to maintain the
          *      one more child than entries invariant during the balance
          *
@@ -1127,7 +1145,8 @@ PRIVATE:
          *      this inner node's last entry removed during the balance process
          *      to maintain the one more child than entries invariant.
          */
-        inline BtreeEntry balanceWithRight(InnerNode *right, BtreeEntry inbetween) {
+        inline BtreeEntry
+        balanceWithRight(InnerNode *right, BtreeEntry inbetween) {
             uint16_t entriesToMove, childrenToMove;
             uint16_t nLeft = slotuse;
             uint16_t nRight = right->slotuse;
@@ -1166,10 +1185,13 @@ PRIVATE:
                 right->moveFrontEntriesToBackOf(this, entriesToMove);
             }
 
-            BtreeEntry ret = back();
-            setRightMostLeafKey(ret); //TODO(syang0) inefficient along with inbetween!
+            BtreeEntry back = Node::back();
+            rightMostLeafKey.keyLength = back.keyLength;
+            rightMostLeafKey.pkHash = back.pKHash;
+            rightMostLeafKey.relOffset =
+                    keysBeginOffset + keys[slotuse - 1].relOffset;
             Node::pop_back();
-            return ret;
+            return back;
         }
 
         /**
@@ -1183,7 +1205,8 @@ PRIVATE:
          *      BtreeEntry to insert between the two nodes to maintain the
          *      one more child than entries invariant during the merge
          */
-        inline void mergeIntoRight(InnerNode *right, BtreeEntry inbetween) {
+        inline void
+        mergeIntoRight(InnerNode *right, BtreeEntry inbetween) {
             Node::insertAtEntryOnly(slotuse, inbetween);
 
             memmove(&right->child[slotuse], &right->child[0],
@@ -1260,7 +1283,8 @@ PRIVATE:
          * \return
          *      std::string representing the node.
          */
-        virtual std::string toString() const {
+        virtual std::string
+        toString() const {
             std::ostringstream oStr;
             oStr << "Printing inner node\r\n";
             for (uint16_t slot = 0; slot < slotuse; ++slot) {
@@ -1269,8 +1293,13 @@ PRIVATE:
                         << e.toString() << "\r\n";
             }
 
-            oStr << "NodeId: " << child[slotuse] << " <== "
-                    << getRightMostLeafKey().toString() <<"\r\n";
+            oStr << "NodeId: " << child[slotuse] << " <== ";
+
+            if (rightMostLeafKeyIsInfinite)
+                oStr << "infinity\r\n";
+            else
+                oStr << getRightMostLeafKey().toString() <<"\r\n";
+
             return oStr.str();
         }
 
@@ -1283,7 +1312,8 @@ PRIVATE:
          * \param logLevel
          *      Log Level at which to print the node.
          */
-        virtual void printToLog(enum LogLevel logLevel) {
+        virtual void
+        printToLog(enum LogLevel logLevel) {
             RAMCLOUD_LOG(logLevel, "%s", toString().c_str());
         }
     };
@@ -1523,6 +1553,9 @@ PUBLIC:
             return key_greaterequal(n->back(), compareKey);
 
         InnerNode *inner = static_cast<InnerNode*>(n);
+        if (inner->rightMostLeafKeyIsInfinite)
+            return true;
+
         return key_greaterequal(inner->getRightMostLeafKey(), compareKey);
     }
 
@@ -1818,7 +1851,6 @@ PUBLIC:
     void
     insert(const BtreeEntry entry) {
         Buffer rootBuffer;
-
         if (nextNodeId == ROOT_ID) {
             LeafNode *root = rootBuffer.emplaceAppend<LeafNode>(&rootBuffer);
             root->insertAt(0, entry);
@@ -1838,7 +1870,6 @@ PUBLIC:
                         info.newChild,
                         info.newChildId,
                         info.rightSiblingId);
-                newRoot->setRightMostLeafKey(info.rightMostLeafKey);
                 writeNode(newRoot, ROOT_ID);
                 m_stats.innernodes++;
             }
@@ -2148,7 +2179,7 @@ PRIVATE:
 
         if (n->isinnernode()) {
             const InnerNode *innernode = static_cast<const InnerNode*>(n);
-            for (uint16_t slot = 0; slot < innernode->slotuse + 1; ++slot)
+            for (uint16_t slot = 0; slot <= innernode->slotuse; ++slot)
                 clear_recursive(innernode->getChildAt(slot));
         }
 
@@ -2229,9 +2260,6 @@ PRIVATE:
        * \param currChildId
        *      the NodeId of the left child node
        *
-       * \param rightSibLastEntry
-       *      rightmost leaf key contained within the right split of the subtree
-       *
        * \param rightSiblingId
        *      the NodeId of the right child node
        *
@@ -2240,8 +2268,7 @@ PRIVATE:
        *      should always be one more than this parameter.
        */
       void setSplit(BtreeEntry currLastEntry, NodeId currChildId,
-                BtreeEntry rightSibLastEntry, NodeId rightSiblingId,
-                uint16_t level) {
+                NodeId rightSiblingId, uint16_t level) {
         void *ptr;
         newChild.keyLength = currLastEntry.keyLength;
         newChild.pKHash = currLastEntry.pKHash;
@@ -2249,17 +2276,10 @@ PRIVATE:
         memcpy(ptr, currLastEntry.key, currLastEntry.keyLength);
         newChild.key = ptr;
 
-        rightMostLeafKey.keyLength = rightSibLastEntry.keyLength;
-        rightMostLeafKey.pKHash = rightSibLastEntry.pKHash;
-        ptr = keyBuffer.alloc(rightMostLeafKey.keyLength);
-        memcpy(ptr, rightSibLastEntry.key, rightSibLastEntry.keyLength);
-        rightMostLeafKey.key = ptr;
-
         newChildId = currChildId;
         this->rightSiblingId = rightSiblingId;
         childLevel = level;
         childSplit = true;
-        rightMostKeyUpdated = true; //TODO(syang0) expensive.. consider passing in bool
       }
 
 
@@ -2409,24 +2429,34 @@ PRIVATE:
         updateInfo->clear();
         insertDescend(inner->getChildAt(insertIndex), entry, updateInfo);
 
-        if (updateInfo->rightMostKeyUpdated) {
-            // Propagate only if it's the rightmost child.
-            if (insertIndex != inner->slotuse) {
+        // The right most leaf key has been updated on our descent.
+        // Integrate it if it's larger than our current entry for that slot
+        bool rightMostKeyUpdated = false;
+        if (updateInfo->rightMostKeyUpdated &&
+                !inner->rightMostLeafKeyIsInfinite) {
+            if (insertIndex < inner->slotuse) {
+                // The slot is not at the end, time to stop the propagation
                 updateInfo->rightMostKeyUpdated = false;
-                inner->setAt(insertIndex, updateInfo->rightMostLeafKey);
-            } else {
-                inner->setRightMostLeafKey(updateInfo->rightMostLeafKey);
-            }
 
-            if (!updateInfo->childSplit) {
-                writeNode(inner, currentId);
-                return;
+                if (key_less(inner->getAt(insertIndex),
+                        updateInfo->rightMostLeafKey)) {
+                    rightMostKeyUpdated = true;
+                    inner->setAt(insertIndex, updateInfo->rightMostLeafKey);
+                }
+            } else if (key_less(inner->getRightMostLeafKey(),
+                    updateInfo->rightMostLeafKey)){
+                rightMostKeyUpdated = true;
+                inner->setRightMostLeafKey(updateInfo->rightMostLeafKey);
             }
         }
 
-        // No split, so we're done.
-        if (!updateInfo->childSplit)
+        // No split, so we're done;
+        if (!updateInfo->childSplit) {
+            if (rightMostKeyUpdated)
+                writeNode(inner, currentId);
+
             return;
+        }
 
         if (!inner->isfull()) {
           inner->insertAt(insertIndex,
@@ -2435,9 +2465,6 @@ PRIVATE:
                   updateInfo->rightSiblingId);
           writeNode(inner, currentId);
           updateInfo->clear();
-
-          if (insertIndex == (inner->slotuse - 1))
-              updateInfo->rightMostKeyUpdated = true;
           return;
         }
 
@@ -2460,20 +2487,23 @@ PRIVATE:
 
         // In an inner split, the last entry in the lesser split will
         // migrate up to the parent.
-        updateInfo->setSplit(newLastEntry, leftId,
-                newRightSibling->getRightMostLeafKey(), rightId, inner->level);
+        updateInfo->setSplit(newLastEntry, leftId, rightId, inner->level);
+        if (!newRightSibling->rightMostLeafKeyIsInfinite)
+            updateInfo->setLastKeyUpdated(
+                                        newRightSibling->getRightMostLeafKey());
 
         writeNode(inner, leftId);
         writeNode(newRightSibling, rightId);
       } else {
         LeafNode *leaf = static_cast<LeafNode*>(n);
+
+        if (insertIndex == leaf->slotuse)
+            updateInfo->setLastKeyUpdated(entry);
+
         if (!leaf->isfull()) {
           leaf->insertAt(insertIndex, entry);
           writeNode(leaf, currentId);
           updateInfo->clear();
-
-          if (insertIndex == (leaf->slotuse - 1))
-              updateInfo->setLastKeyUpdated(entry);
 
           return;
         }
@@ -2495,8 +2525,8 @@ PRIVATE:
         NodeId rightId = (currentId == m_rootId) ? nextNodeId++ : currentId;
         NodeId leftId = nextNodeId++;
 
-        updateInfo->setSplit(leaf->back(), leftId, newRightSibling->back(),
-                rightId, leaf->level);
+        updateInfo->setSplit(leaf->back(), leftId, rightId, leaf->level);
+        updateInfo->setLastKeyUpdated(newRightSibling->back());
 
         // Adjust the leaf pointers and write
         newRightSibling->nextleaf = leaf->nextleaf;
@@ -2552,22 +2582,22 @@ PRIVATE:
         Buffer currentBuffer;
         Node *node = readNode(currentId, &currentBuffer);
         uint16_t slot = findEntryGE(node, key);
+        bool dirty = false;
 
         if (node->isLeaf())
         {
             // If key is out of range or not found, return without doing anything.
-            if (slot >= node->slotuse || !key_equal(key, node->getAt(slot))) {
+            if (slot >= node->slotuse || !key_equal(key, node->getAt(slot)))
                 return false;
-            }
 
             // Key Found
             LeafNode *currLeaf = static_cast<LeafNode*>(node);
             currLeaf->eraseAt(slot);
             m_stats.itemcount--;
+            dirty = true;
 
-            if (slot == currLeaf->slotuse && currentId != ROOT_ID) {
+            if (slot == currLeaf->slotuse && currentId != ROOT_ID)
                 info->setLastKey(currLeaf->back());
-            }
         }
         else
         {
@@ -2579,18 +2609,25 @@ PRIVATE:
             if (!success)
                 return false;
 
-            if (info->lastEntryUpdated) {
-                // If it's no longer at the end, then integrate it and clear.
+            // The right most leaf key has been updated on our descent.
+            // Integrate it if it's larger than our current entry for that slot
+            if (info->lastEntryUpdated && !inner->rightMostLeafKeyIsInfinite) {
                 if (slot < node->slotuse) {
-                    inner->setAt(slot, info->lastEntry);
                     info->lastEntryUpdated = false;
-                } else {
+                    if (key_less(inner->getAt(slot), info->lastEntry)) {
+                        inner->setAt(slot, info->lastEntry);
+                        dirty = true;
+                    }
+                } else if (key_less(inner->getRightMostLeafKey(),
+                                                            info->lastEntry)) {
                     inner->setRightMostLeafKey(info->lastEntry);
+                    dirty = true;
                 }
             }
 
             // Apply the updates from our children; The goal here is to apply
             // local and clear the local changes.
+            dirty |= (info->op < EraseUpdateInfo::noOp);
             uint16_t leftSlot = uint16_t(slot - 1);
             switch(info->op) {
                 case EraseUpdateInfo::setLeft:
@@ -2615,7 +2652,7 @@ PRIVATE:
 
         if (node->isunderflow() && !(currentId == m_rootId && node->slotuse >= 1)) {
             handleUnderflowAndWrite(node, currentId, parent, parentSlot, info);
-        } else {
+        } else if (dirty) {
             writeNode(node, currentId);
         }
 
@@ -2694,8 +2731,8 @@ PRIVATE:
             Node *right = readNode(rightId, &buffer);
 
             // Edge case where current key was updated in the current delete op
-            BtreeEntry currParentKey =
-                    (info->lastEntryUpdated) ? info->lastEntry : parent->getAt(parentSlot);
+            BtreeEntry currParentKey = (info->lastEntryUpdated)
+                    ? info->lastEntry : parent->getAt(parentSlot);
 
             if (right->isfew()) {
                 merge(curr, right, currParentKey);
@@ -2886,7 +2923,8 @@ PUBLIC:
         tree_stats vstats;
 
         if (nextNodeId > ROOT_ID) {
-            return verify_node(m_rootId, &minkey, &maxkey, &keyBuffer, vstats);
+            return verify_node(m_rootId, &minkey, &maxkey, &keyBuffer,
+                    vstats, true);
 
             if (checkStats) {
                 // Note, these will fail after recovery/migration
@@ -3271,7 +3309,11 @@ PRIVATE:
      *      Used to store the variable length keys of minkey/maxkey
      *
      * \param[out] vstats
-     *      The stats (such as # of items) for the subtree, calculated on descent
+     *      The stats (such as # of items) calculated for the subtree on descent
+     *
+     * \param nodeIsAlongRightMostPath
+     *      The node is situated along the path to the largest key in the tree.
+     *      Set to false if one is unsure.
      *
      * \return
      *      A human readable string specifying an error in the Btree.
@@ -3279,7 +3321,8 @@ PRIVATE:
      */
     string
     verify_node(NodeId nodeId, BtreeEntry *minkey, BtreeEntry *maxkey,
-                        Buffer *keyBuffer, tree_stats &vstats) const
+                        Buffer *keyBuffer, tree_stats &vstats,
+                        bool nodeIsAlongRightMostPath = false) const
     {
         Buffer buffer;
         std::ostringstream errors;
@@ -3325,17 +3368,29 @@ PRIVATE:
             const InnerNode *inner = static_cast<const InnerNode*>(n);
             vstats.innernodes++;
 
-            BtreeEntry rightmostLeafKey = inner->getRightMostLeafKey();
-            if (!key_lessequal(inner->back(), rightmostLeafKey)) {
-                errors << "Inner node ("
-                        << nodeId
-                        << ") rightmost leaf key variable "
-                        << rightmostLeafKey.toString()
-                        << " is not greater than or equal to the last key in "
-                        << "the node "
-                        << inner->getAt(uint16_t(n->slotuse - 1)).toString()
-                        << "\r\n";
-                return errors.str();
+            if (nodeIsAlongRightMostPath) {
+                if (!inner->rightMostLeafKeyIsInfinite) {
+                    errors << "Inner node ("
+                            << nodeId
+                            << ") is supposedly along the path to the largest"
+                            << " key in the tree, yet rightMostLeafKeyIsInfinte"
+                            << " is false."
+                            << "\r\n";
+                    return errors.str();
+                }
+            } else {
+                BtreeEntry rightmostLeafKey = inner->getRightMostLeafKey();
+                if (!key_lessequal(inner->back(), rightmostLeafKey)) {
+                    errors << "Inner node ("
+                            << nodeId
+                            << ") rightmost leaf key variable "
+                            << rightmostLeafKey.toString()
+                            << " is not greater than or equal to the last key"
+                            << " in the node "
+                            << inner->getAt(uint16_t(n->slotuse - 1)).toString()
+                            << "\r\n";
+                    return errors.str();
+                }
             }
 
             for(uint16_t slot = 0; slot <= inner->slotuse; ++slot) {
@@ -3354,8 +3409,11 @@ PRIVATE:
                     return errors.str();
                 }
 
+                bool isChildAlongRightMostPath =
+                        nodeIsAlongRightMostPath && (slot == inner->slotuse);
                 string errorsFromBelow =
-                    verify_node(subnodeId, &subminkey, &submaxkey, keyBuffer, vstats);
+                        verify_node(subnodeId, &subminkey, &submaxkey,
+                                keyBuffer, vstats, isChildAlongRightMostPath);
 
                 // Add our information the unwind
                 if (errorsFromBelow.length() > 0) {
@@ -3368,7 +3426,8 @@ PRIVATE:
 
                 if (slot == 0)
                     *minkey = subminkey;
-                else if (!key_greaterequal(subminkey, inner->getAt(uint16_t(slot - 1)))) {
+                else if (!key_greaterequal(subminkey,
+                                           inner->getAt(uint16_t(slot - 1)))) {
                     errors << "The key at slot " << slot << " of inner node "
                             << nodeId << " is not greater than the left most "
                             << "key in the subtree " << subminkey.toString()
@@ -3380,18 +3439,22 @@ PRIVATE:
                     *maxkey = submaxkey;
 
                     BtreeEntry rightmost = inner->getRightMostLeafKey();
-                    if (!key_equal(rightmost, submaxkey)) {
+                    if (!inner->rightMostLeafKeyIsInfinite &&
+                            !key_greaterequal(rightmost, submaxkey)) {
                         errors << "Inner Node " << nodeId << " rightmost key "
-                                << rightmost.toString() << " not equal "
+                                << rightmost.toString()
+                                << " not greater or equal to "
                                 << "to rightmost leaf key "
-                                << submaxkey.toString() << " at slot " << slot;
+                                << submaxkey.toString() << " at slot " << slot
+                                << "/r/n";
                         return errors.str();
                     }
                 } else {
-                    if (!key_equal(inner->getAt(slot), submaxkey)) {
+                    if (!key_greaterequal(inner->getAt(slot), submaxkey)) {
                         errors << "Inner Node " << nodeId << " key not equal "
                                 << "to rightmost leaf key "
-                                << submaxkey.toString() << " at slot " << slot;
+                                << submaxkey.toString() << " at slot " << slot
+                                << "/r/n";
                         return errors.str();
                     }
                 }
@@ -3423,11 +3486,10 @@ PRIVATE:
                     // verify leaf links between the adjacent inner nodes
                     Buffer firstBuffer, secondBuffer, thirdBuffer, fourthBuffer;
                     const InnerNode* lparent = static_cast<const InnerNode*>(
-                                                    readNode(
-                                                    inner->getChildAt(slot), &firstBuffer));
+                            readNode(inner->getChildAt(slot), &firstBuffer));
                     const InnerNode *rparent = static_cast<const InnerNode*>(
-                                                    readNode(
-                                                    inner->getChildAt(uint16_t(slot + 1)), &secondBuffer));
+                            readNode(inner->getChildAt(
+                                        uint16_t(slot + 1)), &secondBuffer));
 
                     NodeId leftId = lparent->getChildAt(lparent->slotuse);
                     NodeId rightId = rparent->getChildAt(0);

@@ -1343,6 +1343,7 @@ TEST_F(BtreeTest, clear) {
     EXPECT_EQ(0U, bt.m_stats.itemcount);
     EXPECT_EQ(0U, bt.m_stats.innernodes);
     EXPECT_EQ(0U, bt.m_stats.leaves);
+    EXPECT_EQ("", bt.verify());
 
     Buffer buffer;
     for(NodeId i = ROOT_ID; i < highestUsed; i++) {
@@ -1862,7 +1863,7 @@ TEST_F(BtreeTest, erase_one_level1Merge) {
 
 TEST_F(BtreeTest, erase_one_alot) {
     uint16_t slots = IndexBtree::innerslotmax;
-    uint32_t numEntries = static_cast<uint32_t>((slots*slots*slots/2)); //TODO(syang0) slots^3/2
+    uint32_t numEntries = static_cast<uint32_t>((slots*slots*slots/2));
 
     std::vector<BtreeEntry> entries;
     std::vector<std::string> entryKeys;
