@@ -42,6 +42,7 @@
 #include <boost/program_options.hpp>
 #include <boost/version.hpp>
 #include <iostream>
+#include <unordered_set>
 namespace po = boost::program_options;
 
 #include "assert.h"
@@ -79,6 +80,10 @@ static int count;
 // determine the number of bytes in each object.  -1 means the option
 // wasn't specified, so each test should pick an appropriate default.
 static int objectSize;
+
+// Value of the "--numObjects" command-line option: used by some tests to
+// determine the number of objects that should be part of a given operation.
+static int numObjects;
 
 // Value of the "--numTables" command-line option: used by some tests
 // to specify the number of tables to create.
@@ -3156,7 +3161,12 @@ transactionDistRandom()
     char key[keyLength];
     char value[objectSize];
 
-    fillTable(dataTable, numKeys, keyLength, objectSize);
+    std::vector<uint64_t> tableIds(numTables);
+    createTables(tableIds, 0, "0", 1);
+
+    for (int i = 0; i < numTables; i++) {
+        fillTable(tableIds.at(i), numKeys, keyLength, objectSize);
+    }
 
     // Issue the writes back-to-back, and save the times.
     std::vector<uint64_t> ticks;
@@ -3164,12 +3174,26 @@ transactionDistRandom()
     for (int i = 0; i < count; i++) {
         // We generate the random number separately to avoid timing potential
         // cache misses on the client side.
-        makeKey(downCast<int>(generateRandom() % numKeys), keyLength, key);
-        Util::genRandomString(value, objectSize);
+        std::unordered_set<int> keyIds;
+        while (keyIds.size() < static_cast<size_t>(numObjects)) {
+            int keyId = downCast<int>(generateRandom() % numKeys);
+            keyIds.insert(keyId);
+        }
+
         Transaction t(cluster);
-        Buffer buffer;
-        t.read(dataTable, key, keyLength, &buffer);
-        t.write(dataTable, key, keyLength, value, objectSize);
+
+        // Fill transaction.
+        int j = 0;
+        for (auto it = keyIds.begin(); it != keyIds.end(); it++) {
+            makeKey(*it, keyLength, key);
+            Util::genRandomString(value, objectSize);
+
+            Buffer buffer;
+            t.read(tableIds.at(j), key, keyLength, &buffer);
+            t.write(tableIds.at(j), key, keyLength, value, objectSize);
+            j = (j + 1) % numTables;
+        }
+
         // Do the benchmark
         uint64_t start = Cycles::rdtsc();
         t.commit();
@@ -4253,6 +4277,8 @@ try
                 "Total number of clients running")
         ("size,s", po::value<int>(&objectSize)->default_value(100),
                 "Size of objects (in bytes) to use for test")
+        ("numObjects", po::value<int>(&numObjects)->default_value(1),
+                "Number of object per operation to use for test")
         ("numTables", po::value<int>(&numTables)->default_value(10),
                 "Number of tables to use for test")
         ("testName", po::value<vector<string>>(&testNames),
