@@ -168,6 +168,10 @@ def run_test(
         client_args['--count'] = options.count
     if options.size != None:
         client_args['--size'] = options.size
+    if options.numObjects != None:
+        client_args['--numObjects'] = options.numObjects
+    if options.numTables != None:
+        client_args['--numTables'] = options.numTables
     if options.warmup != None:
         client_args['--warmup'] = options.warmup
     if options.numIndexlet != None:
@@ -280,6 +284,8 @@ def transactionDist(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '-t 2000'
     cluster_args['disjunct'] = True
+    if options.numTables == None:
+        client_args['--numTables'] = 1
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path,  flatten_args(client_args), name),
             **cluster_args)
@@ -512,6 +518,10 @@ if __name__ == '__main__':
             help='Number of hosts on which to run servers')
     parser.add_option('-s', '--size', type=int, default=100,
             help='Object size in bytes')
+    parser.add_option('--numObjects', type=int,
+            help='Number of objects per operation.')
+    parser.add_option('--numTables', type=int,
+            help='Number of tables involved.')
     parser.add_option('-t', '--timeout', type=int, default=30,
             metavar='SECS',
             help="Abort if the client application doesn't finish within "
