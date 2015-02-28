@@ -359,4 +359,75 @@ TEST_F(TransactionTest, write_afterCommit) {
                  TxOpAfterCommit);
 }
 
+TEST_F(TransactionTest, ReadOp_constructor_noCache) {
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    Key key(tableId1, "0", 1);
+    EXPECT_TRUE(task->findCacheEntry(key) == NULL);
+
+    Buffer value;
+    Transaction::ReadOp readOp(transaction.get(), tableId1, "0", 1, &value);
+    EXPECT_TRUE(readOp.rpc);
+}
+
+TEST_F(TransactionTest, ReadOp_constructor_cached) {
+    Key key(1, "test", 4);
+    EXPECT_TRUE(task->findCacheEntry(key) == NULL);
+
+    transaction->write(1, "test", 4, "hello", 5);
+
+    Buffer value;
+    Transaction::ReadOp readOp(transaction.get(), 1, "test", 4, &value);
+    EXPECT_FALSE(readOp.rpc);
+}
+
+TEST_F(TransactionTest, ReadOp_wait_async) {
+    uint32_t dataLength = 0;
+    const char* str;
+
+    // Makes sure that the point of the read is when wait is called.
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    Key key(tableId1, "0", 1);
+    EXPECT_TRUE(task->findCacheEntry(key) == NULL);
+
+    Buffer value;
+    Transaction::ReadOp readOp(transaction.get(), tableId1, "0", 1, &value);
+    EXPECT_TRUE(readOp.rpc);
+
+    transaction->write(tableId1, "0", 1, "hello", 5);
+
+    readOp.wait();
+    EXPECT_EQ("hello", string(reinterpret_cast<const char*>(
+                                value.getRange(0, value.size())),
+                                value.size()));
+
+    // Make sure the operations is still cached as a write.
+    ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(key);
+    EXPECT_TRUE(entry != NULL);
+    EXPECT_EQ(ClientTransactionTask::CacheEntry::WRITE, entry->type);
+    EXPECT_EQ(0U, entry->rejectRules.givenVersion);
+    str = reinterpret_cast<const char*>(
+            entry->objectBuf->getValue(&dataLength));
+    EXPECT_EQ("hello", string(str, dataLength));
+}
+
+TEST_F(TransactionTest, ReadOp_wait_afterCommit) {
+    // Makes sure that the point of the read is when wait is called.
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    Key key(tableId1, "0", 1);
+    EXPECT_TRUE(task->findCacheEntry(key) == NULL);
+
+    Buffer value;
+    Transaction::ReadOp readOp(transaction.get(), tableId1, "0", 1, &value);
+    EXPECT_TRUE(readOp.rpc);
+
+    transaction->commit();
+
+    EXPECT_THROW(readOp.wait(), TxOpAfterCommit);
+}
+
 }  // namespace RAMCloud

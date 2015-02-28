@@ -21,12 +21,11 @@
 #include <memory>
 
 #include "Common.h"
+#include "RamCloud.h"
 
 namespace RAMCloud {
 
-class Buffer;
 class ClientTransactionTask;
-class RamCloud;
 
 class Transaction {
   PUBLIC:
@@ -43,6 +42,28 @@ class Transaction {
 
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const void* buf, uint32_t length);
+
+
+    /**
+     * Encapsulates the state of a Transaction::read operation,
+     * allowing it to execute asynchronously.
+     */
+    class ReadOp {
+      public:
+        ReadOp(Transaction* transaction, uint64_t tableId, const void* key,
+                uint16_t keyLength, Buffer* value);
+        void wait();
+
+      PRIVATE:
+        Transaction* transaction;       /// Pointer to associated transaction.
+        uint64_t tableId;               /// TableId of object to be read.
+        Buffer keyBuf;                  /// Contains key of object to be read.
+        uint16_t keyLength;             /// Length of key of object to be read.
+        Buffer* value;                  /// Return value of the read.
+        ObjectBuffer buf;               /// Scratch buffer for read rpc.
+        Tub<ReadKeysAndValueRpc> rpc;   /// Read rpc use if no value is cached.
+        DISALLOW_COPY_AND_ASSIGN(ReadOp);
+    };
 
   PRIVATE:
     /// Overall client state information.
