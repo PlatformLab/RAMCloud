@@ -29,7 +29,6 @@
 #include "ObjectRpcWrapper.h"
 #include "RpcTracker.h"
 #include "ServerMetrics.h"
-#include "Transaction.h"
 
 #include "LogMetrics.pb.h"
 #include "ServerConfig.pb.h"

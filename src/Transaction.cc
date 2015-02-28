@@ -14,7 +14,6 @@
  */
 
 #include "ClientTransactionTask.h"
-#include "RamCloud.h"
 #include "Transaction.h"
 
 namespace RAMCloud {
@@ -120,38 +119,8 @@ void
 Transaction::read(uint64_t tableId, const void* key, uint16_t keyLength,
         Buffer* value)
 {
-    if (expect_false(commitStarted)) {
-        throw TxOpAfterCommit(HERE);
-    }
-
-    ClientTransactionTask* task = taskPtr.get();
-
-    Key keyObj(tableId, key, keyLength);
-    ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
-
-    if (entry == NULL) {
-        ObjectBuffer buf;
-        uint64_t version;
-        ramcloud->readKeysAndValue(
-                tableId, key, keyLength, &buf, NULL, &version);
-
-        uint32_t dataLength;
-        const void* data = buf.getValue(&dataLength);
-
-        entry = task->insertCacheEntry(tableId, buf.getKey(),
-                                       buf.getKeyLength(),
-                                       data, dataLength);
-        entry->type = ClientTransactionTask::CacheEntry::READ;
-        entry->rejectRules.givenVersion = version;
-        entry->rejectRules.versionNeGiven = true;
-    } else if (entry->type == ClientTransactionTask::CacheEntry::REMOVE) {
-        throw ObjectDoesntExistException(HERE);
-    }
-
-    uint32_t dataLength;
-    const void* data = entry->objectBuf->getValue(&dataLength);
-    value->reset();
-    value->appendCopy(data, dataLength);
+    ReadOp readOp(this, tableId, key, keyLength, value);
+    readOp.wait();
 }
 
 /**
@@ -230,6 +199,95 @@ Transaction::write(uint64_t tableId, const void* key, uint16_t keyLength,
     }
 
     entry->type = ClientTransactionTask::CacheEntry::WRITE;
+}
+
+/**
+ * Constructor for Transaction::ReadOp: initiates a read just like
+ * #Transaction::read, but returns once the operation has been initiated,
+ * without waiting for it to complete.  The operation is not consider part of
+ * the transaction until it is waited on.
+ *
+ * \param transaction
+ *      The Transaction object of which this operation is a part.
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param key
+ *      Variable length key that uniquely identifies the object within tableId.
+ *      It does not necessarily have to be null terminated.
+ * \param keyLength
+ *      Size in bytes of the key.
+ * \param[out] value
+ *      After a successful return, this Buffer will hold the
+ *      contents of the desired object - only the value portion of the object.
+ */
+Transaction::ReadOp::ReadOp(Transaction* transaction, uint64_t tableId,
+        const void* key, uint16_t keyLength, Buffer* value)
+    : transaction(transaction)
+    , tableId(tableId)
+    , keyBuf()
+    , keyLength(keyLength)
+    , value(value)
+    , buf()
+    , rpc()
+{
+    keyBuf.appendCopy(key, keyLength);
+
+    ClientTransactionTask* task = transaction->taskPtr.get();
+
+    Key keyObj(tableId, key, keyLength);
+    ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
+
+    // If no cache entry exists an rpc should be issued.
+    if (entry == NULL) {
+        rpc.construct(
+                transaction->ramcloud, tableId, key, keyLength, &buf);
+    }
+    // Otherwise we will just return it from cache when wait is called.
+}
+
+/**
+ * Wait for the operation to complete.  The operation is not part of the
+ * transaction until wait is called (e.g. if commit is called before wait,
+ * this operation will not be included).  Behavior when calling wait more than
+ * once is undefined.
+ */
+void
+Transaction::ReadOp::wait()
+{
+    if (expect_false(transaction->commitStarted)) {
+        throw TxOpAfterCommit(HERE);
+    }
+
+    ClientTransactionTask* task = transaction->taskPtr.get();
+
+    Key keyObj(tableId, keyBuf, 0, keyLength);
+    ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
+
+    if (entry == NULL) {
+        // If no entry exists in cache an rpc must have been issued.
+        assert(rpc);
+
+        uint64_t version;
+        rpc->wait(&version);
+
+        uint32_t dataLength;
+        const void* data = buf.getValue(&dataLength);
+
+        entry = task->insertCacheEntry(tableId, buf.getKey(),
+                                       buf.getKeyLength(),
+                                       data, dataLength);
+        entry->type = ClientTransactionTask::CacheEntry::READ;
+        entry->rejectRules.givenVersion = version;
+        entry->rejectRules.versionNeGiven = true;
+    } else if (entry->type == ClientTransactionTask::CacheEntry::REMOVE) {
+        throw ObjectDoesntExistException(HERE);
+    }
+
+    uint32_t dataLength;
+    const void* data = entry->objectBuf->getValue(&dataLength);
+    value->reset();
+    value->appendCopy(data, dataLength);
 }
 
 } // namespace RAMCloud
