@@ -220,6 +220,13 @@ TransportManager::initialize(const char* localServiceLocator)
 void
 TransportManager::flushSession(const string& serviceLocator)
 {
+    // If we're running on a server (i.e., multithreaded) must exclude
+    // other threads.
+    Tub<std::lock_guard<SpinLock>> lock;
+    if (isServer) {
+        lock.construct(mutex);
+    }
+
     TEST_LOG("flushing session for %s", serviceLocator.c_str());
     auto it = sessionCache.find(serviceLocator);
     if (it != sessionCache.end())
