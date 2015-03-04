@@ -497,7 +497,6 @@ class Cluster(object):
              if os.path.getsize(path) == 0:
                 os.remove(path)
            elif os.path.isdir(path):
-             print(path)
              try:
                 os.rmdir(path)
              except:
