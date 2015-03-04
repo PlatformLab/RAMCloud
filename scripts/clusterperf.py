@@ -308,6 +308,26 @@ def transactionDist(name, options, cluster_args, client_args):
           % (options.size, name))
     print_cdf_from_log()
 
+def transactionThroughput(name, options, cluster_args, client_args):
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '-t 2000'
+    if cluster_args['timeout'] < 250:
+        cluster_args['timeout'] = 250
+    if 'num_clients' not in cluster_args:
+        cluster_args['num_clients'] = len(hosts) - cluster_args['num_servers']
+    if cluster_args['num_clients'] < 2:
+        print("Not enough machines in the cluster to run the '%s' benchmark"
+                % name)
+        print("Need at least %d machines in this configuration" %
+                (cluster_args['num_servers'] + 2))
+        return
+    if options.numTables == None:
+        client_args['--numTables'] = 1
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
+    for i in range(1, cluster_args['num_clients'] + 1):
+        print(get_client_log(i), end='')
+
 def multiOp(name, options, cluster_args, client_args):
     if cluster_args['timeout'] < 100:
         cluster_args['timeout'] = 100
@@ -473,6 +493,7 @@ graph_tests = [
     Test("multiWrite_oneMaster", multiOp),
     Test("transaction_oneMaster", multiOp),
     Test("transactionDistRandom", transactionDist),
+    Test("transactionThroughput", transactionThroughput),
     Test("readDist", readDist),
     Test("readDistRandom", readDistRandom),
     Test("readLoaded", readLoaded),
