@@ -594,4 +594,4 @@ if __name__ == '__main__':
                 ["starting new cluster from scratch",
                  "Ping timeout to server"])
         if len(logInfo) > 0:
-            print(logInfo)
+            print(logInfo, file=sys.stderr)
