@@ -270,11 +270,13 @@ IndexLookup::isReady()
         }
 
         // Rule 8:
-        // Handle the completion of an readHashes RPC.
+        // Handle the completion of a readHashes RPC.
+        bool receivedReadHashes = false;
         if (readRpcs[i].status == SENT
                 && readRpcs[i].rpc->isReady()) {
+            receivedReadHashes = true;
             uint32_t numProcessedPKHashes =
-                readRpcs[i].rpc->wait(&readRpcs[i].numUnreadObjects);
+                    readRpcs[i].rpc->wait(&readRpcs[i].numUnreadObjects);
             readRpcs[i].offset = sizeof32(WireFormat::ReadHashes::Response);
             readRpcs[i].status = RESULT_READY;
             // Update objectFinder if no pKHashes got processed in a readRpc.
@@ -306,7 +308,8 @@ IndexLookup::isReady()
         // If all objects have been read by user, this RPC is free to be
         // reused.
         if (readRpcs[i].status == RESULT_READY
-            && readRpcs[i].numUnreadObjects == 0) {
+                && receivedReadHashes == false
+                && readRpcs[i].numUnreadObjects == 0) {
             readRpcs[i].status = FREE;
         }
     }
@@ -343,8 +346,9 @@ IndexLookup::isReady()
     }
 
     // Rule 14:
-    // If the next PKHash to be returned is in a SENT readRpc, wait until
-    // this readRpc returns.
+    // The next PKHash to be returned must be in a SENT readRpc.
+    // Return false to getNext() so that it has to wait until this readRpc
+    // returns.
     assert(readRpcs[readRpcId].status == SENT);
     return false;
 }
@@ -365,16 +369,14 @@ IndexLookup::isReady()
 bool
 IndexLookup::getNext()
 {
+    bool haveObjectToReturn = false;
     do {
-        // This is to check if the client has read some objects. If this is
-        // not the first key to call getNext(), we should mark the previous
-        // objects as read, and free corresponding buffers if necessary.
-        if (curIdx != RPC_ID_NOT_ASSIGNED)
-            readRpcs[curIdx].numUnreadObjects--;
-
         while (!isReady()) {
             ramcloud->clientContext->dispatch->poll();
         }
+
+        if (curIdx != RPC_ID_NOT_ASSIGNED)
+            readRpcs[curIdx].numUnreadObjects--;
 
         // If we have already reached the last object, and there
         // are no more objects to be read, return false.
@@ -382,10 +384,22 @@ IndexLookup::getNext()
             return false;
 
         curIdx = activeRpcIds[numRemoved & ARRAY_MASK];
+        if (readRpcs[curIdx].numUnreadObjects == 0) {
+            // If no more objects are unread (but there is an active PKHash
+            // corresponding to which no object was found, which is
+            // implied because we got here), then mark that PKHash as being
+            // removed before moving on with the next iteration.
+            numRemoved++;
+            // We're done with the current RPC Id. Reset so that next time
+            // through the loop, the numUnreadObjects corresponding to this
+            // RPC is no longer decremented.
+            curIdx = RPC_ID_NOT_ASSIGNED;
+            continue;
+        }
+
         Buffer& curBuff = readRpcs[curIdx].resp;
         uint32_t& curOffset = readRpcs[curIdx].offset;
-        // TODO(zhihao): possible information leakage. Consider use some other
-        // class to access the detailed contents of the RPC result.
+
         uint64_t version = *curBuff.getOffset<uint64_t>(curOffset);
         curOffset += sizeof32(uint64_t);
 
@@ -395,9 +409,13 @@ IndexLookup::getNext()
         curObj.construct(tableId, version, 0, curBuff, curOffset, length);
         curOffset += length;
 
-        // TODO(zhihao): (shouldn't move numRemoved on)
-        numRemoved++;
-    } while (!IndexKey::isKeyInRange(curObj.get(), &keyRange));
+        if (curObj->getPKHash() != activeHashes[numRemoved & ARRAY_MASK]) {
+            numRemoved++;
+        }
+
+        haveObjectToReturn = IndexKey::isKeyInRange(curObj.get(), &keyRange);
+
+    } while (!haveObjectToReturn);
 
     return true;
 }

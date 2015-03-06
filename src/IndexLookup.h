@@ -264,7 +264,7 @@ class IndexLookup {
 
     /// The total number of hashes that have been removed from activeHashes
     /// since client has invoked get_next() any number of times.
-    /// The next hash will be removed at index (numRemoved & ARRAY_MASK).
+    /// The next hash will be processed at index (numRemoved & ARRAY_MASK).
     size_t numRemoved;
 
     /// The total number of hashes that have been assigned to readRpc's.

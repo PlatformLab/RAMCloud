@@ -244,7 +244,7 @@ TEST_F(IndexLookupTest, isReady_assignPKHashesToSameServer) {
     EXPECT_EQ(IndexLookup::SENT, indexLookup.readRpcs[0].status);
 }
 
-// Adds bogus index entries for an object that shouldn't be in range query
+// Adds bogus index entries for an object that shouldn't be in range query.
 TEST_F(IndexLookupTest, getNext_filtering) {
     ramcloud.construct(&context, "mock:host=coordinator");
     uint64_t tableId = ramcloud->createTable("table");
@@ -284,7 +284,7 @@ TEST_F(IndexLookupTest, getNext_filtering) {
     IndexLookup indexLookup(ramcloud.get(), tableId, 1, "B", 1, "D", 1, 1000);
 
     uint32_t itemsReturned = 0;
-    while (indexLookup.getNext()){
+    while (indexLookup.getNext()) {
         itemsReturned++;
     }
     EXPECT_EQ(2U, itemsReturned);
