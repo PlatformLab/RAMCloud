@@ -159,10 +159,18 @@ class IndexBtree {
      *        the subtree NodeId pointer.
      */
 
-PRIVATE:
+PUBLIC:
+#if (TESTING == false)
     /// The maximum number of secondary key to primary key hash pairs that can
     /// be stored in a leaf node.
-    static const uint16_t leafslotmax =  8;
+    static const uint16_t leafslotmax = 16; // Do not set to 32 see RAM-715
+#else
+    /// Tests run exponentially slower as this value increases since tests need
+    /// to build a B+ tree at least 3 levels deep to reach all corner cases and
+    /// this value controls the fanout. Hence a smaller value is defined for
+    /// testing
+    static const uint16_t leafslotmax = 8;
+#endif
 
     /// The maximum number of secondary key to primary key hash pairs that can
     /// be stored in an inner node; It is the equal to leafslotmax, but it can
@@ -177,7 +185,8 @@ PRIVATE:
     /// inner node. The only node that can violate this invariant is the root
     static const uint16_t mininnerslots = (innerslotmax / 2);
 
-    //TODO(syang0) File a bug on commit. This appears to work for testing, but not in production....
+    //TODO(syang0) File a bug on commit. This appears to work for testing,
+    //but not in production....
     /// Debug parameter: Enables expensive and thorough checking of the B+ tree
     /// invariants after each insert/erase/find operation.
     static const bool selfverify = false;
@@ -186,7 +195,6 @@ PRIVATE:
     /// A value of false will result in linear searching instead.
     static const bool useBinarySearch = true;
 
-PUBLIC:
     /**
      * A small struct containing basic statistics about the B+ tree.
      */
@@ -1040,7 +1048,7 @@ PRIVATE:
                                 NodeId rightChildId = INVALID_NODEID)
         {
             assert(emptyRightSibling->slotuse == 0);
-            assert(slotuse == 8);
+            assert(isfull());
 
             uint16_t half = uint16_t(slotuse >> 1);
             // When an inner_node splits, the left split has to erase
@@ -1850,8 +1858,8 @@ PUBLIC:
      */
     void
     insert(const BtreeEntry entry) {
-        Buffer rootBuffer;
         if (nextNodeId == ROOT_ID) {
+            Buffer rootBuffer;
             LeafNode *root = rootBuffer.emplaceAppend<LeafNode>(&rootBuffer);
             root->insertAt(0, entry);
             writeNode(root, ROOT_ID);
@@ -1863,6 +1871,7 @@ PUBLIC:
 
             // Root node was split
             if (info.childSplit) {
+                Buffer rootBuffer;
                 uint16_t rootLevel = uint16_t(info.getChildLevel() + 1);
                 InnerNode *newRoot =
                         rootBuffer.emplaceAppend<InnerNode>(&rootBuffer, rootLevel);

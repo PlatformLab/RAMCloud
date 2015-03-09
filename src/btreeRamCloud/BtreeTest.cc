@@ -331,7 +331,7 @@ TEST_F(BtreeTest, node_toString_printToLog) {
     std::vector<BtreeEntry> entries;
     generateKeysInRange(0, IndexBtree::innerslotmax/2, keys, entries);
 
-    for (uint16_t i = 0; i < IndexBtree::innerslotmax/2; ++i)
+    for (uint16_t i = 0; i < 4; ++i)
         n->insertAt(i, entries[i]);
 
     EXPECT_STREQ("Printing leaf node\r\n"
@@ -770,6 +770,7 @@ TEST_F(BtreeTest, InnerNode_insertSplit) {
     uint16_t slots = IndexBtree::innerslotmax;
     uint16_t numEntries = uint16_t(slots + 1);
 
+    BtreeEntry read, correct;
     std::vector<BtreeEntry> entries;
     std::vector<std::string> entryKeys;
     generateKeysInRange(0, numEntries, entryKeys, entries);
@@ -779,17 +780,23 @@ TEST_F(BtreeTest, InnerNode_insertSplit) {
     n1 = b1.emplaceAppend<IndexBtree::InnerNode>(&b1, uint16_t(10));
     n2 = b2.emplaceAppend<IndexBtree::InnerNode>(&b2, uint16_t(10));
 
-    for (uint16_t i = 0; i < slots; i++) {
+    for (uint16_t i = 0; i < slots; i++)
         n1->insertAt(i, entries[i], i, i + 1);
-    }
 
     uint16_t half = uint16_t(slots >> 1);
-    BtreeEntry splitPoint = n1->insertSplit(uint16_t(8), entries[8], n2, 8, 9);
+    BtreeEntry splitPoint =
+            n1->insertSplit(slots, entries[slots], n2, slots, slots + 1);
     EXPECT_EQ(half, n1->slotuse);
     EXPECT_EQ(numEntries - half - 1, n2->slotuse);
 
     for (uint16_t i = 0; i < uint16_t (half); i++) {
-        EXPECT_EQ(entries[i], n1->getAt(i));
+        correct = entries[i];
+        read = n1->getAt(i);
+        EXPECT_STREQ(
+                string((const char*)correct.key, correct.keyLength).c_str(),
+                string((const char*)read.key, read.keyLength).c_str());
+        EXPECT_EQ(correct.pKHash, read.pKHash);
+        ASSERT_EQ(correct, read);
         EXPECT_EQ(i, n1->getChildAt(i));
         EXPECT_EQ(uint16_t(i + 1), n1->getChildAt(uint16_t(i + 1)));
     }
@@ -797,27 +804,38 @@ TEST_F(BtreeTest, InnerNode_insertSplit) {
     EXPECT_EQ(entries[half], splitPoint);
 
     for (uint16_t i = uint16_t(half + 1); i < numEntries; i++) {
-        EXPECT_EQ(entries[i], n2->getAt(uint16_t(i - half - 1)));
+        correct = entries[i];
+        read = n2->getAt(uint16_t(i - half - 1));
+        EXPECT_STREQ(
+                string((const char*)correct.key, correct.keyLength).c_str(),
+                string((const char*)read.key, read.keyLength).c_str());
+        EXPECT_EQ(correct.pKHash, read.pKHash);
+        ASSERT_EQ(correct, read);
         EXPECT_EQ(i, n2->getChildAt(uint16_t(i - half - 1)));
         EXPECT_EQ(uint16_t(i + 1), n2->getChildAt(uint16_t(i - half)));
     }
 
-    // Try an uneven split
+    // Try a left heavy split by making the last insert at the front
     b1.reset(); b2.reset();
     n1 = b1.emplaceAppend<IndexBtree::InnerNode>(&b1, uint16_t(10));
     n2 = b2.emplaceAppend<IndexBtree::InnerNode>(&b2, uint16_t(10));
 
-    for (uint16_t i = 0; i < slots; i++) {
-        n1->insertAt(i, entries[i], i, i + 1);
+    for (uint16_t i = 1; i <= slots; i++) {
+        n1->insertAt(uint16_t(i - 1), entries[i], i, uint16_t(i + 1));
     }
 
     half = uint16_t((slots >> 1) + 1);
-    n1->insertSplit(uint16_t(8), entries[8], n2, 8, 9);
+    n1->insertSplit(0, entries[0], n2, 0, 1);
     EXPECT_EQ(half - 1, n1->slotuse);
     EXPECT_EQ(numEntries - half, n2->slotuse);
 
     for (uint16_t i = 0; i < uint16_t (half - 1); i++) {
-        EXPECT_EQ(entries[i], n1->getAt(i));
+        correct = entries[i];
+        read = n1->getAt(i);
+        EXPECT_STREQ(
+                string((const char*)correct.key, correct.keyLength).c_str(),
+                string((const char*)read.key, read.keyLength).c_str());
+        EXPECT_EQ(correct.pKHash, read.pKHash);
         EXPECT_EQ(i, n1->getChildAt(i));
         EXPECT_EQ(uint16_t(i + 1), n1->getChildAt(uint16_t(i + 1)));
     }
@@ -838,9 +856,8 @@ TEST_F(BtreeTest, innerNode_eraseAt) {
     IndexBtree::InnerNode *n =
             buffer.emplaceAppend<IndexBtree::InnerNode>(&buffer, uint16_t(10));
 
-    for (uint16_t i = 0; i < IndexBtree::innerslotmax; i++) {
+    for (uint16_t i = 0; i < IndexBtree::innerslotmax; i++)
         n->insertAt(i, entries[i], uint16_t(i + 10), uint16_t(i + 11));
-    }
 
     // Erase in the middle and check everything is okay
     n->eraseAt(1);
@@ -878,7 +895,8 @@ TEST_F(BtreeTest, innerNode_eraseAt) {
     // Erase near end and check that everything is okay
     n->eraseAt(IndexBtree::innerslotmax - 3);
     EXPECT_EQ(n->slotuse, IndexBtree::innerslotmax - 3);
-    EXPECT_EQ(uint16_t(18), n->getChildAt(n->slotuse));
+    EXPECT_EQ(uint16_t(IndexBtree::innerslotmax + 10),
+                                                    n->getChildAt(n->slotuse));
     for (uint16_t i = 2; i < IndexBtree::innerslotmax - 1; i++) {
         BtreeEntry toVerify = n->getAt((uint16_t)(i - 2));
         EXPECT_EQ(uint16_t(i + 10), n->getChildAt(uint16_t(i - 2)));
@@ -890,7 +908,7 @@ TEST_F(BtreeTest, innerNode_eraseAt) {
 
     // Erase AT end and check that last child is properly updated;
     n->eraseAt(n->slotuse);
-    EXPECT_EQ(uint16_t(16), n->getChildAt(n->slotuse));
+    EXPECT_EQ(uint16_t(IndexBtree::innerslotmax +8), n->getChildAt(n->slotuse));
 }
 
 TEST_F(BtreeTest, writeReadFreeNode) {
@@ -1268,7 +1286,7 @@ TEST_F(BtreeTest, InnerNode_toString_printToLog) {
     std::vector<BtreeEntry> entries;
     generateKeysInRange(0, IndexBtree::innerslotmax/2, keys, entries, 10);
 
-    for (uint16_t i = 0; i < IndexBtree::innerslotmax/2; ++i)
+    for (uint16_t i = 0; i < 4; ++i)
         n->insertAt(i, entries[i], i + 10, i + 11);
 
     n->setRightMostLeafKey({"Yello Cah", 1337});
@@ -1303,7 +1321,7 @@ TEST_F(BtreeTest, isGreaterOrEqual_nodeOnly) {
     uint32_t numEntries = IndexBtree::innerslotmax + 1;
     std::vector<BtreeEntry> entries;
     std::vector<std::string> entryKeys;
-    generateKeysInRange(0, numEntries, entryKeys, entries);
+    generateKeysInRange(0, numEntries, entryKeys, entries, 4);
 
     uint16_t i = 0;
     for (; i < IndexBtree::innerslotmax; i++)
@@ -1766,7 +1784,7 @@ TEST_F(BtreeTest, erase_one_rootOnly) {
     // Fill up the root and erase
     std::vector<std::string> keys;
     std::vector<BtreeEntry> entries;
-    generateKeysInRange(0, IndexBtree::innerslotmax, keys, entries);
+    generateKeysInRange(0, IndexBtree::innerslotmax, keys, entries, 4);
     for(uint16_t i = 0; i < IndexBtree::innerslotmax; i++) {
         bt.insert(entries[i]);
     }
