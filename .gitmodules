@@ -1,3 +1,4 @@
 [submodule "gtest"]
 	path = gtest
-	url = git://github.com/PlatformLab/gtest.git
+    # relative URL, usually goes to https://github.com/PlatformLab/gtest.git
+	url = ../gtest.git
