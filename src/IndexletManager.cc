@@ -13,9 +13,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "Cycles.h"
 #include "IndexletManager.h"
 #include "StringUtil.h"
 #include "Util.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -645,17 +647,20 @@ IndexletManager::lookupIndexKeys(
     // This will cause a crash in the tree module
 
     respHdr->numHashes = 0;
-
-    while (iter != iterEnd &&
-           IndexKey::keyCompare(lastKey, reqHdr->lastKeyLength,
-                        iter->key,
-                        iter->keyLength) >= 0) {
+    while (iter != iterEnd) {
+        BtreeEntry currEntry = *iter;
+        if (IndexKey::keyCompare(lastKey, reqHdr->lastKeyLength,
+                        currEntry.key,
+                        currEntry.keyLength) < 0)
+        {
+            break;
+        }
 
         if (respHdr->numHashes < reqHdr->maxNumHashes) {
             // Can alternatively use iter.data() instead of iter.key().pKHash,
             // but we might want to make data NULL in the future, so might
             // as well use the pKHash from key right away.
-            rpc->replyPayload->emplaceAppend<uint64_t>(iter->pKHash);
+            rpc->replyPayload->emplaceAppend<uint64_t>(currEntry.pKHash);
             respHdr->numHashes += 1;
             ++iter;
         } else {

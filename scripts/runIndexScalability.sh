@@ -4,13 +4,13 @@ echo "# numIndexlets  throughput(klookups/sec)"
 echo "#-----------------------------------------------"
 
 # set TOTAL = total number of servers in config file
-(( TOTAL=19 ))
+(( TOTAL=65 ))
 
 # set MIN = minimum number of indexlets
 (( MIN_INDEXLET=1 ))
 
 # set MAX = maximum number of indexlets
-(( MAX_INDEXLET=10 ))
+(( MAX_INDEXLET=30 ))
 
 for (( i=$MIN_INDEXLET; i<=$MAX_INDEXLET; i++ )) do
 
@@ -20,14 +20,25 @@ for (( i=$MIN_INDEXLET; i<=$MAX_INDEXLET; i++ )) do
   # Currently clients are set to occupy the remaining servers. To increase the number
   # of clients, increase the number of hosts in config file.
   (( CLIENTS=TOTAL-SERVERS ))
+  if (( CLIENTS > 30))
+  then
+    ((CLIENTS = 30))
+  else
+    echo "Not enough servers allocated for the task. Please looking inside this script and modify the constants."
+    exit
+  fi
+
+  # Give some time for the cluster to rest
+  sleep 10
 
   # run clusterperf on for i indexlets
   scripts/clusterperf.py -i $i -n $CLIENTS --servers=$SERVERS indexScalability > /dev/null
 
   # extract max thoroughput for i indexlets
-  grep -v '^#' logs/latest/client0* | grep -v '/.' | awk -v var="$i" '$2>x{x=$2};END{print "\t"var"\t\t"  x}'
+  grep -v '^#' logs/latest/client1\.* | grep -v '/.' | awk -v var="$i" '$2>x{x=$2};END{print "\t"var"\t\t"  x}'
 
   # move latest dir to "i" dir in logs
+  rm logs/$i 2>/dev/null
   mv logs/latest logs/$i
 
 done
