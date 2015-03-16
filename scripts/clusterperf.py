@@ -128,6 +128,40 @@ def print_cdf_from_log(
     print("%8.2f    %9.4f" % (numbers[int(len(numbers)*9999/10000)], .9999))
     print("%8.2f    %8.3f" % (numbers[-1], 1.0))
 
+def print_rcdf_from_log(
+        index = 1                 # Client index (1 for first client,
+                                  # which is usually the one that's wanted)
+        ):
+    """
+    Given the index of a client, print in gnuplot format a reverse cumulative
+    distribution of the data in the client's log file (where "data" consists
+    of comma-separated numbers stored in all of the lines of the log file
+    that are not RAMCloud log messages). Each line in the printed output
+    will contain a fraction and a number, such that the given fraction of all
+    numbers in the log file have values less than or equal to the given number.
+    """
+
+    # Read the log file into an array of numbers.
+    numbers = []
+    globResult = glob.glob('%s/latest/client%d*.log' %
+            (options.log_dir, index))
+    if len(globResult) == 0:
+        raise Exception("couldn't find log file for client %d" % (index))
+    result = "";
+    for line in open(globResult[0], 'r'):
+        if not re.match('([0-9]+\.[0-9]+) ', line):
+            for value in line.split(","):
+                numbers.append(float(value))
+
+    # Generate a RCDF from the array.
+    numbers.sort()
+    result = []
+    print("%8.2f    %11.6f" % (numbers[0], 1.0))
+    for i in range(1, len(numbers)-1):
+        if (numbers[i] != numbers[i-1] or numbers[i] != numbers[i+1]):
+            print("%8.2f    %11.6f" % (numbers[i], 1-(i/len(numbers))))
+    print("%8.2f    %11.6f" % (numbers[-1], 1/len(numbers)))
+
 def run_test(
         test,                     # Test object describing the test to run.
         options                   # Command-line options.
@@ -314,7 +348,10 @@ def transactionDist(name, options, cluster_args, client_args):
           "# Time (usec)  Cum. Fraction\n"
           "#---------------------------"
           % (options.size, name))
-    print_cdf_from_log()
+    if (options.rcdf):
+        print_rcdf_from_log()
+    else:
+        print_cdf_from_log()
 
 def transactionThroughput(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
@@ -585,6 +622,9 @@ if __name__ == '__main__':
             help='Number of indexlets for measuring index scalability ')
     parser.add_option('-k', '--numIndexes', type=int,
             help='Number of secondary keys/object to measure index operations')
+    parser.add_option('--rcdf', action='store_true', default=False,
+            dest='rcdf',
+            help='Output reverse CDF data instead.')
     (options, args) = parser.parse_args()
 
     # Invoke the requested tests (run all of them if no tests were specified)
