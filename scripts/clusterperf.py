@@ -503,6 +503,7 @@ graph_tests = [
     Test("transaction_oneMaster", multiOp),
     Test("transactionDistRandom", transactionDist),
     Test("transactionThroughput", transactionThroughput),
+    Test("transactionContention", transactionThroughput),
     Test("readDist", readDist),
     Test("readDistRandom", readDistRandom),
     Test("readLoaded", readLoaded),
