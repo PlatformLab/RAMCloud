@@ -421,7 +421,8 @@ def readRandom(name, options, cluster_args, client_args):
             (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
-# This method is also used for multiReadThroughput
+# This method is also used for multiReadThroughput and
+# linearizableWriteThroughput
 def readThroughput(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '-t 2000'
@@ -514,7 +515,9 @@ graph_tests = [
     Test("writeVaryingKeyLength", default),
     Test("writeDist", writeDist),
     Test("writeDistRandom", writeDist),
+    Test("writeThroughput", readThroughput),
     Test("linearizableWriteDistRandom", writeDist),
+    Test("linearizableWriteThroughput", readThroughput),
 ]
 
 if __name__ == '__main__':
