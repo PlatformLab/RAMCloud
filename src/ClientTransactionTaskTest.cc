@@ -518,6 +518,25 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcs_unknownTablet) {
     EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
 }
 
+TEST_F(ClientTransactionTaskTest, processDecisionRpcs_failed) {
+    // Must make sure the object exists before we try to transaction on it.
+    ramcloud->write(tableId1, "test", 4, "hello", 5);
+
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendDecisionRpc();
+    // Fail the rpc.
+    transactionTask->decisionRpcs.begin()->failed();
+
+    EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
+    TestLog::reset();
+    transactionTask->processDecisionRpcs();
+    EXPECT_EQ("flushSession: flushing session for mock:host=master1 | "
+              "processDecisionRpcs: FAILED", TestLog::get());
+    EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
+}
+
 TEST_F(ClientTransactionTaskTest, processDecisionRpcs_notReady) {
     // Must make sure the object exists before we try to transaction on it.
     ramcloud->write(tableId1, "test", 4, "hello", 5);
@@ -596,6 +615,25 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_unknownTablet) {
     TestLog::reset();
     transactionTask->processPrepareRpcs();
     EXPECT_EQ("processPrepareRpcs: STATUS_UNKNOWN_TABLET", TestLog::get());
+    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
+}
+
+TEST_F(ClientTransactionTaskTest, processPrepareRpcs_failed) {
+    ramcloud->write(tableId1, "test", 4, "hello", 5);
+
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+    // Fail the rpc.
+    transactionTask->prepareRpcs.begin()->failed();
+
+    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    TestLog::reset();
+    transactionTask->processPrepareRpcs();
+    EXPECT_EQ("flushSession: flushing session for mock:host=master1 | "
+              "processPrepareRpcs: FAILED", TestLog::get());
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 }
 

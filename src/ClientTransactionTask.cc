@@ -208,12 +208,15 @@ ClientTransactionTask::processDecisionRpcs()
             continue;
         }
 
-        if (rpc->responseHeader->status == STATUS_OK) {
+        if (rpc->getState() == rpc->FAILED) {
+            // Nothing to do.  Will be retried.
+            TEST_LOG("FAILED");
+        } else if (rpc->responseHeader->status == STATUS_OK) {
             TEST_LOG("STATUS_OK");
             for (uint32_t i = 0; i < rpc->reqHdr->participantCount; i++)
                 ramcloud->rpcTracker.rpcFinished(rpc->ops[i]->second.rpcId);
         } else if (rpc->responseHeader->status == STATUS_UNKNOWN_TABLET) {
-            // Nothing to do.
+            // Nothing to do.  Will be retried.
             TEST_LOG("STATUS_UNKNOWN_TABLET");
         } else {
             ClientException::throwException(HERE, rpc->responseHeader->status);
@@ -240,14 +243,17 @@ ClientTransactionTask::processPrepareRpcs()
             continue;
         }
 
-        if (rpc->responseHeader->status == STATUS_OK) {
+        if (rpc->getState() == rpc->FAILED) {
+            // Nothing to do.  Will be retried.
+            TEST_LOG("FAILED");
+        } else if (rpc->responseHeader->status == STATUS_OK) {
             WireFormat::TxPrepare::Response* respHdr =
                     rpc->response->getStart<WireFormat::TxPrepare::Response>();
             if (respHdr->vote != WireFormat::TxPrepare::COMMIT) {
                 decision = WireFormat::TxDecision::ABORT;
             }
         } else if (rpc->responseHeader->status == STATUS_UNKNOWN_TABLET) {
-            // Nothing to do.
+            // Nothing to do.  Will be retried.
             TEST_LOG("STATUS_UNKNOWN_TABLET");
         } else {
             ClientException::throwException(HERE, rpc->responseHeader->status);
