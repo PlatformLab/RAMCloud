@@ -199,8 +199,9 @@ WorkerTimer::Manager::~Manager()
 void
 WorkerTimer::Manager::handleTimerEvent()
 {
-    // Just wake up the worker thread.
-    Lock _(WorkerTimer::mutex);
+    // There used to be a WorkerTimer::mutex here, but it is not necessary to
+    // hold a lock and it causes deadlock between dispatch thread and the
+    // WorkerTimer thread.  Just wake up the worker thread.
     WorkerTimer::timerExpired.notify_one();
 }
 
