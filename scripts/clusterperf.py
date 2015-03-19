@@ -504,7 +504,10 @@ def writeDist(name, options, cluster_args, client_args):
           "# Time (usec)  Cum. Fraction\n"
           "#---------------------------"
           % (options.size, name))
-    print_cdf_from_log()
+    if (options.rcdf):
+        print_rcdf_from_log()
+    else:
+        print_cdf_from_log()
 
 #-------------------------------------------------------------------
 #  End of driver functions.
