@@ -3910,7 +3910,7 @@ transactionThroughput()
             sendMetrics(0.0);
             ClientMetrics metrics;
             getMetrics(metrics, numSlaves+1);
-            printf("%5d         %8.0f\n", numSlaves, sum(metrics[0])/1e3);
+            printf("%5d         %8.3f\n", numSlaves, sum(metrics[0])/1e3);
         }
         sendCommand("stop", "stopped", 1, numClients - 1);
 
@@ -4035,7 +4035,7 @@ transactionContention()
             sendMetrics(0.0, 0.0);
             ClientMetrics metrics;
             getMetrics(metrics, numSlaves+1);
-            printf("%5d         %8.0f        %8.0f\n",
+            printf("%5d         %8.3f        %8.3f\n",
                     numSlaves, sum(metrics[0])/1e3, sum(metrics[1])/1e3);
         }
         sendCommand("stop", "stopped", 1, numClients - 1);
@@ -4067,6 +4067,7 @@ transactionContention()
     setSlaveState("done");
 
     bool committed = true;
+    std::unordered_set<int> keyIds;
 
     while (true) {
         getCommand(command, sizeof(command), false);
@@ -4095,19 +4096,28 @@ transactionContention()
         }
 
         // If the last transaction committed the next one will be a new one.
+        // Otherwise, the transaction should retry.
         if (committed) {
-            makeKey(downCast<int>(generator.nextNumber()), keyLength, key);
+            keyIds.clear();
+            while (keyIds.size() < static_cast<size_t>(numObjects)) {
+                int keyId = downCast<int>(generator.nextNumber());
+                keyIds.insert(keyId);
+            }
         }
+
 
         Transaction t(cluster);
 
         // Fill transaction.
-        for (auto it = tableIds.begin(); it != tableIds.end(); it++) {
+        int j = 0;
+        for (auto it = keyIds.begin(); it != keyIds.end(); it++) {
+            makeKey(*it, keyLength, key);
             Util::genRandomString(value, objectSize);
 
             Buffer buffer;
-            t.read(*it, key, keyLength, &buffer);
-            t.write(*it, key, keyLength, value, objectSize);
+            t.read(tableIds.at(j), key, keyLength, &buffer);
+            t.write(tableIds.at(j), key, keyLength, value, objectSize);
+            j = (j + 1) % numTables;
         }
 
         // Do the benchmark
@@ -5027,7 +5037,7 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
         double utilization = static_cast<double>(finishStats.activeCycles -
                 startStats.activeCycles) / static_cast<double>(
                 finishStats.collectionTime - startStats.collectionTime);
-        printf("%5d         %8.0f        %8.3f\n", numSlaves, rate/1e03,
+        printf("%5d         %8.2f        %8.3f\n", numSlaves, rate/1e03,
                 utilization);
     }
     cluster->objectServerControl(dataTable, "abc", 3,
