@@ -88,7 +88,7 @@ class RpcTracker {
      * For fast indexing in window (using ANDing), the size should be always
      * a power of two.
      */
-    static const int windowSize = 128;
+    static const int windowSize = 512;
 
     /**
      * Bitmask to calculate index in rpcs array from rpcId.

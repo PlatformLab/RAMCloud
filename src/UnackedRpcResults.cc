@@ -29,7 +29,7 @@ namespace RAMCloud {
 UnackedRpcResults::UnackedRpcResults(Context* context)
     : clients(20)
     , mutex()
-    , default_rpclist_size(5)
+    , default_rpclist_size(50)
     , context(context)
     , cleaner(this)
 {}
@@ -440,7 +440,8 @@ UnackedRpcResults::Client::updateResult(uint64_t rpcId, void* result) {
  */
 void
 UnackedRpcResults::Client::resizeRpcs(int increment) {
-    int newLen = len + increment;
+    //int newLen = len + increment;
+    int newLen = len * 2;
     UnackedRpc* to = new UnackedRpc[newLen](); //initialize with <0, NULL>
 
     for (int i = 0; i < len; ++i) {
