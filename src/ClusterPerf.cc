@@ -3910,7 +3910,7 @@ transactionThroughput()
             sendMetrics(0.0);
             ClientMetrics metrics;
             getMetrics(metrics, numSlaves+1);
-            printf("%5d         %8.0f\n", numSlaves, sum(metrics[0])/1e3);
+            printf("%5d         %8.3f\n", numSlaves, sum(metrics[0])/1e3);
         }
         sendCommand("stop", "stopped", 1, numClients - 1);
 
@@ -4035,7 +4035,7 @@ transactionContention()
             sendMetrics(0.0, 0.0);
             ClientMetrics metrics;
             getMetrics(metrics, numSlaves+1);
-            printf("%5d         %8.0f        %8.0f\n",
+            printf("%5d         %8.3f        %8.3f\n",
                     numSlaves, sum(metrics[0])/1e3, sum(metrics[1])/1e3);
         }
         sendCommand("stop", "stopped", 1, numClients - 1);
@@ -5037,7 +5037,7 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
         double utilization = static_cast<double>(finishStats.activeCycles -
                 startStats.activeCycles) / static_cast<double>(
                 finishStats.collectionTime - startStats.collectionTime);
-        printf("%5d         %8.0f        %8.3f\n", numSlaves, rate/1e03,
+        printf("%5d         %8.2f        %8.3f\n", numSlaves, rate/1e03,
                 utilization);
     }
     cluster->objectServerControl(dataTable, "abc", 3,
