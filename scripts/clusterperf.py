@@ -291,8 +291,8 @@ def indexRange(name, options, cluster_args, client_args):
 def indexMultiple(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '--masterServiceThreads 1'
-    if cluster_args['timeout'] < 200:
-        cluster_args['timeout'] = 200
+    if cluster_args['timeout'] < 360:
+        cluster_args['timeout'] = 360
     # Ensure atleast 15 hosts for optimal performance
     if options.num_servers == None:
         cluster_args['num_servers'] = len(hosts)
@@ -318,10 +318,17 @@ def indexMultiple(name, options, cluster_args, client_args):
 def indexScalability(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '--masterServiceThreads 2'
-    if cluster_args['timeout'] < 100:
-        cluster_args['timeout'] = 100
+    if cluster_args['timeout'] < 360:
+        cluster_args['timeout'] = 360
     cluster_args['backups_per_server'] = 0
     cluster_args['replicas'] = 0
+    # Number of concurrent rpcs to do per indexlet
+    if '--count' not in client_args:
+        client_args['--count'] = 20
+    # Number of objects per read request
+    if '--numObjects' not in client_args:
+        client_args['--numObjects'] = 1
+
     # Ensure at least 15 hosts for optimal performance
     if options.num_servers == None:
         cluster_args['num_servers'] = len(hosts)
