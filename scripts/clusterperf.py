@@ -663,6 +663,7 @@ graph_tests = [
     Test("workloadThroughput", readThroughput),
     Test("linearizableWriteDistRandom", writeDist),
     Test("linearizableWriteThroughput", readThroughput),
+    Test("renewLeaseThroughput", readThroughput),
 ]
 
 if __name__ == '__main__':
