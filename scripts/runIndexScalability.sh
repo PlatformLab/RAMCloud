@@ -1,7 +1,8 @@
 #####
 ## Note: Parameters below have comments next to them signifying the comma
-## separated default for whether one wants to run SLIK's exp3a or exp3b
-## # exp3a, exp3b
+## separated default for whether one wants to run SLIK's hashThroughput
+## experiment or LookupExperiment.
+## Hash,Lookup
 ####
 # set TOTAL = total number of servers in config file
 (( TOTAL=65 )) # 65,65
@@ -21,6 +22,9 @@
 # Number of master servers per indexlet
 (( SERVERS_PER_INDEXLET=2)) # 1,2
 
+# Transport string, leave empty for infrc
+TRANSPORT="" # "", "-T tcp"
+
 # Number of objects to look up per operation
 (( RANGE=1 ))
 if [[ $1 != "" ]]
@@ -30,8 +34,6 @@ if [[ $1 != "" ]]
 else
   RANGE_OP="--numObjects=$RANGE"
 fi
-
-TRANSPORT="" # Depends on test case, use -T tcp for tcp
 
 
 TIME="$(date +%Y%m%d%H%M%S)-is"
@@ -71,7 +73,7 @@ for (( i=$MIN_INDEXLET; i<=$MAX_INDEXLET; i++ )) do
   scripts/clusterperf.py -i $i -n $CLIENTS --servers=$SERVERS $TRANSPORT indexScalability --count=$CONCURRENT_OPS $RANGE_OP --disjunct > "$LOG_DIR/$i.log"
 
   # extract max thoroughput for i indexlets
-  grep -v '^#' logs/latest/client1\.* | grep -v '/.' | awk -v var="$i" -v numServ="$SERVERS" '$2>x{x=$2};$3>y{y=$3;z=4;a=$1};END{print "\t"var"\t$"numServ "\t"  x"\t"  y"\t" z"\t" a}' | tee -a "$LOG_DIR/console.log"
+  grep -v '^#' logs/latest/client1\.* | grep -v '/.' | awk -v var="$i" -v numServ="$SERVERS" '$2>x{x=$2};$3>y{y=$3;z=$4;a=$1};END{print "\t"var"\t"numServ "\t"  x"\t"  y"\t" z"\t" a}' | tee -a "$LOG_DIR/console.log"
 
   # move latest dir to "i" dir in logs
   rm logs/$i 2>/dev/null
