@@ -2453,6 +2453,181 @@ indexBasic()
 }
 
 void
+indexWriteDist()
+{
+    // all keys (including primary key) will be 30 bytes long
+    const uint32_t keyLength = 30;
+    const int valLen = objectSize;
+
+    const uint8_t indexId = 1;
+    const uint8_t numIndexlets = downCast<uint8_t>(numIndexlet);
+    cluster->createIndex(dataTable, indexId, 0 /*index type*/, numIndexlets);
+
+    // number of objects in the table and in the index
+    const uint32_t indexSize = numObjects;
+    const uint32_t writeSamples = count;
+
+     // each object has only 1 secondary key because we are only measuring basic
+    // indexing performance.
+    const uint8_t numKeys = 2;
+
+    KeyInfo keyList[numKeys];
+    char primaryKey[keyLength], secondaryKey[keyLength];
+    keyList[0].keyLength = keyLength;
+    keyList[0].key = primaryKey;
+    keyList[1].keyLength = keyLength;
+    keyList[1].key = secondaryKey;
+
+    Buffer val;
+    std::vector<double> timeWrites(writeSamples);
+    std::vector<uint32_t> randomized =
+            generateRandListFrom0UpTo(indexSize);
+
+    // Fill Up Index to desired Size
+    for (uint32_t i = 0; i < indexSize; i++) {
+        uint32_t intKey = randomized[i];
+        generateIndexKeyList(keyList, intKey, keyLength, numKeys);
+        fillBuffer(val, valLen, dataTable, primaryKey, keyLength);
+        cluster->write(dataTable, numKeys, keyList,
+                val.getRange(0, valLen), valLen);
+    }
+
+    // Perform write testing
+    // Note: This will only work if duplicates
+    // are allowed in the system.
+    for (uint32_t i = 0; i < writeSamples; i++) {
+        uint64_t start, stop;
+        uint32_t intKey = randomized[randomNumberGenerator(indexSize)];
+        generateIndexKeyList(keyList, intKey, keyLength, numKeys);
+        fillBuffer(val, valLen, dataTable, primaryKey, keyLength);
+
+        // Write
+        start = Cycles::rdtsc();
+        cluster->write(dataTable, numKeys, keyList,
+                val.getRange(0, valLen), valLen);
+        stop = Cycles::rdtsc();
+
+        timeWrites.at(i) = Cycles::toSeconds(stop - start);
+    }
+
+    // Print out the results
+    int valuesInLine = 0;
+    for (uint32_t i = 0; i < writeSamples; i++) {
+        if (valuesInLine >= 10) {
+            valuesInLine = 0;
+            printf("\n");
+        }
+        if (valuesInLine != 0) {
+            printf(",");
+        }
+        double micros = timeWrites.at(i)*1.0e06;
+        printf("%.2f", micros);
+        valuesInLine++;
+    }
+    printf("\n");
+    fflush(stdout);
+
+    cluster->dropIndex(dataTable, indexId);
+}
+
+void
+indexReadDist()
+{
+    // all keys (including primary key) will be 30 bytes long
+    const uint32_t keyLength = 30;
+    const int valLen = objectSize;
+
+    const uint8_t indexId = 1;
+    const uint8_t numIndexlets = downCast<uint8_t>(numIndexlet);
+    cluster->createIndex(dataTable, indexId, 0 /*index type*/, numIndexlets);
+
+    // number of objects in the table and in the index
+    const uint32_t indexSize = numObjects;
+    const uint32_t readSamples = count;
+
+    // each object has only 1 secondary key because we are only measuring basic
+    // indexing performance.
+    const uint8_t numKeys = 2;
+
+    KeyInfo keyList[numKeys];
+    char primaryKey[keyLength], secondaryKey[keyLength];
+    keyList[0].keyLength = keyLength;
+    keyList[0].key = primaryKey;
+    keyList[1].keyLength = keyLength;
+    keyList[1].key = secondaryKey;
+
+    std::vector<double> readTimes(readSamples);
+    std::vector<uint32_t> randomized = generateRandListFrom0UpTo(indexSize);
+
+    // Fill up the Table/Tablet
+    Buffer val;
+    for (uint32_t i = 0; i < indexSize; i++) {
+        // Fill up Index
+        uint32_t intKey = randomized[i];
+        generateIndexKeyList(keyList, intKey, keyLength, numKeys);
+        fillBuffer(val, valLen, dataTable, primaryKey, keyLength);
+        cluster->write(dataTable, numKeys, keyList,
+                val.getRange(0, valLen), valLen);
+    }
+
+    // Warm up with warmupCount reads
+    for (int i = 0; i < warmupCount; i++) {
+        uint32_t intKey = randomized[randomNumberGenerator(indexSize)];
+        generateIndexKeyList(keyList, intKey, keyLength, numKeys);
+        uint64_t totalNumObjects = 0;
+        IndexLookup lookup(cluster, dataTable, indexId,
+                    keyList[1].key, keyList[1].keyLength, // first key
+                    keyList[1].key, keyList[1].keyLength, // last key
+                    1000 /*Max number of hashes to return */);
+
+        while (lookup.getNext())
+            totalNumObjects++;
+
+        assert(1 == totalNumObjects);
+    }
+
+    // Perform random reads
+    uint64_t start, stop;
+    for (uint32_t i = 0; i < readSamples; i++) {
+        uint32_t intKey = randomized[randomNumberGenerator(indexSize)];
+        generateIndexKeyList(keyList, intKey, keyLength, numKeys);
+
+        start = Cycles::rdtsc();
+        uint64_t totalNumObjects = 0;
+        IndexLookup lookup(cluster, dataTable, indexId,
+                    keyList[1].key, keyList[1].keyLength, // first key
+                    keyList[1].key, keyList[1].keyLength, // last key
+                    1000 /*Max number of hashes to return */);
+
+        while (lookup.getNext())
+            totalNumObjects++;
+
+        stop = Cycles::rdtsc();
+        readTimes.at(i) = Cycles::toSeconds(stop - start);
+        assert(1 == totalNumObjects);
+    }
+
+    // Print out the results
+    int valuesInLine = 0;
+    for (uint32_t i = 0; i < readSamples; i++) {
+        if (valuesInLine >= 10) {
+            valuesInLine = 0;
+            printf("\n");
+        }
+        if (valuesInLine != 0) {
+            printf(",");
+        }
+        double micros = readTimes.at(i)*1.0e06;
+        printf("%.2f", micros);
+        valuesInLine++;
+    }
+    printf("\n");
+    fflush(stdout);
+
+    cluster->dropIndex(dataTable, indexId);
+}
+
+void
 indexRange() {
     if (clientIndex != 0)
         return;
@@ -5335,6 +5510,8 @@ TestInfo tests[] = {
     {"indexRange", indexRange},
     {"indexMultiple", indexMultiple},
     {"indexScalability", indexScalability},
+    {"indexWriteDist", indexWriteDist},
+    {"indexReadDist", indexReadDist},
     {"transaction_oneMaster", transaction_oneMaster},
     {"transaction_collision", transaction_collision},
     {"transactionContention", transactionContention},

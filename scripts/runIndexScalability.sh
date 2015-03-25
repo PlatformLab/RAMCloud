@@ -16,7 +16,7 @@
 (( MAX_CLIENTS= 30)) # 30,30
 
 # Number of concurrent operations the client should perform
-(( CONCURRENT_OPS=20)) # 20,20
+(( CONCURRENT_OPS=20)) # 30,20
 
 # Number of servers per indexlet
 (( SERVERS_PER_INDEXLET=2)) # 1,2
