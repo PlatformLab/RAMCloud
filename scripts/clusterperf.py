@@ -348,7 +348,7 @@ def indexWriteDist(name, options, cluster_args, client_args):
         cluster_args['num_servers'] = len(hosts)
 
     if '--count' not in client_args:
-        client_args['--count'] = 1000
+        client_args['--count'] = 10000
 
     if '--numObjects' not in client_args:
         client_args['--numObjects'] = 1000000

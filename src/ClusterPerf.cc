@@ -2481,7 +2481,7 @@ indexWriteDist()
     Buffer val;
     std::vector<double> timeWrites(writeSamples);
     std::vector<uint32_t> randomized =
-            generateRandListFrom0UpTo(indexSize);
+            generateRandListFrom0UpTo(indexSize + writeSamples);
 
     // Fill Up Index to desired Size
     for (uint32_t i = 0; i < indexSize; i++) {
@@ -2497,7 +2497,7 @@ indexWriteDist()
     // are allowed in the system.
     for (uint32_t i = 0; i < writeSamples; i++) {
         uint64_t start, stop;
-        uint32_t intKey = randomized[randomNumberGenerator(indexSize)];
+        uint32_t intKey = randomized[i + indexSize];
         generateIndexKeyList(keyList, intKey, keyLength, numKeys);
         fillBuffer(val, valLen, dataTable, primaryKey, keyLength);
 
