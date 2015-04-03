@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -67,41 +67,6 @@ TEST_F(LinearizableObjectRpcWrapperTest, fillLinearizabilityHeader_writeRpc) {
     EXPECT_EQ(0UL, reqHdr.ackId);
 }
 
-TEST_F(LinearizableObjectRpcWrapperTest, rpcTracker_window_full_on_create) {
-    LinearizableObjectRpcWrapper wrapper(&ramcloud, true, 10, "abc", 3, 4);
-    WireFormat::Write::Request* reqHdr(
-            wrapper.allocHeader<WireFormat::Write>());
-    wrapper.fillLinearizabilityHeader<WireFormat::Write::Request>(reqHdr);
-
-    WireFormat::Write::Response* resp =
-            wrapper.response->emplaceAppend<WireFormat::Write::Response>();
-    memset(resp, 0, sizeof(*resp));
-
-    resp->common.status = STATUS_OK;
-    wrapper.state = RpcWrapper::RpcState::FINISHED;
-
-    EXPECT_EQ(0UL, ramcloud.rpcTracker.ackId());
-    EXPECT_TRUE(wrapper.assignedRpcId);
-
-    for (int i = 1; i < RpcTracker::windowSize; ++i) {
-        ramcloud.rpcTracker.newRpcId(
-            reinterpret_cast<LinearizableObjectRpcWrapper*>(1));
-    }
-    EXPECT_TRUE(wrapper.assignedRpcId);
-
-    WireFormat::Write::Request reqHdr2;
-    LinearizableObjectRpcWrapper wrapper2(&ramcloud, true, 10, "abc", 3, 4);
-    wrapper2.fillLinearizabilityHeader<WireFormat::Write::Request>(&reqHdr2);
-
-    EXPECT_FALSE(wrapper.assignedRpcId);
-    EXPECT_EQ((uint64_t) (RpcTracker::windowSize + 1), wrapper2.assignedRpcId);
-    EXPECT_EQ((uint64_t) (RpcTracker::windowSize + 1), reqHdr2.rpcId);
-    EXPECT_EQ(1UL, reqHdr2.ackId);
-    EXPECT_EQ(1UL, ramcloud.rpcTracker.ackId());
-
-    wrapper.waitInternal(ramcloud.clientContext->dispatch);
-}
-
 TEST_F(LinearizableObjectRpcWrapperTest, waitInternal) {
     //1. Normal operation
     LinearizableObjectRpcWrapper wrapper(&ramcloud, true, 10, "abc", 3, 4);
@@ -137,6 +102,30 @@ TEST_F(LinearizableObjectRpcWrapperTest, waitInternal) {
     EXPECT_EQ(1UL, ramcloud.rpcTracker.ackId());
     wrapper2.cancel();
     EXPECT_EQ(2UL, ramcloud.rpcTracker.ackId());
+}
+
+TEST_F(LinearizableObjectRpcWrapperTest, tryFinish) {
+    LinearizableObjectRpcWrapper wrapper(&ramcloud, true, 10, "abc", 3, 4);
+    WireFormat::Write::Request* reqHdr(
+            wrapper.allocHeader<WireFormat::Write>());
+    wrapper.fillLinearizabilityHeader<WireFormat::Write::Request>(reqHdr);
+
+    WireFormat::Write::Response* resp =
+            wrapper.response->emplaceAppend<WireFormat::Write::Response>();
+    memset(resp, 0, sizeof(*resp));
+
+    resp->common.status = STATUS_OK;
+    wrapper.state = RpcWrapper::RpcState::FINISHED;
+
+    EXPECT_EQ(1UL, reqHdr->rpcId);
+    EXPECT_EQ(0UL, reqHdr->ackId);
+
+    TestLog::reset();
+    EXPECT_EQ(0UL, ramcloud.rpcTracker.ackId());
+    wrapper.tryFinish();
+    EXPECT_EQ(1UL, ramcloud.rpcTracker.ackId());
+
+    EXPECT_EQ("tryFinish: called", TestLog::get());
 }
 
 }  // namespace RAMCloud

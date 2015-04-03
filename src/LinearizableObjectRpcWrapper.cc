@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -126,12 +126,6 @@ LinearizableObjectRpcWrapper::fillLinearizabilityHeader(RpcRequest* reqHdr)
 {
     if (linearizabilityOn) {
         assignedRpcId = ramcloud->rpcTracker.newRpcId(this);
-        if (!assignedRpcId) {
-            LinearizableObjectRpcWrapper* oldest =
-                ramcloud->rpcTracker.oldestOutstandingRpc();
-            oldest->waitInternal(ramcloud->clientContext->dispatch);
-            assignedRpcId = ramcloud->rpcTracker.newRpcId(this);
-        }
         assert(assignedRpcId);
         reqHdr->lease = ramcloud->clientLease.getLease();
         reqHdr->rpcId = assignedRpcId;
@@ -180,6 +174,14 @@ LinearizableObjectRpcWrapper::waitInternal(Dispatch* dispatch,
     ramcloud->rpcTracker.rpcFinished(assignedRpcId);
     assignedRpcId = 0;
     return true;
+    }
+
+// See RpcTracker::TrackedRpc for documentation.
+void LinearizableObjectRpcWrapper::tryFinish()
+{
+    RAMCLOUD_TEST_LOG("called");
+    // In this case we might as well wait.
+    waitInternal(ramcloud->clientContext->dispatch);
 }
 
 template void LinearizableObjectRpcWrapper::fillLinearizabilityHeader

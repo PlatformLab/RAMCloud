@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -42,22 +42,24 @@ RpcTracker::rpcFinished(uint64_t rpcId) {
 }
 
 /**
- * Gets a unique RPC id for new linearizable RPC.
+ * Gets a unique RPC id for new Tracked RPC.  This method may block waiting for
+ * the oldest TrackedRpc to complete if it is running too far behind.  This
+ * effectively bounds the number of outstanding requests a client may have.
  *
  * \param ptr
- *      Pointer to LinearizableObjectRpcWrapper to which we assign a new rpcId.
+ *      Pointer to TrackedRpc to which we assign a new rpcId.
  *
  * \return
  *      The id for new RPC.
- *      Or 0 if the rpc waiting for response (first Missing) is too far behind.
  */
 uint64_t
-RpcTracker::newRpcId(LinearizableObjectRpcWrapper* ptr) {
+RpcTracker::newRpcId(TrackedRpc* ptr) {
     assert(ptr != NULL);
-    if (firstMissing + windowSize == nextRpcId) {
+    while (firstMissing + windowSize <= nextRpcId) {
         RAMCLOUD_CLOG(NOTICE, "Waiting for response of RPC with id: %ld",
                       firstMissing);
-        return 0;
+        TrackedRpc* oldest = oldestOutstandingRpc();
+        oldest->tryFinish();
     }
     assert(firstMissing + windowSize > nextRpcId);
     rpcs[nextRpcId & indexMask] = ptr;
@@ -81,7 +83,7 @@ RpcTracker::ackId() {
  * \return
  *      Pointer to linearizable RPC wrapper with smallest rpdId.
  */
-LinearizableObjectRpcWrapper*
+RpcTracker::TrackedRpc*
 RpcTracker::oldestOutstandingRpc() {
     assert(rpcs[firstMissing & indexMask]);
     return rpcs[firstMissing & indexMask];

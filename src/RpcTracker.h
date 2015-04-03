@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,7 +20,6 @@
 
 namespace RAMCloud {
 
-class LinearizableObjectRpcWrapper;
 class RamCloud;
 
 /**
@@ -35,6 +34,32 @@ class RamCloud;
 class RpcTracker {
   PUBLIC:
     /**
+     * Abstract class to be inherited by any class that wishes to be tracked by
+     * the RpcTracker.
+     */
+    class TrackedRpc {
+      PUBLIC:
+        virtual ~TrackedRpc() {}
+
+      PRIVATE:
+        /**
+         * Push the tracked rpc toward completion.
+         *
+         * This method must be implemented by tracked operations and is used by
+         * the RpcTracker to prod an unfinished operation.  For example, the
+         * RpcTracker will use this method when newRpcId has run out of RPC IDs
+         * to allocate.
+         *
+         * Though the rpc does not have to finish before this call returns, each
+         * call of this method should make progress and eventually cause
+         * rpcFinished() to be called.
+         */
+        virtual void tryFinish() = 0;
+
+        friend class RpcTracker;
+    };
+
+    /**
      * Constructor which initializes internal data structure.
      */
     RpcTracker() : firstMissing(1),
@@ -43,13 +68,13 @@ class RpcTracker {
     ~RpcTracker();
 
     void rpcFinished(uint64_t rpcId);
-    uint64_t newRpcId(LinearizableObjectRpcWrapper* ptr);
+    uint64_t newRpcId(TrackedRpc* ptr);
     // TODO(cstlee) : remove the hack below.
     uint64_t newRpcId(uint64_t i) {
-        return newRpcId(reinterpret_cast<LinearizableObjectRpcWrapper*>(i));
+        return newRpcId(reinterpret_cast<TrackedRpc*>(i));
     }
     uint64_t ackId();
-    LinearizableObjectRpcWrapper* oldestOutstandingRpc();
+    TrackedRpc* oldestOutstandingRpc();
 
     /**
      * Return true if there is a least one rpc that has started but not yet
@@ -108,7 +133,7 @@ class RpcTracker {
      * As a rpcFinished is called to record receipt, it checks whether
      * we can advance firstMissing value.
      */
-    LinearizableObjectRpcWrapper* rpcs[windowSize];
+    TrackedRpc* rpcs[windowSize];
 
     DISALLOW_COPY_AND_ASSIGN(RpcTracker);
 };

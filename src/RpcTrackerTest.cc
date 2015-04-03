@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,14 +18,37 @@
 
 namespace RAMCloud {
 
+class MockTrackedRpc : public RpcTracker::TrackedRpc {
+  public:
+    explicit MockTrackedRpc(RpcTracker* tracker)
+        : tracker(tracker)
+        , rpcId(0)
+    {}
+
+    RpcTracker* tracker;
+    uint64_t rpcId;
+
+  private:
+    virtual void tryFinish()
+    {
+        RAMCLOUD_TEST_LOG("called");
+        tracker->rpcFinished(rpcId);
+    }
+
+    DISALLOW_COPY_AND_ASSIGN(MockTrackedRpc);
+};
+
 class RpcTrackerTest : public ::testing::Test {
   public:
+    TestLog::Enable logEnabler;
     RpcTracker tracker;
-    LinearizableObjectRpcWrapper* w;
+    RpcTracker::TrackedRpc* w;
 
-    RpcTrackerTest() : tracker()
-                     , w(reinterpret_cast<LinearizableObjectRpcWrapper*>(1)) {
-    }
+    RpcTrackerTest()
+        : logEnabler()
+        , tracker()
+        , w(reinterpret_cast<RpcTracker::TrackedRpc*>(1))
+    {}
 
     DISALLOW_COPY_AND_ASSIGN(RpcTrackerTest);
 };
@@ -57,13 +80,15 @@ TEST_F(RpcTrackerTest, rpcFinished) {
     EXPECT_EQ(tracker.firstMissing, 8UL);
 }
 
-TEST_F(RpcTrackerTest, newRpcId) {
+TEST_F(RpcTrackerTest, newRpcId_basic) {
     int i;
+    TestLog::reset();
     for (i = 1; i <= tracker.windowSize; ++i) {
-        EXPECT_EQ(tracker.newRpcId(w), (uint64_t)i);
+        EXPECT_EQ((uint64_t)i, tracker.newRpcId(w));
     }
+    EXPECT_EQ("", TestLog::get());
+
     tracker.rpcFinished(3);
-    EXPECT_EQ(tracker.newRpcId(w), 0UL);
 
     for (i = 1; i <= tracker.windowSize; ++i) {
         if (i == 3)
@@ -71,6 +96,42 @@ TEST_F(RpcTrackerTest, newRpcId) {
         EXPECT_FALSE(!tracker.rpcs[i % tracker.windowSize]);
     }
     EXPECT_TRUE(!tracker.rpcs[3]);
+}
+
+TEST_F(RpcTrackerTest, newRpcId_fullWindow) {
+    uint64_t i;
+
+    TestLog::reset();
+    MockTrackedRpc rpc1(&tracker);
+    EXPECT_EQ(1UL, tracker.newRpcId(&rpc1));
+    rpc1.rpcId = 1;
+    MockTrackedRpc rpc2(&tracker);
+    EXPECT_EQ(2UL, tracker.newRpcId(&rpc2));
+    rpc2.rpcId = 2;
+
+    for (i = 3; i <= (uint64_t)RpcTracker::windowSize; ++i) {
+        EXPECT_EQ((uint64_t)i, tracker.newRpcId(w));
+    }
+
+    EXPECT_EQ("", TestLog::get());
+    TestLog::reset();
+
+    EXPECT_EQ(1UL, tracker.firstMissing);
+    EXPECT_EQ(&rpc1, tracker.oldestOutstandingRpc());
+
+    EXPECT_EQ((uint64_t)i++, tracker.newRpcId(w));
+    EXPECT_EQ("newRpcId: Waiting for response of RPC with id: 1 | "
+              "tryFinish: called",
+              TestLog::get());
+    TestLog::reset();
+
+    EXPECT_EQ(2UL, tracker.firstMissing);
+    EXPECT_EQ(&rpc2, tracker.oldestOutstandingRpc());
+
+    EXPECT_EQ((uint64_t)i++, tracker.newRpcId(w));
+    EXPECT_EQ("newRpcId: Waiting for response of RPC with id: 2 | "
+              "tryFinish: called",
+              TestLog::get());
 }
 
 TEST_F(RpcTrackerTest, ackId) {
@@ -100,17 +161,6 @@ TEST_F(RpcTrackerTest, hasUnfinishedRpc) {
     EXPECT_TRUE(tracker.hasUnfinishedRpc());
     tracker.rpcFinished(id2);
     EXPECT_FALSE(tracker.hasUnfinishedRpc());
-}
-
-TEST_F(RpcTrackerTest, tooManayOutstandingRpcs) {
-    uint64_t i;
-    for (i = 1; i <= (uint64_t)RpcTracker::windowSize; ++i) {
-        EXPECT_EQ(tracker.newRpcId(w), (uint64_t)i);
-    }
-    EXPECT_EQ(tracker.newRpcId(w), 0UL);
-    tracker.rpcFinished(1);
-    EXPECT_EQ(tracker.newRpcId(w), (uint64_t)i);
-    EXPECT_EQ(tracker.newRpcId(w), 0UL);
 }
 
 }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,7 +32,9 @@ namespace RAMCloud {
  * 1) Inherit from this wrapper instead of ObjectRpcWrapper.
  * 2) Invoke #fillLinearizabilityHeader in the constructor of the RPC.
  */
-class LinearizableObjectRpcWrapper : public ObjectRpcWrapper {
+class LinearizableObjectRpcWrapper
+    : public ObjectRpcWrapper
+    , public RpcTracker::TrackedRpc {
   public:
     explicit LinearizableObjectRpcWrapper(RamCloud* ramcloud, bool linearizable,
             uint64_t tableId, const void* key, uint16_t keyLength,
@@ -63,6 +65,9 @@ class LinearizableObjectRpcWrapper : public ObjectRpcWrapper {
      * finished. (#RpcTracker::rpcFinished() is invoked.)
      */
     uint64_t assignedRpcId;
+
+  PRIVATE:
+    virtual void tryFinish();
 
     DISALLOW_COPY_AND_ASSIGN(LinearizableObjectRpcWrapper);
 };
