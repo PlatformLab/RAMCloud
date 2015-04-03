@@ -53,7 +53,7 @@ class RpcTrackerTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(RpcTrackerTest);
 };
 
-TEST_F(RpcTrackerTest, rpcFinished) {
+TEST_F(RpcTrackerTest, rpcFinished_basic) {
     EXPECT_EQ(1UL, tracker.newRpcId(w));
     EXPECT_EQ(2UL, tracker.newRpcId(w));
     EXPECT_EQ(3UL, tracker.newRpcId(w));
@@ -78,6 +78,41 @@ TEST_F(RpcTrackerTest, rpcFinished) {
     EXPECT_EQ(tracker.firstMissing, 7UL);
     tracker.rpcFinished(7);
     EXPECT_EQ(tracker.firstMissing, 8UL);
+}
+
+TEST_F(RpcTrackerTest, rpcFinished_outOfBounds) {
+    tracker.firstMissing = 4;
+    tracker.nextRpcId = 8;
+    tracker.rpcs[3 & tracker.indexMask] = w;
+    tracker.rpcs[4 & tracker.indexMask] = w;
+    tracker.rpcs[5 & tracker.indexMask] = w;
+    tracker.rpcs[7 & tracker.indexMask] = w;
+    tracker.rpcs[8 & tracker.indexMask] = w;
+    tracker.rpcs[9 & tracker.indexMask] = w;
+
+    tracker.rpcFinished(9);
+    EXPECT_FALSE(!tracker.rpcs[9 & tracker.indexMask]);
+
+    tracker.rpcFinished(8);
+    EXPECT_FALSE(!tracker.rpcs[8 & tracker.indexMask]);
+
+    tracker.rpcFinished(7);
+    EXPECT_TRUE(!tracker.rpcs[7 & tracker.indexMask]);
+
+    tracker.rpcFinished(5);
+    EXPECT_TRUE(!tracker.rpcs[5 & tracker.indexMask]);
+    tracker.rpcs[5 & tracker.indexMask] = w;
+    tracker.rpcFinished(5);
+    EXPECT_TRUE(!tracker.rpcs[5 & tracker.indexMask]);
+
+    tracker.rpcFinished(3);
+    EXPECT_FALSE(!tracker.rpcs[3 & tracker.indexMask]);
+
+    tracker.rpcFinished(4);
+    EXPECT_TRUE(!tracker.rpcs[4 & tracker.indexMask]);
+    tracker.rpcs[4 & tracker.indexMask] = w;
+    tracker.rpcFinished(4);
+    EXPECT_FALSE(!tracker.rpcs[4 & tracker.indexMask]);
 }
 
 TEST_F(RpcTrackerTest, newRpcId_basic) {

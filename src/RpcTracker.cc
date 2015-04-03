@@ -21,7 +21,8 @@ namespace RAMCloud {
 /**
  * Clean up allocated resources.
  */
-RpcTracker::~RpcTracker() {
+RpcTracker::~RpcTracker()
+{
 }
 
 /**
@@ -31,13 +32,15 @@ RpcTracker::~RpcTracker() {
  *      The id of an Rpc.
  */
 void
-RpcTracker::rpcFinished(uint64_t rpcId) {
-    assert(rpcs[rpcId & indexMask]);
-    rpcs[rpcId & indexMask] = NULL;
-    if (firstMissing == rpcId) {
-        firstMissing++;
-        while (!rpcs[firstMissing & indexMask] && firstMissing < nextRpcId)
+RpcTracker::rpcFinished(uint64_t rpcId)
+{
+    if (rpcId >= firstMissing && rpcId < nextRpcId) {
+        rpcs[rpcId & indexMask] = NULL;
+        if (firstMissing == rpcId) {
             firstMissing++;
+            while (!rpcs[firstMissing & indexMask] && firstMissing < nextRpcId)
+                firstMissing++;
+        }
     }
 }
 
@@ -53,7 +56,8 @@ RpcTracker::rpcFinished(uint64_t rpcId) {
  *      The id for new RPC.
  */
 uint64_t
-RpcTracker::newRpcId(TrackedRpc* ptr) {
+RpcTracker::newRpcId(TrackedRpc* ptr)
+{
     assert(ptr != NULL);
     while (firstMissing + windowSize <= nextRpcId) {
         RAMCLOUD_CLOG(NOTICE, "Waiting for response of RPC with id: %ld",
@@ -74,7 +78,8 @@ RpcTracker::newRpcId(TrackedRpc* ptr) {
  *      The ackId value to be sent with new RPC.
  */
 uint64_t
-RpcTracker::ackId() {
+RpcTracker::ackId()
+{
     return firstMissing - 1;
 }
 
@@ -84,7 +89,8 @@ RpcTracker::ackId() {
  *      Pointer to linearizable RPC wrapper with smallest rpdId.
  */
 RpcTracker::TrackedRpc*
-RpcTracker::oldestOutstandingRpc() {
+RpcTracker::oldestOutstandingRpc()
+{
     assert(rpcs[firstMissing & indexMask]);
     return rpcs[firstMissing & indexMask];
 }
