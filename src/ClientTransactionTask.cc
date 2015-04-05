@@ -131,9 +131,6 @@ ClientTransactionTask::performTask()
         if (state == INIT) {
             // Build participant list
             initTask();
-
-            // TODO(cstlee) : handle buildParticipantList failure (namely
-            // failure to aquire all the rpcIds we need).
             nextCacheEntry = commitCache.begin();
             state = PREPARE;
         }
@@ -158,6 +155,7 @@ ClientTransactionTask::performTask()
         prepareRpcs.clear();
         decisionRpcs.clear();
         status = e.status;
+        ramcloud->rpcTracker.rpcFinished(txId);
         state = DONE;
     }
 }
@@ -172,14 +170,15 @@ void
 ClientTransactionTask::initTask()
 {
     lease = ramcloud->clientLease.getLease();
-    txId = ramcloud->rpcTracker.newRpcId(this);
+    txId = ramcloud->rpcTracker.newRpcIdBlock(this, commitCache.size());
 
     nextCacheEntry = commitCache.begin();
+    uint64_t i = 0;
     while (nextCacheEntry != commitCache.end()) {
         const CacheKey* key = &nextCacheEntry->first;
         CacheEntry* entry = &nextCacheEntry->second;
 
-        entry->rpcId = ramcloud->rpcTracker.newRpcId(this);
+        entry->rpcId = txId + i++;
         participantList.emplaceAppend<WireFormat::TxParticipant>(
                 key->tableId,
                 static_cast<uint64_t>(key->keyHash),
@@ -187,6 +186,7 @@ ClientTransactionTask::initTask()
         participantCount++;
         nextCacheEntry++;
     }
+    assert(i == commitCache.size());
 }
 
 /**
@@ -210,8 +210,6 @@ ClientTransactionTask::processDecisionRpcs()
             TEST_LOG("FAILED");
         } else if (rpc->responseHeader->status == STATUS_OK) {
             TEST_LOG("STATUS_OK");
-            for (uint32_t i = 0; i < rpc->reqHdr->participantCount; i++)
-                ramcloud->rpcTracker.rpcFinished(rpc->ops[i]->second.rpcId);
         } else if (rpc->responseHeader->status == STATUS_UNKNOWN_TABLET) {
             // Nothing to do.  Will be retried.
             TEST_LOG("STATUS_UNKNOWN_TABLET");

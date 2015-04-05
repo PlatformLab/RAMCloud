@@ -81,37 +81,48 @@ TEST_F(RpcTrackerTest, rpcFinished_basic) {
 }
 
 TEST_F(RpcTrackerTest, rpcFinished_outOfBounds) {
+    // Test Lower Bound
     tracker.firstMissing = 4;
-    tracker.nextRpcId = 8;
     tracker.rpcs[3 & tracker.indexMask] = w;
     tracker.rpcs[4 & tracker.indexMask] = w;
     tracker.rpcs[5 & tracker.indexMask] = w;
-    tracker.rpcs[7 & tracker.indexMask] = w;
-    tracker.rpcs[8 & tracker.indexMask] = w;
-    tracker.rpcs[9 & tracker.indexMask] = w;
 
-    tracker.rpcFinished(9);
-    EXPECT_FALSE(!tracker.rpcs[9 & tracker.indexMask]);
-
-    tracker.rpcFinished(8);
-    EXPECT_FALSE(!tracker.rpcs[8 & tracker.indexMask]);
-
-    tracker.rpcFinished(7);
-    EXPECT_TRUE(!tracker.rpcs[7 & tracker.indexMask]);
-
+    // In bound.
     tracker.rpcFinished(5);
     EXPECT_TRUE(!tracker.rpcs[5 & tracker.indexMask]);
+    // Re-exec in bound.
     tracker.rpcs[5 & tracker.indexMask] = w;
     tracker.rpcFinished(5);
     EXPECT_TRUE(!tracker.rpcs[5 & tracker.indexMask]);
 
+    // Out of bound.
     tracker.rpcFinished(3);
     EXPECT_FALSE(!tracker.rpcs[3 & tracker.indexMask]);
 
+    // In bound.
     tracker.rpcFinished(4);
     EXPECT_TRUE(!tracker.rpcs[4 & tracker.indexMask]);
+    // Re-exec out of bound.
     tracker.rpcs[4 & tracker.indexMask] = w;
     tracker.rpcFinished(4);
+    EXPECT_FALSE(!tracker.rpcs[4 & tracker.indexMask]);
+
+    // Test Upper Bound
+    tracker.firstMissing = 4;
+    tracker.rpcs[3 & tracker.indexMask] = w;
+    tracker.rpcs[4 & tracker.indexMask] = w;
+    tracker.rpcs[5 & tracker.indexMask] = w;
+
+    // Out of bound.
+    tracker.rpcFinished(5 + tracker.windowSize);
+    EXPECT_FALSE(!tracker.rpcs[5 & tracker.indexMask]);
+
+    // In bound.
+    tracker.rpcFinished(3 + tracker.windowSize);
+    EXPECT_TRUE(!tracker.rpcs[3 & tracker.indexMask]);
+
+    // Out of bound.
+    tracker.rpcFinished(4 + tracker.windowSize);
     EXPECT_FALSE(!tracker.rpcs[4 & tracker.indexMask]);
 }
 
@@ -167,6 +178,70 @@ TEST_F(RpcTrackerTest, newRpcId_fullWindow) {
     EXPECT_EQ("newRpcId: Waiting for response of RPC with id: 2 | "
               "tryFinish: called",
               TestLog::get());
+}
+
+TEST_F(RpcTrackerTest, newRpcIdBlock_basic) {
+    EXPECT_EQ(1UL, tracker.newRpcIdBlock(w, 8));
+    EXPECT_EQ(1UL, tracker.firstMissing);
+    EXPECT_EQ(9UL, tracker.nextRpcId);
+    EXPECT_EQ(9UL, tracker.newRpcIdBlock(w, 8));
+    EXPECT_EQ(1UL, tracker.firstMissing);
+    EXPECT_EQ(17UL, tracker.nextRpcId);
+    EXPECT_EQ(17UL, tracker.newRpcId(w));
+
+    for (int i = 1; i <= tracker.windowSize; ++i) {
+        if (i == 1 || i == 9 || i == 17)
+            continue;
+        EXPECT_TRUE(!tracker.rpcs[i % tracker.windowSize]);
+    }
+    EXPECT_FALSE(!tracker.rpcs[1]);
+    EXPECT_FALSE(!tracker.rpcs[9]);
+    EXPECT_FALSE(!tracker.rpcs[17]);
+
+    tracker.rpcFinished(1);
+    EXPECT_EQ(9UL, tracker.firstMissing);
+}
+
+TEST_F(RpcTrackerTest, newRpcIdBlock_fullWindow) {
+    TestLog::reset();
+    MockTrackedRpc rpc1(&tracker);
+    EXPECT_EQ(1UL, tracker.newRpcId(&rpc1));
+    rpc1.rpcId = 1;
+    MockTrackedRpc rpc2(&tracker);
+    EXPECT_EQ(2UL, tracker.newRpcId(&rpc2));
+    rpc2.rpcId = 2;
+    EXPECT_EQ("", TestLog::get());
+    TestLog::reset();
+
+    EXPECT_EQ(1UL, tracker.firstMissing);
+    EXPECT_EQ(&rpc1, tracker.oldestOutstandingRpc());
+    MockTrackedRpc rpc3(&tracker);
+    EXPECT_EQ(3UL, tracker.newRpcIdBlock(&rpc3, tracker.windowSize - 1));
+    rpc3.rpcId = 3;
+    EXPECT_EQ("", TestLog::get());
+    TestLog::reset();
+
+    EXPECT_EQ(1UL, tracker.firstMissing);
+    EXPECT_EQ(&rpc1, tracker.oldestOutstandingRpc());
+    MockTrackedRpc rpc4(&tracker);
+    EXPECT_EQ(514UL, tracker.newRpcIdBlock(&rpc4, 2 * tracker.windowSize));
+    rpc4.rpcId = 514;
+    EXPECT_EQ("newRpcIdBlock: Waiting for response of RPC with id: 1 | "
+              "tryFinish: called | "
+              "newRpcIdBlock: Waiting for response of RPC with id: 2 | "
+              "tryFinish: called",
+              TestLog::get());
+    TestLog::reset();
+
+    EXPECT_EQ(3UL, tracker.firstMissing);
+    EXPECT_EQ(&rpc3, tracker.oldestOutstandingRpc());
+    tracker.newRpcId(w);
+    EXPECT_EQ("newRpcId: Waiting for response of RPC with id: 3 | "
+              "tryFinish: called | "
+              "newRpcId: Waiting for response of RPC with id: 514 | "
+              "tryFinish: called",
+              TestLog::get());
+    TestLog::reset();
 }
 
 TEST_F(RpcTrackerTest, ackId) {

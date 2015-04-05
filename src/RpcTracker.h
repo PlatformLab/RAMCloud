@@ -62,13 +62,16 @@ class RpcTracker {
     /**
      * Constructor which initializes internal data structure.
      */
-    RpcTracker() : firstMissing(1),
-                   nextRpcId(1) {
-    }
+    RpcTracker()
+        : firstMissing(1)
+        , nextRpcId(1)
+        , rpcs({})
+    {}
     ~RpcTracker();
 
     void rpcFinished(uint64_t rpcId);
     uint64_t newRpcId(TrackedRpc* ptr);
+    uint64_t newRpcIdBlock(TrackedRpc* ptr, size_t size);
     uint64_t ackId();
     TrackedRpc* oldestOutstandingRpc();
 

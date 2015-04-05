@@ -477,9 +477,9 @@ TEST_F(ClientTransactionTaskTest, initTask) {
 
     transactionTask->initTask();
     EXPECT_EQ(1U, transactionTask->txId);
-    EXPECT_EQ("ParticipantList[ {1, 14087593745509316690, 2}"
-                              " {2, 2793085152624492990, 3}"
-                              " {3, 17667676865770333572, 4} ]",
+    EXPECT_EQ("ParticipantList[ {1, 14087593745509316690, 1}"
+                              " {2, 2793085152624492990, 2}"
+                              " {3, 17667676865770333572, 3} ]",
               participantListToString(transactionTask.get()));
 }
 
