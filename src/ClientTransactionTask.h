@@ -34,7 +34,7 @@ namespace RAMCloud {
  *
  * This module is driven by the ClientTransactionManager.
  */
-class ClientTransactionTask {
+class ClientTransactionTask : public RpcTracker::TrackedRpc {
   PUBLIC:
     /**
      * Structure to define the contents of the CommitCache.
@@ -183,6 +183,7 @@ class ClientTransactionTask {
     void processPrepareRpcs();
     void sendDecisionRpc();
     void sendPrepareRpc();
+    virtual void tryFinish();
 
     /// Encapsulates the state of a single Decision RPC sent to a single server.
     class DecisionRpc : public RpcWrapper {

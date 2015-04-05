@@ -172,17 +172,14 @@ void
 ClientTransactionTask::initTask()
 {
     lease = ramcloud->clientLease.getLease();
-    txId = ramcloud->rpcTracker.newRpcId(1);    // TODO(cstlee) : see todo in
-                                                // the method call.
+    txId = ramcloud->rpcTracker.newRpcId(this);
 
     nextCacheEntry = commitCache.begin();
     while (nextCacheEntry != commitCache.end()) {
         const CacheKey* key = &nextCacheEntry->first;
         CacheEntry* entry = &nextCacheEntry->second;
 
-        entry->rpcId = ramcloud->rpcTracker.newRpcId(1);    // TODO(cstlee) :
-                                                            // see todo in the
-                                                            // method call.
+        entry->rpcId = ramcloud->rpcTracker.newRpcId(this);
         participantList.emplaceAppend<WireFormat::TxParticipant>(
                 key->tableId,
                 static_cast<uint64_t>(key->keyHash),
@@ -343,6 +340,19 @@ ClientTransactionTask::sendPrepareRpc()
     if (nextRpc) {
         nextRpc->send();
     }
+}
+
+// See RpcTracker::TrackedRpc for documentation.
+void ClientTransactionTask::tryFinish()
+{
+    // Making forward progress requires the follow:
+    //  (1) Calling performTask
+    //  (2) Allowing the transport to run by calling poll
+    // This method would only be called if this task is active.  Since active
+    // tasks are driven by the ClientTransactionManager (i.e. the manager calls
+    // performTask on active tasks) and the manager runs in the poll loop, it is
+    // sufficient to simply call poll.
+    ramcloud->poll();
 }
 
 /**

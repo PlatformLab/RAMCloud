@@ -69,10 +69,6 @@ class RpcTracker {
 
     void rpcFinished(uint64_t rpcId);
     uint64_t newRpcId(TrackedRpc* ptr);
-    // TODO(cstlee) : remove the hack below.
-    uint64_t newRpcId(uint64_t i) {
-        return newRpcId(reinterpret_cast<TrackedRpc*>(i));
-    }
     uint64_t ackId();
     TrackedRpc* oldestOutstandingRpc();
 
