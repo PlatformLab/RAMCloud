@@ -2339,7 +2339,7 @@ indexBasic()
             numHashes = (readHashBuff.getStart<
                     WireFormat::LookupIndexKeys::Response>())->numHashes;
             readHashBuff.truncateFront(
-                            sizeof32(WireFormat::LookupIndexKeys::Response));
+                    sizeof32(WireFormat::LookupIndexKeys::Response));
 
             // Hash Lookup + Read
             start = Cycles::rdtsc();
@@ -2353,10 +2353,10 @@ indexBasic()
             // IndexLookup
             start = Cycles::rdtsc();
             uint32_t totalNumObjects = 0;
-            IndexLookup rangeLookup(cluster, dataTable, indexId,
-                    keyList[1].key, keyList[1].keyLength, // first key
-                    keyList[1].key, keyList[1].keyLength, // last key
-                    1000 /*Max number of hashes to return */);
+            IndexKey::IndexKeyRange keyRange(indexId,
+                    keyList[1].key, keyList[1].keyLength, /*first key*/
+                    keyList[1].key, keyList[1].keyLength /*last key*/);
+            IndexLookup rangeLookup(cluster, dataTable, keyRange);
 
             while (rangeLookup.getNext())
                 totalNumObjects++;
@@ -2368,7 +2368,7 @@ indexBasic()
             // Overwrite
             start = Cycles::rdtsc();
             cluster->write(dataTable, numKeys, keyList,
-                                            val.getRange(0, valLen), valLen);
+                    val.getRange(0, valLen), valLen);
             stop = Cycles::rdtsc();
             timeOverWrites.at(i) = Cycles::toSeconds(stop - start);
 
@@ -2576,10 +2576,10 @@ indexReadDist()
         uint32_t intKey = randomized[randomNumberGenerator(indexSize)];
         generateIndexKeyList(keyList, intKey, keyLength, numKeys);
         uint64_t totalNumObjects = 0;
-        IndexLookup lookup(cluster, dataTable, indexId,
-                    keyList[1].key, keyList[1].keyLength, // first key
-                    keyList[1].key, keyList[1].keyLength, // last key
-                    1000 /*Max number of hashes to return */);
+        IndexKey::IndexKeyRange keyRange(indexId,
+                keyList[1].key, keyList[1].keyLength, /*first key*/
+                keyList[1].key, keyList[1].keyLength /*last key*/);
+        IndexLookup lookup(cluster, dataTable, keyRange);
 
         while (lookup.getNext())
             totalNumObjects++;
@@ -2595,10 +2595,10 @@ indexReadDist()
 
         start = Cycles::rdtsc();
         uint64_t totalNumObjects = 0;
-        IndexLookup lookup(cluster, dataTable, indexId,
-                    keyList[1].key, keyList[1].keyLength, // first key
-                    keyList[1].key, keyList[1].keyLength, // last key
-                    1000 /*Max number of hashes to return */);
+        IndexKey::IndexKeyRange keyRange(indexId,
+                keyList[1].key, keyList[1].keyLength, /*first key*/
+                keyList[1].key, keyList[1].keyLength /*last key*/);
+        IndexLookup lookup(cluster, dataTable, keyRange);
 
         while (lookup.getNext())
             totalNumObjects++;
@@ -2720,9 +2720,10 @@ indexRange() {
             generateIndexKeyList(firstKey, intFirstKey, keyLength);
             generateIndexKeyList(lastKey, intLastKey, keyLength);
 
-            IndexLookup rangeLookup(cluster, dataTable, indexId,
-                        firstKey[1].key, firstKey[1].keyLength,
-                        lastKey[1].key, lastKey[1].keyLength, maxNumHashes);
+            IndexKey::IndexKeyRange keyRange(indexId,
+                    firstKey[1].key, firstKey[1].keyLength,
+                    lastKey[1].key, lastKey[1].keyLength);
+            IndexLookup rangeLookup(cluster, dataTable, keyRange);
 
             uint32_t totalNumObjects = 0;
             while (rangeLookup.getNext())
@@ -2822,9 +2823,10 @@ indexRange() {
             firstAllowedKeyHash = totalNumObjects = 0;
 
             uint64_t start = Cycles::rdtsc();
-            IndexLookup rangeLookupRpc(cluster, dataTable, indexId,
+            IndexKey::IndexKeyRange keyRange(indexId,
                     firstKey[1].key, firstKey[1].keyLength,
-                    lastKey[1].key, lastKey[1].keyLength, maxNumHashes);
+                    lastKey[1].key, lastKey[1].keyLength);
+            IndexLookup rangeLookupRpc(cluster, dataTable, keyRange);
 
             while (rangeLookupRpc.getNext())
                 totalNumObjects++;
@@ -3144,6 +3146,7 @@ indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
 
         uint64_t startTimes[numRequests];
         uint64_t stopTimes[numRequests];
+        Tub<IndexKey::IndexKeyRange> keyRanges[numRequests]; 
         Tub<IndexLookup> rpcs[numRequests];
         uint32_t readNumObjects[numRequests];
 
@@ -3168,8 +3171,11 @@ indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
         for (int i = 0; i < numRequests; i++) {
             readNumObjects[i] = 0;
             startTimes[i] = Cycles::rdtsc();
-            rpcs[i].construct(cluster, lookupTable, indexId,
-                firstKey[i], keyLength, lastKey[i], keyLength, maxHashes);
+
+            keyRanges[i].construct(indexId, firstKey[i], keyLength,
+                    lastKey[i], keyLength);
+
+            rpcs[i].construct(cluster, lookupTable, *keyRanges[i]);
             numRpcs++;
         }
 
