@@ -774,29 +774,23 @@ MasterService::lookupIndexKeys(
 
 /**
  * Helper function to avoid code duplication in migrateTablet which copies a log
- * entry to a segment for migration if it is a living object or a tombstone.
+ * entry to a segment for migration if it is a live log entry.
  *
  * If the segment is full, it will send the segment to the target of the
  * migration, destroy the segment, and create a new one.
  *
- * It returns 0 on success (either the entry is ignored because it is neither
- * object nor tombstone or successfully added to the segmetn) and 1 on failure
- * (an object or tombstone could not be successfully appended to an empty
- * segment).
  * If there is an error, this method will set the status code of the response
  * to the client to be an error.
  *
  * \param it
  *      The iterator that points at the object we are attempting to migrate.
  * \param[out] transferSeg
- *      Segment object that we append objects to, and possibly send when it gets full.
- * \param[out] totalObjects
- *      The total number of objects copied into segments for transfer thus far,
- *      which we increment whenever we append an object to a transfer segment.
- * \param[out] totalTombstones
- *      The total number of tombstones copied into segments for transfer thus
- *      far, which we increment whenever we append a tombstones to a transfer
- *      segment.
+ *      Segment object that we append objects to, and possibly send when it gets
+ *      full.
+ * \param[out] entryTotals
+ *      Array indexed by type of the total number of log entries copied into
+ *      segments for transfer thus far, which we increment whenever we append an
+ *      entry to a transfer segment.
  * \param[out] totalBytes
  *      The total number of bytes copied into segments for transfer thus
  *      far, which we add to whenever we append any entry to a transfer
@@ -809,50 +803,66 @@ MasterService::lookupIndexKeys(
  *      The caller has pre-allocated the right amount of space in the
  *      response buffer for this type of request, and has zeroed out
  *      its contents (so, for example, status is already zero).
+ * \return
+ *      Returns 0 on success (either the entry is ignored or successfully added
+ *      to the segment) and 1 on failure (an entry could not be successfully
+ *      appended to an empty segment).
  */
 int
-MasterService::migrateSingleObject(
+MasterService::migrateSingleLogEntry(
         LogIterator& it,
         Tub<Segment>& transferSeg,
-        uint64_t& totalObjects,
-        uint64_t& totalTombstones,
+        uint64_t entryTotals[],
         uint64_t& totalBytes,
         const WireFormat::MigrateTablet::Request* reqHdr,
         WireFormat::MigrateTablet::Response* respHdr)
 {
-
     uint64_t tableId = reqHdr->tableId;
     uint64_t firstKeyHash = reqHdr->firstKeyHash;
     uint64_t lastKeyHash = reqHdr->lastKeyHash;
     ServerId newOwnerMasterId(reqHdr->newOwnerMasterId);
 
     LogEntryType type = it.getType();
-    if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
+    if (type != LOG_ENTRY_TYPE_OBJ &&
+        type != LOG_ENTRY_TYPE_OBJTOMB &&
+        type != LOG_ENTRY_TYPE_TXDECISION)
+    {
         // We aren't interested in any other types.
         return 0;
     }
 
     Buffer buffer;
     it.appendToBuffer(buffer);
-    Key key(type, buffer);
+    uint64_t entryTableId = 0;
+    KeyHash entryKeyHash = 0;
+
+    if (type == LOG_ENTRY_TYPE_OBJ || type == LOG_ENTRY_TYPE_OBJTOMB) {
+        Key key(type, buffer);
+        entryTableId = key.getTableId();
+        entryKeyHash = key.getHash();
+    } else if (type == LOG_ENTRY_TYPE_TXDECISION) {
+        TxDecisionRecord record(buffer);
+        entryTableId = record.getTableId();
+        entryKeyHash = record.getKeyHash();
+    }
 
     // Skip if not applicable.
-    if (key.getTableId() != tableId)
+    if (entryTableId != tableId)
         return 0;
 
-    if (key.getHash() < firstKeyHash || key.getHash() > lastKeyHash)
+    if (entryKeyHash < firstKeyHash || entryKeyHash > lastKeyHash)
         return 0;
 
     if (type == LOG_ENTRY_TYPE_OBJ) {
         // Only send objects when they're currently in the hash table.
         // Otherwise they're dead.
+        Key key(type, buffer);
         if (!objectManager.keyPointsAtReference(key,
                     it.getReference())) {
             return 0;
         }
 
-        totalObjects++;
-    } else {
+    } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         // We must always send tombstones, since an object we may have sent
         // could have been deleted more recently. We could be smarter and
         // more selective here, but that'd require keeping extra state to
@@ -862,10 +872,9 @@ MasterService::migrateSingleObject(
         // is to track each object or tombstone we've sent. The smarter
         // way is to just record the Log::Position when we started
         // iterating and only send newer tombstones.
-
-        totalTombstones++;
     }
 
+    entryTotals[type]++;
     totalBytes += buffer.size();
 
     if (!transferSeg)
@@ -947,16 +956,14 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // efficiency and convenience.
     Tub<Segment> transferSeg;
 
-    uint64_t totalObjects = 0;
-    uint64_t totalTombstones = 0;
+    uint64_t entryTotals[TOTAL_LOG_ENTRY_TYPES] = {0};
     uint64_t totalBytes = 0;
 
     LogIterator it(*objectManager.getLog(), false);
     // Scan the log from oldest to newest entries until we reach the head
     for (; !it.onHead(); it.next()) {
-        int error = migrateSingleObject(
-                it, transferSeg, totalObjects, totalTombstones, totalBytes,
-                reqHdr, respHdr);
+        int error = migrateSingleLogEntry(
+                it, transferSeg, entryTotals, totalBytes, reqHdr, respHdr);
         if (error) return;
     }
 
@@ -986,9 +993,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         it.refresh();
 
         for (; it.getPosition() < position; it.next()) {
-            int error = migrateSingleObject(
-                    it, transferSeg, totalObjects, totalTombstones, totalBytes,
-                    reqHdr, respHdr);
+            int error = migrateSingleLogEntry(
+                    it, transferSeg, entryTotals, totalBytes, reqHdr, respHdr);
             if (error) return;
         }
     }
@@ -1012,7 +1018,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     LOG(NOTICE, "Migration succeeded for tablet [0x%lx,0x%lx] in "
             "tableId %lu; sent %lu objects and %lu tombstones to %s, "
             "%lu bytes in total",
-            firstKeyHash, lastKeyHash, tableId, totalObjects, totalTombstones,
+            firstKeyHash, lastKeyHash, tableId, entryTotals[LOG_ENTRY_TYPE_OBJ],
+            entryTotals[LOG_ENTRY_TYPE_OBJTOMB],
             context->serverList->toString(newOwnerMasterId).c_str(),
             totalBytes);
 

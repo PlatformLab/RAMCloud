@@ -219,10 +219,9 @@ class MasterService : public Service {
                 uint64_t& totalTombstones,
                 uint64_t& totalBytes,
                 WireFormat::SplitAndMigrateIndexlet::Response* respHdr);
-    int migrateSingleObject(LogIterator& it,
+    int migrateSingleLogEntry(LogIterator& it,
                 Tub<Segment>& transferSeg,
-                uint64_t& totalObjects,
-                uint64_t& totalTombstones,
+                uint64_t entryTotals[],
                 uint64_t& totalBytes,
                 const WireFormat::MigrateTablet::Request* reqHdr,
                 WireFormat::MigrateTablet::Response* respHdr);
