@@ -50,9 +50,6 @@ namespace RAMCloud {
  *      this object.
  * \param lastKeyLength
  *      Length in byes of the lastKey.
- * \param maxNumHashes
- *      Maximum number of hashes that the server is allowed to return
- *      in a single rpc.
  * \param flags
  *      Provides additional information to control the range query.
  */
@@ -60,13 +57,12 @@ IndexLookup::IndexLookup(
         RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
         const void* firstKey, uint16_t firstKeyLength,
         const void* lastKey, uint16_t lastKeyLength,
-        uint32_t maxNumHashes, Flags flags)
+        Flags flags)
     : ramcloud(ramcloud)
     , lookupRpc()
     , tableId(tableId)
     , keyRange{indexId, firstKey, firstKeyLength, lastKey, lastKeyLength}
     , flags(flags)
-    , maxNumHashes(maxNumHashes)
     , nextKey(NULL)
     , nextKeyLength(0)
     , nextKeyHash(0)
@@ -85,7 +81,7 @@ IndexLookup::IndexLookup(
     lookupRpc.status = SENT;
     lookupRpc.rpc.construct(ramcloud, tableId, indexId,
             firstKey, firstKeyLength, 0, lastKey, lastKeyLength,
-            maxNumHashes, &lookupRpc.resp);
+            (uint32_t)MAX_ALLOWED_HASHES, &lookupRpc.resp);
 }
 
 IndexLookup::~IndexLookup()
@@ -184,7 +180,7 @@ IndexLookup::isReady()
                 lookupRpc.rpc.construct(ramcloud, tableId, keyRange.indexId,
                         nextKey, nextKeyLength, nextKeyHash,
                         keyRange.lastKey, keyRange.lastKeyLength,
-                        maxNumHashes, &lookupRpc.resp);
+                        (uint32_t)MAX_ALLOWED_HASHES, &lookupRpc.resp);
                 lookupRpc.status = SENT;
             }
         }

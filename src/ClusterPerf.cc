@@ -611,7 +611,7 @@ timeIndexedRead(uint64_t tableId, uint8_t indexId, uint64_t expectedFirstPkHash,
         start = Cycles::rdtsc();
 
         IndexLookup rangeLookup(cluster, tableId, indexId, firstKey,
-                firstKeyLength, lastKey, lastKeyLength, maxNumHashes);
+                firstKeyLength, lastKey, lastKeyLength);
 
         while (rangeLookup.getNext()) {
             totalNumObjects++;

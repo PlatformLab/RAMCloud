@@ -49,7 +49,7 @@ class IndexLookup {
     IndexLookup(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
             const void* firstKey, uint16_t firstKeyLength,
             const void* lastKey, uint16_t lastKeyLength,
-            uint32_t maxNumHashes, Flags flags = DEFAULT);
+            Flags flags = DEFAULT);
     ~IndexLookup();
 
     bool isReady();
@@ -196,7 +196,7 @@ class IndexLookup {
 
     /// Maximum number of hashes that the server is allowed to return
     /// in a single rpc.
-    uint32_t maxNumHashes;
+    static const uint32_t MAX_ALLOWED_HASHES = 1000;
 
     /// Key blob marking the start of the indexed key range for the next
     /// RamCloud::LookupIndexKeysRpc.
