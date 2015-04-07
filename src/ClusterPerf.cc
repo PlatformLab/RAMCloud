@@ -610,8 +610,9 @@ timeIndexedRead(uint64_t tableId, uint8_t indexId, uint64_t expectedFirstPkHash,
         firstAllowedKeyHash = 0;
         start = Cycles::rdtsc();
 
-        IndexLookup rangeLookup(cluster, tableId, indexId, firstKey,
-                firstKeyLength, lastKey, lastKeyLength);
+        IndexKey::IndexKeyRange keyRange(indexId, firstKey, firstKeyLength,
+                lastKey, lastKeyLength);
+        IndexLookup rangeLookup(cluster, tableId, keyRange);
 
         while (rangeLookup.getNext()) {
             totalNumObjects++;

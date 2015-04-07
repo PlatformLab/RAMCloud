@@ -29,40 +29,18 @@ namespace RAMCloud {
  *      The RAMCloud object that governs this class.
  * \param tableId
  *      Id of the table in which lookup is to be done.
- * \param indexId
- *      Id of the index to use for lookup.
- *      Must be greater than 0. Id 0 is reserved for "primary key".
- * \param firstKey
- *      Starting key for the key range in which keys are to be matched.
- *      The key range includes the firstKey by default, but may be excluded
- *      by using flags.
- *      It does not necessarily have to be null terminated. The caller must
- *      ensure that the storage for this key is unchanged through the life of
- *      this object.
- * \param firstKeyLength
- *      Length in bytes of the firstKey.
- * \param lastKey
- *      Ending key for the key range in which keys are to be matched.
- *      The key range includes the lastKey by default, but may be excluded
- *      by using flags.
- *      It does not necessarily have to be null terminated.  The caller must
- *      ensure that the storage for this key is unchanged through the life of
- *      this object.
- * \param lastKeyLength
- *      Length in byes of the lastKey.
- * \param flags
- *      Provides additional information to control the range query.
+ * \param keyRange
+ *      IndexKeyRange in which keys are to be matched.
+ *      The caller must ensure that the storage for each key in the keyRange
+ *      is unchanged through the life of this object.
  */
 IndexLookup::IndexLookup(
-        RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
-        const void* firstKey, uint16_t firstKeyLength,
-        const void* lastKey, uint16_t lastKeyLength,
-        Flags flags)
+        RamCloud* ramcloud, uint64_t tableId,
+        IndexKey::IndexKeyRange keyRange)
     : ramcloud(ramcloud)
     , lookupRpc()
     , tableId(tableId)
-    , keyRange{indexId, firstKey, firstKeyLength, lastKey, lastKeyLength}
-    , flags(flags)
+    , keyRange(keyRange)
     , nextKey(NULL)
     , nextKeyLength(0)
     , nextKeyHash(0)
@@ -79,8 +57,10 @@ IndexLookup::IndexLookup(
 
     lookupRpc.resp.reset();
     lookupRpc.status = SENT;
-    lookupRpc.rpc.construct(ramcloud, tableId, indexId,
-            firstKey, firstKeyLength, 0, lastKey, lastKeyLength,
+    lookupRpc.rpc.construct(
+            ramcloud, tableId, keyRange.indexId,
+            keyRange.firstKey, keyRange.firstKeyLength, 0,
+            keyRange.lastKey, keyRange.lastKeyLength,
             (uint32_t)MAX_ALLOWED_HASHES, &lookupRpc.resp);
 }
 

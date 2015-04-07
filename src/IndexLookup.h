@@ -35,21 +35,8 @@ namespace RAMCloud {
 class IndexLookup {
   PUBLIC:
 
-    enum Flags : uint32_t {
-        /// No flag is set by default.
-        DEFAULT = 0,
-        /// If EXCLUDE_FIRST_KEY is set, IndexLookup will not return objects
-        /// that matches firstKey.
-        EXCLUDE_FIRST_KEY = 1,
-        /// If EXCLUDE_FIRST_KEY is set, IndexLookup will not return objects
-        /// that matches lastKey.
-        EXCLUDE_LAST_KEY = 2
-    };
-
-    IndexLookup(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
-            const void* firstKey, uint16_t firstKeyLength,
-            const void* lastKey, uint16_t lastKeyLength,
-            Flags flags = DEFAULT);
+    IndexLookup(RamCloud* ramcloud, uint64_t tableId,
+            IndexKey::IndexKeyRange keyRange);
     ~IndexLookup();
 
     bool isReady();
@@ -183,10 +170,6 @@ class IndexLookup {
 
     /// Stores the index id and first and last keys for this range lookup.
     struct IndexKey::IndexKeyRange keyRange;
-
-    /// Additional information provided by the client to control
-    /// the range query.
-    Flags flags;
 
     //////////////////////////////////////////////////////////////////////////
     // The next four variables are used to handle the case where we have
