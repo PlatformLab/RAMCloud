@@ -26,7 +26,20 @@ namespace RAMCloud {
 class ClientTransactionTask;
 class RamCloud;
 
-class ClientTransactionManager : public Dispatch::Timer{
+/**
+ * The ClientTransactionManager drives a collection of ClientTransactionTasks
+ * until they have run their commit protocol to completion.
+ *
+ * In typical usage, a Transaction will construct a ClientTransactionTask as
+ * part of setting up a client transaction.  When the Transaction wishes to
+ * commit, it will add the task to the manager for it to be run.  Even if the
+ * Transaction is destructed before the task is finished (this may happen if the
+ * client wants to commit the transaction asynchronously), the manager will
+ * still hold on to the task and run it until completion.
+ *
+ * The ClientTransactionManager is run in the dispatch poller.
+ */
+class ClientTransactionManager : public Dispatch::Timer {
   PUBLIC:
     explicit ClientTransactionManager(RamCloud* ramcloud);
     void addTransactionTask(std::shared_ptr<ClientTransactionTask>& taskPtr);
