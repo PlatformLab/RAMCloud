@@ -41,54 +41,139 @@ TEST_F(IndexKeyTest, keyCompare)
 
 TEST_F(IndexKeyTest, isKeyInRange)
 {
+    // Simplyfy widely used flags
+    IndexKey::IndexKeyRange::BoundaryFlags includeBoth =
+                IndexKey::IndexKeyRange::INCLUDE_BOTH;
+    IndexKey::IndexKeyRange::BoundaryFlags excludeFirst =
+                IndexKey::IndexKeyRange::EXCLUDE_FIRST;
+    IndexKey::IndexKeyRange::BoundaryFlags excludeLast =
+                IndexKey::IndexKeyRange::EXCLUDE_LAST;
+    IndexKey::IndexKeyRange::BoundaryFlags excludeBoth =
+                IndexKey::IndexKeyRange::EXCLUDE_BOTH;
+
     // Construct Object obj.
     uint64_t tableId = 1;
     uint8_t numKeys = 3;
 
     KeyInfo keyList[3];
-    keyList[0].keyLength = 8;
-    keyList[0].key = "objkey0";
-    keyList[1].keyLength = 8;
-    keyList[1].key = "objkey1";
-    keyList[2].keyLength = 8;
-    keyList[2].key = "objkey2";
+    keyList[0].keyLength = 4;
+    keyList[0].key = "key0";
+    keyList[1].keyLength = 4;
+    keyList[1].key = "key1";
+    keyList[2].keyLength = 4;
+    keyList[2].key = "key2";
 
     const void* value = "objvalue";
     uint32_t valueLength = 9;
 
     Buffer keysAndValueBuffer;
     Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
-                                       value, valueLength, &keysAndValueBuffer);
-
+            value, valueLength, &keysAndValueBuffer);
     Object obj(tableId, 1, 0, keysAndValueBuffer);
 
-    // Note: If isKeyInRange() didn't use keyCompare() then we'd have to
-    // test many more cases here.
+    //////////////////// Test for includeBoth ////////////////////
 
-    // Case0: firstKey > key < lastKey
-    IndexKey::IndexKeyRange testRange0 = {1, "objkey2", 8, "objkey2", 8};
-    bool isInRange0 = IndexKey::isKeyInRange(&obj, &testRange0);
-    EXPECT_FALSE(isInRange0);
+    // firstKey > key < lastKey
+    IndexKey::IndexKeyRange testRange1(1, "key2", 4, "key2", 4, includeBoth);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange1));
 
-    // Case1: firstKey < key > lastKey
-    IndexKey::IndexKeyRange testRange1 = {1, "objkey0", 8, "objkey0", 8};
-    bool isInRange1 = IndexKey::isKeyInRange(&obj, &testRange1);
-    EXPECT_FALSE(isInRange1);
+    // firstKey < key > lastKey
+    IndexKey::IndexKeyRange testRange2(1, "key0", 4, "key0", 4, includeBoth);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange2));
 
-    // Case2: firstKey > key > lastKey
-    IndexKey::IndexKeyRange testRange2 = {1, "objkey2", 8, "objkey0", 8};
-    bool isInRange2 = IndexKey::isKeyInRange(&obj, &testRange2);
-    EXPECT_FALSE(isInRange2);
+    // firstKey > key > lastKey
+    IndexKey::IndexKeyRange testRange3(1, "key2", 4, "key0", 4, includeBoth);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange3));
 
-    // Case3: firstKey < key < lastKey
-    IndexKey::IndexKeyRange testRange3 = {1, "objkey0", 8, "objkey2", 8};
-    bool isInRange3 = IndexKey::isKeyInRange(&obj, &testRange3);
-    EXPECT_TRUE(isInRange3);
+    // firstKey < key < lastKey
+    IndexKey::IndexKeyRange testRange4(1, "key0", 4, "key2", 4, includeBoth);
+    EXPECT_TRUE(IndexKey::isKeyInRange(&obj, &testRange4));
 
-    // Case4: firstKey = key = lastKey
-    IndexKey::IndexKeyRange testRange4 = {1, "objkey1", 8, "objkey1", 8};
-    bool isInRange4 = IndexKey::isKeyInRange(&obj, &testRange4);
-    EXPECT_TRUE(isInRange4);
+    // firstKey = key = lastKey
+    IndexKey::IndexKeyRange testRange5(1, "key1", 4, "key1", 4, includeBoth);
+    EXPECT_TRUE(IndexKey::isKeyInRange(&obj, &testRange5));
+
+    //////////////////// Test for excludeFirst ////////////////////
+
+    // firstKey > key < lastKey
+    IndexKey::IndexKeyRange testRange6(1, "key2", 4, "key2", 4, excludeFirst);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange6));
+
+    // firstKey < key > lastKey
+    IndexKey::IndexKeyRange testRange7(1, "key0", 4, "key0", 4, excludeFirst);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange7));
+
+    // firstKey > key > lastKey
+    IndexKey::IndexKeyRange testRange8(1, "key2", 4, "key0", 4, excludeFirst);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange8));
+
+    // firstKey < key < lastKey
+    IndexKey::IndexKeyRange testRange9(1, "key0", 4, "key2", 4, excludeFirst);
+    EXPECT_TRUE(IndexKey::isKeyInRange(&obj, &testRange9));
+
+    // firstKey = key = lastKey
+    IndexKey::IndexKeyRange testRange10(1, "key1", 4, "key1", 4, excludeFirst);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange10));
+
+    // frstKey < key = lastKey
+    IndexKey::IndexKeyRange testRange11(1, "key0", 4, "key1", 4, excludeFirst);
+    EXPECT_TRUE(IndexKey::isKeyInRange(&obj, &testRange11));
+
+    //////////////////// Test for excludeLast ////////////////////
+
+    // firstKey > key < lastKey
+    IndexKey::IndexKeyRange testRange12(1, "key2", 4, "key2", 4, excludeLast);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange12));
+
+    // firstKey < key > lastKey
+    IndexKey::IndexKeyRange testRange13(1, "key0", 4, "key0", 4, excludeLast);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange13));
+
+    // firstKey > key > lastKey
+    IndexKey::IndexKeyRange testRange14(1, "key2", 4, "key0", 4, excludeLast);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange14));
+
+    // firstKey < key < lastKey
+    IndexKey::IndexKeyRange testRange15(1, "key0", 4, "key2", 4, excludeLast);
+    EXPECT_TRUE(IndexKey::isKeyInRange(&obj, &testRange15));
+
+    // firstKey = key = lastKey
+    IndexKey::IndexKeyRange testRange16(1, "key1", 4, "key1", 4, excludeLast);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange16));
+
+    // firstKey = key < lastKey
+    IndexKey::IndexKeyRange testRange17(1, "key1", 4, "key2", 4, excludeLast);
+    EXPECT_TRUE(IndexKey::isKeyInRange(&obj, &testRange17));
+
+    //////////////////// Test for excludeBoth ////////////////////
+
+    // firstKey > key < lastKey
+    IndexKey::IndexKeyRange testRange18(1, "key2", 4, "key2", 4, excludeBoth);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange18));
+
+    // firstKey < key > lastKey
+    IndexKey::IndexKeyRange testRange19(1, "key0", 4, "key0", 4, excludeBoth);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange19));
+
+    // firstKey > key > lastKey
+    IndexKey::IndexKeyRange testRange20(1, "key2", 4, "key0", 4, excludeBoth);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange20));
+
+    // firstKey < key < lastKey
+    IndexKey::IndexKeyRange testRange21(1, "key0", 4, "key2", 4, excludeBoth);
+    EXPECT_TRUE(IndexKey::isKeyInRange(&obj, &testRange21));
+
+    // firstKey = key = lastKey
+    IndexKey::IndexKeyRange testRange22(1, "key1", 4, "key1", 4, excludeBoth);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange22));
+
+    // firstKey = key < lastKey
+    IndexKey::IndexKeyRange testRange23(1, "key1", 4, "key2", 4, excludeBoth);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange23));
+
+    // firstKey < key = lastKey
+    IndexKey::IndexKeyRange testRange24(1, "key0", 4, "key1", 4, excludeBoth);
+    EXPECT_FALSE(IndexKey::isKeyInRange(&obj, &testRange24));
 }
 
 }  // namespace RAMCloud

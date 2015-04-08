@@ -33,15 +33,19 @@ class IndexKey {
         enum BoundaryFlags : uint32_t {
             /// If INCLUDE_BOTH is set, the range is inclusive of both
             /// firstKey and lastKey.
+            /// i.e., the range is [firstKey, lastKey].
             INCLUDE_BOTH = 0,
             /// If EXCLUDE_FIRST is set, the range is exclusive of firstKey,
             /// and inclusive of lastKey.
+            /// i.e., the range is (firstKey, lastKey].
             EXCLUDE_FIRST = 1,
             /// If EXCLUDE_LAST is set, the range is inclusive of fistKey,
             /// and exclusive of lastKey.
+            /// i.e., the range is [firstKey, lastKey).
             EXCLUDE_LAST = 2,
             /// If EXCLUDE_BOTH is set, the range is exclusive of both
             /// firstKey and lastKey.
+            /// i.e., the range is (firstKey, lastKey).
             EXCLUDE_BOTH = 3,
         };
 

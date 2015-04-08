@@ -3146,7 +3146,7 @@ indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
 
         uint64_t startTimes[numRequests];
         uint64_t stopTimes[numRequests];
-        Tub<IndexKey::IndexKeyRange> keyRanges[numRequests]; 
+        Tub<IndexKey::IndexKeyRange> keyRanges[numRequests];
         Tub<IndexLookup> rpcs[numRequests];
         uint32_t readNumObjects[numRequests];
 

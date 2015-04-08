@@ -72,10 +72,29 @@ IndexKey::isKeyInRange(Object* object, IndexKeyRange* keyRange)
     uint16_t keyLength;
     const void* key = object->getKey(keyRange->indexId, &keyLength);
 
-    if (keyCompare(keyRange->firstKey, keyRange->firstKeyLength,
+    if (keyRange->flags == IndexKeyRange::INCLUDE_BOTH &&
+        keyCompare(keyRange->firstKey, keyRange->firstKeyLength,
                    key, keyLength) <= 0 &&
         keyCompare(keyRange->lastKey, keyRange->lastKeyLength,
                    key, keyLength) >= 0) {
+        return true;
+    } else if (keyRange->flags == IndexKeyRange::EXCLUDE_FIRST &&
+        keyCompare(keyRange->firstKey, keyRange->firstKeyLength,
+                   key, keyLength) < 0 &&
+        keyCompare(keyRange->lastKey, keyRange->lastKeyLength,
+                   key, keyLength) >= 0) {
+        return true;
+    } else if (keyRange->flags == IndexKeyRange::EXCLUDE_LAST &&
+        keyCompare(keyRange->firstKey, keyRange->firstKeyLength,
+                   key, keyLength) <= 0 &&
+        keyCompare(keyRange->lastKey, keyRange->lastKeyLength,
+                   key, keyLength) > 0) {
+        return true;
+    } else if (keyRange->flags == IndexKeyRange::EXCLUDE_BOTH &&
+        keyCompare(keyRange->firstKey, keyRange->firstKeyLength,
+                   key, keyLength) < 0 &&
+        keyCompare(keyRange->lastKey, keyRange->lastKeyLength,
+                   key, keyLength) > 0) {
         return true;
     } else {
         return false;
