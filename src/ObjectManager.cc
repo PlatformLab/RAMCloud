@@ -1407,7 +1407,7 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
         }
     }
 
-    if (currentReference.toInteger() == 0 ||
+    if (currentReference.toInteger() != 0 && // Allow new insertion without lock
         !lockTable.tryAcquireLock(currentReference.toInteger())) {
         RAMCLOUD_LOG(DEBUG, "TxPrepare fail. Key: %.*s, object is already lock",
                 keyLength, reinterpret_cast<const char*>(keyString));
@@ -1738,6 +1738,7 @@ ObjectManager::commitWrite(PreparedOp& op,
 {
     uint16_t keyLength = 0;
     const void *keyString = op.object.getKey(0, &keyLength);
+    bool newKey = false;
     Key key(op.object.getTableId(), keyString, keyLength);
 
     objectMap.prefetchBucket(key.getHash());
@@ -1757,58 +1758,70 @@ ObjectManager::commitWrite(PreparedOp& op,
     if (!lookup(lock, key, type, buffer, NULL,
                 &oldReference, &currentHashTableEntry) ||
             type != LOG_ENTRY_TYPE_OBJ) {
-
-        //Not possible to enter here with current prepareOp implementation.
-        static RejectRules defaultRejectRules;
-        return rejectOperation(&defaultRejectRules, VERSION_NONEXISTENT);
+        newKey = true;
     }
 
-    Object oldObject(buffer);
-
-    // Return a pointer to the buffer in log for the object being removed.
-    if (removedObjBuffer != NULL) {
-        removedObjBuffer->appendExternal(&buffer);
+    Tub<Object> oldObject;
+    if (!newKey) {
+        oldObject.construct(buffer);
+        // Return a pointer to the buffer in log for the object being removed.
+        if (removedObjBuffer != NULL) {
+            removedObjBuffer->appendExternal(&buffer);
+        }
     }
 
     lockTable.releaseLock(oldReference.toInteger());
 
     PreparedOpTombstone prepOpTombstone(op, log.getSegmentId(refToPreparedOp));
-    ObjectTombstone tombstone(oldObject,
-                              log.getSegmentId(oldReference),
-                              WallTime::secondsTimestamp());
+    Tub<ObjectTombstone> tombstone;
+    if (!newKey) {
+        tombstone.construct(*oldObject,
+                            log.getSegmentId(oldReference),
+                            WallTime::secondsTimestamp());
+    }
 
-    Log::AppendVector appends[3];
-    tombstone.assembleForLog(appends[0].buffer);
-    appends[0].type = LOG_ENTRY_TYPE_OBJTOMB;
+    int size = 2 + (newKey ? 0 : 1);
+    Log::AppendVector appends[size];
 
-    prepOpTombstone.assembleForLog(appends[1].buffer);
-    appends[1].type = LOG_ENTRY_TYPE_PREPTOMB;
+    prepOpTombstone.assembleForLog(appends[0].buffer);
+    appends[0].type = LOG_ENTRY_TYPE_PREPTOMB;
 
-    op.object.assembleForLog(appends[2].buffer);
-    appends[2].type = LOG_ENTRY_TYPE_OBJ;
+    op.object.assembleForLog(appends[1].buffer);
+    appends[1].type = LOG_ENTRY_TYPE_OBJ;
 
-    if (!log.hasSpaceFor(appends[2].buffer.size())) {
+    if (!newKey) {
+        tombstone->assembleForLog(appends[2].buffer);
+        appends[2].type = LOG_ENTRY_TYPE_OBJTOMB;
+    }
+
+    if (!log.hasSpaceFor(appends[1].buffer.size())) {
         // We must bound the amount of live data to ensure deletes are possible
         RAMCLOUD_CLOG(NOTICE, "Log is out of space, rejecting committing"
                               " prepared write during transaction!");
-        lockTable.acquireLock(oldReference.toInteger());
+        if (!newKey)
+            lockTable.acquireLock(oldReference.toInteger());
         throw RetryException(HERE, 1000, 2000, "Log is out of space!");
     }
 
-    if (!log.append(appends, 3)) {
+    if (!log.append(appends, size)) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
-        lockTable.acquireLock(oldReference.toInteger());
+        if (!newKey)
+            lockTable.acquireLock(oldReference.toInteger());
         return STATUS_RETRY;
     }
 
     //TODO(seojin): TableStat.
 
-    log.free(oldReference);
     log.free(refToPreparedOp);
 
-    currentHashTableEntry.setReference(appends[2].reference.toInteger());
+    if (!newKey) {
+        currentHashTableEntry.setReference(appends[1].reference.toInteger());
+        log.free(oldReference);
+    } else {
+        objectMap.insert(key.getHash(), appends[1].reference.toInteger());
+    }
     return STATUS_OK;
 }
 
