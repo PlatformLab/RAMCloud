@@ -332,7 +332,7 @@ class PreparedOps {
         /// However, using small timeout must be carefully chosen since large
         /// server span of a transaction increases the time gap between the
         /// first phase and the second phase of a transaction.
-        static const uint64_t TX_TIMEOUT_US = 500;
+        static const uint64_t TX_TIMEOUT_US = 50000;
       private:
         DISALLOW_COPY_AND_ASSIGN(PreparedItem);
     };

@@ -406,6 +406,7 @@ class ObjectManager : public LogEntryHandlers {
 
     friend class CleanerCompactionBenchmark;
     friend class ObjectManagerBenchmark;
+    friend class PingService;
 
     DISALLOW_COPY_AND_ASSIGN(ObjectManager);
 };

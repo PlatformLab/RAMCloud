@@ -252,6 +252,7 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         {
             PerfStats stats;
             PerfStats::collectStats(&stats);
+            stats.temp1 = context->masterService->objectManager.segmentManager.getMemoryUtilization();
             respHdr->outputLength = sizeof32(stats);
             rpc->replyPayload->appendCopy(&stats, respHdr->outputLength);
             break;

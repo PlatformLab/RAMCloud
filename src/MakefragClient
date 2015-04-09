@@ -105,6 +105,7 @@ CLIENT_SRCFILES := \
 		   src/TimeCounter.cc \
 		   src/TimeTrace.cc \
 		   src/TimeTraceUtil.cc \
+		   src/TpcC.cc \
 		   src/Transaction.cc \
 		   src/Transport.cc \
 		   src/TransportManager.cc \

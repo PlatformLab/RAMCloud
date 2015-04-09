@@ -22,7 +22,7 @@ namespace LeaseCommon {
 
 /// Defines the length of time (in nanoseconds) that a lease will be extended
 /// upon renewal.
-const uint64_t LEASE_TERM_US = 300*1e6;      // 5 min = 300,000,000 us
+const uint64_t LEASE_TERM_US = 1800*1e6;      // 5 min = 300,000,000 us
 
 /// Defines the remaining lease time below which a given lease should not be
 /// assumed renewable.  Modules that rely on leases should not use leases that
@@ -33,13 +33,13 @@ const uint64_t LEASE_TERM_US = 300*1e6;      // 5 min = 300,000,000 us
 /// remaining lease time is above this value.  In other words, the value should
 /// be larger than the answer to the question, "what is the most time a lease
 /// renewal request will take during all expected failure cases?"
-static const uint64_t DANGER_THRESHOLD_US = 500;
+static const uint64_t DANGER_THRESHOLD_US = 60*1e6;
 
 /// Defines the remaining lease time below which a module should start trying
 /// to renew the lease.  During this period, the lease has probably not expired
 /// so it is safe to perform the renewals asynchronously.  This value should
 /// be set conservatively to around half the LeaseManager::LEASE_TERM_US.
-static const uint64_t RENEW_THRESHOLD_US = 150*1e6;     // 2.5 min
+static const uint64_t RENEW_THRESHOLD_US = 900*1e6;     // 2.5 min
 
 
 
