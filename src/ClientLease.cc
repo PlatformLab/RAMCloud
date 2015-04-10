@@ -55,15 +55,15 @@ ClientLease::getLease()
 }
 
 /**
- * This method incrementally ensures that a the lease is valid; i.e. repeatedly
- * calling this method will ensure the lease is valid.  This method is called
- * periodically in response to a timer expiring.
+ * This method is called when the lease renewal timer elapses and the a lease
+ * needs to be renewed.  This method will reschedule itself as necessary to
+ * maintain a valid lease.
  */
 void
 ClientLease::handleTimerEvent()
 {
     /**
-     * This method implements a rules-based asynchronously algorithm (a "task")
+     * This method implements a rules-based asynchronous algorithm (a "task")
      * to incrementally make progress to ensure there is a valid lease (the
      * "goal").  After running, this method will schedule itself to be run again
      * in the future if additional work needs to be done to reach the goal of
@@ -79,6 +79,8 @@ ClientLease::handleTimerEvent()
         if (renewLeaseRpc->isReady()) {
             lease = renewLeaseRpc->wait();
             renewLeaseRpc.destroy();
+            // Use local rdtsc cycle time to estimate when the lease will expire
+            // if the lease is not renewed.
             uint64_t leaseTermLenUs = 0;
             if (lease.leaseTerm > lease.timestamp) {
                 leaseTermLenUs = lease.leaseTerm - lease.timestamp;

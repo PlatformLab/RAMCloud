@@ -122,7 +122,9 @@ ClientTransactionTask::insertCacheEntry(uint64_t tableId, const void* key,
 }
 
 /**
- * Make incremental progress toward committing the transaction.
+ * Make incremental progress toward committing the transaction.  This method
+ * is called during the poll loop when this task needs to make progress (i.e.
+ * if the transaction is in the process of committing).
  */
 void
 ClientTransactionTask::performTask()
@@ -190,8 +192,8 @@ ClientTransactionTask::initTask()
 }
 
 /**
- * Process any decision rpcs that have completed.  Used in the commit method.
- * Factored out mostly for ease of testing.
+ * Process any decision rpcs that have completed.  Used in performTask.
+ * Factored out mostly for clarity and ease of testing.
  */
 void
 ClientTransactionTask::processDecisionRpcs()
@@ -205,8 +207,8 @@ ClientTransactionTask::processDecisionRpcs()
             continue;
         }
 
-        if (rpc->getState() == rpc->FAILED) {
-            // Nothing to do.  Will be retried.
+        if (rpc->getState() == RpcWrapper::RpcState::FAILED) {
+            // Nothing to do.  Retry has already been arranged.
             TEST_LOG("FAILED");
         } else if (rpc->responseHeader->status == STATUS_OK) {
             TEST_LOG("STATUS_OK");
@@ -223,8 +225,8 @@ ClientTransactionTask::processDecisionRpcs()
 }
 
 /**
- * Process any prepare rpcs that have completed.  Used in the commit method.
- * Factored out mostly for ease of testing.
+ * Process any prepare rpcs that have completed.  Used in performTask.  Factored
+ * out mostly for clarity and ease of testing.
  */
 void
 ClientTransactionTask::processPrepareRpcs()
@@ -238,8 +240,8 @@ ClientTransactionTask::processPrepareRpcs()
             continue;
         }
 
-        if (rpc->getState() == rpc->FAILED) {
-            // Nothing to do.  Will be retried.
+        if (rpc->getState() == RpcWrapper::RpcState::FAILED) {
+            // Nothing to do.  Retry has already been arranged.
             TEST_LOG("FAILED");
         } else if (rpc->responseHeader->status == STATUS_OK) {
             WireFormat::TxPrepare::Response* respHdr =
@@ -260,8 +262,8 @@ ClientTransactionTask::processPrepareRpcs()
 }
 
 /**
- * Send out a decision rpc if not all master have been notified.  Used in the
- * commit method.  Factored out mostly for ease of testing.
+ * Send out a decision rpc if not all masters have been notified.  Used in
+ * performTask.  Factored out mostly for clarity and ease of testing.
  */
 void
 ClientTransactionTask::sendDecisionRpc()
@@ -302,7 +304,7 @@ ClientTransactionTask::sendDecisionRpc()
 
 /**
  * Send out a prepare rpc if there are remaining un-prepared transaction ops.
- * Used in the commit method.  Factored out mostly for ease of testing.
+ * Used in performTask.  Factored out mostly for clarity and ease of testing.
  */
 void
 ClientTransactionTask::sendPrepareRpc()
@@ -435,7 +437,9 @@ ClientTransactionTask::DecisionRpc::appendOp(CommitCacheMap::iterator opEntry)
 }
 
 /**
- * Handle the case where the RPC may have been sent to the wrong server.
+ * This method is invoked when a prepare RPC couldn't complete successfully. It
+ * arranges for prepares to be tried again for all of the participant objects in
+ * that request.
  */
 void
 ClientTransactionTask::DecisionRpc::retryRequest()
@@ -553,7 +557,9 @@ ClientTransactionTask::PrepareRpc::appendOp(CommitCacheMap::iterator opEntry)
 }
 
 /**
- * Handle the case where the RPC may have been sent to the wrong server.
+ * This method is invoked when a prepare RPC couldn't complete successfully. It
+ * arranges for prepares to be tried again for all of the participant objects in
+ * that request.
  */
 void
 ClientTransactionTask::PrepareRpc::retryRequest()

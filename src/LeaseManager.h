@@ -34,7 +34,8 @@ namespace RAMCloud {
  *
  * Clients must ensure they have an valid lease by periodically contacting this
  * module.  Servers in their part must contact this module to check the validity
- * of client leases.
+ * of client leases. The module LeaseManager that no leaseId will be issued more
+ * than once.
  */
 class LeaseManager {
   PUBLIC:
@@ -46,10 +47,10 @@ class LeaseManager {
 
   PRIVATE:
     /**
-     * The LeasePreallocator is periodically invoked to allocate a leaseId on
-     * external storage.  The goal is that this preallocator will work ahead
-     * of the issued leases so that a client does not have to wait for an
-     * external storage operation to complete a new lease request.  Every
+     * The LeasePreallocator is periodically invoked to allocate a range of
+     * leaseIds on external storage.  The goal is that this preallocator will
+     * work ahead of the issued leases so that a client does not have to wait
+     * for an external storage operation to complete a new lease request.  Every
      * invocation of the preallocator should ensure that maxAllocatedLeaseId
      * runs ahead of lastIssuedLeaseId by the PREALLOCATION_LIMIT.  This batch
      * allocation process only blocks during each individual allocation; other
@@ -67,11 +68,7 @@ class LeaseManager {
     };
 
     /**
-     * The LeaseCleaner periodically wakes up to expire leases.  Every time it
-     * does a cleaning pass, it will attempt to clean as many leases as
-     * possible.  The cleaning process only blocks during the cleaning of a
-     * single lease; other operations like lease renewal can safely interleave
-     * with cleaning during a cleaning pass.
+     * The LeaseCleaner periodically wakes up to expire leases.
      */
     class LeaseCleaner : public WorkerTimer {
       public:
@@ -97,7 +94,6 @@ class LeaseManager {
     CoordinatorClusterClock clock;
 
     /// Represents the largest leaseId that was issued from this module.  The
-    /// module guarantees that no leaseId will be issued more than once.  The
     /// next leaseId issued should be ++lastIssuedLeaseId.
     uint64_t lastIssuedLeaseId;
 

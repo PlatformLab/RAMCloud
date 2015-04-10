@@ -51,7 +51,7 @@ LeaseManager::LeaseManager(Context* context)
  * \return
  *      If the lease exists, return lease with its current lease term.  If not,
  *      the returned the lease id will be 0 (an invalid lease id) signaling that
- *      the requested lease has already expired.
+ *      the requested lease has already expired or possibly never existed.
  */
 WireFormat::ClientLease
 LeaseManager::getLeaseInfo(uint64_t leaseId)
@@ -229,10 +229,9 @@ LeaseManager::allocateNextLease(Lock &lock)
     uint64_t nextLeaseId = maxAllocatedLeaseId + 1;
     std::string leaseObjName = STORAGE_PREFIX + "/"
             + format("%lu", nextLeaseId);
-    std::string str;    // TODO(cstlee): Is there a better way set an empty obj?
     context->externalStorage->set(ExternalStorage::Hint::CREATE,
                                   leaseObjName.c_str(),
-                                  str.c_str(), 0);
+                                  "", 0);
     maxAllocatedLeaseId = nextLeaseId;
 }
 
@@ -289,6 +288,8 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
         // leaseId.  If it is not, more leases need to be allocated.
         // This should only ever execute once if at all.
         while (maxAllocatedLeaseId <= lastIssuedLeaseId) {
+            // Instead of waiting for the allocator to run and catch up, we
+            // allocate manually.
             allocateNextLease(lock);
             RAMCLOUD_CLOG(WARNING, "Lease pre-allocation is not keeping up.");
         }

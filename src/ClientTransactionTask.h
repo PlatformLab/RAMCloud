@@ -25,12 +25,11 @@
 namespace RAMCloud {
 
 /**
- * The Client Transaction Task represents an ongoing or preparing transaction
- * commit.  This module is responsible for driving a client requested
- * transaction to completion.  It also allows the commit process to be handled
- * asynchronously by the RamCloud client library on the clients behalf.  For
- * efficiency, this module also stores the pre-commit values (the commit cache)
- * for the client transaction module.
+ * This class manages the state of a Transaction. It caches information about
+ * all of the operations that are part of the transaction (reads, writes,
+ * deletes), and it executes the client-driven protocol for committing the
+ * transaction. Furthermore, it allows the commit protocol to be executed
+ * asynchronously.
  *
  * This module is driven by the ClientTransactionManager.
  */
@@ -44,9 +43,9 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         /// Type of the cached object entry.  Used to specify what kind of
         /// transaction operation needs to be performed during commit.
         Type type;
-        /// Cached object value.  Used to service reads and store values for
-        /// committing writes.  Ideally this would be a unique pointer to
-        /// manage the memory automatically but std::multimap is missing the
+        /// Cached object value.  Used to service reads and defer writes and
+        /// removes until commit-time.  Ideally this would be a unique pointer
+        /// to manage the memory automatically but std::multimap is missing the
         /// emplace feature.
         ObjectBuffer* objectBuf;
         /// Conditions upon which the transaction operation associated with
@@ -125,7 +124,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
 
     /// Number of participant objects/operations.
     uint32_t participantCount;
-    /// List of participant object identifiers.
+    /// Expandable raw storage for the List of participant object identifiers.
     Buffer participantList;
 
     /// Keeps track of the task currently executing phase.
@@ -151,6 +150,8 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
 
     /**
      * Structure to define the key search value for the CommitCache map.
+     * CacheKeys in the CommitCache map are not necessarily unique (e.g.
+     * multiple keys may have the same KeyHash).
      */
     struct CacheKey {
         uint64_t tableId;       // tableId of the tablet
@@ -242,8 +243,8 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         /// ClientTransactionTask that issued this rpc.
         ClientTransactionTask* task;
 
-        /// Information about all of the ops that are being requested
-        /// in this RPC.
+        /// Reference to the CacheEntry objects whose operations are being
+        /// sent in this RPC.
 #ifdef TESTING
         static const uint32_t MAX_OBJECTS_PER_RPC = 3;
 #else

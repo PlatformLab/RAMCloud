@@ -56,7 +56,7 @@ static const char* messages[] = {
     "invalid parameter",                         // STATUS_INVALID_PARAMETER
     "stale RPC: client already acknowledged receiving result",
                                                  // STATUS_STALE_RPC
-    "client lease is expired",                   // STATUS_STALE_RPC
+    "client lease has expired",                   // STATUS_STALE_RPC
     "can't perform transaction operations after commit is called",
                                                  // STATUS_TX_OP_AFTER_COMMIT
 };

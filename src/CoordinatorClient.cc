@@ -196,7 +196,8 @@ CoordinatorClient::getBackupList(Context* context,
  * \param leaseId
  *      Id of lease information requested.
  * \return
- *      ClientLease information for the lease requested.
+ *      ClientLease information for the lease requested.  If leaseId request is
+ *      invalid or expired, the returned ClientLease leaseId will be 0.
  */
 WireFormat::ClientLease
 CoordinatorClient::getLeaseInfo(Context* context, uint64_t leaseId)
@@ -230,7 +231,8 @@ GetLeaseInfoRpc::GetLeaseInfoRpc(Context* context, uint64_t leaseId)
  * #CoordinatorClient::getLeaseInfo.
  *
  * \return
- *      ClientLease information for the lease requested.
+ *      ClientLease information for the lease requested.  If leaseId request is
+ *      invalid or expired, the returned ClientLease leaseId will be 0.
  */
 WireFormat::ClientLease
 GetLeaseInfoRpc::wait()
@@ -649,9 +651,11 @@ RecoveryMasterFinishedRpc::wait()
  * \param context
  *      Overall information about this RAMCloud server or client.
  * \param leaseId
- *      Id of lease to be renewed if possible.
+ *      Id of lease to be renewed if possible.  Use 0 (invalid id) to request
+ *      a new lease.
  * \return
- *      Valid ClientLease.
+ *      Valid ClientLease.  If the requested leaseId has expired or is invalid
+ *      a new lease will be returned.
  */
 WireFormat::ClientLease
 renewLease(Context* context, uint64_t leaseId)
@@ -668,7 +672,8 @@ renewLease(Context* context, uint64_t leaseId)
  * \param context
  *      Overall information about the RAMCloud server or client.
  * \param leaseId
- *      Id of lease to be renewed if possible.
+ *      Id of lease to be renewed if possible.  Use 0 (invalid id) to request
+ *      a new lease.
  */
 RenewLeaseRpc::RenewLeaseRpc(Context* context, uint64_t leaseId)
     : CoordinatorRpcWrapper(context,
@@ -685,7 +690,8 @@ RenewLeaseRpc::RenewLeaseRpc(Context* context, uint64_t leaseId)
  * #CoordinatorClient::renewLease.
  *
  * \return
- *      Valid ClientLease.
+ *      Valid ClientLease.  If the requested leaseId has expired or is invalid
+ *      a new lease will be returned.
  */
 WireFormat::ClientLease
 RenewLeaseRpc::wait()

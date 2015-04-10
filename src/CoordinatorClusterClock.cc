@@ -38,8 +38,8 @@ CoordinatorClusterClock::CoordinatorClusterClock(Context *context)
 {}
 
 /**
- * Returns the current cluster time.  Repeated calls this this method are
- * guaranteed to return monotonically increase cluster times, even across
+ * Returns the current cluster time.  Repeated calls to this method are
+ * guaranteed to return monotonically non-decreasing cluster times, even across
  * Coordinator crashes.  The cluster time is expected to advance in microseconds
  * roughly at the same rate as the coordinator system clock. In rare cases (e.g.
  * when updates to externalStorage take a long time), the clock may stall

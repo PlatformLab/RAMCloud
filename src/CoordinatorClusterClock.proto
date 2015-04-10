@@ -19,10 +19,10 @@ package RAMCloud.ProtoBuf;
 // class in external storage.
 message CoordinatorClusterClock {
 
-    /// The Cluster Time that is guaranteed to be greater than any value the
-    /// CoordinatorClusterClock will externalize to anyone, so that in the event
-    /// of a coordinator crash, the new coordinator can ensure the monotonic
-    /// property of Cluster Time.  This time is periodically moved forward so
-    /// so that the CoordinatorClusterClock can continue to progress.
+    /// The Cluster Time that is guaranteed to be greater than or equal to any
+    /// value the CoordinatorClusterClock will externalize to anyone, so that in
+    /// the event of a coordinator crash, the new coordinator can ensure the
+    /// monotonic property of Cluster Time.  This time is periodically moved
+    /// forward so so that the CoordinatorClusterClock can continue to progress.
     required uint64 next_safe_time = 1;
 }

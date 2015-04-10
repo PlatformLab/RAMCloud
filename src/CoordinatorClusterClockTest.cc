@@ -90,25 +90,6 @@ TEST_F(CoordinatorClusterClockTest, getInternal) {
     EXPECT_GT(firstTime, clock->startingClusterTimeUs);
 }
 
-TEST_F(CoordinatorClusterClockTest, recoverClusterTime_noStoredValue) {
-    // Covered by handleTimerEvent test.
-    storage.log.clear();
-    EXPECT_EQ(0U, clock->recoverClusterTime(context.externalStorage));
-    EXPECT_EQ("get(coordinatorClusterClock)", storage.log);
-
-}
-
-TEST_F(CoordinatorClusterClockTest, recoverClusterTime_recoveredValue) {
-    // Covered by handleTimerEvent test.
-    clock->updater.handleTimerEvent();
-    storage.getResults.push(storage.setData);
-
-    storage.log.clear();
-    uint64_t storedTime = clock->recoverClusterTime(context.externalStorage);
-    EXPECT_EQ("get(coordinatorClusterClock)", storage.log);
-
-    EXPECT_GT(storedTime, safeTimeIntervalUs);
-    EXPECT_EQ(storedTime, clock->safeClusterTimeUs);
-}
+// recoverClusterTime covered by handleTimerEvent test.
 
 }  // namespace RAMCloud

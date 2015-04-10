@@ -25,7 +25,7 @@ namespace RAMCloud {
 class RamCloud;
 
 /**
- * This class allows client rpcs to aquire and maintain valid leases.  These
+ * This class allows client rpcs to acquire and maintain valid leases.  These
  * leases are used to represent the lifetime of an active client so that per
  * client state stored on servers (e.g. linearizability data) can be garbage
  * collected when clients fail or become inactive.

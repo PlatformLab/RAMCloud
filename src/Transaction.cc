@@ -64,6 +64,8 @@ Transaction::commit()
  * Block until the decision of this transaction commit is accepted by all
  * participant servers.  If the commit has not yet occurred and a decision is
  * not yet reached, this method will also start the commit.
+ *
+ * This method is used mostly for testing and benchmarking.
  */
 void
 Transaction::sync()
