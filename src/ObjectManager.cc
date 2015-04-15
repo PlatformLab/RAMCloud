@@ -882,7 +882,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                     sideLog->append(LOG_ENTRY_TYPE_RPCRECORD,
                                     buffer,
                                     &newRpcRecordReference);
-                    // TODO(cstlee) : need to update table stats?
+                    TableStats::increment(masterTableMetadata,
+                            rpcRecord.getTableId(),
+                            buffer.size(),
+                            1);
                 }
 
                 unackedRpcResults->recoverRecord(
@@ -952,6 +955,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                     sideLog->append(LOG_ENTRY_TYPE_PREP,
                                     buffer,
                                     &newReference);
+                    TableStats::increment(masterTableMetadata,
+                            key.getTableId(),
+                            buffer.size(),
+                            1);
                 }
                 preparedWrites->bufferWrite(op.header.clientId,
                                             op.header.rpcId,
@@ -991,6 +998,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                     sideLog->append(LOG_ENTRY_TYPE_PREPTOMB,
                                     buffer,
                                     &newReference);
+                    TableStats::increment(masterTableMetadata,
+                            opTomb.header.tableId,
+                            buffer.size(),
+                            1);
                 }
                 preparedWrites->popOp(opTomb.header.leaseId,
                                       opTomb.header.rpcId);
@@ -1307,6 +1318,10 @@ ObjectManager::writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
     }
 
     *rpcRecordPtr = av.reference.toInteger();
+    TableStats::increment(masterTableMetadata,
+            rpcRecord->getTableId(),
+            av.buffer.size(),
+            1);
 }
 
 /**
@@ -1628,6 +1643,10 @@ ObjectManager::commitRead(PreparedOp& op, Log::Reference& refToPreparedOp)
         return STATUS_RETRY;
     }
 
+    TableStats::increment(masterTableMetadata,
+            prepOpTombstone.header.tableId,
+            prepTombBuffer.size(),
+            1);
     log.free(refToPreparedOp);
     return STATUS_OK;
 }
@@ -1705,10 +1724,17 @@ ObjectManager::commitRemove(PreparedOp& op,
         return STATUS_RETRY;
     }
 
-    TableStats::increment(masterTableMetadata,
-                          tablet.tableId,
-                          appends[0].buffer.size(),
-                          1);
+    {
+        uint64_t byteCount = appends[0].buffer.size();
+        uint64_t recordCount = 2;
+        byteCount += appends[1].buffer.size();
+
+        TableStats::increment(masterTableMetadata,
+                              tombstone.getTableId(),
+                              byteCount,
+                              recordCount);
+    }
+
     segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log.free(reference);
     log.free(refToPreparedOp);
@@ -1780,18 +1806,26 @@ ObjectManager::commitWrite(PreparedOp& op,
                             WallTime::secondsTimestamp());
     }
 
+    uint64_t byteCount = 0;
+    uint64_t recordCount = 0;
     int size = 2 + (newKey ? 0 : 1);
     Log::AppendVector appends[size];
 
     prepOpTombstone.assembleForLog(appends[0].buffer);
     appends[0].type = LOG_ENTRY_TYPE_PREPTOMB;
+    byteCount += appends[0].buffer.size();
+    recordCount++;
 
     op.object.assembleForLog(appends[1].buffer);
     appends[1].type = LOG_ENTRY_TYPE_OBJ;
+    byteCount += appends[1].buffer.size();
+    recordCount++;
 
     if (!newKey) {
         tombstone->assembleForLog(appends[2].buffer);
         appends[2].type = LOG_ENTRY_TYPE_OBJTOMB;
+        byteCount += appends[2].buffer.size();
+        recordCount++;
     }
 
     if (!log.hasSpaceFor(appends[1].buffer.size())) {
@@ -1812,7 +1846,10 @@ ObjectManager::commitWrite(PreparedOp& op,
         return STATUS_RETRY;
     }
 
-    //TODO(seojin): TableStat.
+    TableStats::increment(masterTableMetadata,
+                          prepOpTombstone.header.tableId,
+                          byteCount,
+                          recordCount);
 
     log.free(refToPreparedOp);
 
@@ -2774,9 +2811,13 @@ ObjectManager::relocateRpcRecord(Buffer& oldBuffer,
                 rpcRecord.getRpcId(),
                 reinterpret_cast<void*>(
                         relocator.getNewReference().toInteger()));
+    } else {
+        // Rpc Record will be dropped/"cleaned" so stats should be updated.
+        TableStats::decrement(masterTableMetadata,
+                              rpcRecord.getTableId(),
+                              oldBuffer.size(),
+                              1);
     }
-
-    //TODO(cstlee) : Should we be keeping track of table stats here?
 }
 
 /**
@@ -2815,9 +2856,13 @@ ObjectManager::relocatePreparedOp(Buffer& oldBuffer,
         preparedWrites->updatePtr(op.header.clientId,
                                   op.header.rpcId,
                                   relocator.getNewReference().toInteger());
+    } else {
+        // PreparedOp will be dropped/"cleaned" so stats should be updated.
+        TableStats::decrement(masterTableMetadata,
+                              op.object.getTableId(),
+                              oldBuffer.size(),
+                              1);
     }
-
-    //TODO(cstlee) : Should we be keeping track of table stats here?
 }
 
 /**
@@ -2851,8 +2896,13 @@ ObjectManager::relocatePreparedOpTombstone(Buffer& oldBuffer,
         // allocate more memory and retry.
         if (!relocator.append(LOG_ENTRY_TYPE_PREPTOMB, oldBuffer))
             return;
+    } else {
+        // Tombstone will be dropped/"cleaned" so stats should be updated.
+        TableStats::decrement(masterTableMetadata,
+                              opTomb.header.tableId,
+                              oldBuffer.size(),
+                              1);
     }
-    //TODO(cstlee) : Should we be keeping track of table stats here?
 }
 
 /**
@@ -2956,7 +3006,7 @@ ObjectManager::relocateTxDecisionRecord(
         if (!relocator.append(LOG_ENTRY_TYPE_TXDECISION, oldBuffer))
             return;
     } else {
-        // Tombstone will be dropped/"cleaned" so stats should be updated.
+        // Decision Record will be dropped/"cleaned" so stats should be updated.
         TableStats::decrement(masterTableMetadata,
                               record.getTableId(),
                               oldBuffer.size(),
