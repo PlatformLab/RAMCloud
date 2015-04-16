@@ -63,6 +63,18 @@ enum LogEntryType {
     /// in Segment.h's Segment::EntryHeader. RAMCloud will probably collapse
     /// under it's own complexity before we exceed 64 types.
     TOTAL_LOG_ENTRY_TYPES
+
+    // Note: if you add a new log entry type you must also make the following
+    // modifications:
+    // * Update LogEntryTypeHelpers::toString in LogEntryTypes.cc.
+    // * Add code to ObjectManager to add new entries as needed making sure to
+    //   increment the TableStats info as necessary.
+    // * Add ObjectManager::relocate handler for this new type to support
+    //   cleaning and decrement the TabletStats info as necessary.
+    // * Update RecoverySegmentBuilder::build to support recovery.
+    // * Update MasterService::migrateSingleLogEntry to support migration.
+    // * Update ObjectManager::replySegment for both recovery and migration.
+    // * Update ObjectManager::dumpSegment for testing.
 };
 
 namespace LogEntryTypeHelpers {
