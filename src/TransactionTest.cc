@@ -242,7 +242,21 @@ TEST_F(TransactionTest, read_basic) {
 }
 
 TEST_F(TransactionTest, read_noObject) {
+    Key key(tableId1, "0", 1);
+    EXPECT_TRUE(task->findCacheEntry(key) == NULL);
+
     Buffer value;
+    EXPECT_THROW(transaction->read(tableId1, "0", 1, &value),
+                 ObjectDoesntExistException);
+
+    ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(key);
+    EXPECT_TRUE(entry != NULL);
+    uint32_t dataLength = 0;
+    entry->objectBuf->getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);
+    EXPECT_EQ(ClientTransactionTask::CacheEntry::READ, entry->type);
+    EXPECT_TRUE(entry->rejectRules.exists);
+
     EXPECT_THROW(transaction->read(tableId1, "0", 1, &value),
                  ObjectDoesntExistException);
 }

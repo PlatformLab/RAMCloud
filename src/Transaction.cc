@@ -270,19 +270,39 @@ Transaction::ReadOp::wait()
         // If no entry exists in cache an rpc must have been issued.
         assert(rpc);
 
+        bool objectExists = true;
         uint64_t version;
-        rpc->wait(&version);
+        uint32_t dataLength = 0;
+        const void* data = NULL;
 
-        uint32_t dataLength;
-        const void* data = buf.getValue(&dataLength);
+        try {
+            rpc->wait(&version);
+            data = buf.getValue(&dataLength);
+        } catch (ObjectDoesntExistException& e) {
+            objectExists = false;
+        }
 
-        entry = task->insertCacheEntry(tableId, buf.getKey(),
-                                       buf.getKeyLength(),
+        entry = task->insertCacheEntry(tableId, keyObj.getStringKey(),
+                                       keyObj.getStringKeyLength(),
                                        data, dataLength);
         entry->type = ClientTransactionTask::CacheEntry::READ;
-        entry->rejectRules.givenVersion = version;
-        entry->rejectRules.versionNeGiven = true;
+        if (objectExists) {
+            entry->rejectRules.doesntExist = true;
+            entry->rejectRules.givenVersion = version;
+            entry->rejectRules.versionNeGiven = true;
+        } else {
+            // Object did not exists at the time of the read so remember to
+            // reject (abort) the transaction if it does exist.
+            entry->rejectRules.exists = true;
+            throw ObjectDoesntExistException(HERE);
+        }
+
     } else if (entry->type == ClientTransactionTask::CacheEntry::REMOVE) {
+        // Read after remove; object would no longer exist.
+        throw ObjectDoesntExistException(HERE);
+    } else if (entry->type == ClientTransactionTask::CacheEntry::READ
+            && entry->rejectRules.exists) {
+        // Read after read resulting in object DNE; object still DNE.
         throw ObjectDoesntExistException(HERE);
     }
 
