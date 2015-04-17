@@ -34,7 +34,8 @@ Transaction::Transaction(RamCloud* ramcloud)
 /**
  * Commits the transaction defined by the operations performed on this
  * transaction (read, remove, write).  This method blocks until a decision is
- * reached but not until the decisions are synced.
+ * reached and sent to all participant servers but does not wait of the
+ * participant servers to acknowledge the decision (e.g. does not wait to sync).
  *
  * \return
  *      True if the transaction was able to commit.  False otherwise.
@@ -49,7 +50,7 @@ Transaction::commit()
 
     ClientTransactionTask* task = taskPtr.get();
 
-    while (task->getDecision() == WireFormat::TxDecision::INVALID) {
+    while (!task->allDecisionsSent()) {
         ramcloud->poll();
     }
 

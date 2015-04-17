@@ -106,12 +106,20 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     explicit ClientTransactionTask(RamCloud* ramcloud);
 
     CacheEntry* findCacheEntry(Key& key);
-    WireFormat::TxDecision::Decision getDecision();
+    /// Return the transaction commit decision if a decision has been reached.
+    /// Otherwise, INVALID will be returned.
+    WireFormat::TxDecision::Decision getDecision() { return decision; }
+    /// Return last exceptional STATUS.
     Status getStatus() { return status; }
     CacheEntry* insertCacheEntry(uint64_t tableId, const void* key,
             uint16_t keyLength, const void* buf, uint32_t length);
-    /// Check if the task as completed the commit protocol.
+    /// Check if the task has completed the commit protocol.
     bool isReady() { return (state == DONE); }
+    /// Check if all decisions have been sent.
+    bool allDecisionsSent() {
+        return (state == DONE ||
+                (state == DECISION && nextCacheEntry == commitCache.end()));
+    }
     void performTask();
 
   PRIVATE:

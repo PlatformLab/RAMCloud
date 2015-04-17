@@ -460,6 +460,23 @@ TEST_F(ClientTransactionTaskTest, performTask_basic) {
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
 }
 
+TEST_F(ClientTransactionTaskTest, performTask_setDecision) {
+    transactionTask->state = ClientTransactionTask::INIT;
+    transactionTask->decision = WireFormat::TxDecision::INVALID;
+    transactionTask->performTask();
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+
+    transactionTask->state = ClientTransactionTask::INIT;
+    transactionTask->decision = WireFormat::TxDecision::COMMIT;
+    transactionTask->performTask();
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+
+    transactionTask->state = ClientTransactionTask::INIT;
+    transactionTask->decision = WireFormat::TxDecision::ABORT;
+    transactionTask->performTask();
+    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+}
+
 TEST_F(ClientTransactionTaskTest, performTask_ClientException) {
     insertWrite(0, "test1", 5, "hello", 5);
 
@@ -506,6 +523,7 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcs_unknownTablet) {
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->decision = WireFormat::TxDecision::COMMIT;
     transactionTask->sendDecisionRpc();
     // Resend to wrong session
     transactionTask->decisionRpcs.begin()->session = session2;
@@ -565,10 +583,10 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_basic) {
     transactionTask->sendPrepareRpc();
 
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
     transactionTask->processPrepareRpcs();
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
 }
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcs_abort) {
@@ -592,7 +610,7 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_abort) {
     transactionTask->sendPrepareRpc();
 
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
     transactionTask->processPrepareRpcs();
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
@@ -611,7 +629,7 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_unknownTablet) {
     transactionTask->prepareRpcs.begin()->send();
 
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
     TestLog::reset();
     transactionTask->processPrepareRpcs();
     EXPECT_EQ("processPrepareRpcs: STATUS_UNKNOWN_TABLET", TestLog::get());
@@ -629,7 +647,7 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_failed) {
     transactionTask->prepareRpcs.begin()->failed();
 
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
     TestLog::reset();
     transactionTask->processPrepareRpcs();
     EXPECT_EQ("flushSession: flushing session for mock:host=master1 | "
@@ -668,13 +686,13 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_notReady) {
     transactionTask->sendPrepareRpc();
 
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
     transactionTask->prepareRpcs.begin()->state =
             ClientTransactionTask::PrepareRpc::IN_PROGRESS;
 
     transactionTask->processPrepareRpcs();
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
 }
 
 TEST_F(ClientTransactionTaskTest, sendDecisionRpc_basic) {

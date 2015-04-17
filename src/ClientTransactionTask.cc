@@ -30,7 +30,7 @@ ClientTransactionTask::ClientTransactionTask(RamCloud* ramcloud)
     , participantList()
     , state(INIT)
     , status(STATUS_OK)
-    , decision(WireFormat::TxDecision::COMMIT)
+    , decision(WireFormat::TxDecision::INVALID)
     , lease()
     , txId(0)
     , prepareRpcs()
@@ -71,18 +71,6 @@ ClientTransactionTask::findCacheEntry(Key& key)
         it++;
     }
     return entry;
-}
-
-/**
- * Return the transaction commit decision if a decision has been reached.
- * Otherwise, INVALID will be returned.
- */
-WireFormat::TxDecision::Decision
-ClientTransactionTask::getDecision()
-{
-    if (state != DECISION && state != DONE)
-        return WireFormat::TxDecision::INVALID;
-    return decision;
 }
 
 /**
@@ -141,6 +129,9 @@ ClientTransactionTask::performTask()
             sendPrepareRpc();
             if (prepareRpcs.empty() && nextCacheEntry == commitCache.end()) {
                 nextCacheEntry = commitCache.begin();
+                if (decision != WireFormat::TxDecision::ABORT) {
+                    decision = WireFormat::TxDecision::COMMIT;
+                }
                 state = DECISION;
             }
         }
