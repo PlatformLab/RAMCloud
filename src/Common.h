@@ -317,5 +317,16 @@ timevalToMicroseconds(struct timeval* tv)
 #define expect_true(expr)   __builtin_expect((expr), true)
 #define expect_false(expr)   __builtin_expect((expr), false)
 
+
+/**
+ * The following variables are used for convenience of debugging and
+ * experimentation, while minimizing the need to recompile across runs.
+ *
+ * Their meanings are determined by the current experiment, and should never be
+ * used in production.
+ */
+extern uint64_t debugXXX;
+extern double debugYYY;
+
 } // end RAMCloud
 #endif // RAMCLOUD_COMMON_H

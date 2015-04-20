@@ -35,6 +35,8 @@ namespace RAMCloud {
 
 uint64_t mockPMCValue = 0lu;
 uint64_t mockRandomValue = 0lu;
+uint64_t debugXXX = 0lu;
+double  debugYYY = 0;
 
 /// A safe version of sprintf.
 string

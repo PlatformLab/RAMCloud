@@ -200,7 +200,21 @@ OptionParser::setup(int argc, char* argv[])
             ("debugOnSegfault",
              ProgramOptions::bool_switch(&debugOnSegfault),
              "Whether or not this application should drop to debugger"
-             "on segfault");
+             "on segfault")
+            ("debugXXX",
+             ProgramOptions::value<uint64_t>(&debugXXX)->
+                default_value(0ul),
+             "Spare option used for debugging and experimentation; the meaning "
+             "is determined by the experiment. This option should be not be "
+             "specified during production but will have no effect if specified."
+            )
+            ("debugYYY",
+             ProgramOptions::value<double>(&debugYYY)->
+                default_value(0),
+             "Spare option used for debugging and experimentation; the meaning "
+             "is determined by the experiment. This option should be not be"
+             "specified during production but will have no effect if specified."
+            ); // NOLINT
 
         // Do one pass with just help/config file options so we can get
         // the alternate config file location, if specified.  Then
