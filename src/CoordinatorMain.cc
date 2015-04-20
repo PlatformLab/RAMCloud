@@ -134,7 +134,7 @@ main(int argc, char *argv[])
 
         CoordinatorService coordinatorService(&context,
                                               deadServerTimeout,
-                                              true,
+                                              false,
                                               numThreads,
                                               neverKill);
         context.serviceManager->addService(coordinatorService,
