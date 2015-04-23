@@ -1583,36 +1583,28 @@ TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
 TEST_F(ObjectManagerTest, tryGrabTxLock) {
     Key key(1, "1", 1);
     Buffer buffer;
-    // create an object just so that buffer will be populated with the key
-    // and the value. This keeps the abstractions intact
-    Object obj(key, "value", 5, 0, 0, buffer);
+    Buffer logBuffer;
+    Log::Reference ref;
+    PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 0, NULL, key, "value",
+            5, 0, 0, buffer);
+    prepOp.assembleForLog(logBuffer);
+    objectManager.log.append(LOG_ENTRY_TYPE_PREP, logBuffer, &ref);
 
     // no tablet, no dice.
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.tryGrabTxLock(obj));
+        objectManager.tryGrabTxLock(prepOp.object, ref));
+    EXPECT_FALSE(objectManager.lockTable.isLockAcquired(key));
 
     // non-NORMAL tablet state, can grab txLock.
     tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
-    EXPECT_EQ(STATUS_OK, objectManager.tryGrabTxLock(obj));
-
-    // new object (No lock is grabbed. Currently broken.)
-    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
-                                          TabletManager::NORMAL);
-    EXPECT_EQ(STATUS_OK, objectManager.tryGrabTxLock(obj));
-    EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
-
-    Object objToWrite(key, "diff", 4, 0, 0, buffer);
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(objToWrite, 0, 0));
-    EXPECT_EQ("found=true tableId=1 byteCount=32 recordCount=1",
-              verifyMetadata(1));
-
-    // existing object (lock is grabbed.)
-    EXPECT_EQ(STATUS_OK, objectManager.tryGrabTxLock(obj));
+    EXPECT_EQ(STATUS_OK, objectManager.tryGrabTxLock(prepOp.object, ref));
+    EXPECT_TRUE(objectManager.lockTable.isLockAcquired(key));
 
     //Object is locked and status retry is returned.
+    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+                                          TabletManager::NORMAL);
+    Object objToWrite(key, "diff", 4, 0, 0, buffer);
     EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(objToWrite, 0, 0));
-    EXPECT_EQ("found=true tableId=1 byteCount=32 recordCount=1",
-              verifyMetadata(1));
 }
 
 TEST_F(ObjectManagerTest, commitRead) {
@@ -2352,79 +2344,6 @@ TEST_F(ObjectManagerTest, keyPointsAtReference) {
                 key, reference));
 }
 
-TEST_F(ObjectManagerTest, relocateObject_objectLocked) {
-    Key key(0, "key0", 4);
-
-    Buffer value;
-    Object obj(key, "item0", 5, 0, 0, value);
-    objectManager.writeObject(obj, NULL, NULL);
-    EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
-              , verifyMetadata(0));
-
-    LogEntryType oldType;
-    Buffer oldBuffer;
-    bool success = false;
-    {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        success = objectManager.lookup(lock, key, oldType, oldBuffer, 0, 0);
-    }
-    EXPECT_TRUE(success);
-
-    Log::Reference newReference;
-    success = objectManager.log.append(LOG_ENTRY_TYPE_OBJ,
-                                       oldBuffer,
-                                       &newReference);
-    objectManager.log.sync();
-    EXPECT_TRUE(success);
-
-    LogEntryType newType;
-    Buffer newBuffer;
-    newType = objectManager.log.getEntry(newReference, newBuffer);
-
-    LogEntryType oldType2;
-    Buffer oldBuffer2;
-    Log::Reference oldReference;
-    {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        success = objectManager.lookup(lock, key, oldType2, oldBuffer2, 0,
-            &oldReference);
-    }
-    EXPECT_TRUE(success);
-    EXPECT_EQ(oldType, oldType2);
-
-    objectManager.lockTable.acquireLock(oldReference.toInteger());
-    EXPECT_TRUE(objectManager.lockTable.isLockAcquired(
-                                    oldReference.toInteger()));
-
-    LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer,
-                           oldReference, relocator);
-    EXPECT_TRUE(relocator.didAppend);
-    EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
-              , verifyMetadata(0));
-
-    EXPECT_FALSE(objectManager.lockTable.isLockAcquired(
-                                    oldReference.toInteger()));
-
-    LogEntryType newType2;
-    Buffer newBuffer2;
-    Log::Reference newReference2;
-    {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        objectManager.lookup(lock, key, newType2, newBuffer2, 0,
-            &newReference2);
-    }
-    EXPECT_TRUE(relocator.didAppend);
-    EXPECT_EQ(newType, newType2);
-    EXPECT_EQ(newReference.toInteger() + 38, newReference2.toInteger());
-    EXPECT_NE(oldReference, newReference);
-    EXPECT_FALSE(objectManager.lockTable.
-                   isLockAcquired(oldReference.toInteger()));
-    EXPECT_TRUE(objectManager.lockTable.
-                   isLockAcquired(newReference2.toInteger()));
-}
-
 TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
     Key key(0, "key0", 4);
     Buffer oldBuffer;
@@ -2445,6 +2364,7 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
     success = objectManager.log.append(LOG_ENTRY_TYPE_PREP,
                                        oldBuffer,
                                        &oldReference);
+    EXPECT_TRUE(objectManager.lockTable.tryAcquireLock(key, oldReference));
     objectManager.log.sync();
     EXPECT_TRUE(success);
 
@@ -2469,6 +2389,10 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
     EXPECT_NE(0UL, newOpPtr);
     EXPECT_NE(oldReference.toInteger(), newOpPtr);
     EXPECT_EQ(relocator.getNewReference().toInteger(), newOpPtr);
+    // Make sure that the locks were also relocated by trying to release them.
+    EXPECT_FALSE(objectManager.lockTable.releaseLock(key, oldReference));
+    EXPECT_TRUE(objectManager.lockTable.releaseLock(key,
+            relocator.getNewReference()));
 }
 
 TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {

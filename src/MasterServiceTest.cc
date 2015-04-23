@@ -334,18 +334,7 @@ class MasterServiceTest : public ::testing::Test {
         if (!service->objectManager.tabletManager->getTablet(key, &tablet))
             throw UnknownTabletException(HERE);
 
-        LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
-        Buffer currentBuffer;
-        Log::Reference currentReference;
-
-        HashTable::Candidates currentHashTableEntry;
-
-        if (service->objectManager.lookup(lock, key, currentType, currentBuffer,
-                   0, &currentReference)) {
-            return service->objectManager.lockTable.isLockAcquired(
-                    currentReference.toInteger());
-        }
-        return false;
+        return service->objectManager.lockTable.isLockAcquired(key);
     }
 
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);

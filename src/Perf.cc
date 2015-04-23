@@ -735,20 +735,6 @@ double lockNonDispThrd()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of acquiring and releasing a lock in a LockTable (assuming
-// the lock is free and the LockTable is basically empty).
-double lockTable() {
-    int count = 1000000;
-    LockTable lockTable(1024);
-    uint64_t start = Cycles::rdtsc();
-    for (int i = 0; i < count; i++) {
-        lockTable.acquireLock(42);
-        lockTable.releaseLock(42);
-    }
-    uint64_t stop = Cycles::rdtsc();
-    return Cycles::toSeconds(stop - start)/count;
-}
-
 // Measure the cost of copying a given number of bytes with memcpy.
 double memcpyShared(size_t size)
 {
@@ -1316,8 +1302,6 @@ TestInfo tests[] = {
      "Acquire/release Dispatch::Lock (in dispatch thread)"},
     {"lockNonDispThrd", lockNonDispThrd,
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
-    {"lockTable", lockTable,
-     "Acquire/release lock in LockTable"},
     {"memcpy100", memcpy100,
      "Copy 100 bytes with memcpy"},
     {"memcpy1000", memcpy1000,

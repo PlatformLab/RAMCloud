@@ -458,7 +458,7 @@ PreparedWrites::regrabLocksAfterRecovery(ObjectManager* objectManager)
             Log::Reference ref(item->newOpPtr);
             objectManager->getLog()->getEntry(ref, buffer);
             PreparedOp op(buffer, 0, buffer.size());
-            objectManager->tryGrabTxLock(op.object);
+            objectManager->tryGrabTxLock(op.object, ref);
 
             if (!item->isRunning()) {
                 item->start(Cycles::rdtsc() +

@@ -93,7 +93,7 @@ ObjectManager::ObjectManager(Context* context, ServerId* serverId,
     , objectMap(config->master.hashTableBytes / HashTable::bytesPerCacheLine())
     , anyWrites(false)
     , hashTableBucketLocks()
-    , lockTable(64)
+    , lockTable(1000, log)
     , replaySegmentReturnCount(0)
     , tombstoneRemover()
 {
@@ -1154,6 +1154,10 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         return STATUS_UNKNOWN_TABLET;
     }
 
+    if (lockTable.isLockAcquired(key)) {
+        return STATUS_RETRY;
+    }
+
     LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
     Buffer currentBuffer;
     Log::Reference currentReference;
@@ -1184,11 +1188,6 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
                 *outVersion = currentVersion;
             return status;
         }
-    }
-
-    if (currentReference.toInteger() &&
-        lockTable.isLockAcquired(currentReference.toInteger())) {
-        return STATUS_RETRY;
     }
 
     // Existing objects get a bump in version, new objects start from
@@ -1325,10 +1324,10 @@ ObjectManager::writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
 }
 
 /**
- Ma* Prepares an operation during transaction prepare stage.
+ * Prepares an operation during transaction prepare stage.
  * It locks the corresponding object and writes logs for PreparedOp
  * and RpcRecord (for linearizablity of vote).
- *Ma
+ *
  * \param newOp
  *      The preparedOperation to be written to the log. It does not have
  *      a valid version and timestamp. So this function will update the version,
@@ -1390,6 +1389,14 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     if (tablet.state != TabletManager::NORMAL)
         return STATUS_UNKNOWN_TABLET;
 
+    // If the key is already locked, abort.
+    if (lockTable.isLockAcquired(key)) {
+        RAMCLOUD_LOG(DEBUG, "TxPrepare fail. Key: %.*s, object is already lock",
+                keyLength, reinterpret_cast<const char*>(keyString));
+        writePrepareFail(rpcRecord, rpcRecordPtr);
+        return STATUS_OK;
+    }
+
     LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
     Buffer currentBuffer;
     Log::Reference currentReference;
@@ -1422,14 +1429,6 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
         }
     }
 
-    if (currentReference.toInteger() != 0 && // Allow new insertion without lock
-        !lockTable.tryAcquireLock(currentReference.toInteger())) {
-        RAMCLOUD_LOG(DEBUG, "TxPrepare fail. Key: %.*s, object is already lock",
-                keyLength, reinterpret_cast<const char*>(keyString));
-        writePrepareFail(rpcRecord, rpcRecordPtr);
-        return STATUS_OK;
-    }
-
     // Existing objects get a bump in version, new objects start from
     // the next version allocated in the table.
     uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
@@ -1453,7 +1452,6 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
 
     if (!log.hasSpaceFor(appends[0].buffer.size() + appends[1].buffer.size())) {
         // We must bound the amount of live data to ensure deletes are possible
-        lockTable.releaseLock(currentReference.toInteger());
         writePrepareFail(rpcRecord, rpcRecordPtr);
 
         RAMCLOUD_CLOG(NOTICE, "Log is out of space, aborting transaction!");
@@ -1463,12 +1461,20 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
 
 
     if (!log.append(appends, 2)) {
-        lockTable.releaseLock(currentReference.toInteger());
         writePrepareFail(rpcRecord, rpcRecordPtr);
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
         return STATUS_OK;
+    }
+
+    // Lock the key now that we know the prepare op has been logged.
+    if (!lockTable.tryAcquireLock(key, appends[0].reference)) {
+        // If we were not able to aquire the lock there is a bug somewhere.
+        RAMCLOUD_LOG(ERROR,
+                     "While preparing transaction, lock already acquired "
+                     "after checking lock was free. Key: %.*s",
+                     keyLength, reinterpret_cast<const char*>(keyString));
     }
 
     *newOpPtr = appends[0].reference.toInteger();
@@ -1503,9 +1509,11 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
  *
  * \param objToLock
  *      Object which contains tableId and key which we lock for.
+ * \param ref
+ *      Log reference to the PrepareOp object that represents the lock.
  */
 Status
-ObjectManager::tryGrabTxLock(Object& objToLock)
+ObjectManager::tryGrabTxLock(Object& objToLock, Log::Reference& ref)
 {
     uint16_t keyLength = 0;
     const void *keyString = objToLock.getKey(0, &keyLength);
@@ -1519,26 +1527,7 @@ ObjectManager::tryGrabTxLock(Object& objToLock)
     if (!tabletManager->getTablet(key, &tablet))
         return STATUS_UNKNOWN_TABLET;
 
-    LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
-    Buffer currentBuffer;
-    Log::Reference currentReference;
-    uint64_t currentVersion = VERSION_NONEXISTENT;
-
-    HashTable::Candidates currentHashTableEntry;
-
-    if (lookup(lock, key, currentType, currentBuffer, 0,
-               &currentReference, &currentHashTableEntry)) {
-        if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-            removeIfTombstone(currentReference.toInteger(), this);
-        } else {
-            Object currentObject(currentBuffer);
-            currentVersion = currentObject.getVersion();
-        }
-    }
-
-    if (currentReference.toInteger()) {
-        lockTable.tryAcquireLock(currentReference.toInteger());
-    }
+    lockTable.tryAcquireLock(key, ref);
     return STATUS_OK;
 }
 
@@ -1621,13 +1610,6 @@ ObjectManager::commitRead(PreparedOp& op, Log::Reference& refToPreparedOp)
     if (tablet.state != TabletManager::NORMAL)
         return STATUS_UNKNOWN_TABLET;
 
-    LogEntryType type;
-    Buffer buffer;
-    Log::Reference reference;
-    if (lookup(lock, key, type, buffer, NULL, &reference)) {
-        lockTable.releaseLock(reference.toInteger());
-    }
-
     PreparedOpTombstone prepOpTombstone(op, log.getSegmentId(refToPreparedOp));
 
     Buffer prepTombBuffer;
@@ -1637,10 +1619,17 @@ ObjectManager::commitRead(PreparedOp& op, Log::Reference& refToPreparedOp)
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
-        if (reference.toInteger()) {
-            lockTable.acquireLock(reference.toInteger());
-        }
         return STATUS_RETRY;
+    }
+
+    // Release the lock now that the transaction is committed to log.
+    if (!lockTable.releaseLock(key, refToPreparedOp)) {
+        // If we were not able to release the lock there is a bug somewhere.
+        RAMCLOUD_LOG(ERROR,
+                     "While committing transaction, lock already released "
+                     "when it should not be. Key: %.*s PrepareRef: %lu",
+                     keyLength, reinterpret_cast<const char*>(keyString),
+                     refToPreparedOp.toInteger());
     }
 
     TableStats::increment(masterTableMetadata,
@@ -1700,8 +1689,6 @@ ObjectManager::commitRemove(PreparedOp& op,
         removedObjBuffer->appendExternal(&buffer);
     }
 
-    lockTable.releaseLock(reference.toInteger());
-
     PreparedOpTombstone prepOpTombstone(op, log.getSegmentId(refToPreparedOp));
     ObjectTombstone tombstone(object,
                               log.getSegmentId(reference),
@@ -1720,8 +1707,17 @@ ObjectManager::commitRemove(PreparedOp& op,
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
-        lockTable.acquireLock(reference.toInteger());
         return STATUS_RETRY;
+    }
+
+    // Release the lock now that the transaction is committed to log.
+    if (!lockTable.releaseLock(key, refToPreparedOp)) {
+        // If we were not able to release the lock there is a bug somewhere.
+        RAMCLOUD_LOG(ERROR,
+                     "While committing transaction, lock already released "
+                     "when it should not be. Key: %.*s PrepareRef: %lu",
+                     keyLength, reinterpret_cast<const char*>(keyString),
+                     refToPreparedOp.toInteger());
     }
 
     {
@@ -1796,8 +1792,6 @@ ObjectManager::commitWrite(PreparedOp& op,
         }
     }
 
-    lockTable.releaseLock(oldReference.toInteger());
-
     PreparedOpTombstone prepOpTombstone(op, log.getSegmentId(refToPreparedOp));
     Tub<ObjectTombstone> tombstone;
     if (!newKey) {
@@ -1832,8 +1826,6 @@ ObjectManager::commitWrite(PreparedOp& op,
         // We must bound the amount of live data to ensure deletes are possible
         RAMCLOUD_CLOG(NOTICE, "Log is out of space, rejecting committing"
                               " prepared write during transaction!");
-        if (!newKey)
-            lockTable.acquireLock(oldReference.toInteger());
         throw RetryException(HERE, 1000, 2000, "Log is out of space!");
     }
 
@@ -1841,9 +1833,17 @@ ObjectManager::commitWrite(PreparedOp& op,
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
-        if (!newKey)
-            lockTable.acquireLock(oldReference.toInteger());
         return STATUS_RETRY;
+    }
+
+    // Release the lock now that the transaction is committed to log.
+    if (!lockTable.releaseLock(key, refToPreparedOp)) {
+        // If we were not able to release the lock there is a bug somewhere.
+        RAMCLOUD_LOG(ERROR,
+                     "While committing transaction, lock already released "
+                     "when it should not be. Key: %.*s PrepareRef: %lu",
+                     keyLength, reinterpret_cast<const char*>(keyString),
+                     refToPreparedOp.toInteger());
     }
 
     TableStats::increment(masterTableMetadata,
@@ -2221,7 +2221,7 @@ ObjectManager::relocate(LogEntryType type, Buffer& oldBuffer,
     else if (type == LOG_ENTRY_TYPE_RPCRECORD)
         relocateRpcRecord(oldBuffer, relocator);
     else if (type == LOG_ENTRY_TYPE_PREP)
-        relocatePreparedOp(oldBuffer, relocator);
+        relocatePreparedOp(oldBuffer, oldReference, relocator);
     else if (type == LOG_ENTRY_TYPE_PREPTOMB)
         relocatePreparedOpTombstone(oldBuffer, relocator);
     else if (type == LOG_ENTRY_TYPE_TXDECISION)
@@ -2724,12 +2724,6 @@ ObjectManager::relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
             return;
 
         candidates.setReference(relocator.getNewReference().toInteger());
-
-        // Move transaction LockTable lock to new location.
-        if (lockTable.isLockAcquired(oldReference.toInteger())) {
-            lockTable.releaseLock(oldReference.toInteger());
-            lockTable.acquireLock(relocator.getNewReference().toInteger());
-        }
         return;
     }
 
@@ -2830,6 +2824,9 @@ ObjectManager::relocateRpcRecord(Buffer& oldBuffer,
  * \param oldBuffer
  *      Buffer pointing to the PreparedOp's current location, which will soon be
  *      invalidated.
+ * \param oldReference
+ *      Reference to the old PreparedOp in the log. This is used to properly
+ *      update the LockTable if needed.
  * \param relocator
  *      The relocator may be used to store the PreparedOp in a new location if
  *      it is still alive. It also provides a reference to the new location and
@@ -2841,9 +2838,14 @@ ObjectManager::relocateRpcRecord(Buffer& oldBuffer,
  */
 void
 ObjectManager::relocatePreparedOp(Buffer& oldBuffer,
+        Log::Reference oldReference,
         LogEntryRelocator& relocator)
 {
     PreparedOp op(oldBuffer, 0, oldBuffer.size());
+    Key key(op.object.getTableId(),
+            op.object.getKey(),
+            op.object.getKeyLength());
+    HashTableBucketLock lock(*this, key);
 
     uint64_t opPtr = preparedWrites->peekOp(op.header.clientId,
                                             op.header.rpcId);
@@ -2856,6 +2858,10 @@ ObjectManager::relocatePreparedOp(Buffer& oldBuffer,
         preparedWrites->updatePtr(op.header.clientId,
                                   op.header.rpcId,
                                   relocator.getNewReference().toInteger());
+        // Move transaction LockTable lock to new location.
+        if (lockTable.releaseLock(key, oldReference)) {
+            lockTable.acquireLock(key, relocator.getNewReference());
+        }
     } else {
         // PreparedOp will be dropped/"cleaned" so stats should be updated.
         TableStats::decrement(masterTableMetadata,

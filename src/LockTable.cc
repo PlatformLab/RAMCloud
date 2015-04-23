@@ -16,34 +16,28 @@
 #include "LockTable.h"
 #include "BitOps.h"
 #include "Memory.h"
+#include "PreparedWrites.h"
 
 namespace RAMCloud {
 
 /**
  * Constructor for LockTable.
  *
- * \param numBuckets
- *      Locks in a LockTable are stored in one or more buckets.  This parameter
- *      sets the number of buckets that should be used for this new LockTable.
- *      This value should be a power of two.
- *
- * \throw Exception
- *      An exception is thrown if the resulting number of buckets is 0.
+ * \param numEntries
+ *      The number of lock entries the table should be able to handle before
+ *      overflowing.  This number should be set larger than the expected number
+ *      of concurrently held locks. Making this number larger will consume more
+ *      memory but will also improve common case performance.
+ * \param log
+ *      Contains all objects that represent locks managed by this LockTable.
  */
-LockTable::LockTable(uint64_t numBuckets)
-    : bucketIndexHashMask(BitOps::powerOfTwoLessOrEqual(numBuckets) - 1)
+LockTable::LockTable(uint64_t numEntries, Log& log)
+    : bucketIndexHashMask(
+            BitOps::powerOfTwoGreaterOrEqual(
+                    numEntries / (ENTRIES_PER_CACHE_LINE - 1)) - 1)
     , buckets()
+    , log(log)
 {
-    if (numBuckets != (bucketIndexHashMask + 1)) {
-        RAMCLOUD_LOG(DEBUG,
-                     "LockTable truncated to %lu buckets "
-                     "(nearest power of two)",
-                     (bucketIndexHashMask + 1));
-    }
-
-    if ((bucketIndexHashMask + 1) == 0)
-        throw Exception(HERE, "LockTable numBuckets == 0?!");
-
     void *buf  = Memory::xmemalign(
             HERE,
             sizeof(CacheLine),
@@ -69,31 +63,38 @@ LockTable::~LockTable() {
 }
 
 /**
- * Blocks until the lock with the provided lockId can be acquired.
+ * Blocks until the lock for the provided Key can be acquired.
  *
- * \param lockId
- *      ID of lock to be acquired.  ID must not be zero.
+ * \param key
+ *      The key whose lock should be acquired.
+ * \param lockObjectRef
+ *      Reference to the object in log that represents the lock to be acquired.
+ *      The object must:
+ *          (1) be of type LOG_ENTRY_TYPE_PREP
+ *          (2) contain the same key as provided in key
+ *          (3) remain live as long as this lock is held
  */
 void
-LockTable::acquireLock(uint64_t lockId)
+LockTable::acquireLock(Key& key, Log::Reference lockObjectRef)
 {
-    while (!tryAcquireLock(lockId))
+    while (!tryAcquireLock(key, lockObjectRef))
         continue;
 }
 
 /**
- * Check if lock with the provided lockId is currently acquired.
+ * Check if lock with the provided key is currently acquired.
  *
- * \param lockId
- *      ID of lock to be acquired.  ID must not be zero.
+ * \param key
+ *      The key whose "locked" status should be checked.
+ *
  * \return
  *      TRUE if the lock is currently acquired, FALSE otherwise.
  */
 bool
-LockTable::isLockAcquired(uint64_t lockId)
+LockTable::isLockAcquired(Key& key)
 {
     // Find the right bucket.
-    uint64_t bucketIndex = (lockId & bucketIndexHashMask);
+    uint64_t bucketIndex = (key.getHash() & bucketIndexHashMask);
     CacheLine* cacheLine = &buckets[bucketIndex];
 
     // Lock the bucket
@@ -106,7 +107,7 @@ LockTable::isLockAcquired(uint64_t lockId)
     uint32_t entryIndex = 1;
     while (true) {
         for (; entryIndex < ENTRIES_PER_CACHE_LINE; entryIndex++) {
-            if (cacheLine->entries[entryIndex] == lockId) {
+            if (keysMatch(key, cacheLine->entries[entryIndex])) {
                 return true;
             }
         }
@@ -121,16 +122,23 @@ LockTable::isLockAcquired(uint64_t lockId)
 }
 
 /**
- * Releases the lock with the provided lockId.
+ * Releases the lock with the provided key and object reference.
  *
- * \param lockId
- *      ID of lock to be unlocked.  ID must not be zero.
+ * \param key
+ *      The key whose lock should be released if found.
+ * \param lockObjectRef
+ *      Reference the to object in log that represents the lock to be released
+ *      if found.
+ *
+ * \return
+ *      TRUE if a lock represented by lockObjectRef for the given key was found
+ *      and released; FALSE otherwise.
  */
-void
-LockTable::releaseLock(uint64_t lockId)
+bool
+LockTable::releaseLock(Key& key, Log::Reference lockObjectRef)
 {
     // Find the right bucket.
-    uint64_t bucketIndex = (lockId & bucketIndexHashMask);
+    uint64_t bucketIndex = (key.getHash() & bucketIndexHashMask);
     CacheLine* cacheLine = &buckets[bucketIndex];
 
     // Lock the bucket
@@ -143,9 +151,9 @@ LockTable::releaseLock(uint64_t lockId)
     uint32_t entryIndex = 1;
     while (true) {
         for (; entryIndex < ENTRIES_PER_CACHE_LINE; entryIndex++) {
-            if (cacheLine->entries[entryIndex] == lockId) {
+            if (cacheLine->entries[entryIndex] == lockObjectRef.toInteger()) {
                 cacheLine->entries[entryIndex] = 0;
-                return;
+                return true;
             }
         }
         if (cacheLine->next != NULL) {
@@ -155,22 +163,29 @@ LockTable::releaseLock(uint64_t lockId)
             break;
         }
     }
+    return false;
 }
 
 /**
- * Attempts to acquire the lock with the provided lockId without blocking.
+ * Attempts to acquire the lock for the provided Key without blocking.
  *
- * \param lockId
- *      ID of lock to be acquired.  ID must not be zero.
+ * \param key
+ *      The key whose lock should be acquired.
+ * \param lockObjectRef
+ *      Reference the to object in log that represents the lock to be acquired.
+ *      The object must:
+ *          (1) be of type LOG_ENTRY_TYPE_PREP
+ *          (2) contain the same key as provided in key
+ *          (3) remain live as long as this lock is held
  *
  * \return
  *      TRUE if the lock was acquired, FALSE otherwise.
  */
 bool
-LockTable::tryAcquireLock(uint64_t lockId)
+LockTable::tryAcquireLock(Key& key, Log::Reference lockObjectRef)
 {
     // Find the right bucket.
-    uint64_t bucketIndex = (lockId & bucketIndexHashMask);
+    uint64_t bucketIndex = (key.getHash() & bucketIndexHashMask);
     CacheLine* cacheLine = &buckets[bucketIndex];
 
     // Lock the bucket
@@ -190,7 +205,7 @@ LockTable::tryAcquireLock(uint64_t lockId)
         for (; entryIndex < ENTRIES_PER_CACHE_LINE; entryIndex++) {
             if (entryPtr == NULL && cacheLine->entries[entryIndex] == 0) {
                 entryPtr = &cacheLine->entries[entryIndex];
-            } else if (cacheLine->entries[entryIndex] == lockId) {
+            } else if (keysMatch(key, cacheLine->entries[entryIndex])) {
                 return false;
             }
         }
@@ -218,8 +233,35 @@ LockTable::tryAcquireLock(uint64_t lockId)
     }
 
     // Assign lock
-    *entryPtr = lockId;
+    *entryPtr = lockObjectRef.toInteger();
     return true;
+}
+
+/**
+ * Return TRUE if the given key matches the key in the referenced lock object;
+ * FALSE otherwise.
+ */
+bool
+LockTable::keysMatch(Key& key, Entry lockObjectRef)
+{
+    if (lockObjectRef != 0) {
+        Log::Reference ref(lockObjectRef);
+        Buffer buffer;
+        LogEntryType type = log.getEntry(ref, buffer);
+        if (type == LOG_ENTRY_TYPE_PREP) {
+            PreparedOp prepOp(buffer, 0, buffer.size());
+            Key refKey(prepOp.object.getTableId(),
+                       prepOp.object.getKey(),
+                       prepOp.object.getKeyLength());
+            if (key == refKey) {
+                return true;
+            }
+        } else {
+            DIE("LockTable contains non LOG_ENTRY_TYPE_PREP type;"
+                "found %s instead", LogEntryTypeHelpers::toString(type));
+        }
+    }
+    return false;
 }
 
 } // namespace RAMCloud

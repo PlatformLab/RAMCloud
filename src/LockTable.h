@@ -20,39 +20,46 @@
 
 #include "Atomic.h"
 #include "Fence.h"
+#include "Log.h"
 
 namespace RAMCloud {
 
 /**
- * The LockTable represents a collection a locks with unique IDs.  The locks can
- * be acquired and released like any typical lock based our their lockId. The
- * only restriction on the 64-bit lockId is that the value 0 can not be used.
+ * The LockTable manages a set of durable locks.  Each lock protects a unique
+ * %RAMCloud Key and is durably represented by an object in the %RAMCloud Log.
+ * The locks can be acquired and released like any typical lock by specifying
+ * the Key and a reference to the representative object in the log.  Currently,
+ * this LockTable uses PrepareOp objects (type LOG_ENTRY_TYPE_PREP).
  *
- * This class is used, for instance, to manage per %RAMCloud object write locks
- * that protect against concurrent write transactions and write requests on the
- * same object.  In this case, the lockId can be the address of the object in
- * the %RAMCloud log.
+ * This class is used to manage per %RAMCloud object locks that protect against
+ * concurrent transactions and object modifications to the same objects.
  *
  * This class is thread-safe.
  *
  * \section impl Implementation Details
  *
- * Locks represented in the LockTable are implemented as spin-locks.  Blocking
- * on a lock will result in busying waiting.
+ * Locks managed in the LockTable are implemented as spin-locks.  Blocking on a
+ * lock will result in busying waiting.
  *
- * The LockTable is an array of #buckets.  Locks are "hashed" into buckets based
- * on the lower n-1 bits of the lockId (n is such that 2^n is the number of
- * buckets); the implementation assumes that lockIds are relatively uniformly
+ * The LockTable is optimized so that the following common cases are fast
+ * assuming the table is sparsely populated:
+ *  + Checking if lock is acquired when it is not (used for write and deletes).
+ *  + Acquiring a lock when it is not already acquired (used for transactions).
+ *  + Releasing a lock (used for transactions).
+ *
+ * The LockTable is an array of #buckets. Locks are "hashed" into buckets based
+ * on the lower n bits of the Key's KeyHash (n is such that 2^n is the number of
+ * buckets); the implementation assumes that KeyHashes are relatively uniformly
  * distributed.
  *
  * Each bucket consists of a one or more chained \link CacheLine
  * CacheLines\endlink, the first of which lives inline in the array of buckets.
  * Each cache line consists of several LockTable Entry objects; each Entry
- * contains the lockId of an acquired lock or 0; only acquired locks are
- * kept in the LockTable.  In exception, the first entry in a bucket's first
- * cache line is specially designated and is cast and used as the bucket's
- * \link BucketLock BucketLock\endlink; this is a monitor-style spin-lock that
- * protects against concurrent accesses to the same bucket.
+ * contains the reference to the object in the log that represents an acquired
+ * lock or 0; only acquired locks are kept in the LockTable.  The first entry in
+ * a bucket's first cache line is specially designated and is cast and used as
+ * the bucket's \link BucketLock BucketLock\endlink; this is a monitor-style
+ * spin-lock that protects against concurrent accesses to the same bucket.
  *
  * If there are two many acquired locks to fit in the bucket's first cache line,
  * additional overflow cache lines are allocated (outside the array of buckets)
@@ -66,23 +73,26 @@ namespace RAMCloud {
  */
 class LockTable {
   PUBLIC:
-    explicit LockTable(uint64_t numBuckets);
+    LockTable(uint64_t numEntries, Log& log);
     virtual ~LockTable();
 
-    void acquireLock(uint64_t lockId);
-    bool isLockAcquired(uint64_t lockId);
-    void releaseLock(uint64_t lockId);
-    bool tryAcquireLock(uint64_t lockId);
+    void acquireLock(Key& key, Log::Reference lockObjectRef);
+    bool isLockAcquired(Key& key);
+    bool releaseLock(Key& key, Log::Reference lockObjectRef);
+    bool tryAcquireLock(Key& key, Log::Reference lockObjectRef);
 
   PRIVATE:
+    // Forward declaration for CacheLine.
+    struct CacheLine;
+
     /**
      * A lock table entry.
      *
      * Lock table entries live in \link CacheLine CacheLines\endlink.  A lock
-     * table entry holds the lockId of an acquired lock.
+     * table entry holds the log reference to an object in the log which
+     * represents an acquired lock on a specific key.
      */
     typedef uint64_t Entry;
-    static_assert(sizeof(Entry) == 8, "LockTable::Entry is not 8 bytes");
 
     /**
      * The number of bytes per cache line in this machine.
@@ -92,10 +102,11 @@ class LockTable {
     /**
      * The number of LockTable Entry objects in a CacheLine.
      */
-    static const uint32_t ENTRIES_PER_CACHE_LINE = (BYTES_PER_CACHE_LINE /
-                                                    sizeof(Entry)) - 1;
-    static_assert(BYTES_PER_CACHE_LINE % sizeof(Entry) == 0,
-                  "BYTES_PER_CACHE_LINE not a multiple of sizeof(Entry)");
+    static const uint32_t ENTRIES_PER_CACHE_LINE =
+            (BYTES_PER_CACHE_LINE - sizeof(CacheLine*))     // NOLINT
+            / sizeof(Entry);
+    static_assert(ENTRIES_PER_CACHE_LINE > 0,
+                  "BYTES_PER_CACHE_LINE too small to fit Entry");
 
     /**
      * A linked list of cache lines composes a bucket within the LockTable.
@@ -108,7 +119,9 @@ class LockTable {
      * achieve this.
      */
     struct CacheLine {
-        /// Array of lock table entries (acquired lockIds).
+        /// Array of lock table entries.  An entry value of 0 means the entry is
+        /// empty and does not hold a lock.  If the CacheLine is the first in
+        /// bucket, entries[0] is commandeered to hold the BucketLock.
         Entry entries[ENTRIES_PER_CACHE_LINE];
         /// Pointer to next cache line in bucket; NULL if last in chain.
         CacheLine* next;
@@ -120,9 +133,7 @@ class LockTable {
      * The BucketLock is a spin-lock style lock used to prevent concurrent
      * access to individual LockTable buckets.
      *
-     * Bucket locks live in memory of the first lock table Entry of a bucket's
-     * first cache line.  As such, bucket locks must fit in a lock table entry's
-     * memory footprint.
+     * BucketLocks must fit in a lock table entry's memory footprint.
      */
     struct BucketLock {
         /**
@@ -164,20 +175,28 @@ class LockTable {
         /// Implements the lock: 0 means free, anything else means locked.
         Atomic<uint64_t> mutex;
     };
-    static_assert(sizeof(BucketLock) == 8,
-                  "LockTable::BucketLock is not 8 bytes");
+    static_assert(sizeof(BucketLock) == sizeof(Entry),
+                  "LockTable::BucketLock is not same size as LockTable::Entry");
 
     /**
-     * Bit masked used to determine the bucket in which a particular lockId will
-     * reside.  If the LockTable contains 2^N buckets, the lower N-1 bits will
+     * Bit mask used to determine the bucket in which a particular Key will
+     * reside.  If the LockTable contains 2^N buckets, the lower N bits will
      * be used as the bucket index.
      */
     const uint64_t bucketIndexHashMask;
 
     /**
-     * Pointer to memory used to hold the main set of buckets.
+     * Pointer to memory used to hold the main set of buckets.  Memory pointed
+     * to by this pointer is dynamically allocated.
      */
     CacheLine* buckets;
+
+    /**
+     * Reference to the log that contains objects that represent locks.
+     */
+    Log& log;
+
+    bool keysMatch(Key& key, Entry lockObjectRef);
 
     DISALLOW_COPY_AND_ASSIGN(LockTable);
 };

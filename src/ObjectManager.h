@@ -86,7 +86,7 @@ class ObjectManager : public LogEntryHandlers {
     Status prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                 uint64_t* newOpPtr, bool* isCommitVote,
                 RpcRecord* rpcRecord, uint64_t* rpcRecordPtr);
-    Status tryGrabTxLock(Object& objToLock);
+    Status tryGrabTxLock(Object& objToLock, Log::Reference& ref);
     Status writeTxDecisionRecord(TxDecisionRecord& record);
     Status commitRead(PreparedOp& op, Log::Reference& refToPreparedOp);
     Status commitRemove(PreparedOp& op, Log::Reference& refToPreparedOp,
@@ -274,7 +274,8 @@ class ObjectManager : public LogEntryHandlers {
                 __attribute__((warn_unused_result));
     void relocateObject(Buffer& oldBuffer, Log::Reference oldReference,
                 LogEntryRelocator& relocator);
-    void relocatePreparedOp(Buffer& oldBuffer, LogEntryRelocator& relocator);
+    void relocatePreparedOp(Buffer& oldBuffer, Log::Reference oldReference,
+                LogEntryRelocator& relocator);
     void relocatePreparedOpTombstone(Buffer& oldBuffer,
                                      LogEntryRelocator& relocator);
     void relocateRpcRecord(Buffer& oldBuffer, LogEntryRelocator& relocator);
