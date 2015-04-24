@@ -312,6 +312,23 @@ class ObjectManagerTest : public ::testing::Test {
         return reference;
     }
 
+
+    /**
+     * Store a PreparedOp in the log, return its Log::Reference.  Used only
+     * to help acquire transaction locks.  TableStats not updated.
+     */
+    Log::Reference
+    storePreparedOp(Key& key) {
+        Buffer dataBuffer;
+        Buffer buffer;
+        Log::Reference ref;
+        PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 0, NULL, key, NULL,
+                0, 0, 0, dataBuffer);
+        prepOp.assembleForLog(buffer);
+        objectManager.log.append(LOG_ENTRY_TYPE_PREP, buffer, &ref);
+        return ref;
+    }
+
     /**
      * Verify an object replayed during recovery by looking it up in the hash
      * table by key and comparing contents.
@@ -1413,11 +1430,19 @@ TEST_F(ObjectManagerTest, writeObject) {
         objectManager.writeObject(obj, 0, 0));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
+    // key locked, STATUS_RETRY
+    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+                                          TabletManager::NORMAL);
+    Log::Reference lockRef = storePreparedOp(key);
+    EXPECT_TRUE(objectManager.lockTable.tryAcquireLock(key, lockRef));
+    EXPECT_EQ(STATUS_RETRY,
+        objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
+    EXPECT_TRUE(objectManager.lockTable.releaseLock(key, lockRef));
+
     TestLog::Enable _(writeObjectFilter);
 
     // new object (no tombstone needed)
-    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
-                                          TabletManager::NORMAL);
     EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
     EXPECT_EQ("writeObject: object: 33 bytes, version 1", TestLog::get());
     EXPECT_EQ("found=true tableId=1 byteCount=33 recordCount=1"

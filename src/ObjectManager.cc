@@ -1154,6 +1154,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         return STATUS_UNKNOWN_TABLET;
     }
 
+    // If key is locked due to an in-progress transaction, we must wait.
     if (lockTable.isLockAcquired(key)) {
         return STATUS_RETRY;
     }
