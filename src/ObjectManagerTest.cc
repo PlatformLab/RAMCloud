@@ -590,6 +590,14 @@ TEST_F(ObjectManagerTest, removeObject) {
     tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
 
+    // key locked, STATUS_RETRY.
+    Log::Reference lockRef = storePreparedOp(key);
+    EXPECT_TRUE(objectManager.lockTable.tryAcquireLock(key, lockRef));
+    EXPECT_EQ(STATUS_RETRY, objectManager.removeObject(key, 0, 0));
+    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
+              , verifyMetadata(1));
+    EXPECT_TRUE(objectManager.lockTable.releaseLock(key, lockRef));
+
     // not found, not an error
     Key key2(1, "2", 1);
     EXPECT_EQ(STATUS_OK, objectManager.removeObject(key2, 0, 0));
