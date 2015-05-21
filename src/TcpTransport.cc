@@ -15,6 +15,7 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 
 #include "Common.h"
@@ -245,6 +246,13 @@ TcpTransport::AcceptHandler::handleFileEvent(int events)
         transport.listenSocket = -1;
         return;
     }
+
+    // Disable the hideous Nagle algorithm, which will delay sending small
+    // messages in some situations (before adding this code in 5/2015, we
+    // observed occasional 40ms delays when a server responded to a batch
+    // of requests from the same client).
+    int flag = 1;
+    setsockopt(acceptedFd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
     // At this point we have successfully opened a client connection.
     // Save information about it and create a handler for incoming
@@ -620,6 +628,11 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
                 "TcpTransport couldn't connect to %s",
                 getServiceLocator().c_str()), errno);
     }
+
+    // Disable the hideous Nagle algorithm, which will delay sending small
+    // messages in some situations.
+    int flag = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
     /// Arrange for notification whenever the server sends us data.
     Dispatch::Lock lock(transport.context->dispatch);
