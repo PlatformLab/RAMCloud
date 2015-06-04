@@ -327,7 +327,7 @@ class MasterService : public Service {
     }
 
     WireFormat::TxPrepare::Vote
-    parsePrepRpcResult(void* result) {
+    parsePrepRpcResult(uint64_t result) {
         if (!result) {
             throw RetryException(HERE, 50, 50,
                     "Duplicate RPC is in progress.");
@@ -335,7 +335,7 @@ class MasterService : public Service {
 
         //Obtain saved RPC response from log.
         Buffer resultBuffer;
-        Log::Reference resultRef((uint64_t)result);
+        Log::Reference resultRef(result);
         objectManager.getLog()->getEntry(resultRef, resultBuffer);
         RpcRecord savedRec(resultBuffer);
         return *((WireFormat::TxPrepare::Vote*) savedRec.getResp());

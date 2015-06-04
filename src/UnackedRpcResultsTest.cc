@@ -302,4 +302,59 @@ TEST_F(UnackedRpcResultsTest, updateResult) {
     EXPECT_EQ(1011UL, (uint64_t)client->result(11));
 }
 
+TEST_F(UnackedRpcResultsTest, unackedRpcHandle) {
+    void* result;
+    { // 1. Normal use case test. No interruption between.
+        UnackedRpcHandle urh(&results, 1, 11, 5, 1);
+        EXPECT_FALSE(urh.isDuplicate());
+        EXPECT_EQ(0UL, urh.resultLoc());
+        urh.recordCompletion(1011);
+    }
+    EXPECT_TRUE(results.checkDuplicate(1, 11, 5, 1, &result));
+    EXPECT_EQ(1011UL, (uint64_t)result);
+
+    { //2. Duplicate RPC exists.
+        UnackedRpcHandle urh(&results, 1, 11, 5, 1);
+        EXPECT_TRUE(urh.isDuplicate());
+        EXPECT_EQ(1011UL, urh.resultLoc());
+    }
+    { //3. In-progress RPC exists.
+        {
+            UnackedRpcHandle urh(&results, 1, 12, 5, 1);
+            EXPECT_FALSE(urh.isDuplicate());
+            EXPECT_EQ(0UL, urh.resultLoc());
+
+            UnackedRpcHandle urh2(&results, 1, 12, 5, 1);
+            EXPECT_TRUE(urh2.isDuplicate());
+            EXPECT_TRUE(urh2.isInProgress());
+
+            urh.recordCompletion(1012);
+        }
+        UnackedRpcHandle urh3(&results, 1, 12, 5, 1);
+        EXPECT_TRUE(urh3.isDuplicate());
+        EXPECT_FALSE(urh3.isInProgress());
+        EXPECT_EQ(1012UL, urh3.resultLoc());
+    }
+    { //4. Reset of record by out-of-scope.
+        {
+            UnackedRpcHandle urh(&results, 1, 13, 5, 1);
+            EXPECT_FALSE(urh.isDuplicate());
+            EXPECT_EQ(0UL, urh.resultLoc());
+        }
+        UnackedRpcHandle urh2(&results, 1, 13, 5, 1);
+        EXPECT_FALSE(urh2.isDuplicate());
+    }
+    { //5. After recordCompletion, don't reset of record by out-of-scope.
+        {
+            UnackedRpcHandle urh(&results, 1, 14, 5, 1);
+            EXPECT_FALSE(urh.isDuplicate());
+            EXPECT_EQ(0UL, urh.resultLoc());
+            urh.recordCompletion(1014);
+        }
+        UnackedRpcHandle urh2(&results, 1, 14, 5, 1);
+        EXPECT_TRUE(urh2.isDuplicate());
+        EXPECT_EQ(1014UL, urh2.resultLoc());
+    }
+}
+
 }  // namespace RAMCloud

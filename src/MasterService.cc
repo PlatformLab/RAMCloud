@@ -2386,10 +2386,9 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
     updateClusterTime(reqHdr->lease.timestamp);
 
-    // Temporary storage for completed RPCs; recordCompletion()
-    // is called after log is synched with backup.
-    std::vector<std::pair<uint64_t, uint64_t>> completedRpcs;
-    completedRpcs.reserve(numRequests);
+    // log should be synced with backup before destruction of handles.
+    std::vector<UnackedRpcHandle> rpcHandles;
+    rpcHandles.reserve(numRequests);
 
     // Each iteration extracts one request from the rpc, writes the object
     // if possible, and appends a status and version to the response buffer.
@@ -2491,13 +2490,14 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             break;
         }
 
-        void* result;
-        if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
-                                             rpcId,
-                                             reqHdr->ackId,
-                                             reqHdr->lease.leaseTerm,
-                                             &result)) {
-            respHdr->vote = parsePrepRpcResult(result);
+        rpcHandles.emplace_back(&unackedRpcResults,
+                                reqHdr->lease.leaseId,
+                                rpcId,
+                                reqHdr->ackId,
+                                reqHdr->lease.leaseTerm);
+        UnackedRpcHandle* rh = &rpcHandles.back();
+        if (rh->isDuplicate()) {
+            respHdr->vote = parsePrepRpcResult(rh->resultLoc());
             if (respHdr->vote == WireFormat::TxPrepare::COMMIT) {
                 continue;
             } else if (respHdr->vote == WireFormat::TxPrepare::ABORT) {
@@ -2520,20 +2520,24 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
         uint64_t newOpPtr;
         bool isCommitVote;
-        respHdr->common.status = objectManager.prepareOp(
-                *op, &rejectRules, &newOpPtr, &isCommitVote,
-                &rpcRecord, &rpcRecordPtr);
+        try {
+            respHdr->common.status = objectManager.prepareOp(
+                    *op, &rejectRules, &newOpPtr, &isCommitVote,
+                    &rpcRecord, &rpcRecordPtr);
+        } catch (RetryException& e) {
+            objectManager.syncChanges();
+            throw;
+        }
 
         if (!isCommitVote || respHdr->common.status != STATUS_OK) {
             respHdr->vote = WireFormat::TxPrepare::ABORT;
-            completedRpcs.emplace_back(rpcId, rpcRecordPtr);
+            rh->recordCompletion(rpcRecordPtr);
             break;
         }
 
         preparedWrites.bufferWrite(reqHdr->lease.leaseId, rpcId, newOpPtr);
 
-        // Defer this operation after sync with backup.
-        completedRpcs.emplace_back(rpcId, rpcRecordPtr);
+        rh->recordCompletion(rpcRecordPtr);
     }
 
     // By design, our response will be shorter than the request. This ensures
@@ -2543,13 +2547,6 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
     // All of the individual writes were done asynchronously. Sync the objects
     // now to propagate them in bulk to backups.
     objectManager.syncChanges();
-
-    for (auto it = completedRpcs.begin();
-            it != completedRpcs.end(); ++it) {
-        unackedRpcResults.recordCompletion(reqHdr->lease.leaseId,
-                            it->first,
-                            reinterpret_cast<void*>(it->second));
-    }
 
     // Respond to the client RPC now. Removing old index entries can be
     // done asynchronously while maintaining strong consistency.

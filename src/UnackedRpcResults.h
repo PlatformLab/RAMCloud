@@ -48,6 +48,8 @@ class UnackedRpcResults {
                        uint64_t rpcId,
                        uint64_t ackId,
                        void* result);
+    void resetRecord(uint64_t clientId,
+                     uint64_t rpcId);
     bool isRpcAcked(uint64_t clientId, uint64_t rpcId);
 
   PRIVATE:
@@ -148,7 +150,7 @@ class UnackedRpcResults {
          */
         int numRpcsInProgress;
 
-      PRIVATE:
+      //PRIVATE:
         void resizeRpcs(int increment);
 
         /**
@@ -174,6 +176,7 @@ class UnackedRpcResults {
          */
         int len;
 
+      PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(Client);
     };
 
@@ -200,6 +203,49 @@ class UnackedRpcResults {
     Cleaner cleaner;
 
     DISALLOW_COPY_AND_ASSIGN(UnackedRpcResults);
+};
+
+/**
+ * A linearizable RPC handler should construct this class to check duplicate
+ * RPC in progress and to record the result of RPC after processing.
+ *
+ * This handle should be used instead of directly calling UnackedRpcResults
+ * for exception safety.
+ *
+ * Destruction of this class should happen only after log-sync.
+ */
+class UnackedRpcHandle {
+  PUBLIC:
+    UnackedRpcHandle(UnackedRpcResults* unackedRpcResults,
+                     uint64_t clientId,
+                     uint64_t rpcId,
+                     uint64_t ackId,
+                     uint64_t leaseTerm);
+    UnackedRpcHandle(const UnackedRpcHandle& origin);
+    UnackedRpcHandle& operator= (const UnackedRpcHandle& origin);
+    ~UnackedRpcHandle();
+
+    bool isDuplicate();
+    bool isInProgress();
+    uint64_t resultLoc();
+    void recordCompletion(uint64_t result);
+
+  PRIVATE:
+    /// Save clientId and rpcId to be used for recordCompletion later.
+    /// We do this double lookup to circumvent problem while resizing rpcs array
+    uint64_t clientId;
+    uint64_t rpcId;
+
+    /// Keeps the outcome of checkDuplicate() call in constructor.
+    bool duplicate;
+
+    /// Indicates the location of saved result.
+    /// If it is a duplicate RPC, obtained from checkDuplicate() in constructor.
+    /// If it is a new RPC, saved by #UnackedRpcHandle::recordCompletion() call.
+    uint64_t resultPtr;
+
+    /// Pointer to current unackedRpcResults.
+    UnackedRpcResults* rpcResults;
 };
 
 }  // namespace RAMCloud

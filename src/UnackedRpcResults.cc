@@ -20,6 +20,138 @@
 namespace RAMCloud {
 
 /**
+ * Default constructor. Performs a #UnackedRpcResults::checkDuplicate()
+ * and the outcome of checkDuplicate is saved to be retrieved later.
+ *
+ * \param unackedRpcResults
+ *      Pointer to UnackedRpcResults instance to operate on.
+ * \param clientId
+ *      RPC sender's id.
+ * \param rpcId
+ *      RPC's id to be checked.
+ * \param ackId
+ *      The ack number transmitted with the RPC whose id number is rpcId.
+ * \param leaseTerm
+ *      Client's lease expiration time.
+ *
+ * \throw ExpiredLeaseException
+ *      The lease for \a clientId is already expired in coordinator.
+ *      Master rejects rpcs with expired lease, and client must obtain
+ *      brand-new lease from coordinator.
+ * \throw StaleRpcException
+ *      The rpc with \a rpcId is already acknowledged by client, so we should
+ *      not have received this request in the first place.
+ */
+UnackedRpcHandle::UnackedRpcHandle(
+        UnackedRpcResults* unackedRpcResults,
+        uint64_t clientId,
+        uint64_t rpcId,
+        uint64_t ackId,
+        uint64_t leaseTerm)
+    : clientId(clientId)
+    , rpcId(rpcId)
+    , duplicate(false)
+    , resultPtr(0)
+    , rpcResults(unackedRpcResults)
+{
+    void* result;
+    duplicate = rpcResults->checkDuplicate(clientId, rpcId, ackId,
+                                           leaseTerm, &result);
+    resultPtr = reinterpret_cast<uint64_t>(result);
+}
+
+/**
+ * Copy constructor.
+ */
+UnackedRpcHandle::UnackedRpcHandle(const UnackedRpcHandle& origin)
+    : clientId(origin.clientId)
+    , rpcId(origin.rpcId)
+    , duplicate(origin.duplicate)
+    , resultPtr(origin.resultPtr)
+    , rpcResults(origin.rpcResults)
+{
+}
+
+/**
+ * Copy assignment.
+ */
+UnackedRpcHandle&
+UnackedRpcHandle::operator=(const UnackedRpcHandle& origin)
+{
+    clientId = origin.clientId;
+    rpcId = origin.rpcId;
+    duplicate = origin.duplicate;
+    resultPtr = origin.resultPtr;
+    rpcResults = origin.rpcResults;
+    return *this;
+}
+
+/**
+ * Default destructor. If the RPC request was not duplicate, it either reset
+ * the entry in UnackedRpcResults (if some client exception is thrown before
+ * recordCompletion call) or change RPC status from in progress to completed.
+ */
+UnackedRpcHandle::~UnackedRpcHandle()
+{
+    if (!isDuplicate()) {
+        if (isInProgress()) {
+            // Remove the record of this RPC in UnackedRpcResults
+            rpcResults->resetRecord(clientId, rpcId);
+        } else {
+            // Record the saved RpcRecord pointer.
+            rpcResults->recordCompletion(clientId, rpcId,
+                                         reinterpret_cast<void*>(resultPtr));
+        }
+    }
+}
+
+/**
+ * Queries the outcome of checkDuplicate in constructor.
+ *
+ * \return true if RPC request is duplicate.
+ */
+bool
+UnackedRpcHandle::isDuplicate()
+{
+    return duplicate;
+}
+
+/**
+ * Queries whether RPC is in progress state. It may indicate information
+ * obtained from checkDuplicate call or from recordCompletion of current handle.
+ *
+ * \return true if RPC request is in progress.
+ */
+bool
+UnackedRpcHandle::isInProgress()
+{
+    return resultPtr == 0;
+}
+
+/**
+ * Getter method for log location of RPC result.
+ *
+ * \return  log location of RPC result.
+ */
+uint64_t
+UnackedRpcHandle::resultLoc()
+{
+    return resultPtr;
+}
+
+/**
+ * Save a log location of RPC result to update UnackedRpcResults later in
+ * destructor.
+ *
+ * \param   result log location of RPC result.
+ */
+void
+UnackedRpcHandle::recordCompletion(uint64_t result)
+{
+    resultPtr = result;
+}
+
+/**
  * Default constructor
  *
  * \param context
@@ -260,6 +392,21 @@ UnackedRpcResults::recoverRecord(uint64_t clientId,
         client->recordNewRpc(rpcId);
         client->updateResult(rpcId, result);
     }
+}
+
+void
+UnackedRpcResults::resetRecord(uint64_t clientId, uint64_t rpcId)
+{
+    std::unique_lock<std::mutex> lock(mutex);
+    Client* client;
+
+    ClientMap::iterator it = clients.find(clientId);
+    if (it == clients.end()) {
+        return;
+    } else {
+        client = it->second;
+    }
+    client->rpcs[rpcId % client->len].id = 0;
 }
 
 /**
