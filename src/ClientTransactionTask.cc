@@ -37,6 +37,7 @@ ClientTransactionTask::ClientTransactionTask(RamCloud* ramcloud)
     , decisionRpcs()
     , commitCache()
     , nextCacheEntry()
+    , poller()
 {
 }
 
@@ -150,6 +151,58 @@ ClientTransactionTask::performTask()
         status = e.status;
         ramcloud->rpcTracker.rpcFinished(txId);
         state = DONE;
+    }
+}
+
+/**
+ * Schedule a ClientTransactionTask to start executing the commit protocol.
+ *
+ * \param taskPtr
+ *      Shared pointer to the ClientTransactionTask to be run.
+ */
+void
+ClientTransactionTask::start(std::shared_ptr<ClientTransactionTask>& taskPtr)
+{
+    assert(taskPtr);
+    ClientTransactionTask* task = taskPtr.get();
+    if (!task->poller) {
+        task->poller.construct(task->ramcloud->clientContext->dispatch,
+                               taskPtr);
+    }
+}
+
+/**
+ * Construct a Poller causing a specified ClientTransactionTask to be run.
+ *
+ * \param dispatch
+ *      Dispatch object through which the poller will be invoked.
+ * \param taskPtr
+ *      ClientTransactionTask to be run.
+ */
+ClientTransactionTask::Poller::Poller(Dispatch* dispatch,
+        std::shared_ptr<ClientTransactionTask>& taskPtr)
+    : Dispatch::Poller(dispatch, "ClientTransactionTask::Poller")
+    , running(false)
+    , taskPtr(taskPtr)
+{}
+
+/**
+ * Drives the execution of the ClientTransactionTask's rules engine.
+ */
+void
+ClientTransactionTask::Poller::poll()
+{
+    // Make sure the recursive calls don't execute.
+    if (!running) {
+        running = true;
+        ClientTransactionTask* task = taskPtr.get();
+        task->performTask();
+        running = false;
+
+        // Destroy poller (self) if task is complete; must be last action.
+        if (task->isReady()) {
+            task->poller.destroy();
+        }
     }
 }
 
@@ -340,9 +393,9 @@ void ClientTransactionTask::tryFinish()
     //  (1) Calling performTask
     //  (2) Allowing the transport to run by calling poll
     // This method would only be called if this task is active.  Since active
-    // tasks are driven by the ClientTransactionManager (i.e. the manager calls
-    // performTask on active tasks) and the manager runs in the poll loop, it is
-    // sufficient to simply call poll.
+    // tasks are driven by their ClientTransactionTask::Poller (i.e. the poller
+    // calls performTask if the tasks is active) and the poller runs in the poll
+    // loop, it is sufficient to simply call poll.
     ramcloud->poll();
 }
 

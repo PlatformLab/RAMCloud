@@ -30,8 +30,6 @@ namespace RAMCloud {
  * deletes), and it executes the client-driven protocol for committing the
  * transaction. Furthermore, it allows the commit protocol to be executed
  * asynchronously.
- *
- * This module is driven by the ClientTransactionManager.
  */
 class ClientTransactionTask : public RpcTracker::TrackedRpc {
   PUBLIC:
@@ -121,6 +119,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
                 (state == DECISION && nextCacheEntry == commitCache.end()));
     }
     void performTask();
+    static void start(std::shared_ptr<ClientTransactionTask>& taskPtr);
 
   PRIVATE:
     // Forward declaration of RPCs
@@ -176,7 +175,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     };
 
     /**
-     * The Commit Cache is used to keep track of the  transaction operations to
+     * The Commit Cache is used to keep track of the transaction operations to
      * be performed during commit and well as cache read and write values to
      * services subsequent reads.
      */
@@ -186,6 +185,28 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// Used to keep track of which cache entry to process next as part of the
     /// commit protocol.
     CommitCacheMap::iterator nextCacheEntry;
+
+    /**
+     * The Poller drives the execution of the ClientTransactionTask.  While this
+     * object exists, ClientTransactionTask::performTask will be called.
+     */
+    class Poller : public Dispatch::Poller {
+      PUBLIC:
+        explicit Poller(Dispatch* dispatch,
+                        std::shared_ptr<ClientTransactionTask>& taskPtr);
+        virtual void poll();
+
+      PRIVATE:
+        /// Keeps track of if the poll method is already executing to prevent
+        /// recursive calls due to the use of polling in other modules.
+        bool running;
+        /// Shared pointer to the ClientTransactionTask to be run.
+        std::shared_ptr<ClientTransactionTask> taskPtr;
+
+        DISALLOW_COPY_AND_ASSIGN(Poller);
+    };
+    /// Used to delay execution of the task until commit time.
+    Tub<Poller> poller;
 
     void initTask();
     void processDecisionRpcs();

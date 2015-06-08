@@ -487,6 +487,64 @@ TEST_F(ClientTransactionTaskTest, performTask_ClientException) {
     EXPECT_EQ(STATUS_TABLE_DOESNT_EXIST, transactionTask->getStatus());
 }
 
+TEST_F(ClientTransactionTaskTest, start) {
+    std::shared_ptr<ClientTransactionTask>
+            taskPtr(new ClientTransactionTask(ramcloud.get()));
+    ClientTransactionTask* task = taskPtr.get();
+    EXPECT_FALSE(task->poller);
+    ClientTransactionTask::start(taskPtr);
+    EXPECT_TRUE(task->poller);
+    task->poller.destroy();
+}
+
+TEST_F(ClientTransactionTaskTest, Poller_poll) {
+    std::shared_ptr<ClientTransactionTask>
+            taskPtr(new ClientTransactionTask(ramcloud.get()));
+    ClientTransactionTask* task = taskPtr.get();
+    // Give it something to do.
+    ClientTransactionTask::CacheEntry* entry;
+    entry = task->insertCacheEntry(tableId1, "test1", 5, "hello", 5);
+    entry->type = ClientTransactionTask::CacheEntry::WRITE;
+    entry = task->insertCacheEntry(tableId1, "test2", 5, "hello", 5);
+    entry->type = ClientTransactionTask::CacheEntry::WRITE;
+
+    EXPECT_FALSE(task->isReady());
+    EXPECT_EQ(ClientTransactionTask::INIT, task->state);
+    EXPECT_FALSE(task->poller);
+    ClientTransactionTask::start(taskPtr);
+    EXPECT_TRUE(task->poller);
+    task->poller->running = true;
+
+    // Nothing should happen.
+    task->poller->poll();
+
+    EXPECT_FALSE(task->isReady());
+    EXPECT_EQ(ClientTransactionTask::INIT, task->state);
+    EXPECT_TRUE(task->poller);
+    task->poller->running = false;
+
+    // Should move to PREPARE
+    task->poller->poll();
+
+    EXPECT_FALSE(task->isReady());
+    EXPECT_EQ(ClientTransactionTask::PREPARE, task->state);
+    EXPECT_TRUE(task->poller);
+
+    // Should move to DECISION
+    task->poller->poll();
+
+    EXPECT_FALSE(task->isReady());
+    EXPECT_EQ(ClientTransactionTask::DECISION, task->state);
+    EXPECT_TRUE(task->poller);
+
+    // Should move to DONE
+    task->poller->poll();
+
+    EXPECT_TRUE(task->isReady());
+    EXPECT_EQ(ClientTransactionTask::DONE, task->state);
+    EXPECT_FALSE(task->poller);
+}
+
 TEST_F(ClientTransactionTaskTest, initTask) {
     insertWrite(1, "test", 4, "hello", 5);
     insertWrite(2, "test", 4, "hello", 5);

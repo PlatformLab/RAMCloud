@@ -43,12 +43,12 @@ Transaction::Transaction(RamCloud* ramcloud)
 bool
 Transaction::commit()
 {
+    ClientTransactionTask* task = taskPtr.get();
+
     if (!commitStarted) {
         commitStarted = true;
-        ramcloud->transactionManager.addTransactionTask(taskPtr);
+        ClientTransactionTask::start(taskPtr);
     }
-
-    ClientTransactionTask* task = taskPtr.get();
 
     while (!task->allDecisionsSent()) {
         ramcloud->poll();
@@ -71,12 +71,12 @@ Transaction::commit()
 void
 Transaction::sync()
 {
+    ClientTransactionTask* task = taskPtr.get();
+
     if (!commitStarted) {
         commitStarted = true;
-        ramcloud->transactionManager.addTransactionTask(taskPtr);
+        ClientTransactionTask::start(taskPtr);
     }
-
-    ClientTransactionTask* task = taskPtr.get();
 
     while (!task->isReady()) {
         ramcloud->poll();
