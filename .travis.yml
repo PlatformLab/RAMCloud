@@ -1,4 +1,11 @@
-#for details about travis and c++ see:
+# Travis CI is an automated build and test service for GitHub repositories.
+# This configuration file provides Travis CI with enough information to build
+# the RAMCloud code base.
+#
+# For more details about Travis CI see:
+# https://travis-ci.org
+#
+# For more details about building C++ code bases with Travis CI see:
 # http://docs.travis-ci.com/user/languages/cpp/
 language: cpp
 
