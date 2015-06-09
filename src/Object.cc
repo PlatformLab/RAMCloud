@@ -84,7 +84,8 @@ Object::Object(uint64_t tableId,
  *      Primary key for this object
  * \param value
  *      Pointer to a single contiguous piece of memory that comprises this
- *      object's value.
+ *      object's value. This pointer is expected to remain valid for the
+ *      lifetime of the object.
  * \param valueLength
  *      Length of the value portion in bytes.
  * \param version

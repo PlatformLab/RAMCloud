@@ -261,6 +261,41 @@ static void checkNodeEquals(const IndexBtree::LeafNode *orig,
     EXPECT_EQ(0, memcmp(origEntry.key, cpyEntry.key, origEntry.keyLength));
   }
 }
+
+TEST_F(BtreeTest, node_serializeToPreallocatedBuffer) {
+    Buffer b;
+    b.alloc(100); // Just to give us an offset.
+    IndexBtree::LeafNode node(&b);
+
+    char keys[1224];
+    node.setAt(0, {keys, 100, 1});
+    node.setAt(1, {keys + 100, 1024, 2});
+    node.setAt(2, {keys + 1124, 100, 3});
+
+    Buffer toBuffer;
+    toBuffer.alloc(20); // Just to give us an offset.
+    toBuffer.alloc(node.serializedLength());
+    uint32_t bytesWritten = node.serializeToPreallocatedBuffer(&toBuffer, 20U);
+
+    EXPECT_EQ(node.serializedLength(), bytesWritten);
+    EXPECT_EQ(node.serializedLength() + 20U, toBuffer.size());
+    EXPECT_EQ(2U, toBuffer.getNumberChunks());
+    IndexBtree::LeafNode *readBack = static_cast<IndexBtree::LeafNode*>(
+                                                toBuffer.getRange(20, 1224));
+
+    BtreeEntry entry = readBack->getAt(0);
+    EXPECT_EQ(100U, entry.keyLength);
+    EXPECT_EQ(0, bcmp(keys, entry.key, 100));
+
+    entry = readBack->getAt(1);
+    EXPECT_EQ(1024U, entry.keyLength);
+    EXPECT_EQ(0, bcmp(keys + 100, entry.key, 1024));
+
+    entry = readBack->getAt(2);
+    EXPECT_EQ(100U, entry.keyLength);
+    EXPECT_EQ(0, bcmp(keys + 1124, entry.key, 100));
+}
+
 TEST_F(BtreeTest, node_serializeAppendToBuffer) {
   Buffer objBuffer, keyBuffer, out;
   IndexBtree::LeafNode *contig, *notContig, *copy;
@@ -1129,6 +1164,8 @@ TEST_F(BtreeTest, InnerNode_serializeAppendToBuffer) {
     BtreeEntry eTest = {"Testing", 123};
     BtreeEntry e0 = {"zero", 0};
     BtreeEntry e1 = {"One", 1};
+    char buffer[1024];
+    BtreeEntry e2 = {buffer, 1024, 2};
     Buffer buffer_in, buffer_out;
     IndexBtree::InnerNode *n = buffer_in.emplaceAppend<IndexBtree::InnerNode>(
                                                     &buffer_in, uint16_t(17));
@@ -1136,9 +1173,14 @@ TEST_F(BtreeTest, InnerNode_serializeAppendToBuffer) {
     n->setRightMostLeafKey(eTest);
     n->insertAt(0, e0, 0, 1);
     n->insertAt(1, e1, 1, 2);
+    n->insertAt(2, e2, 2, 3);
 
     IndexBtree::InnerNode *rn =static_cast<IndexBtree::InnerNode*>(
                                     n->serializeAppendToBuffer(&buffer_out));
+
+    EXPECT_EQ(1U, buffer_out.getNumberChunks());
+    EXPECT_EQ(n->serializedLength(), rn->serializedLength());
+    EXPECT_EQ(n->serializedLength(), buffer_out.size());
 
     BtreeEntry query = rn->getRightMostLeafKey();
     EXPECT_EQ(eTest.pKHash, query.pKHash);
@@ -1157,6 +1199,11 @@ TEST_F(BtreeTest, InnerNode_serializeAppendToBuffer) {
     EXPECT_EQ(e1.keyLength, query.keyLength);
     EXPECT_STREQ((const char*) e1.key,
             string((const char*) query.key, query.keyLength).c_str());
+
+    query = rn->getAt(2);
+    EXPECT_EQ(e2.pKHash, query.pKHash);
+    EXPECT_EQ(e2.keyLength, query.keyLength);
+    EXPECT_EQ(0, bcmp(e2.key, query.key, query.keyLength));
 }
 
 TEST_F(BtreeTest, LeafNode_balanceWithRight) {

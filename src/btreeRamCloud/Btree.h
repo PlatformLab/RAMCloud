@@ -546,6 +546,58 @@ PRIVATE:
         }
 
         /**
+         * Internal function to serialize the data in the base Node class
+         * to a preallocated region within a buffer. This abstraction is
+         * provided primarily for subclasses that wish to build upon the
+         * base serialize. After this operation, this node and the copy within
+         * the buffer are independent.
+         *
+         * \param toBuffer
+         *      Buffer with contiguous space preallocated for the Node.
+         *
+         * \param offset
+         *      Starting offset for the preallocated space within the buffer.
+         *
+         * \return
+         *      bytes written to the buffer
+         */
+        uint32_t
+        serializeToPreallocatedBuffer(Buffer *toBuffer, uint32_t offset) const
+        {
+            uint32_t metadataSize = (isLeaf()) ?
+                                        sizeof(LeafNode) : sizeof(InnerNode);
+            void *ptr;
+            uint32_t contigSpace = toBuffer->peek(offset, &ptr);
+            assert (contigSpace >= metadataSize + keyStorageUsed);
+
+            // Copy over metadata
+            memmove(ptr, this, metadataSize);
+
+            // Copy over keys
+            uint32_t bytesRemaining = keyStorageUsed;
+            uint8_t *writePtr = static_cast<uint8_t*>(ptr);
+            while (bytesRemaining > 0) {
+                void *readPtr;
+                uint32_t offset = keyStorageUsed - bytesRemaining;
+                uint32_t peekSize = keyBuffer->peek(keysBeginOffset + offset, &readPtr);
+
+                if (peekSize < bytesRemaining) {
+                    memcpy(writePtr + metadataSize + offset, readPtr, peekSize);
+                    bytesRemaining -= peekSize;
+                } else {
+                    memcpy(writePtr + metadataSize + offset, readPtr, bytesRemaining);
+                    break;
+                }
+            }
+
+            Node *node = reinterpret_cast<Node*>(writePtr);
+            node->keysBeginOffset = offset + metadataSize;
+            node->keyBuffer = toBuffer;
+
+            return metadataSize + keyStorageUsed;
+        }
+
+        /**
          * Copies the entirety of this node's metadata and the keys managed
          * by this base class to a Buffer and returns a pointer to the copied
          * node. After this operation, the copy and original are independent.
@@ -559,35 +611,14 @@ PRIVATE:
         virtual Node*
         serializeAppendToBuffer(Buffer *toBuffer) const
         {
-            uint32_t nodeSize = (isLeaf()) ?
+            uint32_t startOffset = toBuffer->size();
+            uint32_t metadataSize = (isLeaf()) ?
                                         sizeof(LeafNode) : sizeof(InnerNode);
 
-            // Copy metadata
-            uint8_t *writePtr = static_cast<uint8_t*>(
-                                    toBuffer->alloc(nodeSize + keyStorageUsed));
-            memmove(writePtr, this, nodeSize);
+            void *ptr = toBuffer->alloc(metadataSize + keyStorageUsed);
+            Node::serializeToPreallocatedBuffer(toBuffer, startOffset);
 
-            // Copy over keys
-            uint32_t bytesRemaining = keyStorageUsed;
-            while (bytesRemaining > 0) {
-                void *readPtr;
-                uint32_t offset = keyStorageUsed - bytesRemaining;
-                uint32_t peekSize = keyBuffer->peek(keysBeginOffset + offset, &readPtr);
-
-                if (peekSize < bytesRemaining) {
-                    memcpy(writePtr + nodeSize + offset, readPtr, peekSize);
-                    bytesRemaining -= peekSize;
-                } else {
-                    memcpy(writePtr + nodeSize + offset, readPtr, bytesRemaining);
-                    break;
-                }
-            }
-
-            Node *obj = reinterpret_cast<Node*>(writePtr);
-            obj->keysBeginOffset = toBuffer->size() - keyStorageUsed;
-            obj->keyBuffer = toBuffer;
-
-            return obj;
+            return reinterpret_cast<Node*>(ptr);
         }
 
         /**
@@ -1096,7 +1127,8 @@ PRIVATE:
          *      Index to remove between [0, slotuse] inclusive
          */
         inline void
-        eraseAt(uint16_t index) {
+        eraseAt(uint16_t index)
+        {
             // Special case for inner nodes. Since inner nodes can have
             // n + 1 keys and n + 1 pointers, erasing the last pointer is
             // equivalent to promoting the nth pointer to the last pointer.
@@ -1129,7 +1161,8 @@ PRIVATE:
          *      NodeId of the child at the index
          */
         inline NodeId
-        getChildAt(uint16_t index) const {
+        getChildAt(uint16_t index) const
+        {
           if (index > Node::slotuse) {
             DIE("Attempted to get a child at an index larger than slotuse");
           }
@@ -1154,7 +1187,8 @@ PRIVATE:
          *      to maintain the one more child than entries invariant.
          */
         inline BtreeEntry
-        balanceWithRight(InnerNode *right, BtreeEntry inbetween) {
+        balanceWithRight(InnerNode *right, BtreeEntry inbetween)
+        {
             uint16_t entriesToMove, childrenToMove;
             uint16_t nLeft = slotuse;
             uint16_t nRight = right->slotuse;
@@ -1214,7 +1248,8 @@ PRIVATE:
          *      one more child than entries invariant during the merge
          */
         inline void
-        mergeIntoRight(InnerNode *right, BtreeEntry inbetween) {
+        mergeIntoRight(InnerNode *right, BtreeEntry inbetween)
+        {
             Node::insertAtEntryOnly(slotuse, inbetween);
 
             memmove(&right->child[slotuse], &right->child[0],
@@ -1241,16 +1276,28 @@ PRIVATE:
          *      A pointer to the copied node
          */
         virtual InnerNode*
-        serializeAppendToBuffer(Buffer *toBuffer) const {
-            InnerNode *n = static_cast<InnerNode*>(
-                        Node::serializeAppendToBuffer(toBuffer));
+        serializeAppendToBuffer(Buffer *toBuffer) const
+        {
+            // If the rightmost key is infinite, there's no need to copy the
+            // additional key.
+            if (rightMostLeafKeyIsInfinite)
+                return static_cast<InnerNode*>(
+                                    Node::serializeAppendToBuffer(toBuffer));
+
+            uint32_t startOffset = toBuffer->size();
+            void *ptr = toBuffer->alloc(sizeof(InnerNode) + keyStorageUsed
+                                        + rightMostLeafKey.keyLength);
+            uint32_t bytesWritten =
+                    Node::serializeToPreallocatedBuffer(toBuffer, startOffset);
 
             // Add in our rightmost key
             void *key = keyBuffer->getRange(rightMostLeafKey.relOffset,
                                                     rightMostLeafKey.keyLength);
-            toBuffer->appendCopy(key, rightMostLeafKey.keyLength);
-            n->rightMostLeafKey.relOffset =
-                                toBuffer->size() - rightMostLeafKey.keyLength;
+            uint8_t *keyDst = static_cast<uint8_t*>(ptr) + bytesWritten;
+            memmove(keyDst, key, rightMostLeafKey.keyLength);
+
+            InnerNode *n = reinterpret_cast<InnerNode*>(ptr);
+            n->rightMostLeafKey.relOffset = bytesWritten;
 
             return n;
         }

@@ -1990,7 +1990,7 @@ generateRandListFrom0UpTo(uint32_t total)
         randomized.push_back(i);
 
     for (uint32_t i = 0; i < total; i++) {
-        uint32_t randomIndex = (randomNumberGenerator(total - i) + i);
+        uint32_t randomIndex = ((rand() % (total - i)) + i);
         uint32_t tmp = randomized[i];
         randomized[i] = randomized[randomIndex];
         randomized[randomIndex] = tmp;
@@ -2294,6 +2294,7 @@ indexBasic()
                         timeLookupAndReads(samplesPerRun),
                         timeIndexLookups(samplesPerRun);
 
+    srand(500);
     std::vector<uint32_t> randomized = generateRandListFrom0UpTo(maxNumObjects);
 
     uint32_t indexSize = 0;
@@ -2307,12 +2308,34 @@ indexBasic()
             cluster->write(dataTable, numKeys, keyList,
                     val.getRange(0, valLen), valLen);
             indexSize++;
+
+            // Optionally do a lookup after writing to verify integrity of data.
+            bool verify = false;
+            if (!verify)
+                continue;
+
+            uint32_t totalNumObjects = 0;
+            IndexKey::IndexKeyRange keyRange(indexId,
+                    keyList[1].key, keyList[1].keyLength, /*first key*/
+                    keyList[1].key, keyList[1].keyLength /*last key*/);
+            IndexLookup rangeLookup(cluster, dataTable, keyRange);
+
+            while (rangeLookup.getNext())
+                totalNumObjects++;
+
+            if (totalNumObjects != 1) {
+                printf("Verification failed at insert # %u. "
+                        "Found %u objects, expecting 1.\r\n",
+                        indexSize, totalNumObjects);
+                fflush(stdout);
+                exit(-1);
+            }
         }
 
         // Perform Testing
         for (uint32_t i = 0; i < samplesPerRun; i++) {
             uint64_t start, stop;
-            uint32_t intKey = randomized[randomNumberGenerator(indexSize)];
+            uint32_t intKey = randomized[rand() % indexSize];
             generateIndexKeyList(keyList, intKey, keyLength, numKeys);
             fillBuffer(val, valLen, dataTable, primaryKey, keyLength);
 
