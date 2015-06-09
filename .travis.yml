@@ -1,0 +1,34 @@
+# Travis CI is an automated build and test service for GitHub repositories.
+# This configuration file provides Travis CI with enough information to build
+# the RAMCloud code base.
+#
+# For more details about Travis CI see:
+# https://travis-ci.org
+#
+# For more details about building C++ code bases with Travis CI see:
+# http://docs.travis-ci.com/user/languages/cpp/
+language: cpp
+
+env:
+ - GCC_VERSION=4.4
+ - BOOST_VERSION=1.55 GCC_VERSION=4.4
+
+before_install:
+ - sudo add-apt-repository -y 'deb http://ppa.launchpad.net/ubuntu-toolchain-r/test/ubuntu precise main';
+ - sudo add-apt-repository -y ppa:boost-latest/ppa 
+ - sudo apt-get update
+ - sudo apt-get install libzookeeper-mt-dev protobuf-compiler libprotobuf-dev libboost${BOOST_VERSION}-all-dev
+ - if [[ ${GCC_VERSION} ]]; then
+     sudo apt-get install g++-${GCC_VERSION};
+     export CXX="g++-${GCC_VERSION}";
+     export CC="gcc-${GCC_VERSION}"; 
+   fi
+
+before_script:
+  - sed -i 's/-Werror//' GNUmakefile 
+
+script:
+  - make ZOOKEEPER_LIB='-lzookeeper_mt' INFINIBAND=no
+
+compiler:
+  - gcc
