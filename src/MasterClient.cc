@@ -550,7 +550,8 @@ PrepForMigrationRpc::PrepForMigrationRpc(Context* context, ServerId serverId,
  * \param indexId
  *      IndexId of the indexlet being migrated.
  * \param key
- *      The secondary index key used to find the indexlet being migrated.
+ *      Any index key in the range of this indexlet (used to locate the
+ *      proper indexlet to receive the migrated data).
  * \param keyLength
  *      Length of the key.
  */
