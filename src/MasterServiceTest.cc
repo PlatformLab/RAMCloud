@@ -1554,7 +1554,7 @@ TEST_F(MasterServiceTest, receiveMigrationData_indexletData) {
             service->indexletManager.findIndexlet(dataTableId, indexId,
             firstKey.c_str(), (uint16_t)firstKey.length());
 
-    EXPECT_EQ(12345U, indexlet->bt->getNextNodeId());
+    EXPECT_EQ(12346U, indexlet->bt->getNextNodeId());
 }
 
 static bool

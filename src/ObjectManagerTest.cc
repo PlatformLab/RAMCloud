@@ -738,7 +738,7 @@ TEST_F(ObjectManagerTest, replaySegment_nextNodeIdMap) {
     std::unordered_map<uint64_t, uint64_t> nextNodeIdMap;
     nextNodeIdMap[0] = 0;
     objectManager.replaySegment(&sl, *it, &nextNodeIdMap);
-    EXPECT_EQ(12345U, nextNodeIdMap[0]);
+    EXPECT_EQ(12346U, nextNodeIdMap[0]);
     EXPECT_EQ("found=true tableId=0 byteCount=45 recordCount=1"
               , verifyMetadata(0));
 }

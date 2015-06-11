@@ -610,8 +610,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                     const uint64_t *bTreeKey =
                         reinterpret_cast<const uint64_t*>(primaryKey);
                     uint64_t bTreeId = *bTreeKey;
-                    if (bTreeId > iter->second)
-                        iter->second = bTreeId;
+                    if (bTreeId >= iter->second)
+                        iter->second = bTreeId+1;
                 }
             }
 
