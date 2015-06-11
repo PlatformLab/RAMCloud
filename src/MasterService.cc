@@ -3186,8 +3186,11 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // Install indexlets we are recovering
         foreach (const ProtoBuf::Indexlet& newIndexlet,
                  recoveryPartition.indexlet()) {
-            LOG(NOTICE, "Starting recovery %lu for crashed indexlet %d",
-                    recoveryId, newIndexlet.index_id());
+            LOG(NOTICE, "Installing indexlet %d for table %lu as part of "
+                    "recovery %lu (backing table id %lu, next node id %lu)",
+                    newIndexlet.index_id(), newIndexlet.table_id(),
+                    recoveryId, newIndexlet.backing_table_id(),
+                    nextNodeIdMap[newIndexlet.backing_table_id()]);
             indexletManager.addIndexlet(
                     newIndexlet.table_id(),
                     (uint8_t)newIndexlet.index_id(),
