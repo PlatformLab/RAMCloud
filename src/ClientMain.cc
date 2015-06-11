@@ -26,6 +26,7 @@
 #include "OptionParser.h"
 #include "RamCloud.h"
 #include "Tub.h"
+#include "IndexLookup.h"
 
 using namespace RAMCloud;
 
@@ -154,6 +155,69 @@ exerciseCluster(RamCloud* client)
     expectedLast = last;
 }
 
+// Utility method used by indexCrash to print indexed entry.
+bool
+lookupAndLog(RamCloud* client, uint64_t tableId, const char* message)
+{
+    IndexKey::IndexKeyRange range(1, "Aaa", 3, "Bbb", 3);
+    IndexLookup indexLookup(client, tableId, range);
+    bool foundAny = false;
+    while (indexLookup.getNext()) {
+        Object* object = indexLookup.currentObject();
+        uint32_t valueLength;
+        const char* value = static_cast<const char*>(
+                object->getValue(&valueLength));
+        uint16_t  key1Length;
+        const char* key1 = static_cast<const char*>(
+                object->getKey(1, &key1Length));
+        uint16_t key2Length;
+        const char* key2 = static_cast<const char*>(
+                object->getKey(2, &key2Length));
+        LOG(NOTICE, "%s: value = %.*s, key1 = %.*s, key2 = %.*s", message,
+                valueLength, value, key1Length, key1, key2Length, key2);
+        foundAny = true;
+    }
+    return foundAny;
+}
+
+// Simple crash recovery test for a table with two indexes.
+void indexCrash(RamCloud* client)
+{
+    uint64_t tableId = client->createTable("test", 3);
+    LOG(NOTICE, "Created table");
+    client->createIndex(tableId, 1, 0, 1);
+    LOG(NOTICE, "Created index 1");
+    client->createIndex(tableId, 2, 0, 1);
+    LOG(NOTICE, "Created index 2");
+
+    KeyInfo keys[3];
+    keys[0].key = "InfoForAlice";
+    keys[0].keyLength = 12;
+    keys[1].key = "Alice";
+    keys[1].keyLength = 5;
+    keys[2].key = "California";
+    keys[2].keyLength = 10;
+    uint64_t newVersion;
+    client->write(tableId, 3, keys, "This is a test value", 20, NULL,
+            &newVersion, false, false);
+    LOG(NOTICE, "Wrote value into table");
+
+    if (!lookupAndLog(client, tableId, "Object value after writing")) {
+        LOG(NOTICE, "Couldn't find value just written!");
+    }
+
+    KillRpc deathMessage(client, 2, "abc", 3);
+    LOG(NOTICE, "Killed server containing index");
+    // client->objectFinder.waitForTabletDown(tableId);
+    uint64_t stopSleeping = Cycles::rdtsc() + Cycles::fromSeconds(0.5);
+    while (Cycles::rdtsc() < stopSleeping) {
+        client->clientContext->dispatch->poll();
+    }
+    if (!lookupAndLog(client, tableId, "Object value after recovery")) {
+        LOG(NOTICE, "Found no objects after crash recovery");
+    }
+}
+
 int
 main(int argc, char *argv[])
 try
@@ -165,7 +229,7 @@ try
     uint64_t b;
     int clientIndex;
     int numClients;
-    bool exercise;
+    bool exercise, indexCrashArg;
 
     // Set line buffering for stdout so that printf's and log messages
     // interleave properly.
@@ -214,7 +278,11 @@ try
         ("exercise",
          ProgramOptions::bool_switch(&exercise),
          "Call exerciseCluster repeatedly (intended for coordinator "
-         "crash testing).");
+         "crash testing).")
+        ("indexCrash",
+         ProgramOptions::bool_switch(&indexCrashArg),
+         "Create a table with two indexes and one object, crash server,"
+         "make sure index is recovered properly");
 
     OptionParser optionParser(clientOptions, argc, argv);
     context.transportManager->setSessionTimeout(
@@ -237,6 +305,12 @@ try
         }
     }
 
+    if (indexCrashArg) {
+        indexCrash(&client);
+        exit(0);
+    }
+
+    return 0;
     b = Cycles::rdtsc();
     client.createTable("test");
     uint64_t table;
