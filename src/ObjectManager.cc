@@ -705,19 +705,9 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             it.appendToBuffer(buffer);
             Key key(type, buffer);
 
-            // If table is an BTree table,i.e., tableId exists in
-            // nextNodeIdMap, update nextNodeId of its table.
-            if (nextNodeIdMap) {
-                std::unordered_map<uint64_t, uint64_t>::iterator iter
-                    = nextNodeIdMap->find(key.getTableId());
-                if (iter != nextNodeIdMap->end()) {
-                    const uint64_t *bTreeKey =
-                        reinterpret_cast<const uint64_t*>(key.getStringKey());
-                    uint64_t bTreeId = *bTreeKey;
-                    if (bTreeId > iter->second)
-                        iter->second = bTreeId;
-                }
-            }
+            // TODO(syang0) A B+ Tree nextNodeId check was removed here because
+            // we only need to set the nextNodeId to the highest live node;
+            // any (deleted) nodeId's higher than that can be overwritten.
 
             ObjectTombstone recoverTomb(buffer);
             bool checksumIsValid = ({
