@@ -295,7 +295,7 @@ BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
     }
     auto replicaIt = segmentIdToReplica.find(segmentId);
     if (replicaIt == segmentIdToReplica.end()) {
-        LOG(WARNING, "Asked for a recovery segments for segment <%s,%lu> "
+        LOG(WARNING, "Asked for a recovery segment for segment <%s,%lu> "
             "which isn't part of this recovery",
            crashedMasterId.toString().c_str(), segmentId);
         throw BackupBadSegmentIdException(HERE);
@@ -473,6 +473,8 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
     if (response->tableStatsBytes > 0) {
         responseBuffer->appendCopy(tableStatsDigest.getRange(0,
                 response->tableStatsBytes), response->tableStatsBytes);
+        LOG(DEBUG, "Sent %u bytes of table statistics to coordinator",
+            response->tableStatsBytes);
     }
 }
 
