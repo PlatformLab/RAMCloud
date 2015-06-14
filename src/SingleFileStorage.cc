@@ -933,8 +933,8 @@ SingleFileStorage::open(bool sync)
     if (next == FreeMap::npos) {
         next = freeMap.find_first();
         if (next == FreeMap::npos) {
-            LOG(NOTICE, "Master tried to open a storage frame but there "
-                "are no frames free; rejecting");
+            RAMCLOUD_CLOG(NOTICE, "Master tried to open a storage frame "
+                "but there are no frames free; rejecting");
             throw BackupOpenRejectedException(HERE);
         }
     }
