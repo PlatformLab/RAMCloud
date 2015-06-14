@@ -358,10 +358,12 @@ StartReadingDataRpc::wait()
     }
 
     // Build #replicas.
-    const Replica* replicaArray = response->getStart<Replica>();
-    for (uint64_t i = 0; i < replicaCount; ++i)
-        result.replicas.push_back(replicaArray[i]);
-    response->truncateFront(replicaCount * sizeof32(Replica));
+    uint32_t offset = 0;
+    for (uint64_t i = 0; i < replicaCount; ++i) {
+        result.replicas.push_back(*(response->getOffset<Replica>(offset)));
+        offset += sizeof32(Replica);
+    }
+    response->truncateFront(offset);
 
     // Copy out log digest.
     if (result.logDigestBytes > 0) {
