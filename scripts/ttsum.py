@@ -153,16 +153,17 @@ if not options.startEvent:
         intervals = eventIntervals[event]
         intervals.sort()
         medianTime = intervals[len(intervals)//2]
-        message = '%-*s  %8.1f %8.1f %8.1f %8.1f' % (nameLength,
+        message = '%-*s  %8.1f %8.1f %8.1f %8.1f %7d' % (nameLength,
             event, medianTime, intervals[0], intervals[-1],
-            sum(intervals)/len(intervals))
+            sum(intervals)/len(intervals), len(intervals))
         outputInfo.append([medianTime, message])
 
     # Pass 2: sort in order of median interval length, then print.
     outputInfo.sort(key=lambda item: item[0], reverse=True)
-    print('%-*s    Median      Min      Max  Average' % (nameLength,
+    print('%-*s    Median      Min      Max  Average   Count' % (nameLength,
             "Event"))
-    print('-----------------------------------------------------------')
+    print('%s---------------------------------------------' %
+            ('-' * nameLength))
     for message in outputInfo:
         print(message[1])
 
@@ -197,15 +198,16 @@ if options.startEvent:
             times.sort()
             medianTime = times[len(times)//2]
             intervals.sort()
-            message = '%-*s  %8.1f %8.1f %8.1f %8.1f %8.1f' % (nameLength,
+            message = '%-*s  %8.1f %8.1f %8.1f %8.1f %8.1f %7d' % (nameLength,
                 eventName, medianTime, intervals[len(intervals)//2],
-                intervals[0], intervals[-1], sum(intervals)/len(intervals))
+                intervals[0], intervals[-1], sum(intervals)/len(intervals),
+                len(intervals))
             outputInfo.append([medianTime, message])
 
     outputInfo.sort(key=lambda item: item[0])
-    print('%-*s      Time   Median      Min      Max  Average' % (nameLength,
+    print('%-*s      Time   Median      Min      Max  Average   Count' % (nameLength,
             "Event"))
-    print('%s----------------------------------------------' %
+    print('%s------------------------------------------------------' %
             ('-' * nameLength))
     for message in outputInfo:
         print(message[1])
