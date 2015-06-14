@@ -1990,7 +1990,7 @@ generateRandListFrom0UpTo(uint32_t total)
         randomized.push_back(i);
 
     for (uint32_t i = 0; i < total; i++) {
-        uint32_t randomIndex = ((rand() % (total - i)) + i);
+        uint64_t randomIndex = ((generateRandom() % (total - i)) + i);
         uint32_t tmp = randomized[i];
         randomized[i] = randomized[randomIndex];
         randomized[randomIndex] = tmp;
@@ -2335,7 +2335,7 @@ indexBasic()
         // Perform Testing
         for (uint32_t i = 0; i < samplesPerRun; i++) {
             uint64_t start, stop;
-            uint32_t intKey = randomized[rand() % indexSize];
+            uint32_t intKey = randomized[generateRandom() % indexSize];
             generateIndexKeyList(keyList, intKey, keyLength, numKeys);
             fillBuffer(val, valLen, dataTable, primaryKey, keyLength);
 
