@@ -54,7 +54,7 @@ class TimeTrace {
     };
 
     // Total number of events that we can retain any given time.
-    static const int BUFFER_SIZE = 10000;
+    static const int BUFFER_SIZE = 100000;
 
     // Holds information from the most recent calls to the record method.
     Event events[BUFFER_SIZE];
