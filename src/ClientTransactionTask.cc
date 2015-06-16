@@ -79,14 +79,8 @@ ClientTransactionTask::findCacheEntry(Key& key)
  * of the cache entry are left to their default values.  This method must not
  * be called once the transaction has started committing.
  *
- * \param tableId
- *      The table containing the desired object (return value from
- *      a previous call to getTableId).
  * \param key
- *      Variable length key that uniquely identifies the object within tableId.
- *      It does not necessarily have to be null terminated.
- * \param keyLength
- *      Size in bytes of the key.
+ *      Key of the object to inserted into the cache.
  * \param buf
  *      Address of the first byte of the new contents for the object;
  *      must contain at least length bytes.
@@ -97,16 +91,15 @@ ClientTransactionTask::findCacheEntry(Key& key)
  *      once the commitCache is modified.
  */
 ClientTransactionTask::CacheEntry*
-ClientTransactionTask::insertCacheEntry(uint64_t tableId, const void* key,
-        uint16_t keyLength, const void* buf, uint32_t length)
+ClientTransactionTask::insertCacheEntry(Key& key, const void* buf,
+        uint32_t length)
 {
-    Key keyObj(tableId, key, keyLength);
-    CacheKey cacheKey = {keyObj.getTableId(), keyObj.getHash()};
+    CacheKey cacheKey = {key.getTableId(), key.getHash()};
     CommitCacheMap::iterator it = commitCache.insert(
             std::make_pair(cacheKey, CacheEntry()));
     it->second.objectBuf = new ObjectBuffer();
     Object::appendKeysAndValueToBuffer(
-            keyObj, buf, length, it->second.objectBuf, true);
+            key, buf, length, it->second.objectBuf, true);
     return &it->second;
 }
 

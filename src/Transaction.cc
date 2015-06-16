@@ -152,7 +152,7 @@ Transaction::remove(uint64_t tableId, const void* key, uint16_t keyLength)
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
 
     if (entry == NULL) {
-        entry = task->insertCacheEntry(tableId, key, keyLength, NULL, 0);
+        entry = task->insertCacheEntry(keyObj, NULL, 0);
     } else {
         entry->objectBuf->reset();
         Object::appendKeysAndValueToBuffer(
@@ -194,7 +194,7 @@ Transaction::write(uint64_t tableId, const void* key, uint16_t keyLength,
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
 
     if (entry == NULL) {
-        entry = task->insertCacheEntry(tableId, key, keyLength, buf, length);
+        entry = task->insertCacheEntry(keyObj, buf, length);
     } else {
         entry->objectBuf->reset();
         Object::appendKeysAndValueToBuffer(
@@ -283,9 +283,7 @@ Transaction::ReadOp::wait()
             objectExists = false;
         }
 
-        entry = task->insertCacheEntry(tableId, keyObj.getStringKey(),
-                                       keyObj.getStringKeyLength(),
-                                       data, dataLength);
+        entry = task->insertCacheEntry(keyObj, data, dataLength);
         entry->type = ClientTransactionTask::CacheEntry::READ;
         if (objectExists) {
             entry->rejectRules.doesntExist = true;

@@ -109,8 +109,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     WireFormat::TxDecision::Decision getDecision() { return decision; }
     /// Return last exceptional STATUS.
     Status getStatus() { return status; }
-    CacheEntry* insertCacheEntry(uint64_t tableId, const void* key,
-            uint16_t keyLength, const void* buf, uint32_t length);
+    CacheEntry* insertCacheEntry(Key& key, const void* buf, uint32_t length);
     /// Check if the task has completed the commit protocol.
     bool isReady() { return (state == DONE); }
     /// Check if all decisions have been sent.

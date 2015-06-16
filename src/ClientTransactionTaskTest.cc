@@ -96,12 +96,30 @@ class ClientTransactionTaskTest : public ::testing::Test {
     }
 
     void populateCommitCache() {
-        transactionTask->insertCacheEntry(8, "01", 2, "hello 81", 8);
-        transactionTask->insertCacheEntry(1, "01", 2, "hello 11", 8);
-        transactionTask->insertCacheEntry(2, "01", 2, "hello 21", 8);
-        transactionTask->insertCacheEntry(2, "01", 2, "goodbye 21", 10);
-        transactionTask->insertCacheEntry(2, "02", 2, "hello 22", 8);
-        transactionTask->insertCacheEntry(4, "01", 2, "hello 41", 8);
+        {
+            Key key(8, "01", 2);
+            transactionTask->insertCacheEntry(key, "hello 81", 8);
+        }
+        {
+            Key key(1, "01", 2);
+            transactionTask->insertCacheEntry(key, "hello 11", 8);
+        }
+        {
+            Key key(2, "01", 2);
+            transactionTask->insertCacheEntry(key, "hello 21", 8);
+        }
+        {
+            Key key(2, "01", 2);
+            transactionTask->insertCacheEntry(key, "goodbye 21", 10);
+        }
+        {
+            Key key(2, "02", 2);
+            transactionTask->insertCacheEntry(key, "hello 22", 8);
+        }
+        {
+            Key key(4, "01", 2);
+            transactionTask->insertCacheEntry(key, "hello 41", 8);
+        }
     }
 
     void insertEntry(ClientTransactionTask::CacheEntry::Type type,
@@ -113,8 +131,7 @@ class ClientTransactionTaskTest : public ::testing::Test {
                 transactionTask->findCacheEntry(keyObj);
 
         if (entry == NULL) {
-            entry = transactionTask->insertCacheEntry(
-                            tableId, key, keyLength, buf, length);
+            entry = transactionTask->insertCacheEntry(keyObj, buf, length);
         } else {
             entry->objectBuf->reset();
             Object::appendKeysAndValueToBuffer(
@@ -404,7 +421,7 @@ TEST_F(ClientTransactionTaskTest, findCacheEntry_empty) {
 TEST_F(ClientTransactionTaskTest, insertCacheEntry) {
     Key key(1, "test", 4);
     ClientTransactionTask::CacheEntry* entry =
-            transactionTask->insertCacheEntry(1, "test", 4, "hello world", 11);
+            transactionTask->insertCacheEntry(key, "hello world", 11);
 
     uint32_t dataLength = 0;
     const char* str;
@@ -503,9 +520,11 @@ TEST_F(ClientTransactionTaskTest, Poller_poll) {
     ClientTransactionTask* task = taskPtr.get();
     // Give it something to do.
     ClientTransactionTask::CacheEntry* entry;
-    entry = task->insertCacheEntry(tableId1, "test1", 5, "hello", 5);
+    Key key1(tableId1, "test1", 5);
+    entry = task->insertCacheEntry(key1, "hello", 5);
     entry->type = ClientTransactionTask::CacheEntry::WRITE;
-    entry = task->insertCacheEntry(tableId1, "test2", 5, "hello", 5);
+    Key key2(tableId1, "test2", 5);
+    entry = task->insertCacheEntry(key2, "hello", 5);
     entry->type = ClientTransactionTask::CacheEntry::WRITE;
 
     EXPECT_FALSE(task->isReady());
@@ -654,8 +673,9 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_abort) {
     // Start another transaction to cause a lock
     {
         ClientTransactionTask task(ramcloud.get());
+        Key key(tableId1, "test", 4);
         ClientTransactionTask::CacheEntry* entry =
-                task.insertCacheEntry(tableId1, "test", 4, "hello", 5);
+                task.insertCacheEntry(key, "hello", 5);
         entry->type = ClientTransactionTask::CacheEntry::WRITE;
         task.initTask();
         task.nextCacheEntry = task.commitCache.begin();
