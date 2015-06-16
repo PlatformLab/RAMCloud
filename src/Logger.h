@@ -20,6 +20,7 @@
 #include <mutex>
 #include <unordered_map>
 #include "Common.h"
+#include "SpinLock.h"
 
 
 namespace RAMCloud {
@@ -146,10 +147,14 @@ class Logger {
     LogLevel logLevels[NUM_LOG_MODULES];
 
     /**
-     * Used for monitor-style locking, so the Logger is thread-safe.
+     * Used for monitor-style locking so the Logger is thread-safe.
+     * Note: this used to be a std::recursive_mutex, but this resulted
+     * in bad behavior under contention (if one thread is logging
+     * continuously, others can get locked out for 100ms or more, which
+     * caused server pings to timeout).
      */
-    std::recursive_mutex mutex;
-    typedef std::unique_lock<std::recursive_mutex> Lock;
+    SpinLock mutex;
+    typedef std::unique_lock<SpinLock> Lock;
 
     /**
      * Singleton global logger that will be returned by Logger::get.
