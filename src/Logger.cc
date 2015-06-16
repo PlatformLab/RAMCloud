@@ -128,7 +128,7 @@ Logger::setLogFile(const char* path, bool truncate)
 void
 Logger::setLogLevel(LogModule module, LogLevel level)
 {
-    Lock lock(mutex);
+    // No lock needed: doesn't access Logger object.
     logLevels[module] = level;
 }
 
