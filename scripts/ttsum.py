@@ -73,6 +73,7 @@ def scan(f, startingEvent):
 
     foundStart = False
     startTime = 0.0
+    lastTime = -1.0
     for line in f:
         match = re.match('.*TimeTrace::printInternal.* '
                 '([0-9.]+) ns \(\+ *([0-9.]+) ns\): (.*)', line)
@@ -81,6 +82,9 @@ def scan(f, startingEvent):
         thisEventTime = float(match.group(1))
         thisEventInterval = float(match.group(2))
         thisEvent = match.group(3)
+        if (thisEventTime < lastTime):
+            print('Time went backwards at the following line:\n%s' % (line))
+        lastTime = thisEventTime
         if (thisEventTime != 0.0) :
             if not thisEvent in eventIntervals:
                 eventIntervals[thisEvent] = []
@@ -100,7 +104,7 @@ def scan(f, startingEvent):
             # If we get here, it means that we have found an event that
             # is not the starting event, and startTime indicates the time of
             # the starting event. First, see how many times this event has
-            # occurred since the last occurrence of the starting of it.
+            # occurred since the last occurrence of the starting event.
             relativeTime = thisEventTime - startTime
             # print('%.1f %.1f %s' % (relativeTime, thisEventInterval, thisEvent))
             if thisEvent in eventCount:
