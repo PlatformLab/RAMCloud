@@ -629,7 +629,7 @@ def run(
         cluster.hosts = hosts
 
         if not coordinator_host:
-            coordinator_host = cluster.hosts[0]
+            coordinator_host = cluster.hosts[len(cluster.hosts)-1]
         coordinator = cluster.start_coordinator(coordinator_host,
                                                 coordinator_args)
         if disjunct:
