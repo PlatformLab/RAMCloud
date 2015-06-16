@@ -50,6 +50,8 @@ serviceTypeSymbol(ServiceType type) {
 const char*
 opcodeSymbol(uint32_t opcode)
 {
+    // Entries in the following switch statement should have the same order
+    // as the declarations in WireFormat.h.
     switch (opcode) {
         case PING:                         return "PING";
         case PROXY_PING:                   return "PROXY_PING";
@@ -57,8 +59,6 @@ opcodeSymbol(uint32_t opcode)
         case CREATE_TABLE:                 return "CREATE_TABLE";
         case GET_TABLE_ID:                 return "GET_TABLE_ID";
         case DROP_TABLE:                   return "DROP_TABLE";
-        case CREATE_INDEX:                 return "CREATE_INDEX";
-        case DROP_INDEX:                   return "DROP_INDEX";
         case READ:                         return "READ";
         case WRITE:                        return "WRITE";
         case REMOVE:                       return "REMOVE";
@@ -69,24 +69,22 @@ opcodeSymbol(uint32_t opcode)
         case HINT_SERVER_CRASHED:          return "HINT_SERVER_CRASHED";
         case RECOVERY_MASTER_FINISHED:     return "RECOVERY_MASTER_FINISHED";
         case ENUMERATE:                    return "ENUMERATE";
+        case SET_MASTER_RECOVERY_INFO:     return "SET_MASTER_RECOVERY_INFO";
         case FILL_WITH_TEST_DATA:          return "FILL_WITH_TEST_DATA";
         case MULTI_OP:                     return "MULTI_OP";
         case GET_METRICS:                  return "GET_METRICS";
         case BACKUP_FREE:                  return "BACKUP_FREE";
         case BACKUP_GETRECOVERYDATA:       return "BACKUP_GETRECOVERYDATA";
         case BACKUP_STARTREADINGDATA:      return "BACKUP_STARTREADINGDATA";
-        case BACKUP_STARTPARTITION:        return "BACKUP_STARTPARTITIONING";
         case BACKUP_WRITE:                 return "BACKUP_WRITE";
         case BACKUP_RECOVERYCOMPLETE:      return "BACKUP_RECOVERYCOMPLETE";
         case BACKUP_QUIESCE:               return "BACKUP_QUIESCE";
         case UPDATE_SERVER_LIST:           return "UPDATE_SERVER_LIST";
-        case SET_MASTER_RECOVERY_INFO:     return "SET_MASTER_RECOVERY_INFO";
+        case BACKUP_STARTPARTITION:        return "BACKUP_STARTPARTITIONING";
         case DROP_TABLET_OWNERSHIP:        return "DROP_TABLET_OWNERSHIP";
         case TAKE_TABLET_OWNERSHIP:        return "TAKE_TABLET_OWNERSHIP";
-        case DROP_INDEXLET_OWNERSHIP:      return "DROP_INDEXLET_OWNERSHIP";
-        case TAKE_INDEXLET_OWNERSHIP:      return "TAKE_INDEXLET_OWNERSHIP";
-        case INCREMENT:                    return "INCREMENT";
         case GET_HEAD_OF_LOG:              return "GET_HEAD_OF_LOG";
+        case INCREMENT:                    return "INCREMENT";
         case PREP_FOR_MIGRATION:           return "PREP_FOR_MIGRATION";
         case RECEIVE_MIGRATION_DATA:       return "RECEIVE_MIGRATION_DATA";
         case REASSIGN_TABLET_OWNERSHIP:    return "REASSIGN_TABLET_OWNERSHIP";
@@ -96,17 +94,25 @@ opcodeSymbol(uint32_t opcode)
         case GET_SERVER_STATISTICS:        return "GET_SERVER_STATISTICS";
         case SET_RUNTIME_OPTION:           return "SET_RUNTIME_OPTION";
         case GET_SERVER_CONFIG:            return "GET_SERVER_CONFIG";
+        case GET_BACKUP_CONFIG:            return "GET_BACKUP_CONFIG";
+        case GET_MASTER_CONFIG:            return "GET_MASTER_CONFIG";
         case GET_LOG_METRICS:              return "GET_LOG_METRICS";
         case VERIFY_MEMBERSHIP:            return "VERIFY_MEMBERSHIP";
         case GET_RUNTIME_OPTION:           return "GET_RUNTIME_OPTION";
+        case GET_LEASE_INFO:               return "GET_LEASE_INFO";
+        case RENEW_LEASE:                  return "RENEW_LEASE";
         case SERVER_CONTROL:               return "SERVER_CONTROL";
+        case SERVER_CONTROL_ALL:           return "SERVER_CONTROL_ALL";
         case GET_SERVER_ID:                return "GET_SERVER_ID";
         case READ_KEYS_AND_VALUE:          return "READ_KEYS_AND_VALUE";
         case LOOKUP_INDEX_KEYS:            return "LOOKUP_INDEX_KEYS";
         case READ_HASHES:                  return "READ_HASHES";
-        case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
         case INSERT_INDEX_ENTRY:           return "INSERT_INDEX_ENTRY";
         case REMOVE_INDEX_ENTRY:           return "REMOVE_INDEX_ENTRY";
+        case CREATE_INDEX:                 return "CREATE_INDEX";
+        case DROP_INDEX:                   return "DROP_INDEX";
+        case DROP_INDEXLET_OWNERSHIP:      return "DROP_INDEXLET_OWNERSHIP";
+        case TAKE_INDEXLET_OWNERSHIP:      return "TAKE_INDEXLET_OWNERSHIP";
         case PREP_FOR_INDEXLET_MIGRATION:  return "PREP_FOR_INDEXLET_MIGRATION";
         case SPLIT_AND_MIGRATE_INDEXLET:   return "SPLIT_AND_MIGRATE_INDEXLET";
         case COORD_SPLIT_AND_MIGRATE_INDEXLET:
@@ -115,6 +121,7 @@ opcodeSymbol(uint32_t opcode)
         case TX_PREPARE:                   return "TX_PREPARE";
         case TX_REQUEST_ABORT:             return "TX_REQUEST_ABORT";
         case TX_HINT_FAILED:               return "TX_HINT_FAILED";
+        case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
     }
 
     // Never heard of this RPC; return the numeric value. The shared buffer
