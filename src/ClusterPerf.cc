@@ -4074,14 +4074,6 @@ transactionDistRandom()
         t.sync();
     }
 
-    // Dump both time and cache traces. This amounts to almost a no-op if there
-    // are no traces, and we do not currently expect traces in production code.
-    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
-    cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
-
-    // Dump client side time trace
-    cluster->clientContext->timeTrace->printToLog();
-
     // Output the times (several comma-separated values on each line).
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
@@ -4612,14 +4604,7 @@ readDistRandom()
         uint64_t start = Cycles::rdtsc();
         cluster->read(dataTable, key, keyLength, &value);
         ticks.at(i) = Cycles::rdtsc() - start;
-    }
-
-    // Dump cache traces. This amounts to almost a no-op if there are no
-    // traces, and we do not currently expect traces in production code.
-    cluster->objectServerControl(dataTable, key, keyLength,
-            WireFormat::LOG_TIME_TRACE);
-    cluster->objectServerControl(dataTable, key, keyLength,
-            WireFormat::LOG_CACHE_TRACE);
+            }
 
     // Output the times (several comma-separated values on each line).
     int valuesInLine = 0;
@@ -4948,8 +4933,6 @@ readThroughputMaster(int numObjects, int size, uint16_t keyLength)
         printf("%5d         %8.0f        %8.3f\n", numSlaves, rate/1e03,
                 utilization);
     }
-    cluster->objectServerControl(dataTable, "abc", 3,
-            WireFormat::ControlOp::LOG_TIME_TRACE);
     sendCommand("done", "done", 1, numClients-1);
 }
 
@@ -5202,14 +5185,6 @@ writeDistRandom()
         ticks.at(i) = Cycles::rdtsc() - start;
     }
 
-    // Dump both time and cache traces. This amounts to almost a no-op if there
-    // are no traces, and we do not currently expect traces in production code.
-    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
-    cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
-
-    // Dump client side time trace
-    cluster->clientContext->timeTrace->printToLog();
-
     // Output the times (several comma-separated values on each line).
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
@@ -5269,8 +5244,6 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
         printf("%5d         %8.2f        %8.3f\n", numSlaves, rate/1e03,
                 utilization);
     }
-    cluster->objectServerControl(dataTable, "abc", 3,
-            WireFormat::ControlOp::LOG_TIME_TRACE);
     sendCommand("done", "done", 1, numClients-1);
 }
 
@@ -5379,14 +5352,6 @@ linearizableWriteDistRandom()
                        NULL, NULL, false, true);
         ticks[i] = Cycles::rdtsc() - start;
     }
-
-    // Dump both time and cache traces. This amounts to almost a no-op if there
-    // are no traces, and we do not currently expect traces in production code.
-    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
-    cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
-
-    // Dump client side time trace
-    cluster->clientContext->timeTrace->printToLog();
 
     // Output the times (several comma-separated values on each line).
     int valuesInLine = 0;
@@ -5690,6 +5655,7 @@ try
     }
 
     cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
+    cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
     cluster->clientContext->timeTrace->printToLog();
 }
 catch (std::exception& e) {
