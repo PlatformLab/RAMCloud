@@ -185,11 +185,8 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     if ((header->opcode == WireFormat::READ) &&
             (header->service == WireFormat::MASTER_SERVICE)) {
         rpc->enqueueThreadToStartWork.stop();
-        ReadThreadingCost_MetricSet::Interval  _(
-                &ReadThreadingCost_MetricSet::noThreadWork);
         Service::Rpc serviceRpc(NULL, &rpc->requestPayload, &rpc->replyPayload);
         services[WireFormat::MASTER_SERVICE]->service.handleRpc(&serviceRpc);
-        _.stop();
         rpc->returnToTransport.start();
         rpc->sendReply();
         return;
