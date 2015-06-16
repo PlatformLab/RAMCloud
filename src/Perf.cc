@@ -229,6 +229,12 @@ double bufferAppendCopy100()
     return bufferAppendCommon<100>();
 }
 
+// Measure the cost of appendCopy'ing 250 bytes to a Buffer
+double bufferAppendCopy250()
+{
+    return bufferAppendCommon<250>();
+}
+
 // Measure the cost of appendCopy'ing 500 bytes to a Buffer
 double bufferAppendCopy500()
 {
@@ -251,6 +257,12 @@ double bufferAppendExternal50()
 double bufferAppendExternal100()
 {
     return bufferAppendExternalCommon<100>();
+}
+
+// Measure the cost of appendExternal'ing 250 bytes to a Buffer
+double bufferAppendExternal250()
+{
+    return bufferAppendExternalCommon<250>();
 }
 
 // Measure the cost of appendExternal'ing 500 bytes to a Buffer
@@ -356,16 +368,15 @@ double bufferExtendChunk()
     }
     return Cycles::toSeconds(total)/(count*10);
 }
-
+// Measure the cost of reseting an empty Buffer
 double bufferReset() {
+    Buffer b;
     int count = 1000000;
-    uint64_t totalTime = 0;
+    uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
-        Buffer b;
-        uint64_t start = Cycles::rdtsc();
         b.reset();
-        totalTime += Cycles::rdtsc() - start;
     }
+    uint64_t totalTime = Cycles::rdtsc() - start;
     return Cycles::toSeconds(totalTime)/count;
 }
 
@@ -385,28 +396,80 @@ double bufferGetStart()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of creating an iterator and iterating over 10
-// chunks in a buffer.
-double bufferIterator()
+// Measure the cost of creating an iterator and iterating over/accessing
+// 1 byte in every appendCopy()ed, 100-byte chunk.
+template<uint32_t chunks>
+double bufferCopyIterator()
 {
     Buffer b;
-    const char* p = "abcdefghijklmnopqrstuvwxyz";
-    for (int i = 0; i < 5; i++) {
-        b.appendExternal(p+i, 5);
+    char data[4096 * chunks];
+    for (uint32_t i = 0; i < chunks; i++) {
+        b.appendCopy(data + 4096 * i, 100);
     }
-    int count = 100000;
+
     int sum = 0;
+    int count = 1000000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         Buffer::Iterator it(&b);
         while (!it.isDone()) {
-            sum += (static_cast<const char*>(it.getData()))[it.getLength()-1];
+            for (uint32_t j = 0; j < it.getLength(); j += 100)
+                sum += (static_cast<const char*>(it.getData()))[j];
             it.next();
         }
     }
     uint64_t stop = Cycles::rdtsc();
     discard(&sum);
+
     return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of creating an iterator and iterating over/accessing
+// 1 byte in every appendExternal()ed, 100-byte chunk.
+template<uint32_t chunks>
+double bufferExternalIterator()
+{
+    Buffer b;
+    char data[4096 * chunks];
+    for (uint32_t i = 0; i < chunks; i++) {
+        b.appendExternal(data + 4096 * i, 100);
+    }
+
+    int sum = 0;
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        Buffer::Iterator it(&b);
+        while (!it.isDone()) {
+            for (uint32_t j = 0; j < it.getLength(); j += 100)
+                sum += (static_cast<const char*>(it.getData()))[j];
+            it.next();
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    discard(&sum);
+
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+double bufferCopyIterator2()
+{
+    return bufferCopyIterator<2>();
+}
+
+double bufferCopyIterator5()
+{
+    return bufferCopyIterator<5>();
+}
+
+double bufferExternalIterator2()
+{
+    return bufferExternalIterator<2>();
+}
+
+double bufferExternalIterator5()
+{
+    return bufferExternalIterator<5>();
 }
 
 // Implements the condPingPong test.
@@ -736,31 +799,74 @@ double lockNonDispThrd()
 }
 
 // Measure the cost of copying a given number of bytes with memcpy.
-double memcpyShared(size_t size)
+double memcpyShared(int cpySize, bool coldSrc = false, bool coldDst = false)
 {
     int count = 1000000;
-    char src[size], dst[size];
+    uint32_t src[count], dst[count];
+    int bufSize = 1000000000; // 1GB buffer
+    char *buf = static_cast<char*>(malloc(bufSize));
+
+    uint32_t bound = (bufSize - cpySize);
+    for (int i = 0; i < count; i++) {
+        src[i] = (coldSrc) ? downCast<uint32_t>(generateRandom() % bound) : 0;
+        dst[i] = (coldDst) ? downCast<uint32_t>(generateRandom() % bound) : 0;
+    }
+
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
-        memcpy(dst, src, size);
+        memcpy((buf + dst[i]),
+                (buf + src[i]),
+                cpySize);
     }
     uint64_t stop = Cycles::rdtsc();
-    return Cycles::toSeconds(stop - start)/count;
+
+    free(buf);
+    return Cycles::toSeconds(stop - start)/(count);
 }
 
-double memcpy100()
+double memcpyCached100()
 {
-    return memcpyShared(100);
+    return memcpyShared(100, false, false);
 }
 
-double memcpy1000()
+double memcpyCached1000()
 {
-    return memcpyShared(1000);
+    return memcpyShared(1000, false, false);
 }
 
-double memcpy10000()
+double memcpyCached10000()
 {
-    return memcpyShared(10000);
+    return memcpyShared(10000, false, false);
+}
+
+double memcpyCachedDst100()
+{
+    return memcpyShared(100, true, false);
+}
+
+double memcpyCachedDst1000()
+{
+    return memcpyShared(1000, true, false);
+}
+
+double memcpyCachedDst10000()
+{
+    return memcpyShared(10000, true, false);
+}
+
+double memcpyCold100()
+{
+    return memcpyShared(100, true, true);
+}
+
+double memcpyCold1000()
+{
+    return memcpyShared(1000, true, true);
+}
+
+double memcpyCold10000()
+{
+    return memcpyShared(10000, true, true);
 }
 
 // Benchmark MurmurHash3 hashing performance on cached data.
@@ -1240,6 +1346,8 @@ TestInfo tests[] = {
      "appendCopy 50 bytes to a buffer"},
     {"bufferAppendCopy100", bufferAppendCopy100,
      "appendCopy 100 bytes to a buffer"},
+    {"bufferAppendCopy250", bufferAppendCopy250,
+     "appendCopy 250 bytes to a buffer"},
     {"bufferAppendCopy500", bufferAppendCopy500,
      "appendCopy 500 bytes to a buffer"},
     {"bufferAppendExternal1", bufferAppendExternal1,
@@ -1248,6 +1356,8 @@ TestInfo tests[] = {
      "appendExternal 50 bytes to a buffer"},
     {"bufferAppendExternal100", bufferAppendExternal100,
      "appendExternal 100 bytes to a buffer"},
+    {"bufferAppendExternal250", bufferAppendExternal250,
+     "appendExternal 250 bytes to a buffer"},
     {"bufferAppendExternal500", bufferAppendExternal500,
      "appendExternal 500 bytes to a buffer"},
     {"bufferBasic", bufferBasic,
@@ -1262,12 +1372,18 @@ TestInfo tests[] = {
      "buffer add onto existing chunk"},
     {"bufferGetStart", bufferGetStart,
      "Buffer::getStart"},
-     {"bufferConstruct", bufferConstruct,
+    {"bufferConstruct", bufferConstruct,
      "buffer stack allocation"},
-     {"bufferReset", bufferReset,
+    {"bufferReset", bufferReset,
      "Buffer::reset"},
-    {"bufferIterator", bufferIterator,
-     "iterate over buffer with 5 chunks"},
+    {"bufferCopyIterator2", bufferCopyIterator2,
+     "buffer iterate over 2 copied chunks, accessing 1 byte each"},
+    {"bufferCopyIterator5", bufferCopyIterator5,
+     "buffer iterate over 5 copied chunks, accessing 1 byte each"},
+    {"bufferExternalIterator2", bufferExternalIterator2,
+     "buffer iterate over 2 external chunks, accessing 1 byte each"},
+    {"bufferExternalIterator5", bufferExternalIterator5,
+     "buffer iterate over 5 external chunks, accessing 1 byte each"},
     {"condPingPong", condPingPong,
      "std::condition_variable round-trip"},
     {"cppAtomicExchg", cppAtomicExchange,
@@ -1302,12 +1418,24 @@ TestInfo tests[] = {
      "Acquire/release Dispatch::Lock (in dispatch thread)"},
     {"lockNonDispThrd", lockNonDispThrd,
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
-    {"memcpy100", memcpy100,
-     "Copy 100 bytes with memcpy"},
-    {"memcpy1000", memcpy1000,
-     "Copy 1000 bytes with memcpy"},
-    {"memcpy10000", memcpy10000,
-     "Copy 10000 bytes with memcpy"},
+    {"memcpyCached100", memcpyCached100,
+     "memcpy 100 bytes with hot/fixed dst and src"},
+    {"memcpyCached1000", memcpyCached1000,
+     "memcpy 1000 bytes with hot/fixed dst and src"},
+    {"memcpyCached10000", memcpyCached10000,
+     "memcpy 10000 bytes with hot/fixed dst and src"},
+    {"memcpyCachedDst100", memcpyCachedDst100,
+     "memcpy 100 bytes with hot/fixed dst and cold src"},
+    {"memcpyCachedDst1000", memcpyCachedDst1000,
+     "memcpy 1000 bytes with hot/fixed dst and cold src"},
+    {"memcpyCachedDst10000", memcpyCachedDst10000,
+     "memcpy 10000 bytes with hot/fixed dst and cold src"},
+    {"memcpyCold100", memcpyCold100,
+     "memcpy 100 bytes with cold dst and src"},
+    {"memcpyCold1000", memcpyCold1000,
+     "memcpy 1000 bytes with cold dst and src"},
+    {"memcpyCold10000", memcpyCold10000,
+     "memcpy 10000 bytes with cold dst and src"},
     {"murmur3", murmur3<1>,
      "128-bit MurmurHash3 (64-bit optimised) on 1 byte of data"},
     {"murmur3", murmur3<256>,
