@@ -59,7 +59,7 @@ class ObjectManager : public LogEntryHandlers {
                 TabletManager* tabletManager,
                 MasterTableMetadata* masterTableMetadata,
                 UnackedRpcResults* unackedRpcResults,
-                PreparedWrites* preparedWrites,
+                PreparedOps* preparedOps,
                 TxRecoveryManager* txRecoveryManager);
     virtual ~ObjectManager();
     void initOnceEnlisted();
@@ -320,7 +320,7 @@ class ObjectManager : public LogEntryHandlers {
     /**
      * Used to manage cleaning and recovery of PreparedOp objects.
      */
-    PreparedWrites* preparedWrites;
+    PreparedOps* preparedOps;
 
     /**
      * Used to managed cleaning and recovery of RpcResult objects.

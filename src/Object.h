@@ -22,6 +22,29 @@
 
 namespace RAMCloud {
 
+typedef uint8_t KeyCount;   // the number of keys in an object
+typedef KeyCount KeyIndex;  // the position of this key: 0 to KeyCount - 1
+typedef KeyLength CumulativeKeyLength;
+
+// A convenience macro to get to the starting of the first key in an object
+#define KEY_INFO_LENGTH(x) \
+    (sizeof32(KeyCount) + (x) * sizeof32(CumulativeKeyLength))
+
+
+// defined in RamCloud.h Forward declaring here to avoid a circular
+// dependency between Object.h and RamCloud.h
+struct KeyInfo;
+
+class Crc32C;
+
+// Represents the number of keys and the cumulative key length values
+struct KeyOffsets
+{
+    KeyCount numKeys;                        // number of keys
+    CumulativeKeyLength cumulativeLengths[]; // starting of the cumulative key
+                                             // length values.
+} __attribute__((packed));
+
 /**
  * This class defines the format of an object stored in the log and provides
  * methods to easily construct new ones to be appended and interpret ones that
@@ -57,28 +80,6 @@ namespace RAMCloud {
  * If Key_i is not present, CumulativeKeyLength_i = CumulativeKeyLength_i-1.
  * Consequently, Length_i = 0
  */
-
-typedef uint8_t KeyCount;   // the number of keys in an object
-typedef KeyCount KeyIndex;  // the position of this key: 0 to KeyCount - 1
-typedef KeyLength CumulativeKeyLength;
-
-// A convenience macro to get to the starting of the first key in an object
-#define KEY_INFO_LENGTH(x) \
-    (sizeof32(KeyCount) + (x) * sizeof32(CumulativeKeyLength))
-
-
-// defined in RamCloud.h Forward declaring here to avoid a circular
-// dependency between Object.h and RamCloud.h
-struct KeyInfo;
-
-// Represents the number of keys and the cumulative key length values
-struct KeyOffsets
-{
-    KeyCount numKeys;                        // number of keys
-    CumulativeKeyLength cumulativeLengths[]; // starting of the cumulative key
-                                             // length values.
-} __attribute__((packed));
-
 class Object {
   public:
     Object(uint64_t tableId, uint64_t version, uint32_t timestamp,
@@ -185,6 +186,7 @@ class Object {
     static uint32_t computeChecksum(const Object::Header* object,
                                     uint32_t totalLength);
     uint32_t computeChecksum();
+    void applyChecksum(Crc32C *crc);
 
 
     /// Copy of the object header that is in, or will be written to, the log.

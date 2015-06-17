@@ -42,7 +42,7 @@ class BtreeTest: public ::testing::Test {
     ServerConfig masterConfig;
     MasterTableMetadata masterTableMetadata;
     UnackedRpcResults unackedRpcResults;
-    PreparedWrites preparedWrites;
+    PreparedOps preparedOps;
     TxRecoveryManager txRecoveryManager;
     TabletManager tabletManager;
     ObjectManager objectManager;
@@ -55,7 +55,7 @@ class BtreeTest: public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
         , unackedRpcResults(&context)
-        , preparedWrites(&context)
+        , preparedOps(&context)
         , txRecoveryManager(&context)
         , tabletManager()
         , objectManager(&context,
@@ -64,7 +64,7 @@ class BtreeTest: public ::testing::Test {
                         &tabletManager,
                         &masterTableMetadata,
                         &unackedRpcResults,
-                        &preparedWrites,
+                        &preparedOps,
                         &txRecoveryManager)
         , tableId(1)
     {

@@ -270,31 +270,37 @@ TEST_F(PreparedOpTest, assembleForLog) {
 }
 
 TEST_F(PreparedOpTest, checkIntegrity) {
-    //TODO(seojin): revisit this and check correctness...
-    //              Not sure about testing on record[0].
     for (uint32_t i = 0; i < arrayLength(records); i++) {
         PreparedOp& record = *records[i];
         Buffer buffer;
         record.assembleForLog(buffer);
         EXPECT_TRUE(record.checkIntegrity());
 
+        // Test first bit flip.
         uint8_t* evil = reinterpret_cast<uint8_t*>(
             const_cast<void*>(buffer.getRange(0, 1)));
         uint8_t tmp = *evil;
         *evil = static_cast<uint8_t>(~*evil);
-        EXPECT_FALSE(record.checkIntegrity());
+        PreparedOp recordEvil(buffer, 0, buffer.size());
+        EXPECT_FALSE(recordEvil.checkIntegrity());
         *evil = tmp;
+        {
+            PreparedOp record2(buffer, 0, buffer.size());
+            EXPECT_TRUE(record2.checkIntegrity());
+        }
 
-        // TODO(seojin): Make sure integrity check works?
-//        EXPECT_TRUE(record.checkIntegrity());
-//        evil = reinterpret_cast<uint8_t*>(
-//            const_cast<void*>(buffer.getRange(buffer.size() - 1, 1)));
-//        tmp = *evil;
-//        *evil = static_cast<uint8_t>(~*evil);
-//        EXPECT_FALSE(record.checkIntegrity());
-//        *evil = tmp;
-
-        EXPECT_TRUE(record.checkIntegrity());
+        // Test last bit flip.
+        evil = reinterpret_cast<uint8_t*>(
+            const_cast<void*>(buffer.getRange(buffer.size() - 1, 1)));
+        tmp = *evil;
+        *evil = static_cast<uint8_t>(~*evil);
+        PreparedOp recordEvil2(buffer, 0, buffer.size());
+        EXPECT_FALSE(recordEvil2.checkIntegrity());
+        *evil = tmp;
+        {
+            PreparedOp record2(buffer, 0, buffer.size());
+            EXPECT_TRUE(record2.checkIntegrity());
+        }
     }
 }
 
@@ -375,7 +381,7 @@ class PreparedOpTombstoneTest : public ::testing::Test {
 TEST_F(PreparedOpTombstoneTest, constructors) {
     for (uint32_t i = 0; i < arrayLength(records); ++i) {
         PreparedOpTombstone& record = *records[i];
-        EXPECT_EQ(1UL, record.header.leaseId);
+        EXPECT_EQ(1UL, record.header.clientLeaseId);
         EXPECT_EQ(10UL, record.header.rpcId);
         EXPECT_EQ(999UL, record.header.segmentId);
     }
@@ -391,7 +397,7 @@ TEST_F(PreparedOpTombstoneTest, assembleForLog) {
 
         EXPECT_EQ(sizeof(*header), buffer.size());
 
-        EXPECT_EQ(1UL, header->leaseId);
+        EXPECT_EQ(1UL, header->clientLeaseId);
         EXPECT_EQ(10UL, header->rpcId);
         EXPECT_EQ(999UL, header->segmentId);
         //EXPECT_EQ(0xE86291D1, op->header.checksum);
@@ -430,14 +436,14 @@ class PreparedWritesTest : public ::testing::Test {
   public:
     Context context;
 
-    PreparedWrites writes;
+    PreparedOps writes;
 
     PreparedWritesTest()
         : context()
         , writes(&context)
     {
         context.dispatch = new Dispatch(false);
-        writes.bufferWrite(1, 10, 1011);
+        writes.bufferOp(1, 10, 1011);
     }
 
     ~PreparedWritesTest() {}
@@ -446,13 +452,13 @@ class PreparedWritesTest : public ::testing::Test {
 };
 
 TEST_F(PreparedWritesTest, bufferWrite) {
-    writes.bufferWrite(2, 8, 1028);
-    PreparedWrites::PreparedItem* item = writes.items[std::make_pair(2UL, 8UL)];
+    writes.bufferOp(2, 8, 1028);
+    PreparedOps::PreparedItem* item = writes.items[std::make_pair(2UL, 8UL)];
     EXPECT_EQ(1028UL, item->newOpPtr);
     EXPECT_TRUE(item->isRunning());
 
     // Use during recovery. Should not set timer.
-    writes.bufferWrite(2, 9, 1029, true);
+    writes.bufferOp(2, 9, 1029, true);
     item = writes.items[std::make_pair(2UL, 9UL)];
     EXPECT_EQ(1029UL, item->newOpPtr);
     EXPECT_FALSE(item->isRunning());
@@ -480,7 +486,7 @@ TEST_F(PreparedWritesTest, markDeletedAndIsDeleted) {
     EXPECT_TRUE(writes.isDeleted(1, 11));
 
     EXPECT_FALSE(writes.isDeleted(2, 9));
-    writes.bufferWrite(2, 9, 1029, true);
+    writes.bufferOp(2, 9, 1029, true);
     EXPECT_EQ(1029UL, writes.peekOp(2, 9));
     EXPECT_FALSE(writes.isDeleted(2, 9));
 }

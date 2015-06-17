@@ -736,6 +736,33 @@ Object::setTimestamp(uint32_t timestamp)
 }
 
 /**
+ * Compute checksum onto the provided Crc32c instance. This function may be
+ * used to calculate checksum of big chunk containing Object.
+ *
+ * \param   crc this function updates this Crc32C object according to the
+ *          contents of object.
+ */
+void
+Object::applyChecksum(Crc32C *crc)
+{
+    // first compute the checksum on the object header excluding the
+    // checksum field
+    crc->update(reinterpret_cast<void *>(
+               reinterpret_cast<uint8_t*>(
+               &header) + sizeof(header.checksum)),
+               downCast<uint32_t>(sizeof(header) -
+               sizeof(header.checksum)));
+
+    // then compute the checksum on keysAndValue.
+    if (keysAndValue) {
+        crc->update(keysAndValue, keysAndValueLength);
+    } else {
+        crc->update(*keysAndValueBuffer, keysAndValueOffset,
+                   getKeysAndValueLength());
+    }
+}
+
+/**
  * Compute the object's checksum and return it.
  */
 uint32_t
@@ -753,7 +780,6 @@ Object::computeChecksum()
                sizeof(header.checksum)));
 
     // then compute the checksum on keysAndValue.
-
     if (keysAndValue) {
         crc.update(keysAndValue, keysAndValueLength);
     } else {

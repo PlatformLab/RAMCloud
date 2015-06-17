@@ -81,13 +81,13 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
                     &tabletManager,
                     &masterTableMetadata,
                     &unackedRpcResults,
-                    &preparedWrites,
+                    &preparedOps,
                     &txRecoveryManager)
     , tabletManager()
     , txRecoveryManager(context)
     , indexletManager(context, &objectManager)
     , unackedRpcResults(context)
-    , preparedWrites(context)
+    , preparedOps(context)
     , clusterTime(0)
     , mutex_updateClusterTime()
     , disableCount(0)
@@ -2262,7 +2262,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 return;
             }
 
-            uint64_t opPtr = preparedWrites.peekOp(reqHdr->leaseId,
+            uint64_t opPtr = preparedOps.peekOp(reqHdr->leaseId,
                                                    participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed.
@@ -2283,7 +2283,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 objectManager.commitWrite(op, opRef);
             }
 
-            preparedWrites.popOp(reqHdr->leaseId,
+            preparedOps.popOp(reqHdr->leaseId,
                                  participants[i].rpcId);
         }
     } else if (reqHdr->decision == WireFormat::TxDecision::ABORT) {
@@ -2298,7 +2298,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 return;
             }
 
-            uint64_t opPtr = preparedWrites.peekOp(reqHdr->leaseId,
+            uint64_t opPtr = preparedOps.peekOp(reqHdr->leaseId,
                                                    participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed
@@ -2314,7 +2314,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
 
             objectManager.commitRead(op, opRef);
 
-            preparedWrites.popOp(reqHdr->leaseId,
+            preparedOps.popOp(reqHdr->leaseId,
                                  participants[i].rpcId);
         }
     } else {
@@ -2535,7 +2535,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             break;
         }
 
-        preparedWrites.bufferWrite(reqHdr->lease.leaseId, rpcId, newOpPtr);
+        preparedOps.bufferOp(reqHdr->lease.leaseId, rpcId, newOpPtr);
 
         rh->recordCompletion(rpcRecordPtr);
     }
@@ -3243,7 +3243,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             context, recoveryId, serverId, &recoveryPartition, successful);
     if (!cancelRecovery) {
         // Re-grab all transaction locks.
-        preparedWrites.regrabLocksAfterRecovery(&objectManager);
+        preparedOps.regrabLocksAfterRecovery(&objectManager);
 
         // Ok - we're expected to be serving now. Mark recovered tablets
         // as normal so we can handle clients.
@@ -3285,7 +3285,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         LOG(WARNING, "Failed to recover partition for recovery %lu; "
             "aborting recovery on this recovery master", recoveryId);
         // TODO(seojin): remove unackedRpcResults entries? Maybe it is okay.
-        // TODO(seojin): remove preparedWrites entries? It won't be GCed.
+        // TODO(seojin): remove preparedOps entries? It won't be GCed.
 
         // If recovery failed then clean up all objects written by
         // recovery before starting to serve requests again.

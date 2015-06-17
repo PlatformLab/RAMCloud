@@ -60,7 +60,7 @@ namespace RAMCloud {
  * \param unackedRpcResults
  *      Pointer to the master's UnackedRpcResults instance.  This keeps track
  *      of data stored to ensure client rpcs are linearizable.
- * \param preparedWrites
+ * \param preparedOps
  *      Pointer to the master's PreparedWrites instance.  This keeps track
  *      of data stored during transaction prepare stage.
  * \param txRecoveryManager
@@ -73,14 +73,14 @@ ObjectManager::ObjectManager(Context* context, ServerId* serverId,
                 TabletManager* tabletManager,
                 MasterTableMetadata* masterTableMetadata,
                 UnackedRpcResults* unackedRpcResults,
-                PreparedWrites* preparedWrites,
+                PreparedOps* preparedOps,
                 TxRecoveryManager* txRecoveryManager)
     : context(context)
     , config(config)
     , tabletManager(tabletManager)
     , masterTableMetadata(masterTableMetadata)
     , unackedRpcResults(unackedRpcResults)
-    , preparedWrites(preparedWrites)
+    , preparedOps(preparedOps)
     , txRecoveryManager(txRecoveryManager)
     , allocator(config)
     , replicaManager(context, serverId,
@@ -937,9 +937,9 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 minSuccessor = currentVersion + 1;
             }
 
-            if (!preparedWrites->isDeleted(op.header.clientId,
+            if (!preparedOps->isDeleted(op.header.clientId,
                                            op.header.rpcId) &&
-                !preparedWrites->peekOp(op.header.clientId,
+                !preparedOps->peekOp(op.header.clientId,
                                         op.header.rpcId) &&
                 op.object.header.version >= minSuccessor) {
 
@@ -955,10 +955,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                             buffer.size(),
                             1);
                 }
-                preparedWrites->bufferWrite(op.header.clientId,
-                                            op.header.rpcId,
-                                            newReference.toInteger(),
-                                            true);
+                preparedOps->bufferOp(op.header.clientId,
+                                         op.header.rpcId,
+                                         newReference.toInteger(),
+                                         true);
             }
         } else if (type == LOG_ENTRY_TYPE_PREPTOMB) {
             Buffer buffer;
@@ -971,19 +971,19 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                              "keyHash: %lu, leaseId: %lu, rpcId: %lu",
                              opTomb.header.tableId,
                              opTomb.header.keyHash,
-                             opTomb.header.leaseId,
+                             opTomb.header.clientLeaseId,
                              opTomb.header.rpcId);
             }
 
-            if (!preparedWrites->isDeleted(opTomb.header.leaseId,
+            if (!preparedOps->isDeleted(opTomb.header.clientLeaseId,
                                            opTomb.header.rpcId) &&
-                !preparedWrites->peekOp(opTomb.header.leaseId,
+                !preparedOps->peekOp(opTomb.header.clientLeaseId,
                                         opTomb.header.rpcId)) {
                 // PreparedOp log entry is either deleted or
                 // not yet recovered. We will check whether it is marked
                 // for deletion and skip its recovery, so no need to recover
                 // this tombstone.
-                preparedWrites->markDeleted(opTomb.header.leaseId,
+                preparedOps->markDeleted(opTomb.header.clientLeaseId,
                                             opTomb.header.rpcId);
             } else {
                 // write to log (with lazy backup flush)
@@ -998,11 +998,11 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                             buffer.size(),
                             1);
                 }
-                preparedWrites->popOp(opTomb.header.leaseId,
+                preparedOps->popOp(opTomb.header.clientLeaseId,
                                       opTomb.header.rpcId);
 
                 // For idempodency of replaySegment.
-                preparedWrites->markDeleted(opTomb.header.leaseId,
+                preparedOps->markDeleted(opTomb.header.clientLeaseId,
                                             opTomb.header.rpcId);
             }
         } else if (type == LOG_ENTRY_TYPE_TXDECISION) {
@@ -2358,7 +2358,7 @@ ObjectManager::dumpSegment(Segment* segment)
                     "rpcId %lu",
                     separator, it.getOffset(), it.getLength(),
                     opTomb.header.tableId, opTomb.header.keyHash,
-                    opTomb.header.leaseId, opTomb.header.rpcId);
+                    opTomb.header.clientLeaseId, opTomb.header.rpcId);
         } else if (type == LOG_ENTRY_TYPE_TXDECISION) {
             Buffer buffer;
             it.appendToBuffer(buffer);
@@ -2843,7 +2843,7 @@ ObjectManager::relocatePreparedOp(Buffer& oldBuffer,
             op.object.getKeyLength());
     HashTableBucketLock lock(*this, key);
 
-    uint64_t opPtr = preparedWrites->peekOp(op.header.clientId,
+    uint64_t opPtr = preparedOps->peekOp(op.header.clientId,
                                             op.header.rpcId);
     if (opPtr) {
         // Try to relocate it. If it fails, just return. The cleaner will
@@ -2851,7 +2851,7 @@ ObjectManager::relocatePreparedOp(Buffer& oldBuffer,
         if (!relocator.append(LOG_ENTRY_TYPE_PREP, oldBuffer))
             return;
 
-        preparedWrites->updatePtr(op.header.clientId,
+        preparedOps->updatePtr(op.header.clientId,
                                   op.header.rpcId,
                                   relocator.getNewReference().toInteger());
         // Move transaction LockTable lock to new location.

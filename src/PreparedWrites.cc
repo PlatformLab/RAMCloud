@@ -37,6 +37,7 @@ namespace RAMCloud {
  * \param participants
  *      Pointer to the array of #WireFormat::TxParticipant which contains
  *      all information of objects participating transaction.
+ *      Its lifetime must cover the lifetime of this Object.
  * \param tableId
  *      TableId for this object.
  * \param version
@@ -56,7 +57,6 @@ namespace RAMCloud {
  *      Length of keysAndValue.
  *      A length of 0 means that the object occupies the entire buffer
  *      starting at offset.
- *      This is primarily used by the multiWrite RPC in MasterService.
  */
 PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
                        uint64_t clientId,
@@ -95,6 +95,7 @@ PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
  * \param participants
  *      Pointer to the array of #WireFormat::TxParticipant which contains
  *      all information of objects participating transaction.
+ *      Its lifetime must cover the lifetime of this Object.
  * \param key
  *      Primary key for this object
  * \param value
@@ -134,10 +135,9 @@ PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
 }
 
 /**
- * Construct an PreparedOp using information in the log, which includes the
- * header as well as the participant list and object.
+ * Construct a PreparedOp using information in the log.
  * This form of the constructor is typically used for extracting
- * information out of the log. For example to serve read requests
+ * information out of the log. For example to serve txDecision requests
  * or to perform log cleaning.
  *
  * \param buffer
@@ -178,8 +178,8 @@ void
 PreparedOp::assembleForLog(Buffer& buffer)
 {
     header.checksum = computeChecksum();
-    buffer.appendExternal(&header, sizeof32(Header));
-    buffer.appendExternal(participants, sizeof32(WireFormat::TxParticipant)
+    buffer.appendCopy(&header, sizeof32(Header));
+    buffer.appendCopy(participants, sizeof32(WireFormat::TxParticipant)
                                          * header.participantCount);
     object.assembleForLog(buffer);
 }
@@ -212,13 +212,22 @@ PreparedOp::computeChecksum()
                sizeof32(WireFormat::TxParticipant) *
                header.participantCount);
 
-    // TODO(seojin): Let's discuss safety of this.
-    uint32_t objectChecksum = object.computeChecksum();
-    crc.update(&objectChecksum, sizeof32(objectChecksum));
+    object.applyChecksum(&crc);
 
     return crc.getResult();
 }
 
+/**
+ * Construct a new tombstone for a given completed PreparedOp. Use this
+ * constructor when generating new tombstones to be written to the log.
+ *
+ * \param op
+ *      The preparedOp this tombstone is marking as completed.
+ * \param segmentId
+ *      The 64-bit identifier of the segment in which the PreparedOp this
+ *      tombstone refers to exists. Once this segment is no longer in
+ *      the system, this tombstone may be garbage collected.
+ */
 PreparedOpTombstone::PreparedOpTombstone(PreparedOp& op, uint64_t segmentId)
     : header(op.object.getTableId(),
              Key::getHash(op.object.getTableId(),
@@ -231,6 +240,19 @@ PreparedOpTombstone::PreparedOpTombstone(PreparedOp& op, uint64_t segmentId)
 {
 }
 
+/**
+ * Construct a tombstone object by deserializing an existing tombstone. Use
+ * this constructor when reading existing tombstones from the log or from
+ * individual log segments.
+ *
+ * \param buffer
+ *      Buffer pointing to a complete serialized tombstone. It is the
+ *      caller's responsibility to make sure that the buffer passed in
+ *      actually contains a full tombstone. If it does not, then behavior
+ *      is undefined.
+ * \param offset
+ *      Starting offset in the buffer where the tombstone begins.
+ */
 PreparedOpTombstone::PreparedOpTombstone(Buffer& buffer, uint32_t offset)
     : header(*buffer.getOffset<Header>(offset))
     , tombstoneBuffer(&buffer)
@@ -238,7 +260,7 @@ PreparedOpTombstone::PreparedOpTombstone(Buffer& buffer, uint32_t offset)
 }
 
 /**
- * Append the serialized header to the provided buffer.
+ * Append the serialized tombstone to the provided buffer.
  *
  * \param buffer
  *      The buffer to append all data to.
@@ -280,7 +302,7 @@ PreparedOpTombstone::computeChecksum()
 /**
  * Construct PreparedWrites.
  */
-PreparedWrites::PreparedWrites(Context* context)
+PreparedOps::PreparedOps(Context* context)
     : context(context)
     , mutex()
     , items()
@@ -290,7 +312,7 @@ PreparedWrites::PreparedWrites(Context* context)
 /**
  * Default destructor.
  */
-PreparedWrites::~PreparedWrites()
+PreparedOps::~PreparedOps()
 {
     Lock lock(mutex);
     std::map<std::pair<uint64_t, uint64_t>,
@@ -319,7 +341,7 @@ PreparedWrites::~PreparedWrites()
  *      by #regrabLocksAfterRecovery().
  */
 void
-PreparedWrites::bufferWrite(uint64_t leaseId,
+PreparedOps::bufferOp(uint64_t leaseId,
                             uint64_t rpcId,
                             uint64_t newOpPtr,
                             bool isRecovery)
@@ -348,7 +370,7 @@ PreparedWrites::bufferWrite(uint64_t leaseId,
  *      Log::Reference::toInteger() value for the preparedOp staged.
  */
 uint64_t
-PreparedWrites::popOp(uint64_t leaseId,
+PreparedOps::popOp(uint64_t leaseId,
                       uint64_t rpcId)
 {
     Lock lock(mutex);
@@ -382,7 +404,7 @@ PreparedWrites::popOp(uint64_t leaseId,
  *      Log::Reference::toInteger() value for the preparedOp staged.
  */
 uint64_t
-PreparedWrites::peekOp(uint64_t leaseId,
+PreparedOps::peekOp(uint64_t leaseId,
                        uint64_t rpcId)
 {
     Lock lock(mutex);
@@ -414,7 +436,7 @@ PreparedWrites::peekOp(uint64_t leaseId,
  *      Log::Reference to preparedOp in main log.
  */
 void
-PreparedWrites::updatePtr(uint64_t leaseId,
+PreparedOps::updatePtr(uint64_t leaseId,
                           uint64_t rpcId,
                           uint64_t newOpPtr)
 {
@@ -428,7 +450,7 @@ PreparedWrites::updatePtr(uint64_t leaseId,
  * recovery of whole transaction.
  */
 void
-PreparedWrites::PreparedItem::handleTimerEvent()
+PreparedOps::PreparedItem::handleTimerEvent()
 {
     //TODO(seojin): invoke recovery initiate rpc.
 
@@ -444,7 +466,7 @@ PreparedWrites::PreparedItem::handleTimerEvent()
  *      The pointer to objectManager which holds transaction LockTable.
  */
 void
-PreparedWrites::regrabLocksAfterRecovery(ObjectManager* objectManager)
+PreparedOps::regrabLocksAfterRecovery(ObjectManager* objectManager)
 {
     Lock lock(mutex);
     ItemsMap::iterator it = items.begin();
@@ -481,7 +503,7 @@ PreparedWrites::regrabLocksAfterRecovery(ObjectManager* objectManager)
  *      rpcId given for the preparedOp.
  */
 void
-PreparedWrites::markDeleted(uint64_t leaseId,
+PreparedOps::markDeleted(uint64_t leaseId,
                             uint64_t rpcId)
 {
     Lock lock(mutex);
@@ -500,7 +522,7 @@ PreparedWrites::markDeleted(uint64_t leaseId,
  *      rpcId given for the preparedOp.
  */
 bool
-PreparedWrites::isDeleted(uint64_t leaseId,
+PreparedOps::isDeleted(uint64_t leaseId,
                           uint64_t rpcId)
 {
     Lock lock(mutex);

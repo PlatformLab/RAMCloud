@@ -27,6 +27,24 @@ namespace RAMCloud {
 
 class ObjectManager;
 
+/**
+ * This class defines the format of a prepared transaction operation stored in
+ * the log and provides methods to easily construct new ones to be appended
+ * and interpret ones that have already been written.
+ *
+ * An instance of this class serves as a lock record for the object as well.
+ * During RC recovery of preparedOp log, a master should lock the corresponding
+ * object.
+ *
+ * Each preparedOp contains all TxParticipants of current transactions and
+ * an instance of Object. When stored in the log, a preparedOp has the following
+ * layout:
+ *
+ * +-------------------+----------------------+--------+
+ * | PreparedOp Header | TxParticipant(s) ... | Object |
+ * +-------------------+----------------------+--------+
+ * Everything except the header is of variable length.
+ */
 class PreparedOp {
   public:
     PreparedOp(WireFormat::TxPrepare::OpType type,
@@ -45,6 +63,10 @@ class PreparedOp {
                Buffer& buffer, uint32_t *length = NULL);
     PreparedOp(Buffer& buffer, uint32_t offset, uint32_t length);
 
+    /**
+     * This data structure defines the format of a preparedOp header stored in a
+     * master server's log.
+     */
     class Header {
       public:
         Header(WireFormat::TxPrepare::OpType type,
@@ -68,7 +90,7 @@ class PreparedOp {
         /// rpcId given for this prepare.
         uint64_t rpcId;
 
-        /// Number of objects participating current transaction.
+        /// Number of objects participating in the current transaction.
         uint32_t participantCount;
 
         /// CRC32C checksum covering everything but this field, including the
@@ -76,14 +98,14 @@ class PreparedOp {
         uint32_t checksum;
 
     } __attribute__((__packed__));
-    static_assert(sizeof(Header) == 28,
-        "Unexpected serialized PreparedOp size");
 
     /// Copy of the PreparedOp header.
     Header header;
 
     /// Pointer to the array of #WireFormat::TxParticipant which contains
     /// all information of objects participating transaction.
+    /// The actual data reside in RPC payload or in log. This pointer should not
+    /// be passed around.
     WireFormat::TxParticipant* participants;
 
     /// Object to be written during COMMIT phase.
@@ -98,6 +120,23 @@ class PreparedOp {
     DISALLOW_COPY_AND_ASSIGN(PreparedOp);
 };
 
+/**
+ * This class defines the format of a tombstone for prepared transaction
+ * operation record stored in the log and provides methods to easily construct
+ * new ones to be appended and interpret ones that have already been written.
+ *
+ * This PreparedOpTombstone functions similar to ObjectTombstone for Object.
+ *
+ * PreparedOpTombstones serve as records indicating that specific operation of
+ * a transaction is applied to the system (due to TX commit or abort).
+ * Since PreparedOp functions as a durable lock record, these
+ * PreparedOpTombstones are necessary to avoid re-locking objects of previously
+ * completed transactions during failure recovery.
+ *
+ * The two different types of tombstones are used for initial tombstone creation
+ * and reading tombstone from the log. This is same as PreparedOp, Object,
+ * and ObjectTombstone.
+ */
 class PreparedOpTombstone {
   public:
     PreparedOpTombstone(PreparedOp& op, uint64_t segmentId);
@@ -108,7 +147,7 @@ class PreparedOpTombstone {
     uint32_t computeChecksum();
 
     /**
-     * This data structure defines the format of an preparedOp's tombstone
+     * This data structure defines the format of a preparedOp's tombstone
      * in a master server's log.
      */
     class Header {
@@ -120,7 +159,7 @@ class PreparedOpTombstone {
                uint64_t segmentId)
             : tableId(tableId),
               keyHash(keyHash),
-              leaseId(leaseId),
+              clientLeaseId(leaseId),
               rpcId(rpcId),
               segmentId(segmentId),
               checksum(0)
@@ -133,12 +172,14 @@ class PreparedOpTombstone {
         /// KeyHash for log distribution during recovery.
         KeyHash keyHash;
 
-        /// leaseId given for the prepare that this tombstone is for.
-        /// A (leaseId, rpcId) tuple uniquely identifies a preparedOp log entry.
-        uint64_t leaseId;
+        /// leaseId of the client that initiated the transaction.
+        /// A (ClientLeaseId, rpcId) tuple uniquely identifies a preparedOp
+        /// log entry.
+        uint64_t clientLeaseId;
 
         /// rpcId given for the prepare that this tombstone is for.
-        /// A (leaseId, rpcId) tuple uniquely identifies a preparedOp log entry.
+        /// A (ClientLeaseId, rpcId) tuple uniquely identifies a preparedOp
+        /// log entry.
         uint64_t rpcId;
 
         /// The log segment that the dead preparedOp this tombstone refers to
@@ -150,8 +191,6 @@ class PreparedOpTombstone {
         /// key.
         uint32_t checksum;
     } __attribute__((__packed__));
-    static_assert(sizeof(Header) == 44,
-        "Unexpected serialized ObjectTombstone size");
 
     /// Copy of the tombstone header that is in, or will be written to, the log.
     Header header;
@@ -165,15 +204,15 @@ class PreparedOpTombstone {
 };
 
 /**
- * A table for all staged PreparedOp. Decision RPC handler fetches preparedOp
- * from this table.
+ * A table for all PreparedOps for all currently executing transactions
+ * on a server. Decision RPC handler fetches preparedOp from this table.
  */
-class PreparedWrites {
+class PreparedOps {
   PUBLIC:
-    explicit PreparedWrites(Context* context);
-    ~PreparedWrites();
+    explicit PreparedOps(Context* context);
+    ~PreparedOps();
 
-    void bufferWrite(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr,
+    void bufferOp(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr,
                      bool inRecovery = false);
     uint64_t popOp(uint64_t leaseId, uint64_t rpcId);
     uint64_t peekOp(uint64_t leaseId, uint64_t rpcId);
@@ -186,7 +225,7 @@ class PreparedWrites {
   PRIVATE:
     /**
      * Wrapper for the pointer to PreparedOp with WorkerTimer.
-     * This represents a active locking on a object, and its timer
+     * This represents an active locking on an object, and its timer
      * make sure transaction recovery starts after timeout.
      */
     class PreparedItem : public WorkerTimer {
@@ -199,8 +238,17 @@ class PreparedWrites {
         //              Resolve this later.
         virtual void handleTimerEvent();
 
+        /// Log reference to PreparedOp in the log.
         uint64_t newOpPtr;
 
+        /// Timeout value for the active PreparedOp (lock record).
+        /// This timeout should be larger than 2*RTT to give enough time for
+        /// a client to complete transaction.
+        /// In case of client failure, smaller timeout makes the initiation of
+        /// transaction recovery faster, shortening object lock time.
+        /// However, using small timeout must be carefully chosen since large
+        /// server span of a transaction increases the time gap between the
+        /// first phase and the second phase of a transaction.
         static const uint64_t TX_TIMEOUT_US = 500;
       private:
         DISALLOW_COPY_AND_ASSIGN(PreparedItem);
@@ -219,7 +267,7 @@ class PreparedWrites {
     std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> items;
     typedef std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> ItemsMap;
 
-    DISALLOW_COPY_AND_ASSIGN(PreparedWrites);
+    DISALLOW_COPY_AND_ASSIGN(PreparedOps);
 };
 
 }

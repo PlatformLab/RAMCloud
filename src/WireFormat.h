@@ -1649,10 +1649,14 @@ struct TakeIndexletOwnership {
     } __attribute__((packed));
 };
 
+/**
+ * Represents a single participating object in a transaction.
+ */
 struct TxParticipant {
     uint64_t tableId;           // Table Id of the participant object.
     uint64_t keyHash;           // Key Hash of the participant object.
-    uint64_t rpcId;             // Unique (per transaction) participant id.
+    uint64_t rpcId;             // rpcId of TxPrepare RPC assigned for
+                                // the participant object.
 
     TxParticipant()
         : tableId()
@@ -1715,10 +1719,14 @@ struct TxPrepare {
                                     // linearizability.
         uint32_t participantCount;  // Number of all objects participating TX
                                     // in whole cluster.
-        uint32_t opCount;
-        // List of all Participants of TX.
-        // List of Ops
+        uint32_t opCount;           // Number of operations this RPC contains.
 
+        // Following this structure, a TxPrepare request message contains,
+        // - array of all TxParticipants of current transaction and
+        // - array of operations (ReadOp|RemoveOp|WriteOp){opCount}.
+
+        // A structure describing read operation which is a part of transaction
+        // prepare request.
         struct ReadOp {
             OpType type;
             uint64_t tableId;
@@ -1739,6 +1747,8 @@ struct TxPrepare {
             }
         } __attribute__((packed));
 
+        // A structure describing remove operation which is a part of
+        // transaction prepare request.
         struct RemoveOp {
             OpType type;
             uint64_t tableId;
@@ -1759,6 +1769,8 @@ struct TxPrepare {
             }
         } __attribute__((packed));
 
+        // A structure describing write operation which is a part of
+        // transaction prepare request.
         struct WriteOp {
             OpType type;
             uint64_t tableId;
@@ -1796,9 +1808,10 @@ struct TxRequestAbort {
         uint64_t leaseId; //Recovery coordinator may not know about leaseTerm.
                           //DM can set arbitrary leaseTerm anyway.
         uint32_t participantCount; // Number of local objects participating TX
-                                   // for this server.
-        // List of local participants.
+                                   // in recipient server.
 
+        // Following this structure, a TxRequestAbort request message contains,
+        // - array of TxParticipants which are handled by recipient server.
     } __attribute__((packed));
 
     struct Response {
@@ -1907,4 +1920,3 @@ const char* opcodeSymbol(Buffer* buffer);
 }} // namespace WireFormat namespace RAMCloud
 
 #endif // RAMCLOUD_WIREFORMAT_H
-

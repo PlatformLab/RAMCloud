@@ -125,7 +125,7 @@ class MasterService : public Service {
      * The PreparedWrites keep track all prepared objects staged during
      * transactions.
      */
-    PreparedWrites preparedWrites;
+    PreparedOps preparedOps;
 
     /**
      * Largest cluster time that this master service either directly or

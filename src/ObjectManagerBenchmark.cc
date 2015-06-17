@@ -35,7 +35,7 @@ class ObjectManagerBenchmark {
     TabletManager tabletManager;
     MasterTableMetadata masterTableMetadata;
     UnackedRpcResults unackedRpcResults;
-    PreparedWrites preparedWrites;
+    PreparedOps preparedOps;
     TxRecoveryManager txRecoveryManager;
     ServerId serverId;
     ObjectManager* objectManager;
@@ -47,7 +47,7 @@ class ObjectManagerBenchmark {
         , tabletManager()
         , masterTableMetadata()
         , unackedRpcResults(&context)
-        , preparedWrites(&context)
+        , preparedOps(&context)
         , txRecoveryManager(&context)
         , serverId(1, 1)
         , objectManager(NULL)
@@ -67,7 +67,7 @@ class ObjectManagerBenchmark {
                                           &tabletManager,
                                           &masterTableMetadata,
                                           &unackedRpcResults,
-                                          &preparedWrites,
+                                          &preparedOps,
                                           &txRecoveryManager);
     }
 
