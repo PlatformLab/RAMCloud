@@ -29,7 +29,7 @@ class CompilationError extends GradleException {
 class JavaBuildTask extends DefaultTask {
     def File inputDir
     def depPaths
-    
+
     @InputFiles
     def FileCollection inputs
 
@@ -66,7 +66,7 @@ class CppBuildTask extends DefaultTask {
 
     @OutputDirectory
     def File outputDir
-    
+
     @TaskAction
     void execute(IncrementalTaskInputs inputs) {
         inputs.outOfDate { change ->
@@ -78,7 +78,7 @@ class CppBuildTask extends DefaultTask {
             def objPath = ramcloudDir.path + '/obj.' + branch
             def command = ["g++",
                            "--std=c++0x",
-                           "-shared",           
+                           "-shared",
                            "-fPIC",
                            "-L${objPath}",
                            "-L${outputDir.path}",
@@ -89,7 +89,6 @@ class CppBuildTask extends DefaultTask {
                            "-Iinclude",
                            "-Wl,-rpath=${objPath}:${outputDir.path}",
                            "-lramcloud",
-                           "-lramcloudtest",
                            "-g",
                            "${change.file.path}",
                            "-o",
@@ -133,7 +132,7 @@ task directories << {
         }
         dependencyPaths += target.path + ':'
     }
-    def proc = "git rev-parse --abbrev-ref HEAD".execute(); 
+    def proc = "git rev-parse --abbrev-ref HEAD".execute();
     proc.waitFor();
     currentBranch = proc.in.text.trim();
 }

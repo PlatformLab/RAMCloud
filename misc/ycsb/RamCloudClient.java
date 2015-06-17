@@ -46,10 +46,11 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.BufferUnderflowException;
 
-import edu.stanford.ramcloud.JRamCloud;
+import edu.stanford.ramcloud.RAMCloud;
+import edu.stanford.ramcloud.RAMCloudObject;
 
 public class RamCloudClient extends DB {
-    private JRamCloud ramcloud;
+    private RAMCloud ramcloud;
     private HashMap<String, Long> tableIds;
 
     public static final String LOCATOR_PROPERTY = "ramcloud.coordinatorLocator";
@@ -225,7 +226,7 @@ public class RamCloudClient extends DB {
 
         if (debug)
             System.err.println("RamCloudClient connecting to " + locator + " ...");
-        ramcloud = new JRamCloud(locator);
+        ramcloud = new RAMCloud(locator);
         tableIds = new HashMap<String, Long>();
     }
 
@@ -305,7 +306,7 @@ public class RamCloudClient extends DB {
          Set<String> fields,
          HashMap<String, ByteIterator> result)
     {
-        JRamCloud.Object object = null;
+        RAMCloudObject object = null;
         HashMap<String, ByteIterator> map = new HashMap<String, ByteIterator>();
         try {
             object = ramcloud.read(getTableId(table), key);
@@ -316,7 +317,7 @@ public class RamCloudClient extends DB {
         }
 
         try {
-            deserialize(object.value, map);
+            deserialize(object.getValueBytes(), map);
         } catch (DBException e) {
             if (debug)
                 System.err.println("RamCloudClient deserializer threw: " + e);
@@ -489,7 +490,7 @@ public class RamCloudClient extends DB {
 
         int[] fieldCounts = { 1, 2, 3, 5, 10, 20, 50, 100 };
 
-        // Measure read performance. The JRamCloud bindings are good for about
+        // Measure read performance. The RAMCloud bindings are good for about
         // 7.5us reads on Infiniband, so we need to be careful that our
         // field serialisation is fast.
         for (int fields : fieldCounts) {
