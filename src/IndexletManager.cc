@@ -118,8 +118,6 @@ IndexletManager::addIndexlet(
  * completed and a indexlet is changed from the RECOVERING to NORMAL state.
  *
  * \param tableId
- *      Table identifier corresponding to the tablet to update.
- * \param tableId
  *      Id for a particular table.
  * \param indexId
  *      Id for a particular secondary index associated with tableId.
