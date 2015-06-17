@@ -1188,7 +1188,6 @@ TEST_F(ObjectManagerTest, replaySafeversion) {
     // Object with version 40:
     //   tombstone whose version number is smaller than existing
     //   object in case2 is neglected in replaySegment
-    
     Object o1(key0, NULL, 0, 40, 0, dataBuffer);
     //        key,  value, valuelen, version, timestamp, buffer
     ObjectTombstone t1(o1, 8, 0);
