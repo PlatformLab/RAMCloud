@@ -135,7 +135,7 @@ class ObjectManagerTest : public ::testing::Test {
      */
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
-                         ObjectSafeVersion &safeVer,
+                         ObjectSafeVersion& safeVer,
                          Segment::Certificate* outCertificate)
     {
         Segment s;
@@ -343,7 +343,7 @@ class ObjectManagerTest : public ::testing::Test {
     }
 
     /**
-     * Verify that the safe version number was correctly recovered.
+     * Verify a safeVersion has been correctly recovered.
      */
     int
     verifyCopiedSafeVer(const ObjectSafeVersion *safeVerSrc)
@@ -352,7 +352,7 @@ class ObjectManagerTest : public ::testing::Test {
         int  safeVerScanned = 0;
 
         for (LogIterator it(objectManager.log); !it.isDone(); it.next()) {
-            // Notice that more than two safeVersion objects exist
+            // Note that more than two safeVersion objects exist
             // in the head segment:
             // 1st safeVersion is allocated when the segment is opened.
             // 2nd or lator is the one copied by the recovery.
@@ -1119,18 +1119,38 @@ TEST_F(ObjectManagerTest, replaySegment) {
               string(reinterpret_cast<const char*>(t10.getKey()),
                   t10.getKeyLength()));
     EXPECT_EQ(t11.getObjectVersion(), t10.getObjectVersion());
-    ////////////////////////////////////////////////////////////////////
-    //
-    //  For safeVersion recovery from OBJECT_SAFEVERSION entry
-    //
-    ////////////////////////////////////////////////////////////////////
-    objectManager.segmentManager.safeVersion = 1UL; // reset safeVersion to 1
+}
 
+TEST_F(ObjectManagerTest, replaySafeversion) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    Buffer buffer;
+    SideLog sl(&objectManager.log);
+    Log::Reference reference;
+    Segment::Certificate certificate;
+    Tub<SegmentIterator> it;
+
+    ////////////////////////////////////////////////////////////////////
+    //
+    //  Testing safeVersion recovery by segment replay
+    //
+    ////////////////////////////////////////////////////////////////////
+
+    //
+    //  Case1: safeVersion recovery from Safeversion object
+    //
+
+    // reset safeVersion to 1
+    objectManager.segmentManager.safeVersion = 1UL;
+
+    // Build a properly formatted segment containing a single safeVersion.
     ObjectSafeVersion safeVer(10UL);
     len = buildRecoverySegment(seg, segLen, safeVer, &certificate);
-    it.construct(&seg[0], len, certificate);
     EXPECT_EQ(14U, len); // 14 = EntryHeader(1B) + ? (1B)
-    //                    + safeVersion (8B) + checksum (4B)
+                         //      + safeVersion (8B) + checksum (4B)
+    it.construct(&seg[0], len, certificate);
+
     TestLog::Enable _(replaySegmentFilter);
     objectManager.replaySegment(&sl, *it);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -1140,11 +1160,47 @@ TEST_F(ObjectManagerTest, replaySegment) {
     // The SideLog must be committed before we can iterate the log to look
     // for safe version objects.
     sl.commit();
-    // three safeVer should be found (SideLog commit() opened a new head).
-    EXPECT_EQ(3, verifyCopiedSafeVer(&safeVer));
-
+    // two safeVer shoruld be found (SideLog commit() opened a new head).
+    EXPECT_EQ(2, verifyCopiedSafeVer(&safeVer));
     // recovered from safeVer
     EXPECT_EQ(10UL, objectManager.segmentManager.safeVersion);
+
+    //
+    // Case 2: Replay  of live object does not affect to safeVersion
+    //    even if its version number is bigger than
+    //    the current safeVersion.
+
+    Key key0(0, "key0", 4);
+    // Newer object with version number 30
+    len = buildRecoverySegment(seg, segLen, key0, 30,
+                               "newer guy", &certificate);
+    it.construct(&seg[0], len, certificate);
+    objectManager.replaySegment(&sl, *it);
+    verifyRecoveryObject(key0, "newer guy");
+    // safeVersion unchanged
+    EXPECT_EQ(10UL, objectManager.segmentManager.safeVersion);
+
+    //
+    // Case 3: Recovery from ObjectSafeVersion and TombStone :
+    //    test for RAM-677 fix.
+
+    Buffer dataBuffer;
+    // Object with version 40:
+    //   tombstone whose version number is smaller than existing
+    //   object in case2 is neglected in replaySegment
+    
+    Object o1(key0, NULL, 0, 40, 0, dataBuffer);
+    //        key,  value, valuelen, version, timestamp, buffer
+    ObjectTombstone t1(o1, 8, 0);
+    //                obj, segId, timestamp
+    len = buildRecoverySegment(seg, segLen, t1, &certificate);
+    it.construct(&seg[0], len, certificate);
+    objectManager.replaySegment(&sl, *it);
+    objectManager.removeTombstones();
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, getObjectStatus(0, "key0", 4));
+
+    // safeVersion recovered from Tombstone (ver 40) in the head segment
+    EXPECT_EQ(40UL, objectManager.segmentManager.safeVersion);
 }
 
 TEST_F(ObjectManagerTest, replaySegment_rpcRecord) {

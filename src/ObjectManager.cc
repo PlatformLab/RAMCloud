@@ -751,6 +751,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 assert(currentEntryIsObject ||
                         recoverVersion != currentVersion);
 
+                // Raise safeVersion if that in the recovered tombstone is
+                // bigger than current safeVersion. (RAM-677 fix)
+                segmentManager.raiseSafeVersion(recoverVersion);
+
                 // Synthesize a new tombstone specifically so as to maintain
                 // the following invariant
                 // Any time a logically deleted object is present in the log
