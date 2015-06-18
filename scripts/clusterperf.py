@@ -107,7 +107,7 @@ def print_cdf_from_log(
 
     # Read the log file into an array of numbers.
     numbers = []
-    globResult = glob.glob('%s/latest/client%d*.log' %
+    globResult = glob.glob('%s/latest/client%d.*.log' %
             (options.log_dir, index))
     if len(globResult) == 0:
         raise Exception("couldn't find log file for client %d" % (index))
@@ -143,7 +143,7 @@ def print_rcdf_from_log(
 
     # Read the log file into an array of numbers.
     numbers = []
-    globResult = glob.glob('%s/latest/client%d*.log' %
+    globResult = glob.glob('%s/latest/client%d.*.log' %
             (options.log_dir, index))
     if len(globResult) == 0:
         raise Exception("couldn't find log file for client %d" % (index))
