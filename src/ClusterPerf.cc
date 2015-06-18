@@ -103,6 +103,16 @@ static int numIndexes;
 // measurements (e.g. to make sure that caches are loaded).
 static int warmupCount;
 
+// Value of the "--workload" command-line option: used by some tests
+// to specify the name of the workload the additional clients should
+// run to provide load on the system.
+static string workload;     // NOLINT
+
+// Value of the "--targetOps" command-line option: used by some tests
+// to specify the operations per second each load generating client
+// should try to achieve.
+static int targetOps;
+
 // Identifier for table that is used for test-specific data.
 uint64_t dataTable = -1;
 
@@ -281,6 +291,194 @@ class ZipfianGenerator {
         }
         return sum;
     }
+};
+
+/**
+ * Used to generate a run workloads of a specific read/write distribution.  For
+ * the most part, the workloads are modeled after the YCSB workload generator.
+ */
+class WorkloadGenerator {
+  public:
+    /**
+     * Constructor for the workload generator.
+     *
+     * \param workloadName
+     *      Name of the workload to be generated.
+     */
+    explicit WorkloadGenerator(string workloadName)
+        : recordCount(2000000)
+        , recordSizeB(objectSize)
+        , readPercent(100)
+        , generator()
+    {
+        if (workloadName == "YCSB-A") {
+            recordCount = 1000000;
+            recordSizeB = objectSize;
+            readPercent = 50;
+        } else if (workloadName == "YCSB-B") {
+            recordCount = 1000000;
+            recordSizeB = objectSize;
+            readPercent = 95;
+        } else if (workloadName == "YCSB-C") {
+            recordCount = 1000000;
+            recordSizeB = objectSize;
+            readPercent = 100;
+        } else if (workloadName == "WRITE-ONLY") {
+            recordCount = 1000000;
+            recordSizeB = objectSize;
+            readPercent = 0;
+        } else {
+            RAMCLOUD_LOG(WARNING,
+                "Unknown workload type %s - Using default",
+                workloadName.c_str());
+        }
+
+        generator.construct(recordCount);
+    }
+
+    /**
+     * Setup the workload; creates tables and loads working set.
+     */
+    void setup()
+    {
+        #define BATCH_SIZE 500
+        const uint16_t keyLength = 30;
+
+        // Initialize keys and values
+        MultiWriteObject** objects = new MultiWriteObject*[BATCH_SIZE];
+        char* keys = new char[BATCH_SIZE * keyLength];
+        memset(keys, 0, BATCH_SIZE * keyLength);
+
+        char* charValues = new char[BATCH_SIZE * recordSizeB];
+        memset(charValues, 0, BATCH_SIZE * recordSizeB);
+
+        uint64_t i, j;
+        for (i = 0; i < static_cast<uint64_t>(recordCount); i++) {
+            j = i % BATCH_SIZE;
+
+            char* key = keys + j * keyLength;
+            char* value = charValues + j * recordSizeB;
+            string("workload").copy(key, 8);
+            *reinterpret_cast<uint64_t*>(key + 8) = i;
+
+            Util::genRandomString(value, recordSizeB);
+            objects[j] = new MultiWriteObject(dataTable, key, keyLength, value,
+                    recordSizeB);
+
+            // Do the write and recycle the objects
+            if (j == BATCH_SIZE - 1) {
+                cluster->multiWrite(objects, BATCH_SIZE);
+
+                // Clean up the actual MultiWriteObjects
+                for (int k = 0; k < BATCH_SIZE; k++)
+                    delete objects[k];
+
+                memset(keys, 0, BATCH_SIZE * keyLength);
+                memset(charValues, 0, BATCH_SIZE * recordSizeB);
+            }
+        }
+
+        // Do the last partial batch and clean up, if it exists.
+        j = i % BATCH_SIZE;
+        if (j < BATCH_SIZE - 1) {
+            cluster->multiWrite(objects, static_cast<uint32_t>(j));
+
+            // Clean up the actual MultiWriteObjects
+            for (uint64_t k = 0; k < j; k++)
+                delete objects[k];
+        }
+
+        delete[] keys;
+        delete[] charValues;
+        delete[] objects;
+    }
+
+    /**
+     * Run the workload and try to maintain a fix throughput.
+     *
+     * \param targetOps
+     *      Throughput the workload should attempt to maintain; 0 means run at
+     *      full throttle.
+     */
+    void run(uint64_t targetOps = 0)
+    {
+        const uint16_t keyLen = 30;
+        char key[keyLen];
+        Buffer readBuf;
+        char value[recordSizeB];
+
+        uint64_t readThreshold = (~0UL / 100) * readPercent;
+        uint64_t opCount = 0;
+        uint64_t targetMissCount = 0;
+        uint64_t readCount = 0;
+        uint64_t writeCount = 0;
+        uint64_t targetNSPO = 0;
+        if (targetOps > 0) {
+            targetNSPO = 1000000000 / targetOps;
+            // Randomize start time
+            Cycles::sleep((generateRandom() % targetNSPO) / 1000);
+        }
+
+        uint64_t nextStop = 0;
+        uint64_t start = Cycles::rdtsc();
+        uint64_t stop = 0;
+
+        try
+        {
+            while (true) {
+                // Generate random key.
+                memset(key, 0, keyLen);
+                string("workload").copy(key, 8);
+                *reinterpret_cast<uint64_t*>(key + 8) = generator->nextNumber();
+
+                // Perform Operation
+                if (generateRandom() <= readThreshold) {
+                    // Do read
+                    cluster->read(dataTable, key, keyLen, &readBuf);
+                    readCount++;
+                } else {
+                    // Do write
+                    Util::genRandomString(value, recordSizeB);
+                    cluster->write(dataTable, key, keyLen, value, recordSizeB);
+                    writeCount++;
+                }
+                opCount++;
+                stop = Cycles::rdtsc();
+
+                // throttle
+                if (targetNSPO > 0) {
+                    nextStop = start +
+                               Cycles::fromNanoseconds(
+                                    (opCount * targetNSPO) +
+                                    (generateRandom() % targetNSPO) -
+                                    (targetNSPO / 2));
+                    if (Cycles::rdtsc() > nextStop) {
+                        targetMissCount++;
+                    }
+                    while (Cycles::rdtsc() < nextStop);
+                }
+            }
+        } catch (TableDoesntExistException &e) {
+            LogLevel ll = NOTICE;
+            if (targetMissCount > 0) {
+                ll = WARNING;
+            }
+            RAMCLOUD_LOG(ll,
+                    "Actual OPS %.0f / Target OPS %lu",
+                    static_cast<double>(opCount) /
+                    static_cast<double>(Cycles::toSeconds(stop - start)),
+                    targetOps);
+            RAMCLOUD_LOG(ll,
+                    "%lu Misses / %lu Total -- %lu/%lu R/W",
+                    targetMissCount, opCount, readCount, writeCount);
+            throw e;
+        }
+    }
+//private:
+    int recordCount;
+    int recordSizeB;
+    int readPercent;
+    Tub<ZipfianGenerator> generator;
 };
 
 /**
@@ -3902,6 +4100,188 @@ doShuffleValues(int numIter, int selectivity, int numMasters, int objsPerMaster)
     return cumulativeElapsed;
 }
 
+enum OpType{ READ_TYPE, WRITE_TYPE };
+/**
+ * Run a specified workload and measure the latencies of the specified opType.
+ */
+void
+doWorkload(OpType type)
+{
+    WorkloadGenerator loadGenerator(workload);
+
+    if (clientIndex > 0) {
+        // Perform slave setup.
+        while (true) {
+            char command[20];
+            getCommand(command, sizeof(command));
+            if (strcmp(command, "run") == 0) {
+                // Slaves will run the specified workload until the "data" table
+                // is dropped.
+                setSlaveState("running");
+                try
+                {
+                    loadGenerator.run(static_cast<uint64_t>(targetOps));
+                }
+                catch (TableDoesntExistException &e)
+                {}
+                setSlaveState("done");
+                return;
+            } else {
+                RAMCLOUD_LOG(ERROR, "unknown command %s", command);
+                return;
+            }
+        }
+    }
+
+    loadGenerator.setup();
+
+    sendCommand("run", "running", 1, numClients-1);
+
+    const uint16_t keyLen = 30;
+    char key[keyLen];
+    Buffer readBuf;
+    char value[loadGenerator.recordSizeB];
+
+    // Begin counter collection on the server side.
+    memset(key, 0, keyLen);
+    cluster->objectServerControl(dataTable, key, keyLen,
+                            WireFormat::START_PERF_COUNTERS);
+
+    // Force serialization so that writing interferes less with the read
+    // benchmark.
+    Util::serialize();
+
+    uint64_t readThreshold = (~0UL / 100) * loadGenerator.readPercent;
+    uint64_t opCount = 0;
+    uint64_t targetMissCount = 0;
+    uint64_t readCount = 0;
+    uint64_t writeCount = 0;
+    uint64_t targetNSPO = 0;
+    if (targetOps > 0) {
+        targetNSPO = 1000000000 / static_cast<uint64_t>(targetOps);
+        // Randomize start time
+        Cycles::sleep((generateRandom() % targetNSPO) / 1000);
+    }
+
+    string("workload").copy(key, 8);
+    *reinterpret_cast<uint64_t*>(key + 8) = 0;
+    Buffer statsBuffer;
+    cluster->objectServerControl(dataTable, key, keyLen,
+                    WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
+                    &statsBuffer);
+    PerfStats startStats = *statsBuffer.getStart<PerfStats>();
+
+    uint64_t nextStop = 0;
+    uint64_t start = Cycles::rdtsc();
+    uint64_t stop = 0;
+
+    // Issue the reads back-to-back, and save the times.
+    std::vector<uint64_t> ticks;
+    ticks.resize(count);
+    int i = 0;
+    while (i < count) {
+        // Generate random key.
+        memset(key, 0, keyLen);
+        string("workload").copy(key, 8);
+        *reinterpret_cast<uint64_t*>(key + 8) =
+                loadGenerator.generator->nextNumber();
+
+        // Perform Operation
+        if (generateRandom() <= readThreshold) {
+            // Do read
+            uint64_t start = Cycles::rdtsc();
+            cluster->read(dataTable, key, keyLen, &readBuf);
+            ticks[i] = Cycles::rdtsc() - start;
+            if (type == READ_TYPE) {
+                i++;
+            }
+            readCount++;
+        } else {
+            // Do write
+            Util::genRandomString(value, loadGenerator.recordSizeB);
+            uint64_t start = Cycles::rdtsc();
+            cluster->write(dataTable, key, keyLen, value,
+                    loadGenerator.recordSizeB);
+            ticks[i] = Cycles::rdtsc() - start;
+            if (type == WRITE_TYPE) {
+                i++;
+            }
+            writeCount++;
+        }
+        opCount++;
+        stop = Cycles::rdtsc();
+
+        // throttle
+        if (targetNSPO > 0) {
+            nextStop = start +
+                       Cycles::fromNanoseconds(
+                            (opCount * targetNSPO) +
+                            (generateRandom() % targetNSPO) -
+                            (targetNSPO / 2));
+
+            if (Cycles::rdtsc() > nextStop) {
+                targetMissCount++;
+            }
+            while (Cycles::rdtsc() < nextStop);
+        }
+    }
+
+    // Dump cache traces. This amounts to almost a no-op if there are no
+    // traces, and we do not currently expect traces in production code.
+    cluster->objectServerControl(dataTable, key, keyLen,
+            WireFormat::LOG_TIME_TRACE);
+
+    cluster->objectServerControl(dataTable, key, keyLen,
+            WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
+            &statsBuffer);
+    PerfStats finishStats = *statsBuffer.getStart<PerfStats>();
+    double elapsedTime = static_cast<double>(finishStats.collectionTime -
+            startStats.collectionTime)/ finishStats.cyclesPerSecond;
+    double rate = static_cast<double>(finishStats.readCount +
+            finishStats.writeCount -
+            startStats.readCount -
+            startStats.writeCount) / elapsedTime;
+
+    LogLevel ll = NOTICE;
+    if (targetMissCount > 0) {
+        ll = WARNING;
+    }
+    RAMCLOUD_LOG(ll,
+            "Actual OPS %.0f / Target OPS %lu",
+            static_cast<double>(opCount) /
+            static_cast<double>(Cycles::toSeconds(stop - start)),
+            static_cast<uint64_t>(targetOps));
+    RAMCLOUD_LOG(ll,
+            "%lu Misses / %lu Total -- %lu/%lu R/W",
+            targetMissCount, opCount, readCount, writeCount);
+
+    // Stop slaves.
+    cluster->dropTable("data");
+    sendCommand("done", NULL, 1, numClients-1);
+
+    printf("0.0 Max Throughput: %.0f ops\n", rate);
+
+    // Output the times (several comma-separated values on each line).
+    int valuesInLine = 0;
+    for (int i = 0; i < count; i++) {
+        if (valuesInLine >= 10) {
+            valuesInLine = 0;
+            printf("\n");
+        }
+        if (valuesInLine != 0) {
+            printf(",");
+        }
+        double micros = Cycles::toSeconds(ticks[i])*1.0e06;
+        printf("%.2f", micros);
+        valuesInLine++;
+    }
+    printf("\n");
+    #undef NUM_KEYS
+
+    // Wait for slaves to exit.
+    sendCommand(NULL, "done", 1, numClients-1);
+}
+
 // This benchmark measures test consistency guarantee of transaction
 // by several clients trasfer balances among many objects.
 void
@@ -4623,6 +5003,13 @@ readDistRandom()
     printf("\n");
 }
 
+// Perform the specified workload and measure the read latencies.
+void
+readDistWorkload()
+{
+    doWorkload(READ_TYPE);
+}
+
 // This benchmark measures the latency and server throughput for reads
 // when several clients are simultaneously reading the same object.
 void
@@ -5202,6 +5589,13 @@ writeDistRandom()
     printf("\n");
 }
 
+// Perform the specified workload and measure the write latencies.
+void
+writeDistWorkload()
+{
+    doWorkload(WRITE_TYPE);
+}
+
 /**
  * This method implements the client-0 (master) functionality for
  * linearizableWriteThroughput.
@@ -5368,6 +5762,95 @@ linearizableWriteDistRandom()
         valuesInLine++;
     }
     printf("\n");
+}
+
+// This benchmark measures total throughput of a single server (in operations
+// per second) under a specified workload.
+void
+workloadThroughput()
+{
+    if (clientIndex == 0) {
+        // This is the master client.
+
+        printf("# RAMCloud %s throughput of a single server with a varying\n"
+                "# number of clients running the workload.\n",
+                workload.c_str());
+        printf("# Generated by 'clusterperf.py workloadThroughput'\n");
+        // This is the master client. Fill in the table, then measure
+        // throughput while gradually increasing the number of workers.
+        printf("#\n");
+        printf("# numClients   throughput     worker utiliz.\n");
+        printf("#              (kops)\n");
+        printf("#-------------------------------------------\n");
+
+        sendCommand("setup", "ready", 1, numClients-1);
+        for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
+            sendCommand("run", "running", numSlaves, 1);
+
+            Buffer statsBuffer;
+            cluster->objectServerControl(dataTable, "abc", 3,
+                    WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
+                    &statsBuffer);
+            PerfStats startStats = *statsBuffer.getStart<PerfStats>();
+            Cycles::sleep(1000000);
+            cluster->objectServerControl(dataTable, "abc", 3,
+                    WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
+                    &statsBuffer);
+            PerfStats finishStats = *statsBuffer.getStart<PerfStats>();
+            double elapsedTime = static_cast<double>(
+                    finishStats.collectionTime -
+                    startStats.collectionTime)/ finishStats.cyclesPerSecond;
+            double rate = static_cast<double>(finishStats.readCount +
+                    finishStats.writeCount -
+                    startStats.readCount -
+                    startStats.writeCount) / elapsedTime;
+            double utilization = static_cast<double>(finishStats.activeCycles -
+                    startStats.activeCycles) / static_cast<double>(
+                    finishStats.collectionTime - startStats.collectionTime);
+            printf("%5d         %8.0f        %8.3f\n", numSlaves, rate/1e03,
+                    utilization);
+        }
+        cluster->objectServerControl(dataTable, "abc", 3,
+                WireFormat::ControlOp::LOG_TIME_TRACE);
+        cluster->dropTable("data");
+        sendCommand("done", "done", 1, numClients-1);
+    } else {
+        // Slaves execute the following code, which creates load by
+        // issuing individual workload requests.
+        WorkloadGenerator loadGenerator(workload);
+        while (true) {
+            char command[20];
+            getCommand(command, sizeof(command));
+            if (strcmp(command, "setup") == 0) {
+                if (clientIndex == 1) {
+                    // Setup need only be performed by one slave.
+                    loadGenerator.setup();
+                    setSlaveState("ready");
+                } else {
+                    // All other slaves should wait for setup to finish.
+                    sendCommand(NULL, "ready", 1, 1);
+                    setSlaveState("ready");
+                }
+            } else if (strcmp(command, "run") == 0) {
+                // Slaves will run the specified workload until the "data" table
+                // is dropped.
+                setSlaveState("running");
+                try
+                {
+                    loadGenerator.run(static_cast<uint64_t>(targetOps));
+                }
+                catch (TableDoesntExistException &e)
+                {}
+                setSlaveState("idle");
+            } else if (strcmp(command, "done") == 0) {
+                setSlaveState("done");
+                return;
+            } else {
+                RAMCLOUD_LOG(ERROR, "unknown command %s", command);
+                return;
+            }
+        }
+    }
 }
 
 // This benchmark measures total throughput of a single server (in objects
@@ -5539,6 +6022,7 @@ TestInfo tests[] = {
     {"readAllToAll", readAllToAll},
     {"readDist", readDist},
     {"readDistRandom", readDistRandom},
+    {"readDistWorkload", readDistWorkload},
     {"readLoaded", readLoaded},
     {"readNotFound", readNotFound},
     {"readRandom", readRandom},
@@ -5547,7 +6031,9 @@ TestInfo tests[] = {
     {"writeVaryingKeyLength", writeVaryingKeyLength},
     {"writeAsyncSync", writeAsyncSync},
     {"writeDistRandom", writeDistRandom},
+    {"writeDistWorkload", writeDistWorkload},
     {"writeThroughput", writeThroughput},
+    {"workloadThroughput", workloadThroughput},
     {"linearizableWriteDistRandom", linearizableWriteDistRandom},
     {"linearizableWriteThroughput", linearizableWriteThroughput},
     {"linearizableRpc", linearizableRpc},
@@ -5593,6 +6079,12 @@ try
         ("warmup", po::value<int>(&warmupCount)->default_value(100),
                 "Number of times to invoke operation before beginning "
                 "measurements")
+        ("workload", po::value<string>(&workload)->default_value("YCSB-A"),
+                "Workload of additional load generating clients"
+                "(YCSB-A, YCSB-B, YCSB-C)")
+        ("targetOps", po::value<int>(&targetOps)->default_value(0),
+                "Operations per second that each load generating client"
+                "will try to achieve (0 means run as fast as possible)")
         ("numIndexlet", po::value<int>(&numIndexlet)->default_value(1),
                 "number of Indexlets")
         ("numIndexes", po::value<int>(&numIndexes)->default_value(1),
