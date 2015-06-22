@@ -242,7 +242,7 @@ WorkerTimer::findManager(Dispatch* dispatch, Lock& lock)
  * \param lock
  *      Used to ensure that caller has acquired WorkerTimer::mutex.
  *      Not actually used by the method.
- * 
+ *
  * \return
  *      The return value is a pointer to a timer whose handler should be
  *      invoked, or NULL if there are no such timers.

@@ -2792,13 +2792,12 @@ ObjectManager::relocateRpcRecord(Buffer& oldBuffer,
         if (!relocator.append(LOG_ENTRY_TYPE_RPCRECORD, oldBuffer))
             return;
 
-        // TODO(cstlee) : Ask Seojin if there is a problem if the rpc is acked
-        // before this method completes.
         unackedRpcResults->recordCompletion(
                 rpcRecord.getLeaseId(),
                 rpcRecord.getRpcId(),
                 reinterpret_cast<void*>(
-                        relocator.getNewReference().toInteger()));
+                        relocator.getNewReference().toInteger()),
+                true);
     } else {
         // Rpc Record will be dropped/"cleaned" so stats should be updated.
         TableStats::decrement(masterTableMetadata,

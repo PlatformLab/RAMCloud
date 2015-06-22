@@ -43,11 +43,14 @@ class UnackedRpcResults {
                         uint64_t leaseTerm,
                         void** result);
     bool shouldRecover(uint64_t clientId, uint64_t rpcId, uint64_t ackId);
-    void recordCompletion(uint64_t clientId, uint64_t rpcId, void* result);
+    void recordCompletion(uint64_t clientId,
+                             uint64_t rpcId,
+                             void* result,
+                             bool ignoreIfAcked = false);
     void recoverRecord(uint64_t clientId,
-                       uint64_t rpcId,
-                       uint64_t ackId,
-                       void* result);
+                         uint64_t rpcId,
+                         uint64_t ackId,
+                         void* result);
     void resetRecord(uint64_t clientId,
                      uint64_t rpcId);
     bool isRpcAcked(uint64_t clientId, uint64_t rpcId);
@@ -70,36 +73,42 @@ class UnackedRpcResults {
         uint64_t id;
 
         /**
-         * Pointer to the result of the RPC in log-structured memory.
+         * Log reference to the RpcResult log entry in log-structured memory.
          * This value may be NULL to indicate the RPC is still in progress.
          */
         void* result;
     };
 
     /**
-     * The Cleaner periodically wakes up to clean up expired leases.
-     * The cleaning process only blocks during the initial fetch of iterator,
-     * and the actual removal of an expired lease;
+     * The Cleaner periodically wakes up to clean up records of clients with
+     * expired leases in unackedRpcResults.
+     * Cleaner blocks the access to unackedRpcResults, so we limit the number
+     * of clients we clean each time.
      */
     class Cleaner : public WorkerTimer {
       public:
         explicit Cleaner(UnackedRpcResults* unackedRpcResults);
         virtual void handleTimerEvent();
 
+        /// The pointer to unackedRpcResults which will be cleaned.
         UnackedRpcResults* unackedRpcResults;
 
+        /// Starting point of next round of cleaning.
         uint64_t nextClientToCheck;
 
-        //TODO(seojin): do this optimization later
+        /// The maximum number of clients we check for liveness.
         static const int maxIterPerPeriod = 1000;
+
+        /// The maximum number of clients to be quarries to coordinator
+        /// for the liveness of lease. This parameter is currently not used.
         static const uint32_t maxCheckPerPeriod = 100;
       private:
         DISALLOW_COPY_AND_ASSIGN(Cleaner);
     };
 
     /**
-     * Stores unacknowledged rpc's id and pointer to result from a client
-     * with some additional useful information for performance.
+     * Each instance of this class stores information about unacknowledged RPCs
+     * from a single client, which is determined by the client id.
      */
     class Client {
       PUBLIC:
@@ -132,13 +141,17 @@ class UnackedRpcResults {
         uint64_t maxRpcId;
 
         /**
-         * The largest ack number received from this client.
-         * We do not need to retain information for RPCs with rpcId <= maxAckId.
-         */
+         * Largest RpcId for which the client has acknowledged receiving
+         * the result. We do not need to retain information for
+         * RPCs with rpcId <= maxAckId.
+        */
         uint64_t maxAckId;
 
         /**
-         * The lastest cache of leaseTerm value. Used in Cleaner for GC.
+         * A cluster clock value giving a hint about when the client's
+         * lease expires (it definitely will not expire before this time,
+         * but the lease may have been extended since this value was written).
+         * Used in Cleaner for GC.
          */
         uint64_t leaseTerm;
 
@@ -182,9 +195,10 @@ class UnackedRpcResults {
 
     /**
      * Maps from a registered client ID to #Client.
+     * Clients are dynamically allocated and must be freed explicitly.
      */
-    std::unordered_map<uint64_t, Client*> clients;
     typedef std::unordered_map<uint64_t, Client*> ClientMap;
+    ClientMap clients;
 
     /**
      * Monitor-style lock. Any operation on internal data structure should

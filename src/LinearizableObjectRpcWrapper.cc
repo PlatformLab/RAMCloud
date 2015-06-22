@@ -184,6 +184,11 @@ void LinearizableObjectRpcWrapper::tryFinish()
     waitInternal(ramcloud->clientContext->dispatch);
 }
 
+/*
+ * Following line is necessary to tell compiler to instantiate the templatized
+ * method "fillLinearizabilityHeader" with WireFormat::Write::Request.
+ * This manual instantiation is necessary if the method is defined in cc file.
+ */
 template void LinearizableObjectRpcWrapper::fillLinearizabilityHeader
     <WireFormat::Write::Request>(WireFormat::Write::Request* reqHdr);
 

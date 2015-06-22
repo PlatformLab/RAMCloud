@@ -437,7 +437,48 @@ class ObjectSafeVersion {
     DISALLOW_COPY_AND_ASSIGN(ObjectSafeVersion);
 };
 
-///TODO(seojin): documentation.
+/* In other words, this code centralizes the format and parsing of objects
+ * (essentially serialization and deserialization). Different constructors
+ * serve these two purposes.
+ *
+ * Each object contains one or more variable-length keys, a variable-length
+ * binary blob of data, and a few other pieces of metadata (such as table
+ * id and version).  When stored in the log, an object has the following
+ * layout:
+ *
+ * +---------------+--------+---------------------------+----------+----------+
+ * | Object Header | # keys | Cumulative Key Lengths .. | Keys ... | Data ... |
+ * +---------------+--------+---------------------------+----------+----------+
+ *                 <--------------------- keysAndValue ----------------------->
+ *
+ * "Object Header" is a structure of type Header, defined below.
+ * "# keys" is typedefined below as KeyCount
+ * "CumulativeKeyLength" is typedefined below as CumulativeKeyLength
+ *
+ * Everything except the header and the number of keys is of variable length.
+ * If the cumulative key length values are 16 bits each, then
+ * the constraint is that the total length of all the keys in an object has
+ * to be <= 64K.
+ */
+
+/**
+ * This class defines the format of a linearizable RPC result stored in the log
+ * and provides methods to easily construct new ones to be appended
+ * and interpret ones that have already been written.
+ *
+ * In other words, this code centralizes the format and parsing of RpcResults
+ * (essentially serialization and deserialization).
+ *
+ * During RC recovery of RpcResult log, a master inserts the log entry to
+ * UnackedRpcResults.
+ *
+ * Each RpcResult contains a header and a variable length RPC response.
+ * When stored in the log, a RpcResult has the following layout:
+ *
+ * +------------------+----------+
+ * | RpcResult Header | Response |
+ * +------------------+----------+
+ */
 class RpcRecord {
   public:
     RpcRecord(uint64_t tableId, KeyHash keyHash,
@@ -466,6 +507,10 @@ class RpcRecord {
     uint32_t getSerializedLength();
     uint32_t computeChecksum();
 
+    /**
+     * This data structure defines the format of a RpcResult header stored in a
+     * master server's log.
+     */
     class Header {
       public:
         /**
@@ -493,19 +538,21 @@ class RpcRecord {
         {
         }
 
-        /// See "LinearizableRpc" section 3.1 in designNotes.
+        /// Table to which the object Modified by current RPC.
+        /// A (TableId, KeyHash) tuple uniquely identifies the master that
+        /// should execute this RPC.
         uint64_t tableId;
 
-        /// See "LinearizableRpc" section 3.1 in designNotes.
+        /// Key hash value of the object modified by current RPC.
         KeyHash keyHash;
 
-        /// See "LinearizableRpc" section 3.1 in designNotes.
+        /// leaseId given by the client that dispatched this RPC.
         uint64_t leaseId;
 
-        /// See "LinearizableRpc" section 3.1 in designNotes.
+        /// RPC ID assigned by the client that dispatched this RPC.
         uint64_t rpcId;
 
-        /// See "LinearizableRpc" section 3.1 in designNotes.
+        /// Acknowledgement given by the client that dispatched this RPC.
         uint64_t ackId;
 
         /// CRC32C checksum covering everything but this field, including the
