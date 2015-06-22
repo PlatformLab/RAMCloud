@@ -24,11 +24,15 @@ namespace RAMCloud {
  *      Actual bytes of first key to compare.
  * \param keyLength1
  *      Length of key1.
+ *      The value 0 corresponds to NULL key1 which indicates
+ *      lowest possible key.
  * \param key2
  *      Actual bytes of second key to compare.
  * \param keyLength2
  *      Length of key2.
- *
+ *      The value 0 corresponds to NULL key2 which indicates
+ *      highest possible key.
+ * 
  * \return
  *      Value of 0 if the keys are equal,
  *      negative value if key1 is lexicographically < key2,
@@ -36,11 +40,15 @@ namespace RAMCloud {
  */
 int
 IndexKey::keyCompare(const void* key1, uint16_t keyLength1,
-                     const void* key2, uint16_t keyLength2)
+        const void* key2, uint16_t keyLength2)
 {
     RAMCLOUD_LOG(DEBUG, "Comparing keys: %s vs %s",
         string(reinterpret_cast<const char*>(key1), keyLength1).c_str(),
         string(reinterpret_cast<const char*>(key2), keyLength2).c_str());
+
+    if (keyLength2 == 0) {
+        return -1;
+    }
 
     int keyCmp = bcmp(key1, key2, std::min(keyLength1, keyLength2));
     if (keyCmp != 0) {
