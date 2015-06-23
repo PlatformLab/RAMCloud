@@ -299,23 +299,35 @@ ClientTransactionTask::processPrepareRpcs()
 }
 
 /**
- * Send out a decision rpc if not all masters have been notified.  Used in
- * performTask.  Factored out mostly for clarity and ease of testing.
+ * Send out a batch of un-sent decision notifications as a single DecisionRpc
+ * if not all masters have been notified.  Used in performTask.  Factored out
+ * mostly for clarity and ease of testing.
  */
 void
 ClientTransactionTask::sendDecisionRpc()
 {
-    // Issue an additional rpc.
     DecisionRpc* nextRpc = NULL;
     Transport::SessionRef rpcSession;
     for (; nextCacheEntry != commitCache.end(); nextCacheEntry++) {
         const CacheKey* key = &nextCacheEntry->first;
         CacheEntry* entry = &nextCacheEntry->second;
 
+        // Skip the entry if the decision was already sent.  This might happen
+        // when an RPC receives STATUS_RETRY and we need to look through all
+        // the entries again looking for entries that have been marked PENDING
+        // indicating the decisions need to be resent; entries not marked don't
+        // need to be resent.
         if (entry->state == CacheEntry::DECIDE) {
             continue;
         }
 
+        // Batch is done naively assuming that tables are partitioned across
+        // servers into contiguous key-hash ranges (tablets).  The commit cache
+        // is iterated in key-hash order batching together decisions
+        // notifications that share a destination server.
+        //
+        // This naive approach behaves poorly if the table is highly sharded
+        // resulting in poor batching.
         if (nextRpc == NULL) {
             rpcSession =
                     ramcloud->objectFinder.lookup(key->tableId,
@@ -340,23 +352,35 @@ ClientTransactionTask::sendDecisionRpc()
 }
 
 /**
- * Send out a prepare rpc if there are remaining un-prepared transaction ops.
- * Used in performTask.  Factored out mostly for clarity and ease of testing.
+ * Send out a batch of un-sent prepare requests in a single PrepareRpc if there
+ * are remaining un-prepared transaction ops.  Used in performTask.  Factored
+ * out mostly for clarity and ease of testing.
  */
 void
 ClientTransactionTask::sendPrepareRpc()
 {
-    // Issue an additional rpc.
     PrepareRpc* nextRpc = NULL;
     Transport::SessionRef rpcSession;
     for (; nextCacheEntry != commitCache.end(); nextCacheEntry++) {
         const CacheKey* key = &nextCacheEntry->first;
         CacheEntry* entry = &nextCacheEntry->second;
 
+        // Skip the entry if the prepare was already sent.  This might happen
+        // when an RPC receives STATUS_RETRY and we need to look through all
+        // the entries again looking for entries that have been marked PENDING
+        // indicating the prepares need to be resent; entries not marked don't
+        // need to be resent.
         if (entry->state == CacheEntry::PREPARE) {
             continue;
         }
 
+        // Batch is done naively assuming that tables are partitioned across
+        // servers into contiguous key-hash ranges (tablets).  The commit cache
+        // is iterated in key-hash order batching together prepare requests
+        // that share a destination server.
+        //
+        // This naive approach behaves poorly if the table is highly sharded
+        // resulting in poor batching.
         if (nextRpc == NULL) {
             rpcSession =
                     ramcloud->objectFinder.lookup(key->tableId,

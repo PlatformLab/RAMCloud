@@ -44,7 +44,9 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         /// Cached object value.  Used to service reads and defer writes and
         /// removes until commit-time.  Ideally this would be a unique pointer
         /// to manage the memory automatically but std::multimap is missing the
-        /// emplace feature.
+        /// emplace feature.  Instead, we must manually dynamically allocate
+        /// the object and ensure there is only one pointer to it so that it
+        /// will not be double freed.
         ObjectBuffer* objectBuf;
         /// Conditions upon which the transaction operation associated with
         /// this object should abort.
@@ -76,12 +78,10 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         {}
 
         /// Destructor for CacheEntry.
-        ///
-        /// Warning: Multiple copies of CacheEntry objects may cause the
-        /// ObjectBuffer pointed in the entry to be double freed.  This
-        /// is indirectly due to missing emplace feature in std::multimap.
         ~CacheEntry()
         {
+            // This delete would not be necessary if std::multimap supported
+            // emplace operations.
             if (objectBuf)
                 delete objectBuf;
         }
@@ -134,7 +134,11 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     Buffer participantList;
 
     /// Keeps track of the task currently executing phase.
-    enum State { INIT, PREPARE, DECISION, DONE} state;
+    enum State { INIT,      /// Acquire and assign LeaseIds and RpcIds.
+                 PREPARE,   /// Send out PrepareRpcs and collect votes.
+                 DECISION,  /// Send out DecisionRpcs based on votes.
+                 DONE       /// Execution has terminated (w/ or w/o errors).
+            } state;
 
     /// Status of the transaction.  Used to defer exceptions.
     Status status;
