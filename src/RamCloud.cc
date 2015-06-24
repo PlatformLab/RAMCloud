@@ -2206,7 +2206,7 @@ ObjectServerControlRpc::wait()
  * the objectServerControl method.
  *
  * \param controlOp
- *      This defines the specific operation to be performed on each server.
+ *      This defines the specific to be performed on each server.
  * \param inputData
  *      Input data, such as additional parameters, specific for the
  *      particular operation to be performed. Not all operations use
