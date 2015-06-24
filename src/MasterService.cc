@@ -1934,7 +1934,8 @@ MasterService::migrateSingleIndexObject(
         // the newOwner has a tablet that spans the entire key hash
         // range of this backing table.
         MasterClient::receiveMigrationData(context, newOwnerMasterId,
-                transferSeg.get(), newBackingTableId, 0);
+                transferSeg.get(), newBackingTableId, 0,
+                true, tableId, indexId, splitKey, splitKeyLength);
 
         transferSeg.destroy();
         transferSeg.construct();
@@ -2079,7 +2080,8 @@ MasterService::splitAndMigrateIndexlet(
         transferSeg->close();
         LOG(DEBUG, "Sending last migration segment");
         MasterClient::receiveMigrationData(context, newOwnerMasterId,
-                transferSeg.get(), newBackingTableId, 0);
+                transferSeg.get(), newBackingTableId, 0,
+                true, tableId, indexId, splitKey, splitKeyLength);
         transferSeg.destroy();
     }
 
