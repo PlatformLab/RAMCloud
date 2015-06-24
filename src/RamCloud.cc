@@ -1555,7 +1555,8 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  * \param firstKey
  *      Starting key for the key range in which keys are to be matched.
  *      The key range includes the firstKey.
- *      It does not necessarily have to be null terminated.  The caller must
+ *      NULL value indicates lowest possible key.
+ *      It does not necessarily have to be null terminated. The caller must
  *      ensure that the storage for this key is unchanged through the life of
  *      the RPC.
  * \param firstKeyLength
@@ -1565,7 +1566,8 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  * \param lastKey
  *      Ending key for the key range in which keys are to be matched.
  *      The key range includes the lastKey.
- *      It does not necessarily have to be null terminated.  The caller must
+ *      NULL value indicates highest possible key.
+ *      It does not necessarily have to be null terminated. The caller must
  *      ensure that the storage for this key is unchanged through the life of
  *      the RPC.
  * \param lastKeyLength
