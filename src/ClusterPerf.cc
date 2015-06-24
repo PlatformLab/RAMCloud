@@ -4958,20 +4958,35 @@ readDistRandom()
         return;
 
     const uint16_t keyLength = 30;
-
     char key[keyLength];
     Buffer value;
+
+    // The following variables divide the read times into intervals
+    // of 20 µs and keep track of how many read times fall in each
+    // interval.
+    #define MICROS_PER_BUCKET 20
+    uint64_t bucketTicks = MICROS_PER_BUCKET * Cycles::fromNanoseconds(1000);
+    #define NUM_BUCKETS 10
+    int timeBuckets[NUM_BUCKETS];
+    for (int i = 0; i < NUM_BUCKETS; i++) {
+        timeBuckets[i] = 0;
+    }
 
     fillTable(dataTable, numKeys, keyLength, objectSize);
 
     // Begin counter collection on the server side.
     memset(key, 0, keyLength);
     cluster->objectServerControl(dataTable, key, keyLength,
+                            WireFormat::RESET_METRICS);
+    cluster->objectServerControl(dataTable, key, keyLength,
                             WireFormat::START_PERF_COUNTERS);
 
     // Force serialization so that writing interferes less with the read
     // benchmark.
     Util::serialize();
+
+    uint64_t ticks50Micros = Cycles::fromNanoseconds(50000);
+    uint64_t lastLong = 0;
 
     // Issue the reads back-to-back, and save the times.
     std::vector<uint64_t> ticks(count);
@@ -4983,8 +4998,22 @@ readDistRandom()
         // Do the benchmark
         uint64_t start = Cycles::rdtsc();
         cluster->read(dataTable, key, keyLength, &value);
-        ticks.at(i) = Cycles::rdtsc() - start;
+        uint64_t now = Cycles::rdtsc();
+        uint64_t interval = now - start;
+        ticks.at(i) = interval;
+        int index = downCast<int>(interval/bucketTicks);
+        if (index < NUM_BUCKETS) {
+            timeBuckets[index]++;
+        }
+        if ((interval > ticks50Micros) && (interval < 2*ticks50Micros)) {
+            if (lastLong != 0) {
+                LOG(NOTICE, "Read time was %.1f us (%.1f ms since previous)",
+                        Cycles::toSeconds(interval)*1e06,
+                        Cycles::toSeconds(now-lastLong)*1e03);
             }
+            lastLong = now;
+        }
+    }
 
     // Output the times (several comma-separated values on each line).
     int valuesInLine = 0;
@@ -5001,6 +5030,11 @@ readDistRandom()
         valuesInLine++;
     }
     printf("\n");
+    for (int i = 0; i <  NUM_BUCKETS; i++) {
+        LOG(NOTICE, "Number of times between %d and %d usecs: %d (%.2f%%)",
+                MICROS_PER_BUCKET*i, MICROS_PER_BUCKET*(i+1),
+                timeBuckets[i], 100.0*timeBuckets[i]/count);
+    }
 }
 
 // Perform the specified workload and measure the read latencies.
