@@ -107,8 +107,6 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// Return the transaction commit decision if a decision has been reached.
     /// Otherwise, INVALID will be returned.
     WireFormat::TxDecision::Decision getDecision() { return decision; }
-    /// Return last exceptional STATUS.
-    Status getStatus() { return status; }
     CacheEntry* insertCacheEntry(Key& key, const void* buf, uint32_t length);
     /// Check if the task has completed the commit protocol.
     bool isReady() { return (state == DONE); }
@@ -139,9 +137,6 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
                  DECISION,  /// Send out DecisionRpcs based on votes.
                  DONE       /// Execution has terminated (w/ or w/o errors).
             } state;
-
-    /// Status of the transaction.  Used to defer exceptions.
-    Status status;
 
     /// This transaction's decision to either COMMIT or ABORT.
     WireFormat::TxDecision::Decision decision;

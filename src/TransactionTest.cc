@@ -141,6 +141,12 @@ TEST_F(TransactionTest, commit_abort) {
     EXPECT_TRUE(transaction->commitStarted);
 }
 
+TEST_F(TransactionTest, commit_internalError) {
+    transaction->commit();
+    transaction->taskPtr.get()->decision = WireFormat::TxDecision::INVALID;
+    EXPECT_THROW(transaction->commit(), InternalError);
+}
+
 TEST_F(TransactionTest, sync_basic) {
     ramcloud->write(tableId1, "0", 1, "abcdef", 6);
 

@@ -54,8 +54,8 @@ Transaction::commit()
         ramcloud->poll();
     }
 
-    if (task->getStatus() != STATUS_OK) {
-        ClientException::throwException(HERE, task->getStatus());
+    if (expect_false(task->getDecision() == WireFormat::TxDecision::INVALID)) {
+        ClientException::throwException(HERE, STATUS_INTERNAL_ERROR);
     }
 
     return (task->getDecision() == WireFormat::TxDecision::COMMIT);
@@ -81,10 +81,6 @@ Transaction::sync()
     while (!task->isReady()) {
         ramcloud->poll();
     }
-
-    if (task->getStatus() != STATUS_OK) {
-        ClientException::throwException(HERE, task->getStatus());
-    }
 }
 
 /**
@@ -99,8 +95,7 @@ bool
 Transaction::commitAndSync()
 {
     sync();
-    ClientTransactionTask* task = taskPtr.get();
-    return (task->getDecision() == WireFormat::TxDecision::COMMIT);
+    return commit();
 }
 
 /**

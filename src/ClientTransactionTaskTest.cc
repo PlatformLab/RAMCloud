@@ -493,12 +493,14 @@ TEST_F(ClientTransactionTaskTest, performTask_setDecision) {
 
 TEST_F(ClientTransactionTaskTest, performTask_ClientException) {
     insertWrite(0, "test1", 5, "hello", 5);
+    TestLog::reset();
 
     EXPECT_EQ(ClientTransactionTask::INIT, transactionTask->state);
-    EXPECT_EQ(STATUS_OK, transactionTask->getStatus());
     transactionTask->performTask();
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
-    EXPECT_EQ(STATUS_TABLE_DOESNT_EXIST, transactionTask->getStatus());
+    EXPECT_EQ("performTask: Unexpected exception 'table doesn't exist' while "
+              "preparing transaction commit; will result in internal error.",
+              TestLog::get());
 }
 
 TEST_F(ClientTransactionTaskTest, start) {

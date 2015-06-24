@@ -29,7 +29,6 @@ ClientTransactionTask::ClientTransactionTask(RamCloud* ramcloud)
     , participantCount(0)
     , participantList()
     , state(INIT)
-    , status(STATUS_OK)
     , decision(WireFormat::TxDecision::INVALID)
     , lease()
     , txId(0)
@@ -142,10 +141,26 @@ ClientTransactionTask::performTask()
         // This shouldn't happen unless there is a bug.
         prepareRpcs.clear();
         decisionRpcs.clear();
-        status = e.status;
-        RAMCLOUD_LOG(ERROR,
-                "Unexpected exception occurred while committing transaction: "
-                "%s", statusToString(status));
+        switch (state) {
+            case INIT:
+            case PREPARE:
+                RAMCLOUD_LOG(ERROR,
+                        "Unexpected exception '%s' while preparing "
+                        "transaction commit; will result in internal error.",
+                        statusToString(e.status));
+                break;
+            case DECISION:
+                RAMCLOUD_LOG(WARNING,
+                        "Unexpected exception '%s' while issuing transaction "
+                        "decisions; likely recoverable.",
+                        statusToString(e.status));
+                break;
+            default:
+                RAMCLOUD_LOG(NOTICE,
+                        "Unexpected exception '%s' after committing "
+                        "transaction.",
+                        statusToString(e.status));
+        }
         ramcloud->rpcTracker.rpcFinished(txId);
         state = DONE;
     }
