@@ -199,7 +199,7 @@ UdpDriver::sendPacket(const Address *addr,
 
 /**
  * Invoked by the dispatcher when our socket becomes readable.
- * Reads a packet from the socket, if there is one, and passes it on
+ * Reads any available packets from the socket, and passes them on
  * to the associated FastTransport instance.
  *
  * \param events
@@ -210,29 +210,34 @@ void
 UdpDriver::ReadHandler::handleFileEvent(int events)
 {
     PacketBuf* buffer;
-    buffer = driver->packetBufPool.construct();
-    socklen_t addrlen = sizeof(&buffer->ipAddress.address);
-    ssize_t r = sys->recvfrom(driver->socketFd, buffer->payload,
-                              MAX_PAYLOAD_SIZE,
-                              MSG_DONTWAIT,
-                              &buffer->ipAddress.address, &addrlen);
-    if (r == -1) {
-        driver->packetBufPool.destroy(buffer);
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
+    // Each iteration through the following loop receives one
+    // incoming packet. Note: reading multiple packets in each call
+    // to this method improves throughput under load by 50%.
+    while (1) {
+        buffer = driver->packetBufPool.construct();
+        socklen_t addrlen = sizeof(&buffer->ipAddress.address);
+        ssize_t r = sys->recvfrom(driver->socketFd, buffer->payload,
+                                  MAX_PAYLOAD_SIZE,
+                                  MSG_DONTWAIT,
+                                  &buffer->ipAddress.address, &addrlen);
+        if (r == -1) {
+            driver->packetBufPool.destroy(buffer);
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                return;
+            LOG(WARNING, "UdpDriver error receiving from socket: %s",
+                    strerror(errno));
+            driver->close();
             return;
-        LOG(WARNING, "UdpDriver error receiving from socket: %s",
-                strerror(errno));
-        driver->close();
-        return;
-    }
-    Received received;
-    received.len = downCast<uint32_t>(r);
+        }
+        Received received;
+        received.len = downCast<uint32_t>(r);
 
-    driver->packetBufsUtilized++;
-    received.payload = buffer->payload;
-    received.sender = &buffer->ipAddress;
-    received.driver = driver;
-    (*driver->incomingPacketHandler)(&received);
+        driver->packetBufsUtilized++;
+        received.payload = buffer->payload;
+        received.sender = &buffer->ipAddress;
+        received.driver = driver;
+        (*driver->incomingPacketHandler)(&received);
+    }
 }
 
 // See docs in Driver class.
