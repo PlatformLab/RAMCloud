@@ -119,8 +119,8 @@ ClientTransactionTask::performTask()
             state = PREPARE;
         }
         if (state == PREPARE) {
-            processPrepareRpcs();
             sendPrepareRpc();
+            processPrepareRpcResults();
             if (prepareRpcs.empty() && nextCacheEntry == commitCache.end()) {
                 nextCacheEntry = commitCache.begin();
                 if (decision != WireFormat::TxDecision::ABORT) {
@@ -130,18 +130,22 @@ ClientTransactionTask::performTask()
             }
         }
         if (state == DECISION) {
-            processDecisionRpcs();
             sendDecisionRpc();
+            processDecisionRpcResults();
             if (decisionRpcs.empty() && nextCacheEntry == commitCache.end()) {
                 ramcloud->rpcTracker.rpcFinished(txId);
                 state = DONE;
             }
         }
     } catch (ClientException& e) {
-        // If there are any problems with the commit protocol, STOP.
+        // If there are any unexpected problems with the commit protocol, STOP.
+        // This shouldn't happen unless there is a bug.
         prepareRpcs.clear();
         decisionRpcs.clear();
         status = e.status;
+        RAMCLOUD_LOG(ERROR,
+                "Unexpected exception occurred while committing transaction: "
+                "%s", statusToString(status));
         ramcloud->rpcTracker.rpcFinished(txId);
         state = DONE;
     }
@@ -233,7 +237,7 @@ ClientTransactionTask::initTask()
  * Factored out mostly for clarity and ease of testing.
  */
 void
-ClientTransactionTask::processDecisionRpcs()
+ClientTransactionTask::processDecisionRpcResults()
 {
     // Process outstanding RPCs.
     std::list<DecisionRpc>::iterator it = decisionRpcs.begin();
@@ -266,7 +270,7 @@ ClientTransactionTask::processDecisionRpcs()
  * out mostly for clarity and ease of testing.
  */
 void
-ClientTransactionTask::processPrepareRpcs()
+ClientTransactionTask::processPrepareRpcResults()
 {
     // Process outstanding RPCs.
     std::list<PrepareRpc>::iterator it = prepareRpcs.begin();

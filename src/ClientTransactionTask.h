@@ -56,7 +56,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         uint64_t rpcId;
         /// Used to keep track of what stage in the commit process this
         /// operation has reached.
-        enum { PENDING, PREPARE, DECIDE, FAILED } state;
+        enum { PENDING, PREPARE, DECIDE } state;
 
         /// Default constructor for CacheEntry.
         CacheEntry()
@@ -212,8 +212,8 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     Tub<Poller> poller;
 
     void initTask();
-    void processDecisionRpcs();
-    void processPrepareRpcs();
+    void processDecisionRpcResults();
+    void processPrepareRpcResults();
     void sendDecisionRpc();
     void sendPrepareRpc();
     virtual void tryFinish();

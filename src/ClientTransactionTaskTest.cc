@@ -455,23 +455,20 @@ TEST_F(ClientTransactionTaskTest, performTask_basic) {
     insertWrite(tableId3, "test1", 5, "hello", 5);
 
     EXPECT_EQ(ClientTransactionTask::INIT, transactionTask->state);
-    transactionTask->performTask();     // RPC 1 Sent
+    transactionTask->performTask();     // RPC 1 Sent, RPC 1 Processed
     EXPECT_EQ(ClientTransactionTask::PREPARE, transactionTask->state);
-    transactionTask->performTask();     // RPC 2 Sent, RPC 1 Processed
+    transactionTask->performTask();     // RPC 2 Sent, RPC 2 Processed
     EXPECT_EQ(ClientTransactionTask::PREPARE, transactionTask->state);
-    transactionTask->performTask();     // RPC 3 Sent, RPC 2 Processed
+    transactionTask->performTask();     // RPC 3 Sent, RPC 3 Processed
     EXPECT_EQ(ClientTransactionTask::PREPARE, transactionTask->state);
-    transactionTask->performTask();     // RPC 4 Sent, RPC 3 Processed
-    EXPECT_EQ(ClientTransactionTask::PREPARE, transactionTask->state);
-    transactionTask->performTask();     // RPC 1 Sent, RPC 4 Processed
+    transactionTask->performTask();     // RPC 4 Sent, RPC 4 Processed
+                                        // RPC 1 Sent, RPC 1 Processed
     EXPECT_EQ(ClientTransactionTask::DECISION, transactionTask->state);
-    transactionTask->performTask();     // RPC 2 Sent, RPC 1 Processed
+    transactionTask->performTask();     // RPC 2 Sent, RPC 2 Processed
     EXPECT_EQ(ClientTransactionTask::DECISION, transactionTask->state);
-    transactionTask->performTask();     // RPC 3 Sent, RPC 2 Processed
+    transactionTask->performTask();     // RPC 3 Sent, RPC 3 Processed
     EXPECT_EQ(ClientTransactionTask::DECISION, transactionTask->state);
-    transactionTask->performTask();     // RPC 4 Sent, RPC 3 Processed
-    EXPECT_EQ(ClientTransactionTask::DECISION, transactionTask->state);
-    transactionTask->performTask();     // RPC 4 Processed
+    transactionTask->performTask();     // RPC 4 Sent, RPC 4 Processed
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
     transactionTask->performTask();
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
@@ -523,7 +520,7 @@ TEST_F(ClientTransactionTaskTest, Poller_poll) {
     Key key1(tableId1, "test1", 5);
     entry = task->insertCacheEntry(key1, "hello", 5);
     entry->type = ClientTransactionTask::CacheEntry::WRITE;
-    Key key2(tableId1, "test2", 5);
+    Key key2(tableId2, "test2", 5);
     entry = task->insertCacheEntry(key2, "hello", 5);
     entry->type = ClientTransactionTask::CacheEntry::WRITE;
 
@@ -577,7 +574,7 @@ TEST_F(ClientTransactionTaskTest, initTask) {
               participantListToString(transactionTask.get()));
 }
 
-TEST_F(ClientTransactionTaskTest, processDecisionRpcs_basic) {
+TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_basic) {
     // Must make sure the object exists before we try to transaction on it.
     ramcloud->write(tableId1, "test", 4, "hello", 5);
 
@@ -588,12 +585,12 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcs_basic) {
 
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
     TestLog::reset();
-    transactionTask->processDecisionRpcs();
-    EXPECT_EQ("processDecisionRpcs: STATUS_OK", TestLog::get());
+    transactionTask->processDecisionRpcResults();
+    EXPECT_EQ("processDecisionRpcResults: STATUS_OK", TestLog::get());
     EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
 }
 
-TEST_F(ClientTransactionTaskTest, processDecisionRpcs_unknownTablet) {
+TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_unknownTablet) {
     // Must make sure the object exists before we try to transaction on it.
     ramcloud->write(tableId1, "test", 4, "hello", 5);
 
@@ -608,12 +605,13 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcs_unknownTablet) {
 
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
     TestLog::reset();
-    transactionTask->processDecisionRpcs();
-    EXPECT_EQ("processDecisionRpcs: STATUS_UNKNOWN_TABLET", TestLog::get());
+    transactionTask->processDecisionRpcResults();
+    EXPECT_EQ("processDecisionRpcResults: STATUS_UNKNOWN_TABLET",
+              TestLog::get());
     EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
 }
 
-TEST_F(ClientTransactionTaskTest, processDecisionRpcs_failed) {
+TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_failed) {
     // Must make sure the object exists before we try to transaction on it.
     ramcloud->write(tableId1, "test", 4, "hello", 5);
 
@@ -626,13 +624,13 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcs_failed) {
 
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
     TestLog::reset();
-    transactionTask->processDecisionRpcs();
+    transactionTask->processDecisionRpcResults();
     EXPECT_EQ("flushSession: flushing session for mock:host=master1 | "
-              "processDecisionRpcs: FAILED", TestLog::get());
+              "processDecisionRpcResults: FAILED", TestLog::get());
     EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
 }
 
-TEST_F(ClientTransactionTaskTest, processDecisionRpcs_notReady) {
+TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_notReady) {
     // Must make sure the object exists before we try to transaction on it.
     ramcloud->write(tableId1, "test", 4, "hello", 5);
 
@@ -644,13 +642,13 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcs_notReady) {
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
     transactionTask->decisionRpcs.begin()->state =
             ClientTransactionTask::DecisionRpc::IN_PROGRESS;
-    transactionTask->processDecisionRpcs();
+    transactionTask->processDecisionRpcResults();
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
 }
 
-// TODO(cstlee) : Unit test processDecisionRpcs_badStatus
+// TODO(cstlee) : Unit test processDecisionRpcResults_badStatus
 
-TEST_F(ClientTransactionTaskTest, processPrepareRpcs_basic) {
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_basic) {
     // Must make sure the object exists before we try to transaction on it.
     ramcloud->write(tableId1, "test", 4, "hello", 5);
 
@@ -661,12 +659,12 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_basic) {
 
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
-    transactionTask->processPrepareRpcs();
+    transactionTask->processPrepareRpcResults();
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
 }
 
-TEST_F(ClientTransactionTaskTest, processPrepareRpcs_abort) {
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort) {
     // Must make sure the object exists before we try to transaction on it.
     ramcloud->write(tableId1, "test", 4, "hello", 5);
 
@@ -689,12 +687,12 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_abort) {
 
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
-    transactionTask->processPrepareRpcs();
+    transactionTask->processPrepareRpcResults();
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
 }
 
-TEST_F(ClientTransactionTaskTest, processPrepareRpcs_unknownTablet) {
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_unknownTablet) {
     // Must make sure the object exists before we try to transaction on it.
     ramcloud->write(tableId1, "test", 4, "hello", 5);
 
@@ -709,12 +707,13 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_unknownTablet) {
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
     TestLog::reset();
-    transactionTask->processPrepareRpcs();
-    EXPECT_EQ("processPrepareRpcs: STATUS_UNKNOWN_TABLET", TestLog::get());
+    transactionTask->processPrepareRpcResults();
+    EXPECT_EQ("processPrepareRpcResults: STATUS_UNKNOWN_TABLET",
+              TestLog::get());
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 }
 
-TEST_F(ClientTransactionTaskTest, processPrepareRpcs_failed) {
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_failed) {
     ramcloud->write(tableId1, "test", 4, "hello", 5);
 
     insertWrite(tableId1, "test", 4, "hello", 5);
@@ -727,14 +726,14 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_failed) {
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
     TestLog::reset();
-    transactionTask->processPrepareRpcs();
+    transactionTask->processPrepareRpcResults();
     EXPECT_EQ("flushSession: flushing session for mock:host=master1 | "
-              "processPrepareRpcs: FAILED", TestLog::get());
+              "processPrepareRpcResults: FAILED", TestLog::get());
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 }
 
-// TODO(cstlee) : Unit test processPrepareRpcs_badStatus
-//TEST_F(ClientTransactionTaskTest, processPrepareRpcs_badStatus) {
+// TODO(cstlee) : Unit test processPrepareRpcResults_badStatus
+//TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_badStatus) {
 //    // Must make sure the object exists before we try to transaction on it.
 //    ramcloud->write(tableId1, "test", 4, "hello", 5);
 //
@@ -748,13 +747,13 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_failed) {
 //    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
 //    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
 //    EXPECT_EQ(STATUS_OK, transactionTask->status);
-//    transactionTask->processPrepareRpcs();
+//    transactionTask->processPrepareRpcResults();
 //    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 //    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
 //    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, transactionTask->status);
 //}
 
-TEST_F(ClientTransactionTaskTest, processPrepareRpcs_notReady) {
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_notReady) {
     // Must make sure the object exists before we try to transaction on it.
     ramcloud->write(tableId1, "test", 4, "hello", 5);
 
@@ -768,7 +767,7 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcs_notReady) {
     transactionTask->prepareRpcs.begin()->state =
             ClientTransactionTask::PrepareRpc::IN_PROGRESS;
 
-    transactionTask->processPrepareRpcs();
+    transactionTask->processPrepareRpcResults();
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::INVALID, transactionTask->decision);
 }

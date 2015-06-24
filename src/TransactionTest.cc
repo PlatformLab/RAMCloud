@@ -105,9 +105,12 @@ TEST_F(TransactionTest, commit_basic) {
     EXPECT_EQ(ClientTransactionTask::INIT,
               transaction->taskPtr.get()->state);
     EXPECT_TRUE(transaction->commit());
-    EXPECT_EQ(ClientTransactionTask::DECISION,
+    EXPECT_EQ(ClientTransactionTask::DONE,
               transaction->taskPtr.get()->state);
     EXPECT_TRUE(transaction->commitStarted);
+
+    // Check that commit does not wait for decision rpcs to return.
+    transaction->taskPtr.get()->state = ClientTransactionTask::DECISION;
     EXPECT_TRUE(transaction->commit());
     EXPECT_EQ(ClientTransactionTask::DECISION,
               transaction->taskPtr.get()->state);
@@ -126,9 +129,12 @@ TEST_F(TransactionTest, commit_abort) {
     EXPECT_EQ(ClientTransactionTask::INIT,
               transaction->taskPtr.get()->state);
     EXPECT_FALSE(transaction->commit());
-    EXPECT_EQ(ClientTransactionTask::DECISION,
+    EXPECT_EQ(ClientTransactionTask::DONE,
               transaction->taskPtr.get()->state);
     EXPECT_TRUE(transaction->commitStarted);
+
+    // Check that commit does not wait for decision rpcs to return.
+    transaction->taskPtr.get()->state = ClientTransactionTask::DECISION;
     EXPECT_FALSE(transaction->commit());
     EXPECT_EQ(ClientTransactionTask::DECISION,
               transaction->taskPtr.get()->state);
@@ -145,10 +151,6 @@ TEST_F(TransactionTest, sync_basic) {
     EXPECT_FALSE(transaction->commitStarted);
     EXPECT_EQ(ClientTransactionTask::INIT,
               transaction->taskPtr.get()->state);
-    EXPECT_TRUE(transaction->commit());
-    EXPECT_EQ(ClientTransactionTask::DECISION,
-              transaction->taskPtr.get()->state);
-    EXPECT_TRUE(transaction->commitStarted);
     transaction->sync();
     EXPECT_EQ(ClientTransactionTask::DONE,
               transaction->taskPtr.get()->state);
