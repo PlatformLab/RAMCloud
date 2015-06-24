@@ -248,11 +248,33 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
                 return;
             }
         }
+        case WireFormat::GET_PERF_STATS:
+        {
+            PerfStats stats;
+            PerfStats::collectStats(&stats);
+            respHdr->outputLength = sizeof32(stats);
+            rpc->replyPayload->appendCopy(&stats, respHdr->outputLength);
+            break;
+        }
         case WireFormat::GET_TIME_TRACE:
         {
             string s = context->timeTrace->getTrace();
             respHdr->outputLength = downCast<uint32_t>(s.length());
             rpc->replyPayload->appendCopy(s.c_str(), respHdr->outputLength);
+            break;
+        }
+        case WireFormat::LOG_MESSAGE:
+        {
+            const LogLevel* logLevel = (const LogLevel*) inputData;
+            if (reqHdr->inputLength < sizeof(LogLevel)
+                    || *logLevel >= NUM_LOG_LEVELS) {
+                respHdr->common.status = STATUS_INVALID_PARAMETER;
+                return;
+            }
+
+            uint32_t strlen = reqHdr->inputLength - (uint32_t) sizeof(LogLevel);
+            const char* message = ((const char*) inputData) + sizeof(LogLevel);
+            LOG(*logLevel, "%.*s", strlen, message);
             break;
         }
         case WireFormat::LOG_TIME_TRACE:
@@ -272,12 +294,9 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
             context->cacheTrace->printToLog();
             break;
         }
-        case WireFormat::GET_PERF_STATS:
+        case WireFormat::RESET_METRICS:
         {
-            PerfStats stats;
-            PerfStats::collectStats(&stats);
-            respHdr->outputLength = sizeof32(stats);
-            rpc->replyPayload->appendCopy(&stats, respHdr->outputLength);
+            context->timeTrace->reset();
             break;
         }
         case WireFormat::START_PERF_COUNTERS:
@@ -288,20 +307,6 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         case WireFormat::STOP_PERF_COUNTERS:
         {
             Perf::EnabledCounter::enabled = false;
-            break;
-        }
-        case WireFormat::LOG_MESSAGE:
-        {
-            const LogLevel* logLevel = (const LogLevel*) inputData;
-            if (reqHdr->inputLength < sizeof(LogLevel)
-                    || *logLevel >= NUM_LOG_LEVELS) {
-                respHdr->common.status = STATUS_INVALID_PARAMETER;
-                return;
-            }
-
-            uint32_t strlen = reqHdr->inputLength - (uint32_t) sizeof(LogLevel);
-            const char* message = ((const char*) inputData) + sizeof(LogLevel);
-            LOG(*logLevel, "%.*s", strlen, message);
             break;
         }
         default:
