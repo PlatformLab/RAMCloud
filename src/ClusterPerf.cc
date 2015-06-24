@@ -3717,14 +3717,14 @@ void
 multiReadThroughput()
 {
     const uint16_t keyLength = 30;
-    const int numObjects = 2000000;
+    int size = objectSize;
+    if (size < 0)
+        size = 100;
+    const int numObjects = 400000000/objectSize;
 #define MRT_BATCH_SIZE 80
     if (clientIndex == 0) {
         // This is the master client. Fill in the table, then measure
         // throughput while gradually increasing the number of workers.
-        int size = objectSize;
-        if (size < 0)
-            size = 100;
         printf("# RAMCloud multi-read throughput of a single server with a\n"
                 "# varying number of clients issuing %d-object multi-reads on\n"
                 "# randomly-chosen %d-byte objects with %d-byte keys\n",
@@ -5364,12 +5364,12 @@ void
 readThroughput()
 {
     const uint16_t keyLength = 30;
-    const int numObjects = 2000000;
+    int size = objectSize;
+    if (size < 0)
+        size = 100;
+    const int numObjects = 40000000/size;
     if (clientIndex == 0) {
         // This is the master client.
-        int size = objectSize;
-        if (size < 0)
-            size = 100;
         printf("# RAMCloud read throughput of a single server with a varying\n"
                 "# number of clients issuing individual reads on randomly\n"
                 "# chosen %d-byte objects with %d-byte keys\n",
@@ -5647,7 +5647,7 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
     // throughput while gradually increasing the number of workers.
     printf("#\n");
     printf("# numClients   throughput     worker utiliz.\n");
-    printf("#              (kreads/sec)\n");
+    printf("#              (kwrites/sec)\n");
     printf("#-------------------------------------------\n");
     fillTable(dataTable, numObjects, keyLength, size);
     for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
@@ -5682,12 +5682,12 @@ void
 writeThroughput()
 {
     const uint16_t keyLength = 30;
-    const int numObjects = 2000000;
+    int size = objectSize;
+    if (size < 0)
+        size = 100;
+    const int numObjects = 400000000/objectSize;
     if (clientIndex == 0) {
         // This is the master client.
-        int size = objectSize;
-        if (size < 0)
-            size = 100;
         printf("# RAMCloud write throughput of a single server with a varying\n"
                 "# number of clients issuing individual write on randomly\n"
                 "# chosen %d-byte objects with %d-byte keys\n",
@@ -5894,12 +5894,12 @@ void
 linearizableWriteThroughput()
 {
     const uint16_t keyLength = 30;
-    const int numObjects = 2000000;
+    int size = objectSize;
+    if (size < 0)
+        size = 100;
+    const int numObjects = 400000000/objectSize;
     if (clientIndex == 0) {
         // This is the master client.
-        int size = objectSize;
-        if (size < 0)
-            size = 100;
         printf("# RAMCloud linearizable write throughput of a single\n"
                 "# server with a varying number of clients issuing\n"
                 "# individual reads on randomly chosen %d-byte objects\n"
