@@ -90,6 +90,17 @@ TEST_F(TimeTraceTest, printToLog) {
             TestLog::get());
 }
 
+TEST_F(TimeTraceTest, reset) {
+    trace.record("first", 100);
+    trace.record("second", 200);
+    trace.record("third", 200);
+    trace.events[20].message = "sneaky";
+    trace.reset();
+    EXPECT_TRUE(trace.events[2].message == NULL);
+    EXPECT_FALSE(trace.events[20].message == NULL);
+    EXPECT_EQ(0, trace.nextIndex.load());
+}
+
 TEST_F(TimeTraceTest, printInternal_emptyTrace_stringVersion) {
     trace.nextIndex = 0;
     EXPECT_EQ("No time trace events to print", trace.getTrace());
