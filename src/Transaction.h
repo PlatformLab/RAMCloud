@@ -27,6 +27,25 @@ namespace RAMCloud {
 
 class ClientTransactionTask;
 
+/**
+ * The Transaction class provides a client level interface for transactionally
+ * performing a set of read, write, and remove operations.  A client would:
+ *   1.  construct a Transaction object (*t*),
+ *   2.  optimistically perform operations on *t*, and then
+ *   3.  attempt to commit the transaction by calling commit on *t*.
+ *
+ * Transaction commit calls will either:
+ *   -   **commit** in which case all performed operations are committed in an
+ *       atomic isolated manner; or
+ *   -   **abort** in which case effectively no operations are performed.
+ * It is the client's responsibility to check the return value of the commit
+ * call and retry the transaction upon abort.
+ *
+ * Each Transaction object represents a single transaction attempt.  Transaction
+ * objects should be discarded after the transaction either commits or aborts;
+ * a single Transaction object is not intended to be reused to represent
+ * multiple transaction attempts.
+ */
 class Transaction {
   PUBLIC:
     explicit Transaction(RamCloud* ramcloud);

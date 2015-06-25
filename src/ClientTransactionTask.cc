@@ -29,7 +29,6 @@ ClientTransactionTask::ClientTransactionTask(RamCloud* ramcloud)
     , participantCount(0)
     , participantList()
     , state(INIT)
-    , status(STATUS_OK)
     , decision(WireFormat::TxDecision::INVALID)
     , lease()
     , txId(0)
@@ -37,6 +36,7 @@ ClientTransactionTask::ClientTransactionTask(RamCloud* ramcloud)
     , decisionRpcs()
     , commitCache()
     , nextCacheEntry()
+    , poller()
 {
 }
 
@@ -78,14 +78,8 @@ ClientTransactionTask::findCacheEntry(Key& key)
  * of the cache entry are left to their default values.  This method must not
  * be called once the transaction has started committing.
  *
- * \param tableId
- *      The table containing the desired object (return value from
- *      a previous call to getTableId).
  * \param key
- *      Variable length key that uniquely identifies the object within tableId.
- *      It does not necessarily have to be null terminated.
- * \param keyLength
- *      Size in bytes of the key.
+ *      Key of the object to inserted into the cache.
  * \param buf
  *      Address of the first byte of the new contents for the object;
  *      must contain at least length bytes.
@@ -96,16 +90,15 @@ ClientTransactionTask::findCacheEntry(Key& key)
  *      once the commitCache is modified.
  */
 ClientTransactionTask::CacheEntry*
-ClientTransactionTask::insertCacheEntry(uint64_t tableId, const void* key,
-        uint16_t keyLength, const void* buf, uint32_t length)
+ClientTransactionTask::insertCacheEntry(Key& key, const void* buf,
+        uint32_t length)
 {
-    Key keyObj(tableId, key, keyLength);
-    CacheKey cacheKey = {keyObj.getTableId(), keyObj.getHash()};
+    CacheKey cacheKey = {key.getTableId(), key.getHash()};
     CommitCacheMap::iterator it = commitCache.insert(
             std::make_pair(cacheKey, CacheEntry()));
     it->second.objectBuf = new ObjectBuffer();
     Object::appendKeysAndValueToBuffer(
-            keyObj, buf, length, it->second.objectBuf, true);
+            key, buf, length, it->second.objectBuf, true);
     return &it->second;
 }
 
@@ -125,8 +118,8 @@ ClientTransactionTask::performTask()
             state = PREPARE;
         }
         if (state == PREPARE) {
-            processPrepareRpcs();
             sendPrepareRpc();
+            processPrepareRpcResults();
             if (prepareRpcs.empty() && nextCacheEntry == commitCache.end()) {
                 nextCacheEntry = commitCache.begin();
                 if (decision != WireFormat::TxDecision::ABORT) {
@@ -136,20 +129,92 @@ ClientTransactionTask::performTask()
             }
         }
         if (state == DECISION) {
-            processDecisionRpcs();
             sendDecisionRpc();
+            processDecisionRpcResults();
             if (decisionRpcs.empty() && nextCacheEntry == commitCache.end()) {
                 ramcloud->rpcTracker.rpcFinished(txId);
                 state = DONE;
             }
         }
     } catch (ClientException& e) {
-        // If there are any problems with the commit protocol, STOP.
+        // If there are any unexpected problems with the commit protocol, STOP.
+        // This shouldn't happen unless there is a bug.
         prepareRpcs.clear();
         decisionRpcs.clear();
-        status = e.status;
+        switch (state) {
+            case INIT:
+            case PREPARE:
+                RAMCLOUD_LOG(ERROR,
+                        "Unexpected exception '%s' while preparing "
+                        "transaction commit; will result in internal error.",
+                        statusToString(e.status));
+                break;
+            case DECISION:
+                RAMCLOUD_LOG(WARNING,
+                        "Unexpected exception '%s' while issuing transaction "
+                        "decisions; likely recoverable.",
+                        statusToString(e.status));
+                break;
+            default:
+                RAMCLOUD_LOG(NOTICE,
+                        "Unexpected exception '%s' after committing "
+                        "transaction.",
+                        statusToString(e.status));
+        }
         ramcloud->rpcTracker.rpcFinished(txId);
         state = DONE;
+    }
+}
+
+/**
+ * Schedule a ClientTransactionTask to start executing the commit protocol.
+ *
+ * \param taskPtr
+ *      Shared pointer to the ClientTransactionTask to be run.
+ */
+void
+ClientTransactionTask::start(std::shared_ptr<ClientTransactionTask>& taskPtr)
+{
+    assert(taskPtr);
+    ClientTransactionTask* task = taskPtr.get();
+    if (!task->poller) {
+        task->poller.construct(task->ramcloud->clientContext->dispatch,
+                               taskPtr);
+    }
+}
+
+/**
+ * Construct a Poller causing a specified ClientTransactionTask to be run.
+ *
+ * \param dispatch
+ *      Dispatch object through which the poller will be invoked.
+ * \param taskPtr
+ *      ClientTransactionTask to be run.
+ */
+ClientTransactionTask::Poller::Poller(Dispatch* dispatch,
+        std::shared_ptr<ClientTransactionTask>& taskPtr)
+    : Dispatch::Poller(dispatch, "ClientTransactionTask::Poller")
+    , running(false)
+    , taskPtr(taskPtr)
+{}
+
+/**
+ * Drives the execution of the ClientTransactionTask's rules engine.
+ */
+void
+ClientTransactionTask::Poller::poll()
+{
+    // Make sure the recursive calls don't execute.
+    if (!running) {
+        running = true;
+        ClientTransactionTask* task = taskPtr.get();
+        task->performTask();
+        running = false;
+
+        // Destroy poller (self) if task is complete; must be last action.
+        if (task->isReady()) {
+            task->poller.destroy();
+        }
     }
 }
 
@@ -187,7 +252,7 @@ ClientTransactionTask::initTask()
  * Factored out mostly for clarity and ease of testing.
  */
 void
-ClientTransactionTask::processDecisionRpcs()
+ClientTransactionTask::processDecisionRpcResults()
 {
     // Process outstanding RPCs.
     std::list<DecisionRpc>::iterator it = decisionRpcs.begin();
@@ -220,7 +285,7 @@ ClientTransactionTask::processDecisionRpcs()
  * out mostly for clarity and ease of testing.
  */
 void
-ClientTransactionTask::processPrepareRpcs()
+ClientTransactionTask::processPrepareRpcResults()
 {
     // Process outstanding RPCs.
     std::list<PrepareRpc>::iterator it = prepareRpcs.begin();
@@ -253,23 +318,35 @@ ClientTransactionTask::processPrepareRpcs()
 }
 
 /**
- * Send out a decision rpc if not all masters have been notified.  Used in
- * performTask.  Factored out mostly for clarity and ease of testing.
+ * Send out a batch of un-sent decision notifications as a single DecisionRpc
+ * if not all masters have been notified.  Used in performTask.  Factored out
+ * mostly for clarity and ease of testing.
  */
 void
 ClientTransactionTask::sendDecisionRpc()
 {
-    // Issue an additional rpc.
     DecisionRpc* nextRpc = NULL;
     Transport::SessionRef rpcSession;
     for (; nextCacheEntry != commitCache.end(); nextCacheEntry++) {
         const CacheKey* key = &nextCacheEntry->first;
         CacheEntry* entry = &nextCacheEntry->second;
 
+        // Skip the entry if the decision was already sent.  This might happen
+        // when an RPC receives STATUS_RETRY and we need to look through all
+        // the entries again looking for entries that have been marked PENDING
+        // indicating the decisions need to be resent; entries not marked don't
+        // need to be resent.
         if (entry->state == CacheEntry::DECIDE) {
             continue;
         }
 
+        // Batch is done naively assuming that tables are partitioned across
+        // servers into contiguous key-hash ranges (tablets).  The commit cache
+        // is iterated in key-hash order batching together decisions
+        // notifications that share a destination server.
+        //
+        // This naive approach behaves poorly if the table is highly sharded
+        // resulting in poor batching.
         if (nextRpc == NULL) {
             rpcSession =
                     ramcloud->objectFinder.lookup(key->tableId,
@@ -294,23 +371,35 @@ ClientTransactionTask::sendDecisionRpc()
 }
 
 /**
- * Send out a prepare rpc if there are remaining un-prepared transaction ops.
- * Used in performTask.  Factored out mostly for clarity and ease of testing.
+ * Send out a batch of un-sent prepare requests in a single PrepareRpc if there
+ * are remaining un-prepared transaction ops.  Used in performTask.  Factored
+ * out mostly for clarity and ease of testing.
  */
 void
 ClientTransactionTask::sendPrepareRpc()
 {
-    // Issue an additional rpc.
     PrepareRpc* nextRpc = NULL;
     Transport::SessionRef rpcSession;
     for (; nextCacheEntry != commitCache.end(); nextCacheEntry++) {
         const CacheKey* key = &nextCacheEntry->first;
         CacheEntry* entry = &nextCacheEntry->second;
 
+        // Skip the entry if the prepare was already sent.  This might happen
+        // when an RPC receives STATUS_RETRY and we need to look through all
+        // the entries again looking for entries that have been marked PENDING
+        // indicating the prepares need to be resent; entries not marked don't
+        // need to be resent.
         if (entry->state == CacheEntry::PREPARE) {
             continue;
         }
 
+        // Batch is done naively assuming that tables are partitioned across
+        // servers into contiguous key-hash ranges (tablets).  The commit cache
+        // is iterated in key-hash order batching together prepare requests
+        // that share a destination server.
+        //
+        // This naive approach behaves poorly if the table is highly sharded
+        // resulting in poor batching.
         if (nextRpc == NULL) {
             rpcSession =
                     ramcloud->objectFinder.lookup(key->tableId,
@@ -340,9 +429,9 @@ void ClientTransactionTask::tryFinish()
     //  (1) Calling performTask
     //  (2) Allowing the transport to run by calling poll
     // This method would only be called if this task is active.  Since active
-    // tasks are driven by the ClientTransactionManager (i.e. the manager calls
-    // performTask on active tasks) and the manager runs in the poll loop, it is
-    // sufficient to simply call poll.
+    // tasks are driven by their ClientTransactionTask::Poller (i.e. the poller
+    // calls performTask if the tasks is active) and the poller runs in the poll
+    // loop, it is sufficient to simply call poll.
     ramcloud->poll();
 }
 

@@ -43,19 +43,19 @@ Transaction::Transaction(RamCloud* ramcloud)
 bool
 Transaction::commit()
 {
+    ClientTransactionTask* task = taskPtr.get();
+
     if (!commitStarted) {
         commitStarted = true;
-        ramcloud->transactionManager.addTransactionTask(taskPtr);
+        ClientTransactionTask::start(taskPtr);
     }
-
-    ClientTransactionTask* task = taskPtr.get();
 
     while (!task->allDecisionsSent()) {
         ramcloud->poll();
     }
 
-    if (task->getStatus() != STATUS_OK) {
-        ClientException::throwException(HERE, task->getStatus());
+    if (expect_false(task->getDecision() == WireFormat::TxDecision::INVALID)) {
+        ClientException::throwException(HERE, STATUS_INTERNAL_ERROR);
     }
 
     return (task->getDecision() == WireFormat::TxDecision::COMMIT);
@@ -71,19 +71,15 @@ Transaction::commit()
 void
 Transaction::sync()
 {
+    ClientTransactionTask* task = taskPtr.get();
+
     if (!commitStarted) {
         commitStarted = true;
-        ramcloud->transactionManager.addTransactionTask(taskPtr);
+        ClientTransactionTask::start(taskPtr);
     }
-
-    ClientTransactionTask* task = taskPtr.get();
 
     while (!task->isReady()) {
         ramcloud->poll();
-    }
-
-    if (task->getStatus() != STATUS_OK) {
-        ClientException::throwException(HERE, task->getStatus());
     }
 }
 
@@ -99,8 +95,7 @@ bool
 Transaction::commitAndSync()
 {
     sync();
-    ClientTransactionTask* task = taskPtr.get();
-    return (task->getDecision() == WireFormat::TxDecision::COMMIT);
+    return commit();
 }
 
 /**
@@ -152,7 +147,7 @@ Transaction::remove(uint64_t tableId, const void* key, uint16_t keyLength)
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
 
     if (entry == NULL) {
-        entry = task->insertCacheEntry(tableId, key, keyLength, NULL, 0);
+        entry = task->insertCacheEntry(keyObj, NULL, 0);
     } else {
         entry->objectBuf->reset();
         Object::appendKeysAndValueToBuffer(
@@ -194,7 +189,7 @@ Transaction::write(uint64_t tableId, const void* key, uint16_t keyLength,
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
 
     if (entry == NULL) {
-        entry = task->insertCacheEntry(tableId, key, keyLength, buf, length);
+        entry = task->insertCacheEntry(keyObj, buf, length);
     } else {
         entry->objectBuf->reset();
         Object::appendKeysAndValueToBuffer(
@@ -283,9 +278,7 @@ Transaction::ReadOp::wait()
             objectExists = false;
         }
 
-        entry = task->insertCacheEntry(tableId, keyObj.getStringKey(),
-                                       keyObj.getStringKeyLength(),
-                                       data, dataLength);
+        entry = task->insertCacheEntry(keyObj, data, dataLength);
         entry->type = ClientTransactionTask::CacheEntry::READ;
         if (objectExists) {
             entry->rejectRules.doesntExist = true;
