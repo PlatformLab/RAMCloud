@@ -5348,8 +5348,9 @@ readThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 startStats.collectionTime)/ finishStats.cyclesPerSecond;
         double rate = static_cast<double>(finishStats.readCount -
                 startStats.readCount) / elapsedTime;
-        double utilization = static_cast<double>(finishStats.activeCycles -
-                startStats.activeCycles) / static_cast<double>(
+        double utilization = static_cast<double>(
+                finishStats.workerActiveCycles -
+                startStats.workerActiveCycles) / static_cast<double>(
                 finishStats.collectionTime - startStats.collectionTime);
         printf("%5d         %8.0f        %8.3f\n", numSlaves, rate/1e03,
                 utilization);
@@ -5646,9 +5647,9 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
     // This is the master client. Fill in the table, then measure
     // throughput while gradually increasing the number of workers.
     printf("#\n");
-    printf("# numClients   throughput     worker utiliz.\n");
-    printf("#              (kwrites/sec)\n");
-    printf("#-------------------------------------------\n");
+    printf("# numClients   throughput     worker      cleaner    cleaner\n");
+    printf("#              (kops/sec)     utiliz.     utiliz.    free %%\n");
+    printf("#-----------------------------------------------------------\n");
     fillTable(dataTable, numObjects, keyLength, size);
     for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
         sendCommand("run", "running", numSlaves, 1);
@@ -5666,11 +5667,32 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 startStats.collectionTime)/ finishStats.cyclesPerSecond;
         double rate = static_cast<double>(finishStats.writeCount -
                 startStats.writeCount) / elapsedTime;
-        double utilization = static_cast<double>(finishStats.activeCycles -
-                startStats.activeCycles) / static_cast<double>(
+        double utilization = static_cast<double>(
+                finishStats.workerActiveCycles -
+                startStats.workerActiveCycles) / static_cast<double>(
                 finishStats.collectionTime - startStats.collectionTime);
-        printf("%5d         %8.2f        %8.3f\n", numSlaves, rate/1e03,
-                utilization);
+        double cleanerUtilization = static_cast<double>(
+                (finishStats.compactorActiveCycles +
+                finishStats.cleanerActiveCycles) -
+                (startStats.compactorActiveCycles +
+                startStats.cleanerActiveCycles)) / static_cast<double>(
+                finishStats.collectionTime - startStats.collectionTime);
+        uint64_t input = finishStats.compactorInputBytes -
+                startStats.compactorInputBytes +
+                finishStats.cleanerInputMemoryBytes -
+                startStats.cleanerInputMemoryBytes;
+        uint64_t freed = finishStats.compactorBytesFreed -
+                startStats.compactorBytesFreed +
+                finishStats.cleanerMemoryBytesFreed -
+                startStats.cleanerMemoryBytesFreed;
+        double freePercent = 0.0;
+        if (freed > 0) {
+            freePercent = 100.0 * static_cast<double>(freed)
+                    / static_cast<double>(input);
+        }
+        printf("%5d         %8.2f     %8.3f     %8.3f  %8.1f\n",
+                numSlaves, rate/1e03, utilization, cleanerUtilization,
+                freePercent);
     }
     sendCommand("done", "done", 1, numClients-1);
 }
@@ -5838,8 +5860,9 @@ workloadThroughput()
                     finishStats.writeCount -
                     startStats.readCount -
                     startStats.writeCount) / elapsedTime;
-            double utilization = static_cast<double>(finishStats.activeCycles -
-                    startStats.activeCycles) / static_cast<double>(
+            double utilization = static_cast<double>(
+                    finishStats.workerActiveCycles -
+                    startStats.workerActiveCycles) / static_cast<double>(
                     finishStats.collectionTime - startStats.collectionTime);
             printf("%5d         %8.0f        %8.3f\n", numSlaves, rate/1e03,
                     utilization);

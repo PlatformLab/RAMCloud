@@ -218,9 +218,11 @@ class LogCleaner {
     uint32_t computeFreeableSeglets(LogSegment* survivor);
     void sortEntriesByTimestamp(EntryVector& entries);
     void getSortedEntries(LogSegmentVector& segmentsToClean,
-                          EntryVector& outEntries);
+                          EntryVector& outEntries,
+                          LogCleanerMetrics::OnDisk<uint64_t>* localMetrics);
     uint64_t relocateLiveEntries(EntryVector& entries,
-                            LogSegmentVector& outSurvivors);
+                            LogSegmentVector& outSurvivors,
+                            LogCleanerMetrics::OnDisk<uint64_t>* localMetrics);
     void closeSurvivor(LogSegment* survivor);
     void waitForAvailableSurvivors(size_t count, uint64_t& outTicks);
 
@@ -290,15 +292,15 @@ class LogCleaner {
                   Buffer& buffer,
                   Log::Reference reference,
                   LogSegment* survivor,
-                  T& metrics,
+                  T* metrics,
                   uint32_t* outBytesAppended)
     {
         LogEntryRelocator relocator(survivor, buffer.size());
         *outBytesAppended = 0;
 
         {
-            metrics.totalRelocationCallbacks++;
-            CycleCounter<uint64_t> _(&metrics.relocationCallbackTicks);
+            metrics->totalRelocationCallbacks++;
+            CycleCounter<uint64_t> _(&metrics->relocationCallbackTicks);
             entryHandlers.relocate(type, buffer, reference, relocator);
         }
 
@@ -307,8 +309,8 @@ class LogCleaner {
 
         if (relocator.relocated()) {
             *outBytesAppended = relocator.getTotalBytesAppended();
-            metrics.totalRelocationAppends++;
-            metrics.relocationAppendTicks += relocator.getAppendTicks();
+            metrics->totalRelocationAppends++;
+            metrics->relocationAppendTicks += relocator.getAppendTicks();
             return RELOCATED;
         }
 
