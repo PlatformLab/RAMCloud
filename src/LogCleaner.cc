@@ -20,6 +20,7 @@
 #include "Fence.h"
 #include "Log.h"
 #include "LogCleaner.h"
+#include "PerfStats.h"
 #include "ShortMacros.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
@@ -192,6 +193,7 @@ void
 LogCleaner::cleanerThreadEntry(LogCleaner* logCleaner, Context* context)
 {
     LOG(NOTICE, "LogCleaner thread started");
+    PerfStats::registerStats(&PerfStats::threadStats);
 
     CleanerThreadState state;
     state.threadNumber = __sync_fetch_and_add(&threadCnt, 1);
@@ -279,6 +281,7 @@ LogCleaner::doMemoryCleaning()
 {
     TEST_LOG("called");
     AtomicCycleCounter _(&inMemoryMetrics.totalTicks);
+    uint64_t startTicks = Cycles::rdtsc();
 
     if (disableInMemoryCleaning)
         return;
@@ -327,7 +330,7 @@ LogCleaner::doMemoryCleaning()
                                           buffer,
                                           reference,
                                           survivor,
-                                          localMetrics,
+                                          &localMetrics,
                                           &bytesAppended);
             if (expect_false(s == RELOCATION_FAILED))
                 throw FatalError(HERE, "Entry didn't fit into survivor!");
@@ -372,6 +375,14 @@ LogCleaner::doMemoryCleaning()
     // Merge our local metrics into the global aggregate counters.
     inMemoryMetrics.merge(localMetrics);
 
+    // Also, maintain a few key statistics in PerfStats.
+    PerfStats::threadStats.compactorInputBytes +=
+            localMetrics.totalBytesInCompactedSegments;
+    PerfStats::threadStats.compactorBytesFreed +=
+            localMetrics.totalBytesFreed;
+    PerfStats::threadStats.compactorActiveCycles +=
+            Cycles::rdtsc() - startTicks;
+
     AtomicCycleCounter __(&inMemoryMetrics.compactionCompleteTicks);
     segmentManager.compactionComplete(segment, survivor);
 }
@@ -386,6 +397,7 @@ LogCleaner::doDiskCleaning()
 {
     TEST_LOG("called");
     AtomicCycleCounter _(&onDiskMetrics.totalTicks);
+    uint64_t startTicks = Cycles::rdtsc();
 
     // Obtain the segments we'll clean in this pass. We're guaranteed to have
     // the resources to clean what's returned.
@@ -395,13 +407,15 @@ LogCleaner::doDiskCleaning()
     if (segmentsToClean.size() == 0)
         return;
 
+    LogCleanerMetrics::OnDisk<uint64_t> localMetrics;
+
     onDiskMetrics.memoryUtilizationAtStartSum +=
         segmentManager.getMemoryUtilization();
 
     // Extract the currently live entries of the segments we're cleaning and
     // sort them by age.
     EntryVector entries;
-    getSortedEntries(segmentsToClean, entries);
+    getSortedEntries(segmentsToClean, entries, &localMetrics);
 
     uint64_t maxLiveBytes = 0;
     uint32_t segletsBefore = 0;
@@ -417,7 +431,8 @@ LogCleaner::doDiskCleaning()
     // counters and merge them into our global metrics afterwards to avoid
     // cache line ping-ponging in the hot path.
     LogSegmentVector survivors;
-    uint64_t entryBytesAppended = relocateLiveEntries(entries, survivors);
+    uint64_t entryBytesAppended = relocateLiveEntries(entries, survivors,
+            &localMetrics);
 
     uint32_t segmentsAfter = downCast<uint32_t>(survivors.size());
     uint32_t segletsAfter = 0;
@@ -437,14 +452,23 @@ LogCleaner::doDiskCleaning()
 
     uint64_t memoryBytesFreed = (segletsBefore - segletsAfter) * segletSize;
     uint64_t diskBytesFreed = (segmentsBefore - segmentsAfter) * segmentSize;
-    onDiskMetrics.totalMemoryBytesFreed += memoryBytesFreed;
-    onDiskMetrics.totalDiskBytesFreed += diskBytesFreed;
-    onDiskMetrics.totalSegmentsCleaned += segmentsToClean.size();
-    onDiskMetrics.totalSurvivorsCreated += survivors.size();
-    onDiskMetrics.totalRuns++;
-    onDiskMetrics.lastRunTimestamp = WallTime::secondsTimestamp();
+    localMetrics.totalMemoryBytesFreed += memoryBytesFreed;
+    localMetrics.totalDiskBytesFreed += diskBytesFreed;
+    localMetrics.totalSegmentsCleaned += segmentsToClean.size();
+    localMetrics.totalSurvivorsCreated += survivors.size();
+    localMetrics.totalRuns++;
     if (segmentManager.getSegmentUtilization() >= MIN_DISK_UTILIZATION)
-        onDiskMetrics.totalLowDiskSpaceRuns++;
+        localMetrics.totalLowDiskSpaceRuns++;
+    onDiskMetrics.lastRunTimestamp = WallTime::secondsTimestamp();
+    onDiskMetrics.merge(localMetrics);
+
+    // Also, maintain a few key statistics in PerfStats.
+    PerfStats::threadStats.cleanerInputMemoryBytes +=
+            localMetrics.totalMemoryBytesInCleanedSegments;
+    PerfStats::threadStats.cleanerMemoryBytesFreed +=
+            localMetrics.totalMemoryBytesFreed;
+    PerfStats::threadStats.cleanerActiveCycles +=
+            Cycles::rdtsc() - startTicks;
 
     AtomicCycleCounter __(&onDiskMetrics.cleaningCompleteTicks);
     segmentManager.cleaningComplete(segmentsToClean, survivors);
@@ -537,10 +561,13 @@ LogCleaner::sortEntriesByTimestamp(EntryVector& entries)
  *      Vector containing the segments to extract entries from.
  * \param[out] outEntries
  *      Vector containing sorted live entries in the segment.
+ * \param[out] localMetrics
+ *      Contains various performance counters that are incremented here.
  */
 void
 LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
-                             EntryVector& outEntries)
+                             EntryVector& outEntries,
+                             LogCleanerMetrics::OnDisk<uint64_t>* localMetrics)
 {
     AtomicCycleCounter _(&onDiskMetrics.getSortedEntriesTicks);
 
@@ -558,9 +585,9 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
     sortEntriesByTimestamp(outEntries);
 
     foreach (LogSegment* segment, segmentsToClean) {
-        onDiskMetrics.totalMemoryBytesInCleanedSegments +=
+        localMetrics->totalMemoryBytesInCleanedSegments +=
             segment->getSegletsAllocated() * segletSize;
-        onDiskMetrics.totalDiskBytesInCleanedSegments += segmentSize;
+        localMetrics->totalDiskBytesInCleanedSegments += segmentSize;
         onDiskMetrics.cleanedSegmentMemoryHistogram.storeSample(
             segment->getMemoryUtilization());
         onDiskMetrics.cleanedSegmentDiskHistogram.storeSample(
@@ -582,6 +609,8 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
  * \param outSurvivors
  *      The new survivor segments created to hold the relocated live data are
  *      returned here.
+ * \param[out] localMetrics
+ *      Contains various performance counters that are incremented here.
  * \return
  *      The number of live bytes appended to survivors is returned. This value
  *      includes any segment metadata overhead. This makes it directly
@@ -590,12 +619,10 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
  */
 uint64_t
 LogCleaner::relocateLiveEntries(EntryVector& entries,
-                            LogSegmentVector& outSurvivors)
+                            LogSegmentVector& outSurvivors,
+                            LogCleanerMetrics::OnDisk<uint64_t>* localMetrics)
 {
-    // We update metrics on the stack and then merge with the global counters
-    // once at the end in order to avoid contention between cleaner threads.
-    LogCleanerMetrics::OnDisk<uint64_t> localMetrics;
-    CycleCounter<uint64_t> _(&localMetrics.relocateLiveEntriesTicks);
+    CycleCounter<uint64_t> _(&localMetrics->relocateLiveEntriesTicks);
 
     LogSegment* survivor = NULL;
     uint64_t totalEntryBytesAppended = 0;
@@ -631,7 +658,7 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
             // Allocate a survivor segment to write into. This call may block if
             // one is not available right now.
             CycleCounter<uint64_t> waitTicks(
-                &localMetrics.waitForFreeSurvivorsTicks);
+                &localMetrics->waitForFreeSurvivorsTicks);
             survivor = segmentManager.allocSideSegment(
                 SegmentManager::FOR_CLEANING | SegmentManager::MUST_NOT_FAIL,
                 NULL);
@@ -649,11 +676,11 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
                 throw FatalError(HERE, "Entry didn't fit into empty survivor!");
         }
 
-        localMetrics.totalEntriesScanned[type]++;
-        localMetrics.totalScannedEntryLengths[type] += buffer.size();
+        localMetrics->totalEntriesScanned[type]++;
+        localMetrics->totalScannedEntryLengths[type] += buffer.size();
         if (expect_true(s == RELOCATED)) {
-            localMetrics.totalLiveEntriesScanned[type]++;
-            localMetrics.totalLiveScannedEntryLengths[type] +=
+            localMetrics->totalLiveEntriesScanned[type]++;
+            localMetrics->totalLiveScannedEntryLengths[type] +=
                 buffer.size();
             currentLiveEntries[type]++;
             currentLiveEntryLengths[type] += bytesAppended;
@@ -673,11 +700,9 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
 
     // Ensure that the survivors have been synced to backups before proceeding.
     foreach (survivor, outSurvivors) {
-        CycleCounter<uint64_t> __(&localMetrics.survivorSyncTicks);
+        CycleCounter<uint64_t> __(&localMetrics->survivorSyncTicks);
         survivor->replicatedSegment->sync(survivor->getAppendedLength());
     }
-
-    onDiskMetrics.merge(localMetrics);
 
     return totalEntryBytesAppended;
 }

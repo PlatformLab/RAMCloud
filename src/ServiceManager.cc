@@ -391,7 +391,7 @@ ServiceManager::workerMain(Worker* worker)
 
             // Update performance statistics.
             uint64_t current = Cycles::rdtsc();
-            PerfStats::threadStats.activeCycles += (current - lastIdle);
+            PerfStats::threadStats.workerActiveCycles += (current - lastIdle);
             lastIdle = current;
         }
         TEST_LOG("exiting");

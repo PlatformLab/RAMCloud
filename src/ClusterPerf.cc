@@ -3569,8 +3569,9 @@ readThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 startStats.collectionTime)/ finishStats.cyclesPerSecond;
         double rate = static_cast<double>(finishStats.readCount -
                 startStats.readCount) / elapsedTime;
-        double utilization = static_cast<double>(finishStats.activeCycles -
-                startStats.activeCycles) / static_cast<double>(
+        double utilization = static_cast<double>(
+                finishStats.workerActiveCycles -
+                startStats.workerActiveCycles) / static_cast<double>(
                 finishStats.collectionTime - startStats.collectionTime);
         printf("%5d         %8.0f        %8.3f\n", numSlaves, rate/1e03,
                 utilization);
@@ -3900,8 +3901,9 @@ workloadThroughput()
                     finishStats.writeCount -
                     startStats.readCount -
                     startStats.writeCount) / elapsedTime;
-            double utilization = static_cast<double>(finishStats.activeCycles -
-                    startStats.activeCycles) / static_cast<double>(
+            double utilization = static_cast<double>(
+                    finishStats.workerActiveCycles -
+                    startStats.workerActiveCycles) / static_cast<double>(
                     finishStats.collectionTime - startStats.collectionTime);
             printf("%5d         %8.0f        %8.3f\n", numSlaves, rate/1e03,
                     utilization);
