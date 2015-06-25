@@ -2727,7 +2727,7 @@ TEST_F(MasterServiceTest, write_linearizable) {
 
     //TODO(seojin): test lease timed out.
     // Lease may expired. Contacts coordinator.
-    reqHdr->lease.leaseTerm = reqHdr->lease.timestamp - 1;
+    reqHdr->lease.leaseExpiration = reqHdr->lease.timestamp - 1;
     service->write(reqHdr, &respHdr, &rpc);
     EXPECT_EQ(2U, respHdr.version);
     EXPECT_EQ(STATUS_OK, respHdr.common.status);

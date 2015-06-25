@@ -108,25 +108,25 @@ class LeaseManager {
     /// its corresponding lease freed.
     uint64_t maxAllocatedLeaseId;
 
-    /// Maps from leaseId to its leaseTerm (the time after which the lease may
-    /// expire).  This is used to quickly service requests about a lease's
-    /// liveness.  This structure is updated whenever a lease is added, renewed,
-    /// or removed.
+    /// Maps from leaseId to its leaseExpiration.  This is used to quickly
+    /// service requests about a lease's liveness.  This structure is updated
+    /// whenever a lease is added, renewed, or removed.
     typedef std::unordered_map<uint64_t, uint64_t> LeaseMap;
     LeaseMap leaseMap;
 
     /// Structure to define the entries in the ExpirationOrderSet.
     struct ExpirationOrderElem {
-        uint64_t leaseTerm;     // ClusterTime after which the lease can expire.
-        uint64_t leaseId;       // Id of the lease.
+        uint64_t leaseExpiration;   // ClusterTime of possible lease expiration.
+        uint64_t leaseId;           // Id of the lease.
 
         /**
          * The operator < is overridden to implement the
          * correct comparison for the expirationOrder.
          */
-       bool operator<(const ExpirationOrderElem& elem) const {
-           return leaseTerm < elem.leaseTerm ||
-               (leaseTerm == elem.leaseTerm && leaseId < elem.leaseId);
+        bool operator<(const ExpirationOrderElem& elem) const {
+            return leaseExpiration < elem.leaseExpiration ||
+                    (leaseExpiration == elem.leaseExpiration &&
+                            leaseId < elem.leaseId);
        }
     };
 

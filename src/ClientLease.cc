@@ -82,8 +82,8 @@ ClientLease::handleTimerEvent()
             // Use local rdtsc cycle time to estimate when the lease will expire
             // if the lease is not renewed.
             uint64_t leaseTermLenUs = 0;
-            if (lease.leaseTerm > lease.timestamp) {
-                leaseTermLenUs = lease.leaseTerm - lease.timestamp;
+            if (lease.leaseExpiration > lease.timestamp) {
+                leaseTermLenUs = lease.leaseExpiration - lease.timestamp;
             }
             leaseTermElapseCycles = lastRenewalTimeCycles +
                                     Cycles::fromMicroseconds(

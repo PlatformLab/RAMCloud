@@ -262,7 +262,7 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout) {
     EXPECT_EQ(1U, service->clusterTime.load());
 
     //TODO(seojin): test with mock coordinator which returns
-    //              valid lease and we just update leaseTerm.
+    //              valid lease and we just update leaseExpiration.
 }
 
 //TODO(seojin): tests for API functions.

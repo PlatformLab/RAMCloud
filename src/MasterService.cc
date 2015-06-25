@@ -2496,7 +2496,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                                 reqHdr->lease.leaseId,
                                 rpcId,
                                 reqHdr->ackId,
-                                reqHdr->lease.leaseTerm);
+                                reqHdr->lease.leaseExpiration);
         UnackedRpcHandle* rh = &rpcHandles.back();
         if (rh->isDuplicate()) {
             respHdr->vote = parsePrepRpcResult(rh->resultLoc());
@@ -2573,7 +2573,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
                                              reqHdr->rpcId,
                                              reqHdr->ackId,
-                                             reqHdr->lease.leaseTerm,
+                                             reqHdr->lease.leaseExpiration,
                                              &result)) {
             *respHdr = parseRpcResult<WireFormat::Write>(result);
             rpc->sendReply();

@@ -742,7 +742,7 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_failed) {
 //    insertWrite(tableId1, "test", 4, "hello", 5);
 //    transactionTask->initTask();
 //    transactionTask->lease.leaseId = 0;
-//    transactionTask->lease.leaseTerm = 0;
+//    transactionTask->lease.leaseExpiration = 0;
 //    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
 //    transactionTask->sendPrepareRpc();
 //

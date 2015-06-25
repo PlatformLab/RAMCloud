@@ -160,7 +160,7 @@ enum ControlOp {
 struct ClientLease {
     uint64_t leaseId;           /// A cluster unique id for a specific lease.
                                 /// 0 is used to indicate invalid or expired id.
-    uint64_t leaseTerm;         /// Cluster time after which the lease may have
+    uint64_t leaseExpiration;   /// Cluster time after which the lease may have
                                 /// become invalid.
     uint64_t timestamp;         /// Cluster time when this lease information was
                                 /// provided by the coordinator.

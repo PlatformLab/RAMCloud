@@ -2542,10 +2542,11 @@ TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
     uint64_t leaseId = 1;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
-    uint64_t leaseTerm = 0;
+    uint64_t leaseExpiration = 0;
 
     void* result;
-    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
+    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
+                                     &result);
     Buffer respBuff;
     RpcResult rpcResult(
             1,
@@ -2569,7 +2570,8 @@ TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
                                        rpcId,
                                        reinterpret_cast<void*>(rpcResultPtr));
 
-    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
+    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
+                                     &result);
 
     EXPECT_EQ(rpcResultPtr, reinterpret_cast<uint64_t>(result));
 
@@ -2594,7 +2596,8 @@ TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
                            relocator);
     EXPECT_TRUE(relocator.didAppend);
 
-    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
+    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
+                                     &result);
 
     EXPECT_NE(rpcResultPtr, reinterpret_cast<uint64_t>(result));
     EXPECT_EQ(relocator.getNewReference().toInteger(),
@@ -2605,10 +2608,11 @@ TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
     uint64_t leaseId = 1;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
-    uint64_t leaseTerm = 0;
+    uint64_t leaseExpiration = 0;
 
     void* result;
-    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
+    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
+                                     &result);
     Buffer respBuff;
     RpcResult rpcResult(
             1,
@@ -2632,7 +2636,8 @@ TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
                                        rpcId,
                                        reinterpret_cast<void*>(rpcResultPtr));
 
-    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
+    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
+                                     &result);
 
     EXPECT_EQ(rpcResultPtr, reinterpret_cast<uint64_t>(result));
 
@@ -2648,7 +2653,7 @@ TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
 
     EXPECT_FALSE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
     // Ack the rpc to make it available for cleaning.
-    unackedRpcResults.checkDuplicate(leaseId, rpcId + 1, rpcId, leaseTerm,
+    unackedRpcResults.checkDuplicate(leaseId, rpcId + 1, rpcId, leaseExpiration,
                                      &result);
     EXPECT_TRUE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
 

@@ -54,13 +54,13 @@ TEST_F(LeaseManagerTest, getLeaseInfo) {
 
     lease = leaseMgr->getLeaseInfo(25);
     EXPECT_EQ(0U, lease.leaseId);
-    EXPECT_EQ(0U, lease.leaseTerm);
+    EXPECT_EQ(0U, lease.leaseExpiration);
 
     leaseMgr->leaseMap[25] = 8888;
 
     lease = leaseMgr->getLeaseInfo(25);
     EXPECT_EQ(25U, lease.leaseId);
-    EXPECT_EQ(8888U, lease.leaseTerm);
+    EXPECT_EQ(8888U, lease.leaseExpiration);
 }
 
 TEST_F(LeaseManagerTest, recover_basic) {
@@ -161,19 +161,19 @@ TEST_F(LeaseManagerTest, expirationOrder) {
 
     LeaseManager::ExpirationOrderSet::iterator it =
             leaseMgr->expirationOrder.begin();
-    EXPECT_EQ(1UL, it->leaseTerm);
+    EXPECT_EQ(1UL, it->leaseExpiration);
     EXPECT_EQ(1UL, it->leaseId);
     it++;
-    EXPECT_EQ(1UL, it->leaseTerm);
+    EXPECT_EQ(1UL, it->leaseExpiration);
     EXPECT_EQ(2UL, it->leaseId);
     it++;
-    EXPECT_EQ(1UL, it->leaseTerm);
+    EXPECT_EQ(1UL, it->leaseExpiration);
     EXPECT_EQ(3UL, it->leaseId);
     it++;
-    EXPECT_EQ(2UL, it->leaseTerm);
+    EXPECT_EQ(2UL, it->leaseExpiration);
     EXPECT_EQ(1UL, it->leaseId);
     it++;
-    EXPECT_EQ(3UL, it->leaseTerm);
+    EXPECT_EQ(3UL, it->leaseExpiration);
     EXPECT_EQ(1UL, it->leaseId);
     it++;
     EXPECT_TRUE(it == leaseMgr->expirationOrder.end());
@@ -244,9 +244,10 @@ TEST_F(LeaseManagerTest, renewLeaseInternal_renew) {
     EXPECT_TRUE(leaseMgr->expirationOrder.end() ==
                 leaseMgr->expirationOrder.find({1, 1}));
     EXPECT_EQ(1U, clientLease.leaseId);
-    EXPECT_EQ(clientLease.leaseTerm, leaseMgr->leaseMap[1]);
+    EXPECT_EQ(clientLease.leaseExpiration, leaseMgr->leaseMap[1]);
     EXPECT_TRUE(leaseMgr->expirationOrder.end() !=
-                leaseMgr->expirationOrder.find({clientLease.leaseTerm, 1}));
+                leaseMgr->expirationOrder.find(
+                        {clientLease.leaseExpiration, 1}));
 }
 
 TEST_F(LeaseManagerTest, renewLeaseInternal_new) {

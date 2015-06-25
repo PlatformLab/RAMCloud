@@ -31,7 +31,7 @@ namespace RAMCloud {
  *      RPC's id to be checked.
  * \param ackId
  *      The ack number transmitted with the RPC whose id number is rpcId.
- * \param leaseTerm
+ * \param leaseExpiration
  *      Client's lease expiration time.
  *
  * \throw ExpiredLeaseException
@@ -47,7 +47,7 @@ UnackedRpcHandle::UnackedRpcHandle(
         uint64_t clientId,
         uint64_t rpcId,
         uint64_t ackId,
-        uint64_t leaseTerm)
+        uint64_t leaseExpiration)
     : clientId(clientId)
     , rpcId(rpcId)
     , duplicate(false)
@@ -56,7 +56,7 @@ UnackedRpcHandle::UnackedRpcHandle(
 {
     void* result;
     duplicate = rpcResults->checkDuplicate(clientId, rpcId, ackId,
-                                           leaseTerm, &result);
+                                           leaseExpiration, &result);
     resultPtr = reinterpret_cast<uint64_t>(result);
 }
 
@@ -197,7 +197,7 @@ UnackedRpcResults::startCleaner()
  *      RPC's id to be checked.
  * \param ackId
  *      The ack number transmitted with the RPC whose id number is rpcId.
- * \param leaseTerm
+ * \param leaseExpiration
  *      Client's lease expiration time in the form of ClusterTime.
  * \param[out] resultPtrOut
  *      If the RPC already has been completed, the pointer to its result (the \a
@@ -222,14 +222,15 @@ bool
 UnackedRpcResults::checkDuplicate(uint64_t clientId,
                                   uint64_t rpcId,
                                   uint64_t ackId,
-                                  uint64_t leaseTerm,
+                                  uint64_t leaseExpiration,
                                   void** resultPtrOut)
 {
     Lock lock(mutex);
     *resultPtrOut = NULL;
     Client* client;
 
-    if (leaseTerm && leaseTerm < context->masterService->clusterTime) {
+    if (leaseExpiration &&
+            leaseExpiration < context->masterService->clusterTime) {
         //contact coordinator for lease expiration and clusterTime.
         WireFormat::ClientLease lease =
             CoordinatorClient::getLeaseInfo(context, clientId);
@@ -247,9 +248,9 @@ UnackedRpcResults::checkDuplicate(uint64_t clientId,
         client = it->second;
     }
 
-    //1. Update leaseTerm and ack.
-    if (client->leaseTerm < leaseTerm)
-        client->leaseTerm = leaseTerm;
+    //1. Update leaseExpiration and ack.
+    if (client->leaseExpiration < leaseExpiration)
+        client->leaseExpiration = leaseExpiration;
     if (client->maxAckId < ackId)
         client->maxAckId = ackId;
 
@@ -356,7 +357,7 @@ UnackedRpcResults::recordCompletion(uint64_t clientId,
 /**
  * Recover a record of an RPC from RpcResult log entry.
  * It may insert a new clientId to #clients. (Protected with concurrent GC.)
- * The leaseTerm is not provided and fetched from coordinator lazily while
+ * The leaseExpiration is not provided and fetched from coordinator lazily while
  * servicing an RPC from same client or during GC of cleanByTimeout().
  *
  * \param clientId
@@ -478,7 +479,8 @@ UnackedRpcResults::cleanByTimeout()
                         //&& victims.size() < Cleaner::maxCheckPerPeriod;
              ++i, ++it) {
             Client* client = it->second;
-            if (client->leaseTerm <= context->masterService->clusterTime) {
+            if (client->leaseExpiration <=
+                    context->masterService->clusterTime) {
                 victims.push_back(it->first);
             }
         }
@@ -497,7 +499,7 @@ UnackedRpcResults::cleanByTimeout()
         if (lease.leaseId == 0) {
             clients.erase(victims[i]);
         } else {
-            clients[victims[i]]->leaseTerm = lease.leaseTerm;
+            clients[victims[i]]->leaseExpiration = lease.leaseExpiration;
         }
 
         if (maxClusterTime < lease.timestamp)

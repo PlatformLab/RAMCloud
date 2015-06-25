@@ -63,10 +63,10 @@ LeaseManager::getLeaseInfo(uint64_t leaseId)
     LeaseMap::iterator leaseEntry = leaseMap.find(leaseId);
     if (leaseEntry != leaseMap.end()) {
         clientLease.leaseId = leaseId;
-        clientLease.leaseTerm = leaseEntry->second;
+        clientLease.leaseExpiration = leaseEntry->second;
     } else {
         clientLease.leaseId = 0;
-        clientLease.leaseTerm = 0;
+        clientLease.leaseExpiration = 0;
     }
 
     clientLease.timestamp = clock.getTime();
@@ -105,9 +105,10 @@ LeaseManager::recover()
                 leaseId = temp;
             }
 
-            uint64_t leaseTerm = clock.getTime() + LeaseCommon::LEASE_TERM_US;
-            leaseMap[leaseId] = leaseTerm;
-            expirationOrder.insert({leaseTerm, leaseId});
+            uint64_t leaseExpiration = clock.getTime() +
+                                       LeaseCommon::LEASE_TERM_US;
+            leaseMap[leaseId] = leaseExpiration;
+            expirationOrder.insert({leaseExpiration, leaseId});
         } catch (std::invalid_argument& e) {
             LOG(ERROR, "Unable to recover lease: %s", object.name);
         }
@@ -128,7 +129,7 @@ LeaseManager::recover()
  *      leaseId = 0 is implicitly invalid and will always cause a new lease to
  *      be returned.
  * \return
- *      leaseId and leaseTerm for the renewed lease or new lease.
+ *      leaseId and leaseExpiration for the renewed lease or new lease.
  */
 WireFormat::ClientLease
 LeaseManager::renewLease(uint64_t leaseId)
@@ -248,7 +249,7 @@ LeaseManager::cleanNextLease()
 {
     Lock lock(mutex);
     ExpirationOrderSet::iterator it = expirationOrder.begin();
-    if (it != expirationOrder.end() && it->leaseTerm < clock.getTime()) {
+    if (it != expirationOrder.end() && it->leaseExpiration < clock.getTime()) {
         uint64_t leaseId = it->leaseId;
         std::string leaseObjName = STORAGE_PREFIX + "/"
                 + format("%lu", leaseId);
@@ -295,9 +296,9 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
         }
     }
 
-    clientLease.leaseTerm = clock.getTime() + LeaseCommon::LEASE_TERM_US;
-    leaseMap[clientLease.leaseId] = clientLease.leaseTerm;
-    expirationOrder.insert({clientLease.leaseTerm, clientLease.leaseId});
+    clientLease.leaseExpiration = clock.getTime() + LeaseCommon::LEASE_TERM_US;
+    leaseMap[clientLease.leaseId] = clientLease.leaseExpiration;
+    expirationOrder.insert({clientLease.leaseExpiration, clientLease.leaseId});
 
     clientLease.timestamp = clock.getTime();
 

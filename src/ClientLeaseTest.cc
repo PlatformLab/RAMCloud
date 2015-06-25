@@ -64,12 +64,12 @@ TEST_F(ClientLeaseTest, getLease_basic) {
 
 TEST_F(ClientLeaseTest, getLease_shouldAsyncRenew) {
     lease.lastRenewalTimeCycles = 0;
-    uint64_t leaseTerm = 300*1e6;
-    uint64_t currentTimeUs = leaseTerm - RENEW_THRESHOLD_US + 1;
+    uint64_t leaseExpiration = 300*1e6;
+    uint64_t currentTimeUs = leaseExpiration - RENEW_THRESHOLD_US + 1;
     lease.leaseTermElapseCycles = Cycles::fromNanoseconds(
-            (leaseTerm - DANGER_THRESHOLD_US) * 1000);
+            (leaseExpiration - DANGER_THRESHOLD_US) * 1000);
     Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeUs * 1000);
-    WireFormat::ClientLease l = {0, leaseTerm, 0};
+    WireFormat::ClientLease l = {0, leaseExpiration, 0};
     lease.lease = l;
     EXPECT_EQ(0U, l.leaseId);
     EXPECT_EQ(0U, lease.lease.leaseId);
@@ -82,12 +82,12 @@ TEST_F(ClientLeaseTest, getLease_shouldAsyncRenew) {
 
 TEST_F(ClientLeaseTest, getLease_shouldSyncRenew) {
     lease.lastRenewalTimeCycles = 0;
-    uint64_t leaseTerm = 300*1e6;
-    uint64_t currentTimeUs = leaseTerm - DANGER_THRESHOLD_US + 1;
+    uint64_t leaseExpiration = 300*1e6;
+    uint64_t currentTimeUs = leaseExpiration - DANGER_THRESHOLD_US + 1;
     lease.leaseTermElapseCycles = Cycles::fromNanoseconds(
-            (leaseTerm - DANGER_THRESHOLD_US) * 1000);
+            (leaseExpiration - DANGER_THRESHOLD_US) * 1000);
     Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeUs * 1000);
-    WireFormat::ClientLease l = {0, leaseTerm, 0};
+    WireFormat::ClientLease l = {0, leaseExpiration, 0};
     lease.lease = l;
     EXPECT_EQ(0U, l.leaseId);
     EXPECT_EQ(0U, lease.lease.leaseId);

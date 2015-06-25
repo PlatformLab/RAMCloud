@@ -40,7 +40,7 @@ class UnackedRpcResults {
     bool checkDuplicate(uint64_t clientId,
                         uint64_t rpcId,
                         uint64_t ackId,
-                        uint64_t leaseTerm,
+                        uint64_t leaseExpiration,
                         void** result);
     bool shouldRecover(uint64_t clientId, uint64_t rpcId, uint64_t ackId);
     void recordCompletion(uint64_t clientId,
@@ -120,7 +120,7 @@ class UnackedRpcResults {
          */
         explicit Client(int size) : maxRpcId(0),
                                     maxAckId(0),
-                                    leaseTerm(0),
+                                    leaseExpiration(0),
                                     numRpcsInProgress(0),
                                     rpcs(new UnackedRpc[size]()),
                                     len(size) {
@@ -153,7 +153,7 @@ class UnackedRpcResults {
          * but the lease may have been extended since this value was written).
          * Used in Cleaner for GC.
          */
-        uint64_t leaseTerm;
+        uint64_t leaseExpiration;
 
         /**
          * The count for rpcIds in stage between checkDuplicate and
@@ -234,7 +234,7 @@ class UnackedRpcHandle {
                      uint64_t clientId,
                      uint64_t rpcId,
                      uint64_t ackId,
-                     uint64_t leaseTerm);
+                     uint64_t leaseExpiration);
     UnackedRpcHandle(const UnackedRpcHandle& origin);
     UnackedRpcHandle& operator= (const UnackedRpcHandle& origin);
     ~UnackedRpcHandle();
