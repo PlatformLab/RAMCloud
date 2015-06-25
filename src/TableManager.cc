@@ -198,7 +198,9 @@ TableManager::coordSplitAndMigrateIndexlet(
  * \param indexId
  *      Id of the secondary key on which the index is being built.
  * \param indexType
- *      Type of the index.
+ *      Type of the keys corresponding to this index.
+ *      Currently only string keys are supported, so this parameter is not yet
+ *      used (i.e., caller can provide any value).
  * \param numIndexlets
  *      Number of indexlets to partition the index key space.
  *      This is only for performance testing, and value should always be 1 for

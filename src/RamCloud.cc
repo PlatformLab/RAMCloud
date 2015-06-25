@@ -319,7 +319,9 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud, const char* name)
  *      Id of the secondary keys corresponding to this index.
  *      Must be greater than 0. Id 0 is reserved for "primary key".
  * \param indexType
- *      Type of the index. Currently only supporting string type.
+ *      Type of the keys corresponding to this index.
+ *      Currently only string keys are supported, so this parameter is not yet
+ *      used (i.e., caller can provide any value).
  * \param numIndexlets
  *      Number of indexlets to partition the index key space.
  *      This is only for performance testing and unit tests.
@@ -346,7 +348,9 @@ RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
  *      Id of the secondary keys corresponding to this index.
  *      Must be greater than 0. Id 0 is reserved for "primary key".
  * \param indexType
- *      Type of the index. Currently only supporting string type.
+ *      Type of the keys corresponding to this index.
+ *      Currently only string keys are supported, so this parameter is not yet
+ *      used (i.e., caller can provide any value).
  * \param numIndexlets
  *      Number of indexlets to partition the index key space.
  *      This is only for performance testing, and value should always be 1 for

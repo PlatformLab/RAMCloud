@@ -518,7 +518,7 @@ struct CreateIndex {
     struct Request {
         RequestCommon common;
         uint64_t tableId;       // Id of table to which the index belongs.
-        uint8_t indexType;      // Type of index.
+        uint8_t indexType;      // Type of secondary keys in the index.
         uint8_t indexId;        // Id of secondary keys in the index.
         uint8_t numIndexlets;   // Number of indexlets to partition the index
                                 // key space.
