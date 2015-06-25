@@ -150,8 +150,6 @@ CoordinatorClusterClock::recoverClusterTime(ExternalStorage* externalStorage)
             "coordinatorClusterClock", &info)) {
         startingClusterTime = info.next_safe_time();
     } else {
-        // TODO(cstlee): only output message when NOT starting a new cluster.
-        // may need to use an additional param flag.
         LOG(WARNING, "couldn't find \"coordinatorClusterClock\" object in "
                 "external storage; starting new clock from zero; benign if "
                 "starting new cluster from scratch, may cause linearizability "
