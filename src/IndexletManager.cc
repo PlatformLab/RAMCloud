@@ -582,8 +582,9 @@ IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
  * \param pKHash
  *      Hash of the primary key of the object.
  * \return
- *      Returns STATUS_OK if the insert succeeded. Other status values
- *      indicate different failures.
+ *      Returns STATUS_OK if the insert succeeded.
+ *      Returns STATUS_UNKNOWN_INDEXLET if the server does not own an indexlet
+ *      that could contain this index entry.
  */
 Status
 IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
