@@ -97,6 +97,20 @@ void TimeTrace::printToLog()
 }
 
 /**
+ * Discard any existing trace records.
+ */
+void TimeTrace::reset()
+{
+    for (int i = 0; i < BUFFER_SIZE; i++) {
+        if (events[i].message == NULL) {
+            break;
+        }
+        events[i].message = NULL;
+    }
+    nextIndex = 0;
+}
+
+/**
  * This private method does most of the work for both printToLog and
  * getTrace.
  *
@@ -146,6 +160,7 @@ void TimeTrace::printInternal(string* s)
         }
         i = (i+1)%BUFFER_SIZE;
         prevTime = ns;
+        // The NULL test below is only needed for testing.
     } while ((i != nextIndex) && (events[i].message != NULL));
     readerActive = false;
 }

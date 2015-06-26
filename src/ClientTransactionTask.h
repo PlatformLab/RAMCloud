@@ -30,8 +30,6 @@ namespace RAMCloud {
  * deletes), and it executes the client-driven protocol for committing the
  * transaction. Furthermore, it allows the commit protocol to be executed
  * asynchronously.
- *
- * This module is driven by the ClientTransactionManager.
  */
 class ClientTransactionTask : public RpcTracker::TrackedRpc {
   PUBLIC:
@@ -46,7 +44,9 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         /// Cached object value.  Used to service reads and defer writes and
         /// removes until commit-time.  Ideally this would be a unique pointer
         /// to manage the memory automatically but std::multimap is missing the
-        /// emplace feature.
+        /// emplace feature.  Instead, we must manually dynamically allocate
+        /// the object and ensure there is only one pointer to it so that it
+        /// will not be double freed.
         ObjectBuffer* objectBuf;
         /// Conditions upon which the transaction operation associated with
         /// this object should abort.
@@ -56,7 +56,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         uint64_t rpcId;
         /// Used to keep track of what stage in the commit process this
         /// operation has reached.
-        enum { PENDING, PREPARE, DECIDE, FAILED } state;
+        enum { PENDING, PREPARE, DECIDE } state;
 
         /// Default constructor for CacheEntry.
         CacheEntry()
@@ -78,12 +78,10 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         {}
 
         /// Destructor for CacheEntry.
-        ///
-        /// Warning: Multiple copies of CacheEntry objects may cause the
-        /// ObjectBuffer pointed in the entry to be double freed.  This
-        /// is indirectly due to missing emplace feature in std::multimap.
         ~CacheEntry()
         {
+            // This delete would not be necessary if std::multimap supported
+            // emplace operations.
             if (objectBuf)
                 delete objectBuf;
         }
@@ -109,10 +107,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// Return the transaction commit decision if a decision has been reached.
     /// Otherwise, INVALID will be returned.
     WireFormat::TxDecision::Decision getDecision() { return decision; }
-    /// Return last exceptional STATUS.
-    Status getStatus() { return status; }
-    CacheEntry* insertCacheEntry(uint64_t tableId, const void* key,
-            uint16_t keyLength, const void* buf, uint32_t length);
+    CacheEntry* insertCacheEntry(Key& key, const void* buf, uint32_t length);
     /// Check if the task has completed the commit protocol.
     bool isReady() { return (state == DONE); }
     /// Check if all decisions have been sent.
@@ -121,6 +116,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
                 (state == DECISION && nextCacheEntry == commitCache.end()));
     }
     void performTask();
+    static void start(std::shared_ptr<ClientTransactionTask>& taskPtr);
 
   PRIVATE:
     // Forward declaration of RPCs
@@ -136,10 +132,11 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     Buffer participantList;
 
     /// Keeps track of the task currently executing phase.
-    enum State { INIT, PREPARE, DECISION, DONE} state;
-
-    /// Status of the transaction.  Used to defer exceptions.
-    Status status;
+    enum State { INIT,      /// Acquire and assign LeaseIds and RpcIds.
+                 PREPARE,   /// Send out PrepareRpcs and collect votes.
+                 DECISION,  /// Send out DecisionRpcs based on votes.
+                 DONE       /// Execution has terminated (w/ or w/o errors).
+            } state;
 
     /// This transaction's decision to either COMMIT or ABORT.
     WireFormat::TxDecision::Decision decision;
@@ -176,7 +173,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     };
 
     /**
-     * The Commit Cache is used to keep track of the  transaction operations to
+     * The Commit Cache is used to keep track of the transaction operations to
      * be performed during commit and well as cache read and write values to
      * services subsequent reads.
      */
@@ -187,9 +184,31 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// commit protocol.
     CommitCacheMap::iterator nextCacheEntry;
 
+    /**
+     * The Poller drives the execution of the ClientTransactionTask.  While this
+     * object exists, ClientTransactionTask::performTask will be called.
+     */
+    class Poller : public Dispatch::Poller {
+      PUBLIC:
+        explicit Poller(Dispatch* dispatch,
+                        std::shared_ptr<ClientTransactionTask>& taskPtr);
+        virtual void poll();
+
+      PRIVATE:
+        /// Keeps track of if the poll method is already executing to prevent
+        /// recursive calls due to the use of polling in other modules.
+        bool running;
+        /// Shared pointer to the ClientTransactionTask to be run.
+        std::shared_ptr<ClientTransactionTask> taskPtr;
+
+        DISALLOW_COPY_AND_ASSIGN(Poller);
+    };
+    /// Used to delay execution of the task until commit time.
+    Tub<Poller> poller;
+
     void initTask();
-    void processDecisionRpcs();
-    void processPrepareRpcs();
+    void processDecisionRpcResults();
+    void processPrepareRpcResults();
     void sendDecisionRpc();
     void sendPrepareRpc();
     virtual void tryFinish();

@@ -50,7 +50,7 @@ PerfStats::registerStats(PerfStats* stats)
     // This is a new structure; add it to our list, and reset its contents.
     stats->readCount = 0;
     stats->writeCount = 0;
-    stats->activeCycles = 0;
+    stats->workerActiveCycles = 0;
     registeredStats.push_back(stats);
 }
 
@@ -69,11 +69,28 @@ PerfStats::collectStats(PerfStats* total)
     std::lock_guard<SpinLock> lock(mutex);
     total->readCount = 0;
     total->writeCount = 0;
-    total->activeCycles = 0;
+    total->workerActiveCycles = 0;
+    total->compactorInputBytes = 0;
+    total->compactorBytesFreed = 0;
+    total->compactorActiveCycles = 0;
+    total->cleanerInputMemoryBytes = 0;
+    total->cleanerMemoryBytesFreed = 0;
+    total->cleanerActiveCycles = 0;
     foreach (PerfStats* stats, registeredStats) {
         total->readCount += stats->readCount;
         total->writeCount += stats->writeCount;
-        total->activeCycles += stats->activeCycles;
+        total->workerActiveCycles += stats->workerActiveCycles;
+        total->compactorInputBytes += stats->compactorInputBytes;
+        total->compactorBytesFreed += stats->compactorBytesFreed;
+        total->compactorActiveCycles += stats->compactorActiveCycles;
+        total->cleanerInputMemoryBytes += stats->cleanerInputMemoryBytes;
+        total->cleanerMemoryBytesFreed += stats->cleanerMemoryBytesFreed;
+        total->cleanerActiveCycles += stats->cleanerActiveCycles;
+        total->temp1 += stats->temp1;
+        total->temp2 += stats->temp2;
+        total->temp3 += stats->temp3;
+        total->temp4 += stats->temp4;
+        total->temp5 += stats->temp5;
     }
     total->collectionTime = Cycles::rdtsc();
     total->cyclesPerSecond = Cycles::perSecond();

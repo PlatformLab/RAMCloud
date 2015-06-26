@@ -429,7 +429,7 @@ TEST_F(IndexletManagerTest, findIndexlet) {
     EXPECT_FALSE(im->findIndexlet(dataTableId, 1, key2.c_str(),
         (uint16_t)key2.length()));
 
-    // add indexlet exist corresponding to [c, k)
+    // add indexlet corresponding to [c, k)
     im->addIndexlet(dataTableId, 1, backingTableId, key2.c_str(),
         (uint16_t)key2.length(), key4.c_str(), (uint16_t)key4.length());
 
@@ -464,6 +464,53 @@ TEST_F(IndexletManagerTest, findIndexlet) {
     firstNotOwnedKey = StringUtil::binaryToString(
             indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
     EXPECT_EQ(0, firstNotOwnedKey.compare("k"));
+}
+
+TEST_F(IndexletManagerTest, findIndexlet_nullKey) {
+    string key1 = "a";
+    string key2 = "c";
+    string key3 = "f";
+    string key4 = "k";
+
+    // Add indexlet corresponding to [c, f)
+    im->addIndexlet(dataTableId, 1, backingTableId,
+            key2.c_str(), (uint16_t)key2.length(),
+            key3.c_str(), (uint16_t)key3.length());
+
+    // Find indexlet with a NULL key. This should return the only existing
+    // indexlet -- i.e., the one with range [c, f).
+    IndexletManager::Indexlet* indexlet = im->findIndexlet(
+            dataTableId, 1, "", 0);
+    EXPECT_TRUE(indexlet);
+
+    string firstKey = StringUtil::binaryToString(
+            indexlet->firstKey, indexlet->firstKeyLength);
+    EXPECT_EQ(0, firstKey.compare("c"));
+    string firstNotOwnedKey = StringUtil::binaryToString(
+            indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
+    EXPECT_EQ(0, firstNotOwnedKey.compare("f"));
+
+    // Add indexlets corresponding to [a, c) and [f, k), in that order,
+    // so that the indexlet with the lowest firstKey is in the middle of the
+    // other two indexlets.
+    im->addIndexlet(dataTableId, 1, backingTableId,
+            key1.c_str(), (uint16_t)key1.length(),
+            key2.c_str(), (uint16_t)key2.length());
+    im->addIndexlet(dataTableId, 1, backingTableId,
+            key3.c_str(), (uint16_t)key3.length(),
+            key4.c_str(), (uint16_t)key4.length());
+
+    // Find indexlet with a NULL key. This should return the indexlet with the
+    // lowest firstKey value -- i.e., the indexlet with range [a, c).
+    indexlet = im->findIndexlet(dataTableId, 1, "", 0);
+    EXPECT_TRUE(indexlet);
+
+    firstKey = StringUtil::binaryToString(
+            indexlet->firstKey, indexlet->firstKeyLength);
+    EXPECT_EQ(0, firstKey.compare("a"));
+    firstNotOwnedKey = StringUtil::binaryToString(
+            indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength);
+    EXPECT_EQ(0, firstNotOwnedKey.compare("c"));
 }
 
 TEST_F(IndexletManagerTest, getIndexlet) {

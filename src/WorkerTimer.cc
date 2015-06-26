@@ -54,13 +54,7 @@ WorkerTimer::~WorkerTimer()
 {
     Lock lock(mutex);
     destroyed = true;
-    if (active) {
-        stopInternal(lock);
-    }
-    while (handlerRunning) {
-        TEST_LOG("waiting for handler");
-        handlerFinished.wait(lock);
-    }
+    stopInternal(lock);
     manager->timerCount--;
     if (manager->timerCount == 0) {
         delete manager;
@@ -114,15 +108,14 @@ void WorkerTimer::start(uint64_t rdtscTime)
 }
 
 /**
- * Stop this timer, if it was running. After this call, the timer won't
- * trigger until #start is invoked again.
+ * Stop this timer, if it was running. After this call, the timer will
+ * not currently be running, and will not trigger until #start is invoked
+ * again.
  */
 void WorkerTimer::stop()
 {
     Lock lock(mutex);
-    if (active) {
-        stopInternal(lock);
-    }
+    stopInternal(lock);
 }
 
 /**
@@ -135,13 +128,18 @@ void WorkerTimer::stop()
  */
 void WorkerTimer::stopInternal(Lock& lock)
 {
-    TEST_LOG("stopping WorkerTimer");
-    erase(manager->activeTimers, *this);
-    active = false;
-    if (manager->activeTimers.empty()) {
-        Dispatch::Lock dispatchLock(manager->dispatch);
-        manager->earliestTriggerTime = ~0lu;
-        manager->stop();
+    while (handlerRunning) {
+        TEST_LOG("waiting for handler");
+        handlerFinished.wait(lock);
+    }
+    if (active) {
+        erase(manager->activeTimers, *this);
+        active = false;
+        if (manager->activeTimers.empty()) {
+            Dispatch::Lock dispatchLock(manager->dispatch);
+            manager->earliestTriggerTime = ~0lu;
+            manager->stop();
+        }
     }
 }
 

@@ -36,7 +36,8 @@ TEST_F(IndexKeyTest, keyCompare)
     EXPECT_GT(0, IndexKey::keyCompare("abbc", 4, "abc", 3));
     EXPECT_LT(0, IndexKey::keyCompare("ac", 2, "abc", 3));
     EXPECT_GT(0, IndexKey::keyCompare("", 0, "abc", 3));
-    EXPECT_LT(0, IndexKey::keyCompare("abc", 3, "", 0));
+    EXPECT_GT(0, IndexKey::keyCompare("abc", 3, "", 0));
+    EXPECT_GT(0, IndexKey::keyCompare("", 0, "", 0));
 }
 
 TEST_F(IndexKeyTest, isKeyInRange)

@@ -71,7 +71,6 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , clientLease(this)
     , objectFinder(clientContext)
     , rpcTracker()
-    , transactionManager(this)
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
@@ -90,7 +89,6 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , clientLease(this)
     , objectFinder(clientContext)
     , rpcTracker()
-    , transactionManager(this)
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
@@ -1555,7 +1553,8 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  * \param firstKey
  *      Starting key for the key range in which keys are to be matched.
  *      The key range includes the firstKey.
- *      It does not necessarily have to be null terminated.  The caller must
+ *      NULL value indicates lowest possible key.
+ *      It does not necessarily have to be null terminated. The caller must
  *      ensure that the storage for this key is unchanged through the life of
  *      the RPC.
  * \param firstKeyLength
@@ -1565,7 +1564,8 @@ RamCloud::lookupIndexKeys(uint64_t tableId, uint8_t indexId,
  * \param lastKey
  *      Ending key for the key range in which keys are to be matched.
  *      The key range includes the lastKey.
- *      It does not necessarily have to be null terminated.  The caller must
+ *      NULL value indicates highest possible key.
+ *      It does not necessarily have to be null terminated. The caller must
  *      ensure that the storage for this key is unchanged through the life of
  *      the RPC.
  * \param lastKeyLength
@@ -2206,7 +2206,7 @@ ObjectServerControlRpc::wait()
  * the objectServerControl method.
  *
  * \param controlOp
- *      This defines the specific operation to be performed on each server.
+ *      This defines the specific to be performed on each server.
  * \param inputData
  *      Input data, such as additional parameters, specific for the
  *      particular operation to be performed. Not all operations use

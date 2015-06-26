@@ -40,8 +40,9 @@ class TimeTrace {
     void record(const char* message, uint64_t timestamp = Cycles::rdtsc());
     void printToLog();
     string getTrace();
+    void reset();
 
-  PRIVATE:
+  public:
     void printInternal(string* s);
 
     /**

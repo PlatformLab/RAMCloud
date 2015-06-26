@@ -250,9 +250,9 @@ TEST_F(UdpDriverTest, ReadHandler_multiplePackets) {
     sendMessage(client, serverAddress, "header:", "first");
     sendMessage(client, serverAddress, "header:", "second");
     sendMessage(client, serverAddress, "header:", "third");
-    EXPECT_STREQ("header:first", receivePacket(serverTransport));
-    EXPECT_STREQ("header:second", receivePacket(serverTransport));
-    EXPECT_STREQ("header:third", receivePacket(serverTransport));
+    EXPECT_STREQ("header:first, header:second, header:third",
+            receivePacket(serverTransport));
+    EXPECT_STREQ("no packet arrived", receivePacket(serverTransport));
 }
 
 }  // namespace RAMCloud

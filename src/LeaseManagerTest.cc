@@ -118,16 +118,6 @@ TEST_F(LeaseManagerTest, renewLease) {
     EXPECT_TRUE(leaseMgr->preallocator.isRunning());
 }
 
-TEST_F(LeaseManagerTest, startUpdaters) {
-    EXPECT_FALSE(leaseMgr->preallocator.isRunning());
-    EXPECT_FALSE(leaseMgr->cleaner.isRunning());
-    EXPECT_FALSE(leaseMgr->clock.updater.isRunning());
-    leaseMgr->startUpdaters();
-    EXPECT_TRUE(leaseMgr->preallocator.isRunning());
-    EXPECT_TRUE(leaseMgr->cleaner.isRunning());
-    EXPECT_TRUE(leaseMgr->clock.updater.isRunning());
-}
-
 TEST_F(LeaseManagerTest, leasePreallocator_handleTimerEvent) {
     EXPECT_EQ(0U, leaseMgr->lastIssuedLeaseId);
     EXPECT_EQ(0U, leaseMgr->maxAllocatedLeaseId);

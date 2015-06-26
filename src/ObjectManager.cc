@@ -135,16 +135,9 @@ ObjectManager::initOnceEnlisted()
  * ObjectManager.
  *
  * We'd typically expect one object to match one primary key hash, but it is
-<<<<<<< HEAD
  * possible that zero (if that object was removed after client got the key
  * hash), one, or multiple (if there are multiple objects with the same primary
  * key hash) objects match.
-=======
- * possible that zero (if that object was removed after client did
- * lookupIndexKeys() preceding this call), one, or multiple (if there are
- * multiple objects with the same primary key hash that also have index
- * keys in the current read range) objects match.
->>>>>>> Add RpcResult Log Entry Cleaning. No tests yet.
  *
  * \param tableId
  *      Id of the table containing the object(s).

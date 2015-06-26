@@ -65,14 +65,12 @@ class WorkerTimer {
     /// Indicates whether or not this timer is currently running.
     bool active;
 
-    /// The following variables make it safe for the destructor to be invoked
-    /// even if the handler is running or about to run (in general, it's hard
-    /// to avoid situations like this, since the handler runs asynchronously
-    /// with other threads that might destroy the object). If this happens,
-    /// the destructor must wait until the handler has finished running:
-    /// handlerRunning indicates whether handleTimerEvent has been called (or
-    /// is about to be called), and handlerFinished gets notified whenever
-    /// handlerRunning is set to false.
+    /// The following variables allow us to detect that the timer's
+    /// handler is running; if so, we must wait for it to finish running
+    /// when stopping or destroying the timer. handlerRunning indicates
+    /// whether handleTimerEvent has been called (or is about to be called),
+    /// and handlerFinished gets notified whenever handlerRunning is set
+    /// to false.
     bool handlerRunning;
     std::condition_variable handlerFinished;
 

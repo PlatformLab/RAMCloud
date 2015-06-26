@@ -614,4 +614,14 @@ TEST_F(PingServiceTest, serverControl_addLogMessage_bad) {
                 &output), ClientException);
 }
 
+TEST_F(PingServiceTest, serverControl_resetMetrics) {
+    Buffer output;
+
+    context.timeTrace->record("sample");
+    PingClient::serverControl(&context, serverId, WireFormat::RESET_METRICS);
+    PingClient::serverControl(&context, serverId, WireFormat::GET_TIME_TRACE,
+            "abc", 3, &output);
+    EXPECT_EQ("No time trace events to print", TestUtil::toString(&output));
+}
+
 } // namespace RAMCloud

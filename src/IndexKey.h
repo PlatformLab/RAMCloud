@@ -55,15 +55,17 @@ class IndexKey {
         /// It does not necessarily have to be null terminated. The caller must
         /// ensure that the storage for this key is unchanged through the life
         /// of this object.
+        /// NULL value indicates lowest possible key.
         const void* firstKey;
-        /// Length of firstKey.
+        /// Length of firstKey. 0 value corresponds to NULL firstKey.
         const uint16_t firstKeyLength;
         /// Key blob marking the end of the key range.
         /// It does not necessarily have to be null terminated. The caller must
         /// ensure that the storage for this key is unchanged through the life
         /// of this object.
+        /// NULL value indicates highest possible key.
         const void* lastKey;
-        /// Length of lastKey.
+        /// Length of lastKey. 0 value corresponds to NULL lastKey.
         const uint16_t lastKeyLength;
         /// Flags that specify boundary conditions for this range.
         const BoundaryFlags flags;

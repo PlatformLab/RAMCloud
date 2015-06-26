@@ -433,25 +433,49 @@ IndexletManager::findIndexlet(uint64_t tableId, uint8_t indexId,
 {
     // Must iterate over all of the local indexlets for the given index.
     auto range = indexletMap.equal_range(TableAndIndexId {tableId, indexId});
+    IndexletMap::iterator start = range.first;
     IndexletMap::iterator end = range.second;
 
-    for (IndexletMap::iterator it = range.first; it != end; it++) {
+    // If key is NULL (and correspondingly, keyLength is 0), then return
+    // the indexlet with lowest firstKey.
+    if (keyLength == 0) {
+        IndexletMap::iterator lowestIter = start;
+        Indexlet* lowestIndexlet = &lowestIter->second;
 
+        for (IndexletMap::iterator it = start; it != end; it++) {
+
+            Indexlet* indexlet = &it->second;
+
+            if (IndexKey::keyCompare(
+                    indexlet->firstKey, indexlet->firstKeyLength,
+                    lowestIndexlet->firstKey,
+                    lowestIndexlet->firstKeyLength) > 0) {
+                continue;
+            } else {
+                lowestIter = it;
+                lowestIndexlet = indexlet;
+            }
+        }
+        return lowestIter;
+    }
+
+    for (IndexletMap::iterator it = start; it != end; it++) {
         Indexlet* indexlet = &it->second;
-        if (IndexKey::keyCompare(key, keyLength,
-                indexlet->firstKey, indexlet->firstKeyLength) < 0) {
+
+        if (IndexKey::keyCompare(
+                indexlet->firstKey, indexlet->firstKeyLength,
+                key, keyLength) > 0) {
             continue;
         }
-
-        if (indexlet->firstNotOwnedKey != NULL) {
-            if (IndexKey::keyCompare(key, keyLength,
+        if (indexlet->firstNotOwnedKey != NULL &&
+            IndexKey::keyCompare(key, keyLength,
                     indexlet->firstNotOwnedKey,
                     indexlet->firstNotOwnedKeyLength) >= 0) {
-                continue;
-            }
+            continue;
         }
         return it;
     }
+
     return indexletMap.end();
 }
 
@@ -603,21 +627,23 @@ IndexletManager::lookupIndexKeys(
     Lock indexletMapLock(mutex);
 
     uint32_t reqOffset = sizeof32(*reqHdr);
+    uint16_t firstKeyLength = reqHdr->firstKeyLength;
+    uint16_t lastKeyLength = reqHdr->lastKeyLength;
     const void* firstKey =
-            rpc->requestPayload->getRange(reqOffset, reqHdr->firstKeyLength);
-    reqOffset += reqHdr->firstKeyLength;
+            rpc->requestPayload->getRange(reqOffset, firstKeyLength);
+    reqOffset += firstKeyLength;
     const void* lastKey =
-            rpc->requestPayload->getRange(reqOffset, reqHdr->lastKeyLength);
+            rpc->requestPayload->getRange(reqOffset, lastKeyLength);
 
     RAMCLOUD_LOG(DEBUG, "Looking up: tableId %lu, indexId %u.\n"
                         "first key: %s\n last  key: %s\n",
                         reqHdr->tableId, reqHdr->indexId,
-                        Util::hexDump(firstKey, reqHdr->firstKeyLength).c_str(),
-                        Util::hexDump(lastKey, reqHdr->lastKeyLength).c_str());
+                        Util::hexDump(firstKey, firstKeyLength).c_str(),
+                        Util::hexDump(lastKey, lastKeyLength).c_str());
 
     IndexletMap::iterator mapIter =
             findIndexlet(reqHdr->tableId, reqHdr->indexId, firstKey,
-                    reqHdr->firstKeyLength, indexletMapLock);
+                    firstKeyLength, indexletMapLock);
     if (mapIter == indexletMap.end()) {
         respHdr->common.status = STATUS_UNKNOWN_INDEXLET;
     }
@@ -629,27 +655,18 @@ IndexletManager::lookupIndexKeys(
     // We want to use lower_bound() instead of find() because the firstKey
     // may not correspond to a key in the indexlet.
     auto iter = indexlet->bt->lower_bound(BtreeEntry {
-            firstKey, reqHdr->firstKeyLength, reqHdr->firstAllowedKeyHash});
-
+            firstKey, firstKeyLength, reqHdr->firstAllowedKeyHash});
     auto iterEnd = indexlet->bt->end();
     bool rpcMaxedOut = false;
 
-    // If the iterator is currently at the end, then it stays at the
-    // same point if we try to advance (i.e., increment) the iterator.
-    // This can result this loop looping forever if:
-    // end of the tree is <= lastKey given by client.
-    // So the second condition ensures that we break if iterator is at the end.
-
-    // If iter == iterEnd, calling iter.key() is wrong because we will
-    // then try to read an object that definitely does not exist.
-    // This will cause a crash in the tree module
-
     respHdr->numHashes = 0;
+
     while (iter != iterEnd) {
         BtreeEntry currEntry = *iter;
-        if (IndexKey::keyCompare(lastKey, reqHdr->lastKeyLength,
-                        currEntry.key,
-                        currEntry.keyLength) < 0)
+        // If we have overshot the range to be returned (indicated by lastKey),
+        // then break. Otherwise continue appending entries to response rpc.
+        if (IndexKey::keyCompare(currEntry.key, currEntry.keyLength,
+                lastKey, lastKeyLength) > 0)
         {
             break;
         }
@@ -665,15 +682,16 @@ IndexletManager::lookupIndexKeys(
             rpcMaxedOut = true;
             break;
         }
-
     }
 
     if (rpcMaxedOut) {
+
         respHdr->nextKeyLength = uint16_t(iter->keyLength);
         respHdr->nextKeyHash = iter->pKHash;
         rpc->replyPayload->append(iter->key, uint32_t(iter->keyLength));
+
     } else if (IndexKey::keyCompare(
-            lastKey, reqHdr->lastKeyLength,
+            lastKey, lastKeyLength,
             indexlet->firstNotOwnedKey, indexlet->firstNotOwnedKeyLength) > 0) {
 
         respHdr->nextKeyLength = indexlet->firstNotOwnedKeyLength;
