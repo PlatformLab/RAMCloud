@@ -753,7 +753,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
 
                 // Raise safeVersion if that in the recovered tombstone is
                 // bigger than current safeVersion. (RAM-677 fix)
-                segmentManager.raiseSafeVersion(recoverVersion);
+                segmentManager.raiseSafeVersion(recoverVersion + 1);
 
                 // Synthesize a new tombstone specifically so as to maintain
                 // the following invariant

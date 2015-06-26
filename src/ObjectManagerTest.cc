@@ -1198,8 +1198,9 @@ TEST_F(ObjectManagerTest, replaySafeversion) {
     objectManager.removeTombstones();
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, getObjectStatus(0, "key0", 4));
 
-    // safeVersion recovered from Tombstone (ver 40) in the head segment
-    EXPECT_EQ(40UL, objectManager.segmentManager.safeVersion);
+    // safeVersion recovered to be one bigger than
+    //    Tombstone (ver 40) in the head segment
+    EXPECT_EQ(41UL, objectManager.segmentManager.safeVersion);
 }
 
 TEST_F(ObjectManagerTest, replaySegment_rpcRecord) {
