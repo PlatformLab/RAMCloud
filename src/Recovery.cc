@@ -128,9 +128,10 @@ Recovery::splitTablets(vector<Tablet> *tablets,
     for (size_t i = 0; i < size; ++i) {
         Tablet* tablet = &tablets->at(i);
 
-        // Currently we didn't support split operation for index tablets.
-        // Therefore, if we found a tablet is an index tablet, we just skip
-        // the following operations.
+        // The backing table for an indexlet should not be split.
+        // This is because we want to recover an indexlet on a single server
+        // rather than splitting it up into smaller partitions sprayed across
+        // the cluster for better scalability of index range queries.
         if (tableManager->isIndexletTable(tablet->tableId))
             continue;
 
