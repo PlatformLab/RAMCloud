@@ -141,6 +141,16 @@ class ExternalStorage {
      * server acting as leader. This method waits until there is no longer
      * an active leader; at that point it claims leadership and returns.
      * Once this method returns, the caller can begin acting as coordinator.
+     * After this method returns, a background thread may crash this process at
+     * any time if the lease cannot be maintained.
+     *
+     * (It used to not be the case that the process could crash as soon as a
+     * lease was lost. A background thread would have to set a flag, and
+     * another thread would eventually call back into the ExternalStorage,
+     * notice the flag, and throw LostLeadershipException. The problem was that
+     * we don't know how long it'll take for another thread to call back in,
+     * and meanwhile the coordinator could engage in unsafe activity. Directly
+     * crashing the process as soon as a lease is lost is simpler and safer.)
      *
      *  \param name
      *      Name of an object that is used to synchronize leader election
@@ -200,6 +210,8 @@ class ExternalStorage {
     /**
      * Return the last value passed to setWorkspace (i.e. the path prefix
      * used for relative node names).
+     *
+     * \throws LostLeadershipException
      *
      * \warning This method is not thread safe.
      */
@@ -263,6 +275,8 @@ class ExternalStorage {
      *
      * \param pathPrefix
      *      Top-level node in the workspace. Must start and end with "/".
+     *
+     * \throws LostLeadershipException
      *
      * \warning This method is not thread safe.
      */
