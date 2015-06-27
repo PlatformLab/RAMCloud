@@ -72,7 +72,21 @@ class ZooStorageTest : public ::testing::Test {
     // dependencies on the order in which results are returned).
     void sort(vector<ZooStorage::Object>* children)
     {
+        // gcc 4.4 doesn't seem to be able to sort vectors of movable but not
+        // copyable objects
+#if 0
         std::sort(children->begin(), children->end(), CompareObjects());
+#else
+        // stupid insertion sort
+        vector<ZooStorage::Object> sorted;
+        while (!children->empty()) {
+            auto it = std::min_element(children->begin(), children->end(),
+                                       CompareObjects());
+            sorted.emplace_back(std::move(*it));
+            children->erase(it);
+        }
+        std::swap(sorted, *children);
+#endif
     }
 
     // Pretty-print the results from a getChildren call (collect all names

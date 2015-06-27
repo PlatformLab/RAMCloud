@@ -77,7 +77,7 @@ MockExternalStorage::getChildren(const char* name, vector<Object>* children)
     if (generateLog) {
         logAppend(format("getChildren(%s)", name));
     }
-    children->resize(0);
+    children->clear();
     while (!getChildrenNames.empty()) {
         const char *value = getChildrenValues.front().c_str();
         if (*value == 0) {

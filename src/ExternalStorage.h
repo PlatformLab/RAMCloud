@@ -74,26 +74,27 @@ class ExternalStorage {
             , value(NULL)
             , length(0)
         {}
-        Object(const Object& other)
+        // move constructor
+        Object(Object&& other)
             : name(other.name)
             , value(other.value)
             , length(other.length)
         {
-            Object& o = const_cast<Object&>(other);
-            o.name = NULL;
-            o.value = NULL;
-            o.length = 0;
+            other.name = NULL;
+            other.value = NULL;
+            other.length = 0;
         }
-        Object& operator=(const Object& other)
+        // move assignment
+        Object& operator=(Object&& other)
         {
             if (this != &other) {
-                Object& o = const_cast<Object&>(other);
-                std::swap(name, o.name);
-                std::swap(value, o.value);
-                std::swap(length, o.length);
+                std::swap(name, other.name);
+                std::swap(value, other.value);
+                std::swap(length, other.length);
             }
             return *this;
         }
+        DISALLOW_COPY_AND_ASSIGN(Object);
     };
 
     /**

@@ -138,7 +138,7 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
 {
     Lock lock(mutex);
     int status;
-    children->resize(0);
+    children->clear();
     const char* fullName = getFullName(name);
 
     if (lostLeadership) {
