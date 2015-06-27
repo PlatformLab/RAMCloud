@@ -685,8 +685,7 @@ TableManager::recover(uint64_t lastCompletedUpdate)
 
     // Restore overall state information.
     ProtoBuf::TableManager info;
-    if (context->externalStorage->getProtoBuf<ProtoBuf::TableManager>(
-            "tableManager", &info)) {
+    if (context->externalStorage->getProtoBuf("tableManager", &info)) {
         nextTableId = info.next_table_id();
         RAMCLOUD_LOG(NOTICE, "initializing TableManager: nextTableId = %lu",
                 nextTableId);

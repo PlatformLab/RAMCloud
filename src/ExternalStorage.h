@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_EXTERNALSTORAGE_H
 #define RAMCLOUD_EXTERNALSTORAGE_H
 
+#include <google/protobuf/message.h>
+
 #include "Buffer.h"
 
 namespace RAMCloud {
@@ -190,42 +192,7 @@ class ExternalStorage {
      */
     virtual void getChildren(const char* name, vector<Object>* children) = 0;
 
-    /**
-     * Read an object from external storage, and parse it as a protocol
-     * buffer of type ProtoBufType.
-     *
-     * \param name
-     *      Name of the desired object; NULL-terminated hierarchical path
-     *      containing one or more path elements separated by slashes,
-     *      such as "foo" or "/foo/bar". Relative names (no leading slash)
-     *      are concatenated to the current workspace.
-     * \param value
-     *      A protocol buffer into which the object value is parsed.
-     *
-     * \return
-     *      If the specified object exists, then true is returned. If there
-     *      is no such object, then false is returned and value is empty.
-     *
-     * \throws LostLeadershipException
-     * \throws FormatError
-     */
-    template<typename ProtoBufType>
-    bool
-    getProtoBuf(const char* name, ProtoBufType* value)
-    {
-        Buffer externalData;
-        if (!get(name, &externalData))
-            return false;
-        uint32_t length = externalData.size();
-        string str(static_cast<const char*>(externalData.getRange(0, length)),
-                length);
-        if (!value->ParseFromString(str)) {
-            throw FormatError(HERE, format("couldn't parse '%s' "
-                "object in external storage as %s",
-                name, value->GetTypeName().c_str()));
-        }
-        return true;
-    }
+    bool getProtoBuf(const char* name, google::protobuf::Message* value);
 
     /**
      * Return the last value passed to setWorkspace (i.e. the path prefix

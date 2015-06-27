@@ -146,8 +146,7 @@ CoordinatorClusterClock::recoverClusterTime(ExternalStorage* externalStorage)
     // Recover any previously persisted safe cluster time. Cluster time starts
     // at zero if no persisted time is found.
     ProtoBuf::CoordinatorClusterClock info;
-    if (externalStorage->getProtoBuf<ProtoBuf::CoordinatorClusterClock>(
-            "coordinatorClusterClock", &info)) {
+    if (externalStorage->getProtoBuf("coordinatorClusterClock", &info)) {
         startingClusterTime = info.next_safe_time();
     } else {
         // TODO(cstlee): only output message when NOT starting a new cluster.
