@@ -50,8 +50,8 @@ class ExternalStorage {
   PUBLIC:
     /**
      * The following structure holds information about a single object
-     * including both its name and its value. Its primary use is
-     * for enumerating all of the children of a node.
+     * including both its name and its value (if it has one). Its primary use
+     * is for enumerating all of the children of a node.
      */
     struct Object {
         /// Name of the object within its parent (not a full path name).
@@ -166,6 +166,8 @@ class ExternalStorage {
      *      are concatenated to the current workspace.
      * \param value
      *      The contents of the object are returned in this buffer.
+     *      If the object is a pure node (directory), value is empty (and true
+     *      is returned).
      *
      * \return
      *      If the specified object exists, then true is returned. If there
@@ -186,7 +188,8 @@ class ExternalStorage {
      *      current workspace.
      * \param children
      *      This vector will be filled in with one entry for each child
-     *      of name. Any previous contents of the vector are discarded.
+     *      of name, including pure (directory) children. Any previous
+     *      contents of the vector are discarded.
      *
      * \throws LostLeadershipException
      */
@@ -197,6 +200,8 @@ class ExternalStorage {
     /**
      * Return the last value passed to setWorkspace (i.e. the path prefix
      * used for relative node names).
+     *
+     * \warning This method is not thread safe.
      */
     virtual const char* getWorkspace();
 
@@ -258,6 +263,8 @@ class ExternalStorage {
      *
      * \param pathPrefix
      *      Top-level node in the workspace. Must start and end with "/".
+     *
+     * \warning This method is not thread safe.
      */
     virtual void setWorkspace(const char* pathPrefix);
 
