@@ -69,6 +69,7 @@ TESTS_SRCFILES := \
 		  src/LeaseManagerTest.cc \
 		  src/LinearizableObjectRpcWrapperTest.cc \
 		  src/LockTableTest.cc \
+		  src/LogCabinStorageTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LogDigestTest.cc \
 		  src/LogEntryRelocatorTest.cc \

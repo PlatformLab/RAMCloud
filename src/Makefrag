@@ -77,6 +77,8 @@ SHARED_SRCFILES := \
 		   src/LinearizableObjectRpcWrapper.cc \
 		   src/LockTable.cc \
 		   src/Log.cc \
+		   src/LogCabinLogger.cc \
+		   src/LogCabinStorage.cc \
 		   src/LogCleaner.cc \
 		   src/LogDigest.cc \
 		   src/LogEntryRelocator.cc \

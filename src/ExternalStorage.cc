@@ -15,6 +15,7 @@
 
 #include "Common.h"
 #include "ExternalStorage.h"
+#include "LogCabinStorage.h"
 #include "ZooStorage.h"
 
 namespace RAMCloud {
@@ -28,6 +29,12 @@ ExternalStorage::ExternalStorage()
     : workspace("/")
     , fullName(workspace)
 {}
+
+bool
+ExternalStorage::getLeaderInfo(const char* name, Buffer* value)
+{
+    return get(name, value);
+}
 
 /**
  * Read an object from external storage, and parse it as a protocol
@@ -119,14 +126,20 @@ ExternalStorage::getFullName(const char* name)
  * system.
  *
  * \param locator
- *      Currently only one form of external storage is supported:
- *      ZooKeeper. In this case the string starts with "zk:" and the
+ *      Currently two forms of external storage are supported: LogCabin and
+ *      ZooKeeper.
+ *      For LogCabin the string starts with "lc:" and the rest of the string is
+ *      handed off to the LogCabin::Client::Cluster constructor (which
+ *      accepts comma-separated host:port pairs for the LogCabin servers, such
+ *      as "rc03:5254,rc04:5254"; each hostname may resolve to multiple
+ *      addresses).
+ *      For ZooKeeper the string starts with "zk:" and the
  *      rest of the string contains a comma-separated list of host:port
  *      pairs for the ZooKeeper servers, such as "rc03:2109,rc04:2109".
  *      In the future, other forms of external storage may be supported;
  *      each one will have its own distinctive prefix.
  * \param context
- *      Overal server information; needed by some forms of external storage.
+ *      Overall server information; needed by some forms of external storage.
  * @return
  *      If locator was recognized as an external storage locator, then
  *      the return value refers to an open connection to that system.
@@ -138,10 +151,18 @@ ExternalStorage::open(string locator, Context* context)
     if (storageOverride != NULL) {
         return storageOverride;
     }
-    if (locator.find("zk:") == 0) {
-        string zkInfo = locator.substr(3);
+    if (locator.find("lc:") == 0) {
+        string cluster = locator.substr(3);
+#if ENABLE_LOGCABIN
+        return new LogCabinStorage(cluster);
+#else
+        RAMCLOUD_DIE("Could not open connection to LogCabin: support for "
+                     "LogCabin was disabled at compile time");
+#endif
+    } else if (locator.find("zk:") == 0) {
+        string cluster = locator.substr(3);
 #if ENABLE_ZOOKEEPER
-        return new ZooStorage(zkInfo, context->dispatch);
+        return new ZooStorage(cluster, context->dispatch);
 #else
         RAMCLOUD_DIE("Could not open connection to ZooKeeper: support for "
                      "ZooKeeper was disabled at compile time");

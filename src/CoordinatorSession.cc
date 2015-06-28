@@ -89,7 +89,7 @@ CoordinatorSession::getSession()
     string locator;
     if (storage != NULL) {
         Buffer value;
-        if (!storage->get("coordinator", &value)) {
+        if (!storage->getLeaderInfo("coordinator", &value)) {
             LOG(WARNING, "Couldn't read coordinator object for cluster %s "
                     "from storage at '%s'",
                     clusterName.c_str(), coordinatorLocator.c_str());

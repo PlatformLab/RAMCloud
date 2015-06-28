@@ -36,7 +36,7 @@ namespace RAMCloud {
  * and available (for example, it might be implemented using a consensus
  * approach with multiple storage servers). No recoverable exceptions or
  * errors should be thrown by this class; the only exceptions thrown should
- * be unrecoverable once such as LostLeadershipException or internal
+ * be unrecoverable ones such as LostLeadershipException or internal
  * errors that should result in coordinator crashes. The storage system is
  * expected to be totally reliable; the worst that should happen is for
  * calls to this class to block while waiting for the storage system to
@@ -167,7 +167,9 @@ class ExternalStorage {
     virtual void becomeLeader(const char* name, const string& leaderInfo) = 0;
 
     /**
-     * Read one object from external storage.
+     * Read a single non-lease object from external storage.
+     *
+     * See getLeaderInfo() to read the owner of a lease object.
      *
      * \param name
      *      Name of the desired object; NULL-terminated hierarchical path
@@ -204,6 +206,18 @@ class ExternalStorage {
      * \throws LostLeadershipException
      */
     virtual void getChildren(const char* name, vector<Object>* children) = 0;
+
+    /**
+     * Read a single lease object from external storage.
+     *
+     * Some external storage implementations pack more information than the
+     * leader locator into the leader's lease object. This method extracts just
+     * the value of 'leaderInfo' as previously passed into becomeLeader().
+     *
+     * Everything else is the same as in get(), and the default implementation
+     * is just an alias for get().
+     */
+    virtual bool getLeaderInfo(const char* name, Buffer* value);
 
     bool getProtoBuf(const char* name, google::protobuf::Message* value);
 

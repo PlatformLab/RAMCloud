@@ -16,6 +16,7 @@
 #include "Common.h"
 #include "ShortMacros.h"
 #include "CoordinatorService.h"
+#include "ExternalStorage.h"
 #include "MockExternalStorage.h"
 #include "OptionParser.h"
 #include "PingService.h"
@@ -24,7 +25,6 @@
 #include "ServiceManager.h"
 #include "TableManager.h"
 #include "TransportManager.h"
-#include "ZooStorage.h"
 
 /**
  * \file
