@@ -24,6 +24,16 @@ OBJDIR	:= obj$(OBJSUFFIX)
 
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
+
+LOGCABIN ?= yes
+ifeq ($(LOGCABIN),yes)
+LOGCABIN_LIB ?= logcabin/build/liblogcabin.a
+LOGCABIN_DIR ?= logcabin
+else
+LOGCABIN_LIB :=
+LOGCABIN_DIR :=
+endif
+
 ZOOKEEPER ?= yes
 ifeq ($(ZOOKEEPER),yes)
 ZOOKEEPER_LIB ?= /usr/local/lib/libzookeeper_mt.a
@@ -53,6 +63,9 @@ endif
 ifeq ($(VALGRIND),yes)
 COMFLAGS += -DVALGRIND
 endif
+ifeq ($(LOGCABIN),yes)
+COMFLAGS += -DENABLE_LOGCABIN
+endif
 ifeq ($(ZOOKEEPER),yes)
 COMFLAGS += -DENABLE_ZOOKEEPER
 endif
@@ -72,7 +85,8 @@ endif
 # Failed deconstructor inlines are generating noise
 # -Winline
 
-LIBS := $(EXTRALIBS) $(ZOOKEEPER_LIB) -lpcrecpp -lboost_program_options \
+LIBS := $(EXTRALIBS) $(LOGCABIN_LIB) $(ZOOKEEPER_LIB) \
+	-lpcrecpp -lboost_program_options \
 	-lprotobuf -lrt -lboost_filesystem -lboost_system \
 	-lpthread -lssl -lcrypto
 ifeq ($(DEBUG),yes)
@@ -80,7 +94,12 @@ ifeq ($(DEBUG),yes)
 LIBS += -rdynamic
 endif
 
-INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include -I/usr/local/openonload-201405/src/include 
+INCLUDES := -I$(TOP)/src \
+            -I$(TOP)/$(OBJDIR) \
+            -I$(GTEST_DIR)/include \
+            -I$(LOGCABIN_DIR)/include \
+            -I/usr/local/openonload-201405/src/include \
+             $(NULL)
 
 CC ?= gcc
 CXX ?= g++
