@@ -26,13 +26,73 @@
 #include "OptionParser.h"
 #include "PortAlarm.h"
 #include "Server.h"
+#include "PerfStats.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
+#include "WorkerTimer.h"
+
+using namespace RAMCloud;
+
+// The following class is used for performance debugging: it logs
+// performance information at regular intervals.
+
+class StatsLogger : WorkerTimer {
+  public:
+    /**
+     * Constructor  for StatsLogger
+     * \param dispatch
+     *      Dispatcher that will be used to trigger logging.
+     * \param intervalSecs
+     *      Interval at which performance info is logged, in seconds.
+     */
+    StatsLogger(Dispatch* dispatch, double intervalSecs)
+        : WorkerTimer(dispatch),
+        intervalSecs(intervalSecs),
+        intervalCycles(0),
+        triggerTime(0),
+        oldStats()
+    {
+        intervalCycles = static_cast<uint64_t>(
+                Cycles::perSecond()*intervalSecs);
+        triggerTime = Cycles::rdtsc() + intervalCycles;
+        memset(&oldStats, 0, sizeof(oldStats));
+        start(triggerTime);
+    }
+
+  PRIVATE:
+    // See WorkerTimer::handleTimerEvent for documentation.
+    virtual void handleTimerEvent()
+    {
+        PerfStats newStats;
+        PerfStats::collectStats(&newStats);
+        double rate = static_cast<double>((newStats.writeCount
+                - oldStats.writeCount));
+        rate /= Cycles::toSeconds(newStats.collectionTime
+                - oldStats.collectionTime);
+        RAMCLOUD_LOG(NOTICE,
+                "Write rate for %.2f second interval: %6.2f kops/sec",
+                intervalSecs, rate/1e03);
+        oldStats = newStats;
+        triggerTime += intervalCycles;
+        start(triggerTime);
+    }
+
+    // Constructor argument.
+    double intervalSecs;
+
+    // The number of rdtsc cycles between firings of the timer.
+    uint64_t intervalCycles;
+
+    // The rdtsc time at which the timer is set to fire next.
+    uint64_t triggerTime;
+
+    // PerfStats from the previous time  the timer triggered.
+    PerfStats oldStats;
+};
 
 int
 main(int argc, char *argv[])
 {
-    using namespace RAMCloud;
     signal(SIGTERM, Perf::terminationHandler);
     Logger::installCrashBacktraceHandlers();
     Context context(true);
@@ -253,6 +313,8 @@ main(int argc, char *argv[])
         LOG(NOTICE, "PortTimeOut=%d", optionParser.options.getPortTimeout());
         context.portAlarmTimer->setPortTimeout(
             optionParser.options.getPortTimeout());
+
+        StatsLogger logger(context.dispatch, 1.0);
 
         Server server(&context, &config);
         server.run(); // Never returns except for exceptions.
