@@ -314,7 +314,8 @@ main(int argc, char *argv[])
         context.portAlarmTimer->setPortTimeout(
             optionParser.options.getPortTimeout());
 
-        StatsLogger logger(context.dispatch, 1.0);
+        // Uncomment the following line to enable regular performance logging.
+        // StatsLogger logger(context.dispatch, 1.0);
 
         Server server(&context, &config);
         server.run(); // Never returns except for exceptions.
