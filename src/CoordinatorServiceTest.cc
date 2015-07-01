@@ -310,10 +310,16 @@ TEST_F(CoordinatorServiceTest, setRuntimeOption) {
 }
 
 TEST_F(CoordinatorServiceTest, verifyMembership) {
+    TestLog::reset();
     CoordinatorClient::verifyMembership(&context, masterServerId);
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "Membership verification succeeded for server 1.0"));
+    TestLog::reset();
     ServerId bogus(3, 2);
     EXPECT_THROW(CoordinatorClient::verifyMembership(&context, bogus, false),
                  CallerNotInClusterException);
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "Membership verification failed for server 3.2"));
 }
 
 TEST_F(CoordinatorServiceTest, checkServerControlRpcs_basic) {
