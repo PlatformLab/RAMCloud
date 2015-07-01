@@ -659,6 +659,9 @@ CoordinatorService::verifyMembership(
         respHdr->common.status = STATUS_CALLER_NOT_IN_CLUSTER;
         LOG(WARNING, "Membership verification failed for %s",
             serverList->toString(serverId).c_str());
+    } else {
+        LOG(NOTICE, "Membership verification succeeded for %s",
+            serverList->toString(serverId).c_str());
     }
 }
 
