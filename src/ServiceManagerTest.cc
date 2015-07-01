@@ -287,15 +287,15 @@ TEST_F(ServiceManagerTest, poll_postprocessing) {
 TEST_F(ServiceManagerTest, workerMain_goToSleep) {
     // Workers were already created when the test initialized.  Initially
     // the (first) worker should not go to sleep (time appears to
-    // stand still for it, because we aren't calling dispatch->poll).
+    // stand still for it, because we stop the TSC clock).
+    Cycles::mockTscValue = Cycles::rdtsc();
     Worker* worker = manager->idleThreads[0];
     transport.outputLog.clear();
     usleep(20000);
     EXPECT_EQ(Worker::POLLING, worker->state.load());
 
-    // Update dispatch->currentTime. When the worker sees this it should
-    // go to sleep.
-    context.dispatch->currentTime = Cycles::rdtsc();
+    // Restart the clock. When the worker sees this it should sleep.
+    Cycles::mockTscValue = 0;
     // See "Timing-Dependent Tests" in designNotes.
     for (int i = 0; i < 1000; i++) {
         usleep(100);
