@@ -385,7 +385,7 @@ class InfRcTransport : public Transport {
             : Dispatch::Poller(transport->context->dispatch,
                                "InfRcTransport::Poller")
             , transport(transport) {}
-        virtual void poll();
+        virtual int poll();
 
       private:
         /// Check this transport for packets every time we are invoked.

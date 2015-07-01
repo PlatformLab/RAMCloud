@@ -318,7 +318,7 @@ InfUdDriver::sendPacket(const Driver::Address *addr,
 /*
  * See docs in the ``Driver'' class.
  */
-void
+int
 InfUdDriver::Poller::poll()
 {
     assert(driver->context->dispatch->isDispatchThread());
@@ -336,7 +336,7 @@ InfUdDriver::Poller::poll()
 
     if (bd == NULL) {
         driver->packetBufPool.destroy(buffer);
-        return;
+        return 0;
     }
 
     if (pcapFile)
@@ -346,7 +346,7 @@ InfUdDriver::Poller::poll()
         LOG(ERROR, "received impossibly short packet!");
         driver->packetBufPool.destroy(buffer);
         driver->infiniband->postReceive(driver->qp, bd);
-        return;
+        return 1;
     }
 
     Received received;
@@ -362,7 +362,7 @@ InfUdDriver::Poller::poll()
             LOG(ERROR, "corrupt packet");
             driver->packetBufPool.destroy(buffer);
             driver->infiniband->postReceive(driver->qp, bd);
-            return;
+            return 1;
         }
         memcpy(received.payload,
                bd->buffer + sizeof(ethHdr),
@@ -382,6 +382,7 @@ InfUdDriver::Poller::poll()
 
     // post the original infiniband buffer back to the receive queue
     driver->infiniband->postReceive(driver->qp, bd);
+    return 1;
 }
 
 /**

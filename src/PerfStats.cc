@@ -67,15 +67,7 @@ void
 PerfStats::collectStats(PerfStats* total)
 {
     std::lock_guard<SpinLock> lock(mutex);
-    total->readCount = 0;
-    total->writeCount = 0;
-    total->workerActiveCycles = 0;
-    total->compactorInputBytes = 0;
-    total->compactorBytesFreed = 0;
-    total->compactorActiveCycles = 0;
-    total->cleanerInputMemoryBytes = 0;
-    total->cleanerMemoryBytesFreed = 0;
-    total->cleanerActiveCycles = 0;
+    memset(total, 0, sizeof(*total));
     foreach (PerfStats* stats, registeredStats) {
         total->readCount += stats->readCount;
         total->writeCount += stats->writeCount;
@@ -86,6 +78,7 @@ PerfStats::collectStats(PerfStats* total)
         total->cleanerInputMemoryBytes += stats->cleanerInputMemoryBytes;
         total->cleanerMemoryBytesFreed += stats->cleanerMemoryBytesFreed;
         total->cleanerActiveCycles += stats->cleanerActiveCycles;
+        total->dispatchActiveCycles += stats->dispatchActiveCycles;
         total->temp1 += stats->temp1;
         total->temp2 += stats->temp2;
         total->temp3 += stats->temp3;

@@ -106,10 +106,14 @@ ClientTransactionTask::insertCacheEntry(Key& key, const void* buf,
  * Make incremental progress toward committing the transaction.  This method
  * is called during the poll loop when this task needs to make progress (i.e.
  * if the transaction is in the process of committing).
+ * \return
+ *      0 means no progress was made in this call; 1 means we did something
+ *      useful.
  */
-void
+int
 ClientTransactionTask::performTask()
 {
+    int foundWork = 0;
     try {
         if (state == INIT) {
             // Build participant list
@@ -118,8 +122,8 @@ ClientTransactionTask::performTask()
             state = PREPARE;
         }
         if (state == PREPARE) {
-            sendPrepareRpc();
-            processPrepareRpcResults();
+            foundWork |= sendPrepareRpc();
+            foundWork |= processPrepareRpcResults();
             if (prepareRpcs.empty() && nextCacheEntry == commitCache.end()) {
                 nextCacheEntry = commitCache.begin();
                 if (decision != WireFormat::TxDecision::ABORT) {
@@ -129,8 +133,8 @@ ClientTransactionTask::performTask()
             }
         }
         if (state == DECISION) {
-            sendDecisionRpc();
-            processDecisionRpcResults();
+            foundWork |= sendDecisionRpc();
+            foundWork |= processDecisionRpcResults();
             if (decisionRpcs.empty() && nextCacheEntry == commitCache.end()) {
                 ramcloud->rpcTracker.rpcFinished(txId);
                 state = DONE;
@@ -139,6 +143,7 @@ ClientTransactionTask::performTask()
     } catch (ClientException& e) {
         // If there are any unexpected problems with the commit protocol, STOP.
         // This shouldn't happen unless there is a bug.
+        foundWork = 1;
         prepareRpcs.clear();
         decisionRpcs.clear();
         switch (state) {
@@ -164,6 +169,7 @@ ClientTransactionTask::performTask()
         ramcloud->rpcTracker.rpcFinished(txId);
         state = DONE;
     }
+    return foundWork;
 }
 
 /**
@@ -201,14 +207,16 @@ ClientTransactionTask::Poller::Poller(Dispatch* dispatch,
 /**
  * Drives the execution of the ClientTransactionTask's rules engine.
  */
-void
+int
 ClientTransactionTask::Poller::poll()
 {
+    int foundWork = 0;
+
     // Make sure the recursive calls don't execute.
     if (!running) {
         running = true;
         ClientTransactionTask* task = taskPtr.get();
-        task->performTask();
+        foundWork |= task->performTask();
         running = false;
 
         // Destroy poller (self) if task is complete; must be last action.
@@ -216,6 +224,7 @@ ClientTransactionTask::Poller::poll()
             task->poller.destroy();
         }
     }
+    return foundWork;
 }
 
 /**
@@ -250,10 +259,15 @@ ClientTransactionTask::initTask()
 /**
  * Process any decision rpcs that have completed.  Used in performTask.
  * Factored out mostly for clarity and ease of testing.
+ * \return
+ *      0 means the method did some useful work; 0 means there was no
+ *      work to do.
  */
-void
+int
 ClientTransactionTask::processDecisionRpcResults()
 {
+    int foundWork = 0;
+
     // Process outstanding RPCs.
     std::list<DecisionRpc>::iterator it = decisionRpcs.begin();
     for (; it != decisionRpcs.end(); it++) {
@@ -262,6 +276,7 @@ ClientTransactionTask::processDecisionRpcResults()
         if (!rpc->isReady()) {
             continue;
         }
+        foundWork = 1;
 
         if (rpc->getState() == RpcWrapper::RpcState::FAILED) {
             // Nothing to do.  Retry has already been arranged.
@@ -278,15 +293,21 @@ ClientTransactionTask::processDecisionRpcResults()
         // Destroy object.
         it = decisionRpcs.erase(it);
     }
+    return foundWork;
 }
 
 /**
  * Process any prepare rpcs that have completed.  Used in performTask.  Factored
  * out mostly for clarity and ease of testing.
+ * \return
+ *      0 means the method did some useful work; 0 means there was no
+ *      work to do.
  */
-void
+int
 ClientTransactionTask::processPrepareRpcResults()
 {
+    int foundWork = 0;
+
     // Process outstanding RPCs.
     std::list<PrepareRpc>::iterator it = prepareRpcs.begin();
     for (; it != prepareRpcs.end(); it++) {
@@ -295,6 +316,7 @@ ClientTransactionTask::processPrepareRpcResults()
         if (!rpc->isReady()) {
             continue;
         }
+        foundWork = 1;
 
         if (rpc->getState() == RpcWrapper::RpcState::FAILED) {
             // Nothing to do.  Retry has already been arranged.
@@ -315,16 +337,21 @@ ClientTransactionTask::processPrepareRpcResults()
         // Destroy object.
         it = prepareRpcs.erase(it);
     }
+    return foundWork;
 }
 
 /**
  * Send out a batch of un-sent decision notifications as a single DecisionRpc
  * if not all masters have been notified.  Used in performTask.  Factored out
  * mostly for clarity and ease of testing.
+ * \return
+ *      0 means the method did some useful work; 0 means there was no
+ *      work to do.
  */
-void
+int
 ClientTransactionTask::sendDecisionRpc()
 {
+    int foundWork = 0;
     DecisionRpc* nextRpc = NULL;
     Transport::SessionRef rpcSession;
     for (; nextCacheEntry != commitCache.end(); nextCacheEntry++) {
@@ -339,6 +366,7 @@ ClientTransactionTask::sendDecisionRpc()
         if (entry->state == CacheEntry::DECIDE) {
             continue;
         }
+        foundWork = 1;
 
         // Batch is done naively assuming that tables are partitioned across
         // servers into contiguous key-hash ranges (tablets).  The commit cache
@@ -368,16 +396,21 @@ ClientTransactionTask::sendDecisionRpc()
     if (nextRpc) {
         nextRpc->send();
     }
+    return foundWork;
 }
 
 /**
  * Send out a batch of un-sent prepare requests in a single PrepareRpc if there
  * are remaining un-prepared transaction ops.  Used in performTask.  Factored
  * out mostly for clarity and ease of testing.
+ * \return
+ *      0 means the method did some useful work; 0 means there was no
+ *      work to do.
  */
-void
+int
 ClientTransactionTask::sendPrepareRpc()
 {
+    int foundWork = 0;
     PrepareRpc* nextRpc = NULL;
     Transport::SessionRef rpcSession;
     for (; nextCacheEntry != commitCache.end(); nextCacheEntry++) {
@@ -392,6 +425,7 @@ ClientTransactionTask::sendPrepareRpc()
         if (entry->state == CacheEntry::PREPARE) {
             continue;
         }
+        foundWork = 1;
 
         // Batch is done naively assuming that tables are partitioned across
         // servers into contiguous key-hash ranges (tablets).  The commit cache
@@ -420,6 +454,7 @@ ClientTransactionTask::sendPrepareRpc()
     if (nextRpc) {
         nextRpc->send();
     }
+    return foundWork;
 }
 
 // See RpcTracker::TrackedRpc for documentation.

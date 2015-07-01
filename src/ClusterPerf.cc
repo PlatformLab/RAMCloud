@@ -5328,9 +5328,9 @@ readThroughputMaster(int numObjects, int size, uint16_t keyLength)
     // This is the master client. Fill in the table, then measure
     // throughput while gradually increasing the number of workers.
     printf("#\n");
-    printf("# numClients   throughput     worker utiliz.\n");
-    printf("#              (kreads/sec)\n");
-    printf("#-------------------------------------------\n");
+    printf("# numClients   throughput     worker     dispatch\n");
+    printf("#             (kreads/sec)    utiliz.     utiliz.\n");
+    printf("#------------------------------------------------\n");
     fillTable(dataTable, numObjects, keyLength, size);
     for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
         sendCommand("run", "running", numSlaves, 1);
@@ -5352,8 +5352,12 @@ readThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 finishStats.workerActiveCycles -
                 startStats.workerActiveCycles) / static_cast<double>(
                 finishStats.collectionTime - startStats.collectionTime);
-        printf("%5d         %8.0f        %8.3f\n", numSlaves, rate/1e03,
-                utilization);
+        double dispatchUtilization = static_cast<double>(
+                finishStats.dispatchActiveCycles -
+                startStats.dispatchActiveCycles) / static_cast<double>(
+                finishStats.collectionTime - startStats.collectionTime);
+        printf("%5d         %8.0f      %8.3f   %8.3f\n",
+                numSlaves, rate/1e03, utilization, dispatchUtilization);
     }
     sendCommand("done", "done", 1, numClients-1);
 }
@@ -5647,9 +5651,12 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
     // This is the master client. Fill in the table, then measure
     // throughput while gradually increasing the number of workers.
     printf("#\n");
-    printf("# numClients   throughput     worker      cleaner    cleaner\n");
-    printf("#              (kops/sec)     utiliz.     utiliz.    free %%\n");
-    printf("#-----------------------------------------------------------\n");
+    printf("# numClients   throughput     worker      cleaner    cleaner   "
+            "dispatch\n");
+    printf("#              (kops/sec)     utiliz.     utiliz.    free %%   "
+            " utiliz.\n");
+    printf("#--------------------------------------------------------------"
+            "--------\n");
     fillTable(dataTable, numObjects, keyLength, size);
     for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
         sendCommand("run", "running", numSlaves, 1);
@@ -5690,9 +5697,13 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
             freePercent = 100.0 * static_cast<double>(freed)
                     / static_cast<double>(input);
         }
-        printf("%5d         %8.2f     %8.3f     %8.3f  %8.1f\n",
+        double dispatchUtilization = static_cast<double>(
+                finishStats.dispatchActiveCycles -
+                startStats.dispatchActiveCycles) / static_cast<double>(
+                finishStats.collectionTime - startStats.collectionTime);
+        printf("%5d         %8.2f     %8.3f     %8.3f  %8.1f   %8.3f\n",
                 numSlaves, rate/1e03, utilization, cleanerUtilization,
-                freePercent);
+                freePercent, dispatchUtilization);
     }
     sendCommand("done", "done", 1, numClients-1);
 }

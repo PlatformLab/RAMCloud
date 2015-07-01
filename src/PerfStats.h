@@ -70,6 +70,13 @@ struct PerfStats {
     uint64_t cleanerActiveCycles;
 
     //--------------------------------------------------------------------
+    // Statistics for the dispatch thread follow below.
+    //--------------------------------------------------------------------
+    /// Total time (in Cycles::rdtsc ticks) spent in calls to Dispatch::poll
+    /// that did some useful work.
+    uint64_t dispatchActiveCycles;
+
+    //--------------------------------------------------------------------
     // Temporary counters. The values below have no pre-defined use;
     // they are intended for temporary use during debugging or performance
     // analysis. Committed code in the repo should not set these counters.

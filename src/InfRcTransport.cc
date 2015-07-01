@@ -1214,18 +1214,20 @@ InfRcTransport::ClientRpc::sendOrQueue()
  *      True if we were able to do anything useful, false if there was
  *      no meaningful data.
  */
-void
+int
 InfRcTransport::Poller::poll()
 {
     InfRcTransport* t = transport;
     static const int MAX_COMPLETIONS = 10;
     ibv_wc wc[MAX_COMPLETIONS];
+    int foundWork = 0;
 
     // First check for responses to requests that we have made.
     if (!t->outstandingRpcs.empty()) {
         int numResponses = t->infiniband->pollCompletionQueue(t->clientRxCq,
                 MAX_COMPLETIONS, wc);
         for (int i = 0; i < numResponses; i++) {
+            foundWork = 1;
             ibv_wc* response = &wc[i];
             CycleCounter<RawMetric> receiveTicks;
             BufferDescriptor *bd =
@@ -1298,6 +1300,7 @@ InfRcTransport::Poller::poll()
         int numRequests = t->infiniband->pollCompletionQueue(t->serverRxCq,
                 MAX_COMPLETIONS, wc);
         for (int i = 0; i < numRequests; i++) {
+            foundWork = 1;
             ibv_wc* request = &wc[i];
             ReadRequestHandle_MetricSet::Interval interval
                 (&ReadRequestHandle_MetricSet::requestToHandleRpc);
@@ -1365,7 +1368,11 @@ InfRcTransport::Poller::poll()
     // until buffers are running low before trying to reclaim.
     if (t->freeTxBuffers.size() < 3) {
         t->reapTxBuffers();
+        if (t->freeTxBuffers.size() >= 3) {
+            foundWork = 1;
+        }
     }
+    return foundWork;
 }
 
 //-------------------------------------

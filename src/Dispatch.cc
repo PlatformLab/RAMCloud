@@ -25,6 +25,7 @@
 #include "Fence.h"
 #include "RawMetrics.h"
 #include "NoOp.h"
+#include "PerfStats.h"
 
 // Uncomment to print out a human readable name for any poller that takes longer
 // than slowPollerCycles to complete. Useful for determining which poller is
@@ -130,13 +131,16 @@ Dispatch::~Dispatch()
  * Check to see if any events need handling.
  *
  * \return
- *      True means that we found some work to do; false means we looked
- *      around but there was nothing to do.
+ *      The return value is a count of the number of useful actions
+ *      taken during this call (the number of pollers, timer handlers,
+ *      and file handlers that did useful work). Zero means there
+ *      was no useful work found in this call.
  */
-void
+int
 Dispatch::poll()
 {
     assert(isDispatchThread());
+    int result = 0;
     uint64_t previous = currentTime;
     currentTime = Cycles::rdtsc();
     // Dispatch::poll() execution time will be recorded if
@@ -171,7 +175,7 @@ Dispatch::poll()
         uint64_t ticks = 0;
         CycleCounter<> counter(&ticks);
 #endif
-        pollers[i]->poll();
+        result += pollers[i]->poll();
 #if DEBUG_SLOW_POLLERS
         counter.stop();
         if (ticks > slowPollerCycles) {
@@ -205,6 +209,7 @@ Dispatch::poll()
             // events &= file->events;
             if (events != 0) {
                 file->handleFileEvent(events);
+                result++;
             }
 
             // Must reenable the event for this file, since it was automatically
@@ -241,6 +246,7 @@ Dispatch::poll()
             if (timer->triggerTime <= currentTime) {
                 timer->stop();
                 timer->handleTimerEvent();
+                result++;
 
                 // Since we just removed the timer that triggered, reduce
                 // the endpoint of the loop to reflect this (this prevents
@@ -272,6 +278,25 @@ Dispatch::poll()
             if (timer->triggerTime < earliestTriggerTime) {
                 earliestTriggerTime = timer->triggerTime;
             }
+        }
+    }
+    return result;
+}
+
+/**
+ * Invokes Dispatch::poll repeatedly, and maintains statistics about
+ * how much time is spent doing useful work. This method never returns;
+ * it is typically invoked by the dispatch thread of servers.
+ */
+void Dispatch::run()
+{
+    PerfStats::registerStats(&PerfStats::threadStats);
+    uint64_t prev;
+    while (true) {
+        prev = currentTime;
+        if (poll() > 0) {
+            PerfStats::threadStats.dispatchActiveCycles +=
+                    currentTime - prev;
         }
     }
 }

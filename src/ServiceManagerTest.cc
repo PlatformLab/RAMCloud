@@ -228,7 +228,7 @@ TEST_F(ServiceManagerTest, poll_basics) {
     waitUntilDone(1);
     service.gate = 2;
     waitUntilDone(2);
-    manager->poll();
+    EXPECT_EQ(1, manager->poll());
     EXPECT_EQ(0U, manager->services[1]->waitingRpcs.size());
     EXPECT_EQ("serverReply: 0x10001 3 | serverReply: 0x10001 2",
             transport.outputLog);
@@ -237,7 +237,7 @@ TEST_F(ServiceManagerTest, poll_basics) {
     transport.outputLog.clear();
     service.gate = 5;
     waitUntilDone(1);
-    manager->poll();
+    EXPECT_EQ(1, manager->poll());
     EXPECT_EQ("serverReply: 0x10001 6", transport.outputLog);
     EXPECT_EQ("0x10000 3", TestUtil::toString(
               &manager->busyThreads[0]->rpc->requestPayload));
@@ -246,9 +246,12 @@ TEST_F(ServiceManagerTest, poll_basics) {
     transport.outputLog.clear();
     service.gate = 0;
     waitUntilDone(2);
-    manager->poll();
+    EXPECT_EQ(1, manager->poll());
     EXPECT_EQ("serverReply: 0x10001 5 | serverReply: 0x10001 4",
             transport.outputLog);
+
+    // There should be nothing left to do now.
+    EXPECT_EQ(0, manager->poll());
 }
 
 TEST_F(ServiceManagerTest, poll_postprocessing) {

@@ -2044,8 +2044,10 @@ TEST_F(ObjectManagerTest, RemoveTombstonePoller_poll) {
 
     TestLog::Enable _(antiGetEntryFilter);
 
+    int sumOfReturns = 0;
     for (uint64_t i = 0; i < 2 * objectManager.objectMap.getNumBuckets(); i++)
-        objectManager.tombstoneRemover->poll();
+        sumOfReturns += objectManager.tombstoneRemover->poll();
+    EXPECT_EQ(0, sumOfReturns);
     EXPECT_EQ("", TestLog::get());
     {
         ObjectManager::HashTableBucketLock lock(objectManager, key);
@@ -2056,8 +2058,10 @@ TEST_F(ObjectManagerTest, RemoveTombstonePoller_poll) {
     TestLog::reset();
     EXPECT_EQ(0U, remover->currentBucket);
     objectManager.replaySegmentReturnCount++;
+    sumOfReturns = 0;
     for (uint64_t i = 0; i < objectManager.objectMap.getNumBuckets(); i++)
-        objectManager.tombstoneRemover->poll();
+        sumOfReturns += objectManager.tombstoneRemover->poll();
+    EXPECT_LT(100, sumOfReturns);
     EXPECT_EQ("removeIfTombstone: discarding | "
               "poll: Cleanup of tombstones completed pass 0", TestLog::get());
     EXPECT_EQ(1U, remover->passes);
@@ -2068,8 +2072,10 @@ TEST_F(ObjectManagerTest, RemoveTombstonePoller_poll) {
 
     // and it shouldn't run anymore...
     TestLog::reset();
+    sumOfReturns = 0;
     for (uint64_t i = 0; i < 2 * objectManager.objectMap.getNumBuckets(); i++)
-        objectManager.tombstoneRemover->poll();
+        sumOfReturns += objectManager.tombstoneRemover->poll();
+    EXPECT_EQ(0, sumOfReturns);
     EXPECT_EQ("", TestLog::get());
 }
 

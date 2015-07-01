@@ -115,7 +115,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         return (state == DONE ||
                 (state == DECISION && nextCacheEntry == commitCache.end()));
     }
-    void performTask();
+    int performTask();
     static void start(std::shared_ptr<ClientTransactionTask>& taskPtr);
 
   PRIVATE:
@@ -192,7 +192,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
       PUBLIC:
         explicit Poller(Dispatch* dispatch,
                         std::shared_ptr<ClientTransactionTask>& taskPtr);
-        virtual void poll();
+        virtual int poll();
 
       PRIVATE:
         /// Keeps track of if the poll method is already executing to prevent
@@ -207,10 +207,10 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     Tub<Poller> poller;
 
     void initTask();
-    void processDecisionRpcResults();
-    void processPrepareRpcResults();
-    void sendDecisionRpc();
-    void sendPrepareRpc();
+    int processDecisionRpcResults();
+    int processPrepareRpcResults();
+    int sendDecisionRpc();
+    int sendPrepareRpc();
     virtual void tryFinish();
 
     /// Encapsulates the state of a single Decision RPC sent to a single server.

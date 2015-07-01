@@ -61,7 +61,8 @@ class Dispatch {
         return (!hasDedicatedThread || ownerId == ThreadId::get());
     }
 
-    void poll();
+    int poll();
+    void run() __attribute__ ((noreturn));
 
     /// The return value from rdtsc at the beginning of the last call to
     /// #poll.  May be read from multiple threads, so must be volatile.
@@ -92,11 +93,10 @@ class Dispatch {
          * dispatcher during each pass through its inner polling loop.
          *
          * \return
-         *      True means that something interesting happened during this
-         *      call. False means that there was nothing for this particular
-         *      poller to do.
+         *      1 means that this poller did useful work during this call.
+         *      0 means that the poller found no work to do.
          */
-        virtual void poll() = 0;
+        virtual int poll() = 0;
       PRIVATE:
         /// The Dispatch object that owns this Poller.  NULL means the
         /// Dispatch has been deleted.
