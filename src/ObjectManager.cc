@@ -1383,12 +1383,12 @@ ObjectManager::RemoveTombstonePoller::RemoveTombstonePoller(
  * Remove tombstones from a single bucket and yield to other work
  * in the system.
  */
-void
+int
 ObjectManager::RemoveTombstonePoller::poll()
 {
     if (lastReplaySegmentCount == objectManager->replaySegmentReturnCount &&
       currentBucket == 0) {
-        return;
+        return 0;
     }
 
     // At the start of a new pass, record the number of replaySegment()
@@ -1413,6 +1413,7 @@ ObjectManager::RemoveTombstonePoller::poll()
         currentBucket = 0;
         passes++;
     }
+    return 1;
 }
 
 /**

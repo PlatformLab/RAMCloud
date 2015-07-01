@@ -41,7 +41,7 @@ class ServiceManager : Dispatch::Poller {
     void handleRpc(Transport::ServerRpc* rpc);
     bool idle();
     static void init();
-    void poll();
+    int poll();
     void setServerId(ServerId serverId);
     Transport::ServerRpc* waitForRpc(double timeoutSeconds);
 

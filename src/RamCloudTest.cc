@@ -79,8 +79,9 @@ TEST(RamCloudSimpleTest, poll) {
       public:
         explicit CountPoller(Dispatch* dispatch)
                 : Dispatch::Poller(dispatch, "CountPoller"), count(0) { }
-        void poll() {
+        int poll() {
             count++;
+            return 1;
         }
         volatile int count;
       private:

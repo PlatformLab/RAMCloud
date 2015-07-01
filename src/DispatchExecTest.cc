@@ -55,11 +55,12 @@ class PrintArg : public DispatchExec::Lambda {
 };
 
 TEST_F(DispatchExecTest, basics) {
+    EXPECT_EQ(0, dispatchExec.poll());
     EXPECT_EQ(dispatchExec.addIndex, 0);
     EXPECT_EQ(dispatchExec.removeIndex, 0);
     dispatchExec.addRequest<PrintOne>();
     EXPECT_EQ(dispatchExec.addIndex, 1);
-    dispatchExec.poll();
+    EXPECT_EQ(1, dispatchExec.poll());
     EXPECT_EQ(dispatchExec.removeIndex, 1);
     EXPECT_EQ(TestLog::get(), "invoke: 1");
 }

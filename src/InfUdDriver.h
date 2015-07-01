@@ -158,7 +158,7 @@ class InfUdDriver : public Driver {
         explicit Poller(Context* context, InfUdDriver* driver)
             : Dispatch::Poller(context->dispatch, "InfUdDriver::Poller")
             , driver(driver) { }
-        virtual void poll();
+        virtual int poll();
       private:
         // Driver on whose behalf this poller operates.
         InfUdDriver* driver;

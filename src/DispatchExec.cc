@@ -21,8 +21,12 @@ namespace RAMCloud {
 /**
  * This method is invoked by the dispatch poller; it checks for DispatchExec
  * requests and executes them.
+ * \return
+ *      1 is returned if there was at least one request to execute; 0
+ *      is returned if this method found nothing to do.
  */
-void DispatchExec::poll() {
+int DispatchExec::poll() {
+    int foundWork = 0;
     while (requests[removeIndex].data.full == 1) {
         Fence::enter();
         requests[removeIndex].getLambda()->invoke();
@@ -30,7 +34,9 @@ void DispatchExec::poll() {
         requests[removeIndex].data.full = 0;
         removeIndex++;
         if (removeIndex == NUM_WORKER_REQUESTS) removeIndex = 0;
+        foundWork = 1;
     }
+    return foundWork;
 }
 
 /**

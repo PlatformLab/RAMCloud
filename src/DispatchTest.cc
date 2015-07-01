@@ -29,8 +29,9 @@ class DummyPoller : public Dispatch::Poller {
   public:
     DummyPoller(const char *name, int callsUntilTrue, Dispatch *dispatch)
         : Dispatch::Poller(dispatch, "DummyPoller"), myName(name),
-        callsUntilTrue(callsUntilTrue), pollersToDelete() { }
-    void poll() {
+        callsUntilTrue(callsUntilTrue), pollersToDelete(),
+        returnValue(1) { }
+    int poll() {
         bool deleteThis = false;
         if (localLog->length() != 0) {
             localLog->append("; ");
@@ -53,6 +54,7 @@ class DummyPoller : public Dispatch::Poller {
         if (deleteThis) {
             delete this;
         }
+        return returnValue;
     }
     // Arrange to delete a given poller the next time this poller is
     // invoked (used for testing reentrancy).
@@ -62,6 +64,7 @@ class DummyPoller : public Dispatch::Poller {
     const char *myName;
     int callsUntilTrue;
     std::vector<Poller*> pollersToDelete;
+    int returnValue;
   private:
     DISALLOW_COPY_AND_ASSIGN(DummyPoller);
 };
@@ -72,8 +75,9 @@ class CountPoller : public Dispatch::Poller {
   public:
     explicit CountPoller(Dispatch* dispatch)
             : Dispatch::Poller(dispatch, "CountPoller"), count(0) { }
-    void poll() {
+    int poll() {
         count++;
+        return 1;
     }
     volatile int count;
   private:
@@ -212,15 +216,18 @@ class DispatchTest : public ::testing::Test {
     }
 
     // Calls dispatch.poll repeatedly until either a log entry is
-    // generated or a given amount of time has elapsed.
-    void waitForPollSuccess(double timeoutSeconds) {
+    // generated or a given amount of time has elapsed.  Return the result
+    // from the last call to dispatch.poll.
+    int waitForPollSuccess(double timeoutSeconds) {
         uint64_t start = Cycles::rdtsc();
+        int result = 99;
         while (localLog->size() == 0) {
             usleep(100);
-            dispatch.poll();
+            result = dispatch.poll();
             if (Cycles::toSeconds(Cycles::rdtsc() - start) > timeoutSeconds)
-                return;
+                return result;
         }
+        return result;
     }
 
     // Waits for a file to become ready, but gives up after a given
@@ -355,25 +362,25 @@ TEST_F(DispatchTest, poll_fileHandling) {
 
     // No event on file.
     usleep(5000);
-    dispatch.poll();
+    EXPECT_EQ(0, dispatch.poll());
     EXPECT_EQ("", *localLog);
     write(pipeFds[1], "0123456789abcdefghijklmnop", 26);
 
     // File ready.
-    waitForPollSuccess(1.0);
+    EXPECT_EQ(1, waitForPollSuccess(1.0));
     EXPECT_EQ("file f1 invoked, read '0123456789'", *localLog);
     EXPECT_EQ(-1, f->lastInvocationId);
     localLog->clear();
 
     // File is still ready; make sure event re-enabled.
-    waitForPollSuccess(1.0);
+    EXPECT_EQ(1, waitForPollSuccess(1.0));
     EXPECT_EQ("file f1 invoked, read 'abcdefghij'", *localLog);
     EXPECT_EQ(1, f->lastInvocationId);
     localLog->clear();
     delete f;
 
     // File still ready, but object has been deleted.
-    dispatch.poll();
+    EXPECT_EQ(0, dispatch.poll());
     EXPECT_EQ("", *localLog);
 }
 
@@ -384,7 +391,7 @@ TEST_F(DispatchTest, poll_fileDeletedDuringInvocation) {
             Dispatch::FileEvent::WRITABLE, &dispatch);
     f->deleteThis = true;
     dispatch.fileInvocationSerial = 400;
-    waitForPollSuccess(1.0);
+    EXPECT_EQ(1, waitForPollSuccess(1.0));
     EXPECT_EQ("file f1 invoked", *localLog);
     // If poll tried to reenable the event it would have thrown an
     // exception since the handler also closed the file descriptor.
@@ -400,10 +407,10 @@ TEST_F(DispatchTest, poll_dontEvenCheckTimers) {
     t1.start(150);
     Cycles::mockTscValue = 200;
     dispatch.earliestTriggerTime = 201;
-    dispatch.poll();
+    EXPECT_EQ(0, dispatch.poll());
     EXPECT_EQ("", *localLog);
     dispatch.earliestTriggerTime = 0;
-    dispatch.poll();
+    EXPECT_EQ(1, dispatch.poll());
     EXPECT_EQ("timer t1 invoked", *localLog);
 }
 
@@ -415,7 +422,7 @@ TEST_F(DispatchTest, poll_triggerTimers) {
     t3.start(180);
     t4.start(170);
     Cycles::mockTscValue = 175;
-    dispatch.poll();
+    EXPECT_EQ(3, dispatch.poll());
     EXPECT_EQ("timer t1 invoked; timer t4 invoked; "
                 "timer t2 invoked", *localLog);
     EXPECT_EQ(180UL, dispatch.earliestTriggerTime);
@@ -471,6 +478,9 @@ TEST_F(DispatchTest, poll_handlerDeletesTimers) {
     EXPECT_EQ("timer t1 invoked; timer t4 invoked", *localLog);
 }
 
+// No tests for Dispatch::run: it doesn't return, so can't test (it's
+// pretty simple anyway).
+
 // Helper function that runs in a separate thread for the following test.
 static void checkDispatchThread(Dispatch* dispatch, bool* result) {
     *result = dispatch->isDispatchThread();
@@ -493,12 +503,12 @@ TEST_F(DispatchTest, Poller_basics) {
         DummyPoller p2("p2", 1000, &dispatch);
         DummyPoller p3("p3", 0, &dispatch);
         localLog->clear();
-        dispatch.poll();
+        EXPECT_EQ(3, dispatch.poll());
         EXPECT_EQ("poller p1 invoked; poller p2 invoked; "
                 "poller p3 invoked", *localLog);
     }
     localLog->clear();
-    dispatch.poll();
+    EXPECT_EQ(1, dispatch.poll());
     EXPECT_EQ("poller p1 invoked", *localLog);
 }
 
@@ -521,7 +531,7 @@ TEST_F(DispatchTest, Poller_reentrant) {
     p2->deleteWhenInvoked(p2);
     p2->deleteWhenInvoked(new DummyPoller("p3", 0, &dispatch));
     p2->deleteWhenInvoked(new DummyPoller("p4", 0, &dispatch));
-    dispatch.poll();
+    EXPECT_EQ(2, dispatch.poll());
     EXPECT_EQ("poller p1 invoked; poller p2 invoked",
             *localLog);
 }

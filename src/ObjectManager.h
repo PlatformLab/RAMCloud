@@ -208,7 +208,7 @@ class ObjectManager : public LogEntryHandlers {
       public:
         RemoveTombstonePoller(ObjectManager* objectManager,
                         HashTable* objectMap);
-        virtual void poll();
+        virtual int poll();
 
       PRIVATE:
         /// Which bucket of #objectMap should be cleaned out next.

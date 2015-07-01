@@ -46,7 +46,7 @@ class Server {
     ~Server();
 
     void startForTesting(BindTransport& bindTransport);
-    void run() __attribute__ ((noreturn));
+    void run();
 
   PRIVATE:
     ServerId createAndRegisterServices(BindTransport* bindTransport);

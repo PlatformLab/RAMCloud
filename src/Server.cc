@@ -111,8 +111,7 @@ Server::run()
     // to handle RPCs until we're confident such hiccups won't occur.
     enlist(formerServerId);
 
-    while (true)
-        dispatch.poll();
+    dispatch.run();
 }
 
 // - private -

@@ -224,9 +224,11 @@ ServiceManager::idle()
  * This method is invoked by Dispatch during its polling loop.  It checks
  * for completion of outstanding RPCs.
  */
-void
+int
 ServiceManager::poll()
 {
+    int foundWork = 0;
+
     // Each iteration of the following loop checks the status of one active
     // worker. The order of iteration is crucial, since it allows us to
     // remove a worker from busyThreads in the middle of the loop without
@@ -238,6 +240,7 @@ ServiceManager::poll()
         if (state == Worker::WORKING) {
             continue;
         }
+        foundWork = 1;
         Fence::enter();
 
         // The worker is either post-processing or idle; in either case,
@@ -280,6 +283,7 @@ ServiceManager::poll()
             info->requestsRunning--;
         }
     }
+    return foundWork;
 }
 
 /**

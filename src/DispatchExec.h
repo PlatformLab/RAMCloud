@@ -107,7 +107,7 @@ class DispatchExec : public Dispatch::Poller {
         };
 
         explicit DispatchExec(Dispatch* dispatch);
-        virtual void poll();
+        virtual int poll();
 
         /**
          * Worker threads invoke this method to schedule work for execution in
