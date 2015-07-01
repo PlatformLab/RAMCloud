@@ -324,7 +324,6 @@ void
 ServiceManager::workerMain(Worker* worker)
 {
     PerfStats::registerStats(&PerfStats::threadStats);
-    Dispatch* dispatch = worker->context->dispatch;
 
     // Cycles::rdtsc time that's updated continuously when this thread is idle.
     // Used to keep track of how much time this thread spends doing useful
@@ -338,7 +337,7 @@ ServiceManager::workerMain(Worker* worker)
 
             // Wait for ServiceManager to supply us with some work to do.
             while (worker->state.load() != Worker::WORKING) {
-                if (dispatch->currentTime >= stopPollingTime) {
+                if (lastIdle >= stopPollingTime) {
                     // It's been a long time since we've had any work to do; go
                     // to sleep so we don't waste any more CPU cycles.  Tricky
                     // race condition: the dispatch thread could change the
