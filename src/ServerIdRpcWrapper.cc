@@ -133,6 +133,9 @@ ServerIdRpcWrapper::handleTransportError()
         // The solution is to mark the server is crashed here, rather than
         // depending on the normal failure detection mechanism.
         if (context->coordinatorServerList != NULL) {
+            LOG(WARNING, "server %s considered crashed: no response to %s RPC",
+                    context->serverList->toString(id).c_str(),
+                    WireFormat::opcodeSymbol(&request));
             context->coordinatorServerList->serverCrashed(id);
             serverCrashed = true;
             return true;
