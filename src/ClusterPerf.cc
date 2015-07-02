@@ -5651,12 +5651,12 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
     // This is the master client. Fill in the table, then measure
     // throughput while gradually increasing the number of workers.
     printf("#\n");
-    printf("# numClients   throughput     worker      cleaner    cleaner   "
-            "dispatch\n");
-    printf("#              (kops/sec)     utiliz.     utiliz.    free %%   "
-            " utiliz.\n");
-    printf("#--------------------------------------------------------------"
-            "--------\n");
+    printf("# clients   throughput   worker    cleaner  compactor  "
+            "cleaner  dispatch\n");
+    printf("#           (kops/sec)   cores      cores    free %%    "
+            "free %%   utiliz.\n");
+    printf("#------------------------------------------------------"
+            "-----------------\n");
     fillTable(dataTable, numObjects, keyLength, size);
     for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
         sendCommand("run", "running", numSlaves, 1);
@@ -5684,26 +5684,33 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 (startStats.compactorActiveCycles +
                 startStats.cleanerActiveCycles)) / static_cast<double>(
                 finishStats.collectionTime - startStats.collectionTime);
-        uint64_t input = finishStats.compactorInputBytes -
-                startStats.compactorInputBytes +
-                finishStats.cleanerInputMemoryBytes -
-                startStats.cleanerInputMemoryBytes;
-        uint64_t freed = finishStats.compactorBytesFreed -
-                startStats.compactorBytesFreed +
-                finishStats.cleanerMemoryBytesFreed -
-                startStats.cleanerMemoryBytesFreed;
-        double freePercent = 0.0;
-        if (freed > 0) {
-            freePercent = 100.0 * static_cast<double>(freed)
-                    / static_cast<double>(input);
+        double compactorFreePct =
+                static_cast<double>(finishStats.compactorInputBytes -
+                startStats.compactorInputBytes) -
+                static_cast<double>(finishStats.compactorSurvivorBytes -
+                startStats.compactorSurvivorBytes);
+        if (compactorFreePct != 0) {
+            compactorFreePct = 100.0 * compactorFreePct /
+                    static_cast<double>(finishStats.compactorInputBytes -
+                    startStats.compactorInputBytes);
+        }
+        double cleanerFreePct =
+                static_cast<double>(finishStats.cleanerInputDiskBytes -
+                startStats.cleanerInputDiskBytes) -
+                static_cast<double>(finishStats.cleanerSurvivorBytes -
+                startStats.cleanerSurvivorBytes);
+        if (cleanerFreePct != 0) {
+            cleanerFreePct = 100.0 * cleanerFreePct /
+                    static_cast<double>(finishStats.cleanerInputDiskBytes -
+                    startStats.cleanerInputDiskBytes);
         }
         double dispatchUtilization = static_cast<double>(
                 finishStats.dispatchActiveCycles -
                 startStats.dispatchActiveCycles) / static_cast<double>(
                 finishStats.collectionTime - startStats.collectionTime);
-        printf("%5d         %8.2f     %8.3f     %8.3f  %8.1f   %8.3f\n",
+        printf("%5d       %8.2f   %8.3f  %8.3f %8.1f  %8.1f  %8.3f\n",
                 numSlaves, rate/1e03, utilization, cleanerUtilization,
-                freePercent, dispatchUtilization);
+                compactorFreePct, cleanerFreePct, dispatchUtilization);
     }
     sendCommand("done", "done", 1, numClients-1);
 }
