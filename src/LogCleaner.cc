@@ -467,8 +467,11 @@ LogCleaner::doDiskCleaning()
             localMetrics.totalMemoryBytesInCleanedSegments;
     PerfStats::threadStats.cleanerInputDiskBytes +=
             localMetrics.totalDiskBytesInCleanedSegments;
+    // As of July, 2015, localMetrics.totalBytesAppendedToSurvivors
+    // seems always to be zero.  Thus, recompute it using other metrics.
     PerfStats::threadStats.cleanerSurvivorBytes +=
-            localMetrics.totalBytesAppendedToSurvivors;
+            localMetrics.totalDiskBytesInCleanedSegments -
+            localMetrics.totalDiskBytesFreed;
     PerfStats::threadStats.cleanerActiveCycles +=
             Cycles::rdtsc() - startTicks;
 
