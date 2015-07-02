@@ -75,7 +75,6 @@ PerfStats::collectStats(PerfStats* total)
         total->writeCount += stats->writeCount;
         total->dispatchActiveCycles += stats->dispatchActiveCycles;
         total->workerActiveCycles += stats->workerActiveCycles;
-        total->cleanerActiveCycles += stats->cleanerActiveCycles;
         total->compactorInputBytes += stats->compactorInputBytes;
         total->compactorSurvivorBytes += stats->compactorSurvivorBytes;
         total->compactorActiveCycles += stats->compactorActiveCycles;
