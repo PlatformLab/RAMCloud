@@ -378,8 +378,8 @@ LogCleaner::doMemoryCleaning()
     // Also, maintain a few key statistics in PerfStats.
     PerfStats::threadStats.compactorInputBytes +=
             localMetrics.totalBytesInCompactedSegments;
-    PerfStats::threadStats.compactorBytesFreed +=
-            localMetrics.totalBytesFreed;
+    PerfStats::threadStats.compactorSurvivorBytes +=
+            localMetrics.totalBytesAppendedToSurvivors;
     PerfStats::threadStats.compactorActiveCycles +=
             Cycles::rdtsc() - startTicks;
 
@@ -465,8 +465,10 @@ LogCleaner::doDiskCleaning()
     // Also, maintain a few key statistics in PerfStats.
     PerfStats::threadStats.cleanerInputMemoryBytes +=
             localMetrics.totalMemoryBytesInCleanedSegments;
-    PerfStats::threadStats.cleanerMemoryBytesFreed +=
-            localMetrics.totalMemoryBytesFreed;
+    PerfStats::threadStats.cleanerInputDiskBytes +=
+            localMetrics.totalDiskBytesInCleanedSegments;
+    PerfStats::threadStats.cleanerSurvivorBytes +=
+            localMetrics.totalBytesAppendedToSurvivors;
     PerfStats::threadStats.cleanerActiveCycles +=
             Cycles::rdtsc() - startTicks;
 

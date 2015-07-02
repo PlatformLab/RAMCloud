@@ -68,25 +68,27 @@ PerfStats::collectStats(PerfStats* total)
 {
     std::lock_guard<SpinLock> lock(mutex);
     memset(total, 0, sizeof(*total));
+    total->collectionTime = Cycles::rdtsc();
+    total->cyclesPerSecond = Cycles::perSecond();
     foreach (PerfStats* stats, registeredStats) {
         total->readCount += stats->readCount;
         total->writeCount += stats->writeCount;
+        total->dispatchActiveCycles += stats->dispatchActiveCycles;
         total->workerActiveCycles += stats->workerActiveCycles;
+        total->cleanerActiveCycles += stats->cleanerActiveCycles;
         total->compactorInputBytes += stats->compactorInputBytes;
-        total->compactorBytesFreed += stats->compactorBytesFreed;
+        total->compactorSurvivorBytes += stats->compactorSurvivorBytes;
         total->compactorActiveCycles += stats->compactorActiveCycles;
         total->cleanerInputMemoryBytes += stats->cleanerInputMemoryBytes;
-        total->cleanerMemoryBytesFreed += stats->cleanerMemoryBytesFreed;
+        total->cleanerInputDiskBytes += stats->cleanerInputDiskBytes;
+        total->cleanerSurvivorBytes += stats->cleanerSurvivorBytes;
         total->cleanerActiveCycles += stats->cleanerActiveCycles;
-        total->dispatchActiveCycles += stats->dispatchActiveCycles;
         total->temp1 += stats->temp1;
         total->temp2 += stats->temp2;
         total->temp3 += stats->temp3;
         total->temp4 += stats->temp4;
         total->temp5 += stats->temp5;
     }
-    total->collectionTime = Cycles::rdtsc();
-    total->cyclesPerSecond = Cycles::perSecond();
 }
 
 }  // namespace RAMCloud
