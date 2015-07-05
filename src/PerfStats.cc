@@ -20,6 +20,7 @@ namespace RAMCloud {
 
 SpinLock PerfStats::mutex;
 std::vector<PerfStats*> PerfStats::registeredStats;
+int PerfStats::nextThreadId = 1;
 __thread PerfStats PerfStats::threadStats;
 
 /**
@@ -48,9 +49,9 @@ PerfStats::registerStats(PerfStats* stats)
     }
 
     // This is a new structure; add it to our list, and reset its contents.
-    stats->readCount = 0;
-    stats->writeCount = 0;
-    stats->workerActiveCycles = 0;
+    memset(stats, 0, sizeof(*stats));
+    stats->threadId = nextThreadId;
+    nextThreadId++;
     registeredStats.push_back(stats);
 }
 

@@ -61,13 +61,16 @@ TEST_F(PerfStatsTest, registerStats_alreadyRegistered) {
 }
 
 TEST_F(PerfStatsTest, registerStats_initialize) {
+    PerfStats::nextThreadId = 44;
     EXPECT_EQ(0u, PerfStats::registeredStats.size());
-    stats.readCount = 99;
-    stats.writeCount = 100;
+    stats.collectionTime = 99;
+    stats.temp5 = 100;
     PerfStats::registerStats(&stats);
     EXPECT_EQ(1u, PerfStats::registeredStats.size());
-    EXPECT_EQ(0u, stats.readCount);
-    EXPECT_EQ(0u, stats.writeCount);
+    EXPECT_EQ(44, stats.threadId);
+    EXPECT_EQ(0u, stats.collectionTime);
+    EXPECT_EQ(0u, stats.temp5);
+    EXPECT_EQ(45, PerfStats::nextThreadId);
 }
 
 TEST_F(PerfStatsTest, collectStats) {

@@ -33,6 +33,13 @@ namespace RAMCloud {
  * registerStats method.
  */
 struct PerfStats {
+    /// Unique identifier for this thread (threads are numbered starting
+    /// at 1); Only used in thread-local instances (0 means this object
+    /// contains aggregate statistics). This field isn't typically
+    /// needed for gathering performance stats, but this is a convenient
+    /// place to put it, since it's readily available in all threads.
+    int threadId;
+
     /// Time (in cycles) when the statistics were gathered (only
     /// present in aggregate statistics, not in thread-local instances).
     uint64_t collectionTime;
@@ -125,6 +132,10 @@ struct PerfStats {
     /// each thread). This allows us to find all of the structures to
     /// aggregate their statistics in collectStats.
     static std::vector<PerfStats*> registeredStats;
+
+    /// Next value to assign for the threadId member variable.  Used only
+    /// by RegisterStats.
+    static int nextThreadId;
 };
 
 } // end RAMCloud
