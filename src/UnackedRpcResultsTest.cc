@@ -223,7 +223,7 @@ TEST_F(UnackedRpcResultsTest, recoverRecord) {
     // Duplicate record.
 //    TestLog::reset();
     results.recoverRecord(leaseId, 15, 5, &result);
-    EXPECT_EQ("recoverRecord: Duplicate RpcRecord found during recovery. "
+    EXPECT_EQ("recoverRecord: Duplicate RpcResult found during recovery. "
               "<clientID, rpcID, ackId> = <10, 15, 5>",
             TestLog::get());
 }

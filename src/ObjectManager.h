@@ -27,6 +27,7 @@
 #include "SegmentManager.h"
 #include "SegmentIterator.h"
 #include "ReplicaManager.h"
+#include "RpcResult.h"
 #include "ServerConfig.h"
 #include "SpinLock.h"
 #include "TabletManager.h"
@@ -81,11 +82,11 @@ class ObjectManager : public LogEntryHandlers {
     void syncChanges();
     Status writeObject(Object& newObject, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer = NULL,
-                RpcRecord* rpcRecord = NULL, uint64_t* rpcRecordPtr = NULL);
+                RpcResult* rpcResult = NULL, uint64_t* rpcResultPtr = NULL);
     bool keyPointsAtReference(Key& k, AbstractLog::Reference oldReference);
     Status prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                 uint64_t* newOpPtr, bool* isCommitVote,
-                RpcRecord* rpcRecord, uint64_t* rpcRecordPtr);
+                RpcResult* rpcResult, uint64_t* rpcResultPtr);
     Status tryGrabTxLock(Object& objToLock, Log::Reference& ref);
     Status writeTxDecisionRecord(TxDecisionRecord& record);
     Status commitRead(PreparedOp& op, Log::Reference& refToPreparedOp);
@@ -278,13 +279,13 @@ class ObjectManager : public LogEntryHandlers {
                 LogEntryRelocator& relocator);
     void relocatePreparedOpTombstone(Buffer& oldBuffer,
                                      LogEntryRelocator& relocator);
-    void relocateRpcRecord(Buffer& oldBuffer, LogEntryRelocator& relocator);
+    void relocateRpcResult(Buffer& oldBuffer, LogEntryRelocator& relocator);
     void relocateTombstone(Buffer& oldBuffer, Log::Reference oldReference,
             LogEntryRelocator& relocator);
     void relocateTxDecisionRecord(
             Buffer& oldBuffer, LogEntryRelocator& relocator);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
-    void writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr);
+    void writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr);
 
     /**
      * Shared RAMCloud information.

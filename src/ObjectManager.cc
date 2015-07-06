@@ -858,34 +858,34 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 safeVersionNonRecoveryCount++;
                 LOG(DEBUG, "SAFEVERSION %lu discarded", safeVersion);
             }
-        } else if (type == LOG_ENTRY_TYPE_RPCRECORD) {
+        } else if (type == LOG_ENTRY_TYPE_RPCRESULT) {
             Buffer buffer;
             it.appendToBuffer(buffer);
 
-            RpcRecord rpcRecord(buffer);
+            RpcResult rpcResult(buffer);
 
             if (unackedRpcResults->shouldRecover(
-                    rpcRecord.getLeaseId(),
-                    rpcRecord.getRpcId(),
-                    rpcRecord.getAckId())) {
-                Log::Reference newRpcRecordReference;
+                    rpcResult.getLeaseId(),
+                    rpcResult.getRpcId(),
+                    rpcResult.getAckId())) {
+                Log::Reference newRpcResultReference;
                 {
                     CycleCounter<uint64_t> _(&segmentAppendTicks);
-                    sideLog->append(LOG_ENTRY_TYPE_RPCRECORD,
+                    sideLog->append(LOG_ENTRY_TYPE_RPCRESULT,
                                     buffer,
-                                    &newRpcRecordReference);
+                                    &newRpcResultReference);
                     TableStats::increment(masterTableMetadata,
-                            rpcRecord.getTableId(),
+                            rpcResult.getTableId(),
                             buffer.size(),
                             1);
                 }
 
                 unackedRpcResults->recoverRecord(
-                        rpcRecord.getLeaseId(),
-                        rpcRecord.getRpcId(),
-                        rpcRecord.getAckId(),
+                        rpcResult.getLeaseId(),
+                        rpcResult.getRpcId(),
+                        rpcResult.getAckId(),
                         reinterpret_cast<void*>(
-                                newRpcRecordReference.toInteger()));
+                                newRpcResultReference.toInteger()));
             }
         } else if (type == LOG_ENTRY_TYPE_PREP) {
             // We cannot grab lock in this code, which can cause deadlock.
@@ -1094,12 +1094,12 @@ ObjectManager::syncChanges()
  * \param[out] removedObjBuffer
  *      If non-NULL, pointer to the buffer in log for the object being removed
  *      is returned.
- * \param rpcRecord
- *      If non-NULL, this method appends rpcRecord to the log atomically with
+ * \param rpcResult
+ *      If non-NULL, this method appends rpcResult to the log atomically with
  *      the other record(s) for the write. The extra record is used to ensure
  *      linearizability.
- * \param[out] rpcRecordPtr
- *      If non-NULL, pointer to the RpcRecord in log is returned.
+ * \param[out] rpcResultPtr
+ *      If non-NULL, pointer to the RpcResult in log is returned.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_UKNOWN_TABLE may be returned.
@@ -1107,7 +1107,7 @@ ObjectManager::syncChanges()
 Status
 ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer,
-                RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
+                RpcResult* rpcResult, uint64_t* rpcResultPtr)
 {
     if (!anyWrites) {
         // This is the first write; use this as a trigger to update the
@@ -1205,14 +1205,14 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
 
     // Create a vector of appends in case we need to write multiple log entries
     // including a tombstone, an object and a linearizability record.
-    // This is necessary to ensure that both tombstone, object and rpcRecord
+    // This is necessary to ensure that both tombstone, object and rpcResult
     // are written atomically. The log makes no atomicity guarantees across
     // multiple append calls and we don't want a tombstone going to backups
     // before the new object, or the new object going out without a tombstone
     // for the old deleted version. Both cases lead to consistency problems.
     // The same argument holds for linearizability records; the linearizability
     // record should exist if and only if new object is written.
-    Log::AppendVector appends[2 + (rpcRecord ? 1 : 0)];
+    Log::AppendVector appends[2 + (rpcResult ? 1 : 0)];
 
     newObject.assembleForLog(appends[0].buffer);
     appends[0].type = LOG_ENTRY_TYPE_OBJ;
@@ -1231,13 +1231,13 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     if (outVersion != NULL)
         *outVersion = newObject.getVersion();
 
-    int rpcRecordIndex = 1 + (tombstone ? 1 : 0);
-    if (rpcRecord) {
-        rpcRecord->assembleForLog(appends[rpcRecordIndex].buffer);
-        appends[rpcRecordIndex].type = LOG_ENTRY_TYPE_RPCRECORD;
+    int rpcResultIndex = 1 + (tombstone ? 1 : 0);
+    if (rpcResult) {
+        rpcResult->assembleForLog(appends[rpcResultIndex].buffer);
+        appends[rpcResultIndex].type = LOG_ENTRY_TYPE_RPCRESULT;
     }
 
-    if (!log.append(appends, (tombstone ? 2 : 1) + (rpcRecord ? 1 : 0))) {
+    if (!log.append(appends, (tombstone ? 2 : 1) + (rpcResult ? 1 : 0))) {
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
@@ -1251,8 +1251,8 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         objectMap.insert(key.getHash(), appends[0].reference.toInteger());
     }
 
-    if (rpcRecord && rpcRecordPtr)
-        *rpcRecordPtr = appends[rpcRecordIndex].reference.toInteger();
+    if (rpcResult && rpcResultPtr)
+        *rpcResultPtr = appends[rpcResultIndex].reference.toInteger();
 
     tabletManager->incrementWriteCount(key);
     ++PerfStats::threadStats.writeCount;
@@ -1264,9 +1264,9 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         TEST_LOG("tombstone: %u bytes, version %lu",
             appends[1].buffer.size(), tombstone->getObjectVersion());
     }
-    if (rpcRecord) {
-        TEST_LOG("rpcRecord: %u bytes",
-            appends[rpcRecordIndex].buffer.size());
+    if (rpcResult) {
+        TEST_LOG("rpcResult: %u bytes",
+            appends[rpcResultIndex].buffer.size());
     }
 
     {
@@ -1276,8 +1276,8 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
             byteCount += appends[1].buffer.size();
             recordCount += 1;
         }
-        if (rpcRecord) {
-            byteCount += appends[rpcRecordIndex].buffer.size();
+        if (rpcResult) {
+            byteCount += appends[rpcResultIndex].buffer.size();
             recordCount += 1;
         }
 
@@ -1291,13 +1291,13 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
 }
 
 void
-ObjectManager::writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
+ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
 {
     Log::AppendVector av;
-    *((WireFormat::TxPrepare::Vote*)rpcRecord->getResp()) =
+    *((WireFormat::TxPrepare::Vote*)rpcResult->getResp()) =
         WireFormat::TxPrepare::ABORT;
-    rpcRecord->assembleForLog(av.buffer);
-    av.type = LOG_ENTRY_TYPE_RPCRECORD;
+    rpcResult->assembleForLog(av.buffer);
+    av.type = LOG_ENTRY_TYPE_RPCRESULT;
 
     if (!log.hasSpaceFor(av.buffer.size()) || !log.append(&av, 1)) {
         RAMCLOUD_CLOG(NOTICE,
@@ -1309,9 +1309,9 @@ ObjectManager::writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
         //              Suspect this is unlikely.
     }
 
-    *rpcRecordPtr = av.reference.toInteger();
+    *rpcResultPtr = av.reference.toInteger();
     TableStats::increment(masterTableMetadata,
-            rpcRecord->getTableId(),
+            rpcResult->getTableId(),
             av.buffer.size(),
             1);
 }
@@ -1319,7 +1319,7 @@ ObjectManager::writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
 /**
  * Prepares an operation during transaction prepare stage.
  * It locks the corresponding object and writes logs for PreparedOp
- * and RpcRecord (for linearizablity of vote).
+ * and RpcResult (for linearizablity of vote).
  *
  * \param newOp
  *      The preparedOperation to be written to the log. It does not have
@@ -1333,12 +1333,12 @@ ObjectManager::writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
  *      The pointer to the PreparedOp in log is returned.
  * \param[out] isCommitVote
  *      VoMate result after prepare is returned.
- * \param rpcRecord
- *      This method appends rpcRecord to the log atomically with
+ * \param rpcResult
+ *      This method appends rpcResult to the log atomically with
  *      the Maother record(s) for the write. The extra record is used to ensure
  *      linearizability.
- * \param[out] rpcRecordPtr
- *      The poMainter to the RpcRecord in log is returned.
+ * \param[out] rpcResultPtr
+ *      The poMainter to the RpcResult in log is returned.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_UMaKNOWN_TABLE may be returned.
@@ -1346,7 +1346,7 @@ ObjectManager::writePrepareFail(RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
 Status
 ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                 uint64_t* newOpPtr, bool* isCommitVote,
-                RpcRecord* rpcRecord, uint64_t* rpcRecordPtr)
+                RpcResult* rpcResult, uint64_t* rpcResultPtr)
 {
     *isCommitVote = false;
     if (!anyWrites) {
@@ -1386,7 +1386,7 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     if (lockTable.isLockAcquired(key)) {
         RAMCLOUD_LOG(DEBUG, "TxPrepare fail. Key: %.*s, object is already lock",
                 keyLength, reinterpret_cast<const char*>(keyString));
-        writePrepareFail(rpcRecord, rpcRecordPtr);
+        writePrepareFail(rpcResult, rpcResultPtr);
         return STATUS_OK;
     }
 
@@ -1417,7 +1417,7 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                     keyLength, reinterpret_cast<const char*>(keyString),
                     statusToString(status),
                     rejectRules->givenVersion, currentVersion);
-            writePrepareFail(rpcRecord, rpcRecordPtr);
+            writePrepareFail(rpcResult, rpcResultPtr);
             return STATUS_OK;
         }
     }
@@ -1438,14 +1438,14 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     newOp.assembleForLog(appends[0].buffer);
     appends[0].type = LOG_ENTRY_TYPE_PREP;
 
-    int rpcRecordIndex = 1;
-    assert(rpcRecord);
-    rpcRecord->assembleForLog(appends[1].buffer);
-    appends[1].type = LOG_ENTRY_TYPE_RPCRECORD;
+    int rpcResultIndex = 1;
+    assert(rpcResult);
+    rpcResult->assembleForLog(appends[1].buffer);
+    appends[1].type = LOG_ENTRY_TYPE_RPCRESULT;
 
     if (!log.hasSpaceFor(appends[0].buffer.size() + appends[1].buffer.size())) {
         // We must bound the amount of live data to ensure deletes are possible
-        writePrepareFail(rpcRecord, rpcRecordPtr);
+        writePrepareFail(rpcResult, rpcResultPtr);
 
         RAMCLOUD_CLOG(NOTICE, "Log is out of space, aborting transaction!");
         //throw RetryException(HERE, 1000, 2000, "Log is out of space!");
@@ -1454,7 +1454,7 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
 
 
     if (!log.append(appends, 2)) {
-        writePrepareFail(rpcRecord, rpcRecordPtr);
+        writePrepareFail(rpcResult, rpcResultPtr);
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
@@ -1472,19 +1472,19 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
 
     *newOpPtr = appends[0].reference.toInteger();
 
-    assert(rpcRecord && rpcRecordPtr);
-    *rpcRecordPtr = appends[rpcRecordIndex].reference.toInteger();
+    assert(rpcResult && rpcResultPtr);
+    *rpcResultPtr = appends[rpcResultIndex].reference.toInteger();
 
     //tabletManager->incrementWriteCount(key);
     ++PerfStats::threadStats.writeCount;
 
     TEST_LOG("preparedOp: %u bytes", appends[0].buffer.size());
-    TEST_LOG("rpcRecord: %u bytes", appends[rpcRecordIndex].buffer.size());
+    TEST_LOG("rpcResult: %u bytes", appends[rpcResultIndex].buffer.size());
 
     {
         uint64_t byteCount = appends[0].buffer.size();
         uint64_t recordCount = 2;
-        byteCount += appends[rpcRecordIndex].buffer.size();
+        byteCount += appends[rpcResultIndex].buffer.size();
 
         TableStats::increment(masterTableMetadata,
                               tablet.tableId,
@@ -2211,8 +2211,8 @@ ObjectManager::relocate(LogEntryType type, Buffer& oldBuffer,
         relocateObject(oldBuffer, oldReference, relocator);
     else if (type == LOG_ENTRY_TYPE_OBJTOMB)
         relocateTombstone(oldBuffer, oldReference, relocator);
-    else if (type == LOG_ENTRY_TYPE_RPCRECORD)
-        relocateRpcRecord(oldBuffer, relocator);
+    else if (type == LOG_ENTRY_TYPE_RPCRESULT)
+        relocateRpcResult(oldBuffer, relocator);
     else if (type == LOG_ENTRY_TYPE_PREP)
         relocatePreparedOp(oldBuffer, oldReference, relocator);
     else if (type == LOG_ENTRY_TYPE_PREPTOMB)
@@ -2328,15 +2328,15 @@ ObjectManager::dumpSegment(Segment* segment)
                     "version %lu",
                     separator, it.getOffset(), it.getLength(),
                     safeVersion.getSafeVersion());
-        } else if (type == LOG_ENTRY_TYPE_RPCRECORD) {
+        } else if (type == LOG_ENTRY_TYPE_RPCRESULT) {
             Buffer buffer;
             it.appendToBuffer(buffer);
-            RpcRecord rpcRecord(buffer);
-            result += format("%srpcRecord at offset %u, length %u with tableId "
+            RpcResult rpcResult(buffer);
+            result += format("%srpcResult at offset %u, length %u with tableId "
                     "%lu, keyHash 0x%016" PRIX64 ", leaseId %lu, rpcId %lu",
                     separator, it.getOffset(), it.getLength(),
-                    rpcRecord.getTableId(), rpcRecord.getKeyHash(),
-                    rpcRecord.getLeaseId(), rpcRecord.getRpcId());
+                    rpcResult.getTableId(), rpcResult.getKeyHash(),
+                    rpcResult.getLeaseId(), rpcResult.getRpcId());
         } else if (type == LOG_ENTRY_TYPE_PREP) {
             Buffer buffer;
             it.appendToBuffer(buffer);
@@ -2758,50 +2758,50 @@ ObjectManager::keyPointsAtReference(Key& key, AbstractLog::Reference reference)
 
 /**
  * Method used by the LogCleaner when it's cleaning a Segment and comes across
- * an RpcRecord.
+ * an RpcResult.
  *
- * This method will decide if the RpcRecord is still alive. If it is, it must
+ * This method will decide if the RpcResult is still alive. If it is, it must
  * move the record to a new location and update the UnackedRpcResults module.
  *
  * \param oldBuffer
- *      Buffer pointing to the RpcRecord's current location, which will soon be
+ *      Buffer pointing to the RpcResult's current location, which will soon be
  *      invalidated.
  * \param relocator
- *      The relocator may be used to store the RpcRecord in a new location if it
+ *      The relocator may be used to store the RpcResult in a new location if it
  *      is still alive. It also provides a reference to the new location and
- *      keeps track of whether this call wanted the RpcRecord anymore or not.
+ *      keeps track of whether this call wanted the RpcResult anymore or not.
  *
  *      It is possible that relocation may fail (because more memory needs to
  *      be allocated). In this case, the callback should just return. The
  *      cleaner will note the failure, allocate more memory, and try again.
  */
 void
-ObjectManager::relocateRpcRecord(Buffer& oldBuffer,
+ObjectManager::relocateRpcResult(Buffer& oldBuffer,
         LogEntryRelocator& relocator)
 {
-    RpcRecord rpcRecord(oldBuffer);
+    RpcResult rpcResult(oldBuffer);
 
     // See if the rpc that this record records is still not acked and thus needs
     // to be kept.
-    bool keepRpcRecord = !unackedRpcResults->isRpcAcked(
-            rpcRecord.getLeaseId(), rpcRecord.getRpcId());
+    bool keepRpcResult = !unackedRpcResults->isRpcAcked(
+            rpcResult.getLeaseId(), rpcResult.getRpcId());
 
-    if (keepRpcRecord) {
+    if (keepRpcResult) {
         // Try to relocate it. If it fails, just return. The cleaner will
         // allocate more memory and retry.
-        if (!relocator.append(LOG_ENTRY_TYPE_RPCRECORD, oldBuffer))
+        if (!relocator.append(LOG_ENTRY_TYPE_RPCRESULT, oldBuffer))
             return;
 
         unackedRpcResults->recordCompletion(
-                rpcRecord.getLeaseId(),
-                rpcRecord.getRpcId(),
+                rpcResult.getLeaseId(),
+                rpcResult.getRpcId(),
                 reinterpret_cast<void*>(
                         relocator.getNewReference().toInteger()),
                 true);
     } else {
         // Rpc Record will be dropped/"cleaned" so stats should be updated.
         TableStats::decrement(masterTableMetadata,
-                              rpcRecord.getTableId(),
+                              rpcResult.getTableId(),
                               oldBuffer.size(),
                               1);
     }

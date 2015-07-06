@@ -2509,12 +2509,12 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             }
         }
 
-        uint64_t rpcRecordPtr;
+        uint64_t rpcResultPtr;
         KeyLength pKeyLen;
         const void* pKey = op->object.getKey(0, &pKeyLen);
         respHdr->common.status = STATUS_OK;
         WireFormat::TxPrepare::Vote vote = WireFormat::TxPrepare::COMMIT;
-        RpcRecord rpcRecord(
+        RpcResult rpcResult(
                 tableId,
                 Key::getHash(tableId, pKey, pKeyLen),
                 reqHdr->lease.leaseId, rpcId, reqHdr->ackId,
@@ -2525,7 +2525,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
         try {
             respHdr->common.status = objectManager.prepareOp(
                     *op, &rejectRules, &newOpPtr, &isCommitVote,
-                    &rpcRecord, &rpcRecordPtr);
+                    &rpcResult, &rpcResultPtr);
         } catch (RetryException& e) {
             objectManager.syncChanges();
             throw;
@@ -2533,13 +2533,13 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
         if (!isCommitVote || respHdr->common.status != STATUS_OK) {
             respHdr->vote = WireFormat::TxPrepare::ABORT;
-            rh->recordCompletion(rpcRecordPtr);
+            rh->recordCompletion(rpcResultPtr);
             break;
         }
 
         preparedOps.bufferOp(reqHdr->lease.leaseId, rpcId, newOpPtr);
 
-        rh->recordCompletion(rpcRecordPtr);
+        rh->recordCompletion(rpcResultPtr);
     }
 
     // By design, our response will be shorter than the request. This ensures
@@ -2599,19 +2599,19 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // Write the object.
     RejectRules rejectRules = reqHdr->rejectRules;
 
-    uint64_t rpcRecordPtr;
+    uint64_t rpcResultPtr;
     if (linearizable) {
         KeyLength pKeyLen;
         const void* pKey = object.getKey(0, &pKeyLen);
         respHdr->common.status = STATUS_OK;
-        RpcRecord rpcRecord(
+        RpcResult rpcResult(
                 reqHdr->tableId, Key::getHash(reqHdr->tableId, pKey, pKeyLen),
                 reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
                 respHdr, sizeof(*respHdr));
 
         respHdr->common.status = objectManager.writeObject(
                 object, &rejectRules, &respHdr->version, &oldObjectBuffer,
-                &rpcRecord, &rpcRecordPtr);
+                &rpcResult, &rpcResultPtr);
     } else {
         respHdr->common.status = objectManager.writeObject(
                 object, &rejectRules, &respHdr->version, &oldObjectBuffer);
@@ -2623,7 +2623,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     if (linearizable) {
         unackedRpcResults.recordCompletion(reqHdr->lease.leaseId,
                                     reqHdr->rpcId,
-                                    reinterpret_cast<void*>(rpcRecordPtr));
+                                    reinterpret_cast<void*>(rpcResultPtr));
     }
 
     // Respond to the client RPC now. Removing old index entries can be

@@ -156,19 +156,19 @@ class ObjectManagerTest : public ::testing::Test {
     }
 
     /**
-     * Build a properly formatted segment containing a single rpcRecord.
+     * Build a properly formatted segment containing a single rpcResult.
      * This segment may be passed directly to the ObjectManager::replaySegment()
      * routine.
      */
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
-                         RpcRecord &rpcRecord,
+                         RpcResult &rpcResult,
                          Segment::Certificate* outCertificate)
     {
         Segment s;
         Buffer newRpcRecBuffer;
-        rpcRecord.assembleForLog(newRpcRecBuffer);
-        bool success = s.append(LOG_ENTRY_TYPE_RPCRECORD,
+        rpcResult.assembleForLog(newRpcRecBuffer);
+        bool success = s.append(LOG_ENTRY_TYPE_RPCRESULT,
                                 newRpcRecBuffer);
         EXPECT_TRUE(success);
         s.close();
@@ -1203,7 +1203,7 @@ TEST_F(ObjectManagerTest, replaySafeversion) {
     EXPECT_EQ(41UL, objectManager.segmentManager.safeVersion);
 }
 
-TEST_F(ObjectManagerTest, replaySegment_rpcRecord) {
+TEST_F(ObjectManagerTest, replaySegment_rpcResult) {
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
@@ -1222,8 +1222,8 @@ TEST_F(ObjectManagerTest, replaySegment_rpcRecord) {
     {
         Segment::Certificate certificate;
         Buffer buf;
-        RpcRecord rpcRecord(0, 1, expectedLeaseId, liveRpcId, ackId, buf);
-        len = buildRecoverySegment(seg, segLen, rpcRecord, &certificate);
+        RpcResult rpcResult(0, 1, expectedLeaseId, liveRpcId, ackId, buf);
+        len = buildRecoverySegment(seg, segLen, rpcResult, &certificate);
         it.construct(&seg[0], len, certificate);
     }
 
@@ -1238,8 +1238,8 @@ TEST_F(ObjectManagerTest, replaySegment_rpcRecord) {
     {
         Segment::Certificate certificate;
         Buffer buf;
-        RpcRecord rpcRecord(0, 1, expectedLeaseId, deadRpcId, 0, buf);
-        len = buildRecoverySegment(seg, segLen, rpcRecord, &certificate);
+        RpcResult rpcResult(0, 1, expectedLeaseId, deadRpcId, 0, buf);
+        len = buildRecoverySegment(seg, segLen, rpcResult, &certificate);
         it.construct(&seg[0], len, certificate);
     }
 
@@ -1588,21 +1588,21 @@ TEST_F(ObjectManagerTest, prepareOp) {
                   key, "value", 5, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
-    RpcRecord rpcRecord(key.getTableId(), key.getHash(),
+    RpcResult rpcResult(key.getTableId(), key.getHash(),
                         1, 10, 9, &vote, sizeof(vote));
-    uint64_t rpcRecordPtr;
+    uint64_t rpcResultPtr;
 
     // no tablet, no dice.
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
         objectManager.prepareOp(op, 0, &newOpPtr, &isCommit,
-                                &rpcRecord, &rpcRecordPtr));
+                                &rpcResult, &rpcResultPtr));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // non-NORMAL tablet state, no dice.
     tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
     objectManager.prepareOp(op, 0, &newOpPtr, &isCommit,
-                                &rpcRecord, &rpcRecordPtr));
+                                &rpcResult, &rpcResultPtr));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     TestLog::Enable _(writeObjectFilter);
@@ -1621,7 +1621,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
     // object overwrite (tombstone needed)
     TestLog::reset();
     EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
-                       op, 0, &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                       op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
 
     EXPECT_EQ("found=true tableId=1 byteCount=214 recordCount=3"
@@ -1635,7 +1635,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
     uint64_t original = objectManager.getLog()->totalBytesRemaining;
     objectManager.getLog()->totalBytesRemaining = 0;
     EXPECT_THROW(objectManager.prepareOp(op, 0, 0, &isCommit,
-                                         &rpcRecord, &rpcRecordPtr),
+                                         &rpcResult, &rpcResultPtr),
                  RetryException);
     objectManager.getLog()->totalBytesRemaining = original;
 }
@@ -1717,9 +1717,9 @@ TEST_F(ObjectManagerTest, commitRead) {
                   key, "value", 5, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
-    RpcRecord rpcRecord(key.getTableId(), key.getHash(),
+    RpcResult rpcResult(key.getTableId(), key.getHash(),
                         1, 10, 9, &vote, sizeof(vote));
-    uint64_t rpcRecordPtr;
+    uint64_t rpcResultPtr;
 
     tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
 
@@ -1728,7 +1728,7 @@ TEST_F(ObjectManagerTest, commitRead) {
     EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
 
     EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
-                       op, 0, &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                       op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
     EXPECT_EQ("found=true tableId=1 byteCount=214 recordCount=3"
               , verifyMetadata(1));
@@ -1762,9 +1762,9 @@ TEST_F(ObjectManagerTest, commitRemove) {
                   key, "", 0, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
-    RpcRecord rpcRecord(key.getTableId(), key.getHash(),
+    RpcResult rpcResult(key.getTableId(), key.getHash(),
                         1, 10, 9, &vote, sizeof(vote));
-    uint64_t rpcRecordPtr;
+    uint64_t rpcResultPtr;
 
     tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
 
@@ -1773,7 +1773,7 @@ TEST_F(ObjectManagerTest, commitRemove) {
     EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
 
     EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
-                       op, 0, &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                       op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
 
     // Check object is locked.
@@ -1815,9 +1815,9 @@ TEST_F(ObjectManagerTest, commitWrite) {
                   key, "new", 3, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
-    RpcRecord rpcRecord(key.getTableId(), key.getHash(),
+    RpcResult rpcResult(key.getTableId(), key.getHash(),
                         1, 10, 9, &vote, sizeof(vote));
-    uint64_t rpcRecordPtr;
+    uint64_t rpcResultPtr;
 
     tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
 
@@ -1826,7 +1826,7 @@ TEST_F(ObjectManagerTest, commitWrite) {
     EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
 
     EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
-                       op, 0, &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                       op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
 
     // Check object is locked.
@@ -2538,7 +2538,7 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
     EXPECT_NE(oldReference.toInteger(), newOpPtr);
 }
 
-TEST_F(ObjectManagerTest, relocateRpcRecord_relocateRecord) {
+TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
     uint64_t leaseId = 1;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
@@ -2547,61 +2547,61 @@ TEST_F(ObjectManagerTest, relocateRpcRecord_relocateRecord) {
     void* result;
     unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
     Buffer respBuff;
-    RpcRecord rpcRecord(
+    RpcResult rpcResult(
             1,
             Key::getHash(1, "test", 4),
             leaseId,
             rpcId,
             ackId,
             respBuff);
-    Buffer rpcRecordBuffer;
-    rpcRecord.assembleForLog(rpcRecordBuffer);
+    Buffer rpcResultBuffer;
+    rpcResult.assembleForLog(rpcResultBuffer);
 
-    Log::Reference oldRpcRecordReference;
+    Log::Reference oldRpcResultReference;
     bool success = false;
     success = objectManager.log.append(
-        LOG_ENTRY_TYPE_RPCRECORD, rpcRecordBuffer, &oldRpcRecordReference);
+        LOG_ENTRY_TYPE_RPCRESULT, rpcResultBuffer, &oldRpcResultReference);
     objectManager.log.sync();
     EXPECT_TRUE(success);
 
-    uint64_t rpcRecordPtr = oldRpcRecordReference.toInteger();
+    uint64_t rpcResultPtr = oldRpcResultReference.toInteger();
     unackedRpcResults.recordCompletion(leaseId,
                                        rpcId,
-                                       reinterpret_cast<void*>(rpcRecordPtr));
+                                       reinterpret_cast<void*>(rpcResultPtr));
 
     unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
 
-    EXPECT_EQ(rpcRecordPtr, reinterpret_cast<uint64_t>(result));
+    EXPECT_EQ(rpcResultPtr, reinterpret_cast<uint64_t>(result));
 
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
-    oldTypeInLog = objectManager.log.getEntry(oldRpcRecordReference,
+    oldTypeInLog = objectManager.log.getEntry(oldRpcResultReference,
                                           oldBufferInLog);
 
-    EXPECT_EQ(LOG_ENTRY_TYPE_RPCRECORD, oldTypeInLog);
+    EXPECT_EQ(LOG_ENTRY_TYPE_RPCRESULT, oldTypeInLog);
 
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
 
     EXPECT_FALSE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
 
-    bool keepRpcRecord = !unackedRpcResults.isRpcAcked(
-            rpcRecord.getLeaseId(), rpcRecord.getRpcId());
-    EXPECT_TRUE(keepRpcRecord);
-    objectManager.relocate(LOG_ENTRY_TYPE_RPCRECORD,
+    bool keepRpcResult = !unackedRpcResults.isRpcAcked(
+            rpcResult.getLeaseId(), rpcResult.getRpcId());
+    EXPECT_TRUE(keepRpcResult);
+    objectManager.relocate(LOG_ENTRY_TYPE_RPCRESULT,
                            oldBufferInLog,
-                           oldRpcRecordReference,
+                           oldRpcResultReference,
                            relocator);
     EXPECT_TRUE(relocator.didAppend);
 
     unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
 
-    EXPECT_NE(rpcRecordPtr, reinterpret_cast<uint64_t>(result));
+    EXPECT_NE(rpcResultPtr, reinterpret_cast<uint64_t>(result));
     EXPECT_EQ(relocator.getNewReference().toInteger(),
               reinterpret_cast<uint64_t>(result));
 }
 
-TEST_F(ObjectManagerTest, relocateRpcRecord_cleanRecord) {
+TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
     uint64_t leaseId = 1;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
@@ -2610,38 +2610,38 @@ TEST_F(ObjectManagerTest, relocateRpcRecord_cleanRecord) {
     void* result;
     unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
     Buffer respBuff;
-    RpcRecord rpcRecord(
+    RpcResult rpcResult(
             1,
             Key::getHash(1, "test", 4),
             leaseId,
             rpcId,
             ackId,
             respBuff);
-    Buffer rpcRecordBuffer;
-    rpcRecord.assembleForLog(rpcRecordBuffer);
+    Buffer rpcResultBuffer;
+    rpcResult.assembleForLog(rpcResultBuffer);
 
-    Log::Reference oldRpcRecordReference;
+    Log::Reference oldRpcResultReference;
     bool success = false;
     success = objectManager.log.append(
-        LOG_ENTRY_TYPE_RPCRECORD, rpcRecordBuffer, &oldRpcRecordReference);
+        LOG_ENTRY_TYPE_RPCRESULT, rpcResultBuffer, &oldRpcResultReference);
     objectManager.log.sync();
     EXPECT_TRUE(success);
 
-    uint64_t rpcRecordPtr = oldRpcRecordReference.toInteger();
+    uint64_t rpcResultPtr = oldRpcResultReference.toInteger();
     unackedRpcResults.recordCompletion(leaseId,
                                        rpcId,
-                                       reinterpret_cast<void*>(rpcRecordPtr));
+                                       reinterpret_cast<void*>(rpcResultPtr));
 
     unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseTerm, &result);
 
-    EXPECT_EQ(rpcRecordPtr, reinterpret_cast<uint64_t>(result));
+    EXPECT_EQ(rpcResultPtr, reinterpret_cast<uint64_t>(result));
 
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
-    oldTypeInLog = objectManager.log.getEntry(oldRpcRecordReference,
+    oldTypeInLog = objectManager.log.getEntry(oldRpcResultReference,
                                           oldBufferInLog);
 
-    EXPECT_EQ(LOG_ENTRY_TYPE_RPCRECORD, oldTypeInLog);
+    EXPECT_EQ(LOG_ENTRY_TYPE_RPCRESULT, oldTypeInLog);
 
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
@@ -2652,12 +2652,12 @@ TEST_F(ObjectManagerTest, relocateRpcRecord_cleanRecord) {
                                      &result);
     EXPECT_TRUE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
 
-    bool keepRpcRecord = !unackedRpcResults.isRpcAcked(
-            rpcRecord.getLeaseId(), rpcRecord.getRpcId());
-    EXPECT_FALSE(keepRpcRecord);
-    objectManager.relocate(LOG_ENTRY_TYPE_RPCRECORD,
+    bool keepRpcResult = !unackedRpcResults.isRpcAcked(
+            rpcResult.getLeaseId(), rpcResult.getRpcId());
+    EXPECT_FALSE(keepRpcResult);
+    objectManager.relocate(LOG_ENTRY_TYPE_RPCRESULT,
                            oldBufferInLog,
-                           oldRpcRecordReference,
+                           oldRpcResultReference,
                            relocator);
     EXPECT_FALSE(relocator.didAppend);
 }

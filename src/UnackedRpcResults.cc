@@ -98,7 +98,7 @@ UnackedRpcHandle::~UnackedRpcHandle()
             // Remove the record of this RPC in UnackedRpcResults
             rpcResults->resetRecord(clientId, rpcId);
         } else {
-            // Record the saved RpcRecord pointer.
+            // Record the saved RpcResult pointer.
             rpcResults->recordCompletion(clientId, rpcId,
                                          reinterpret_cast<void*>(resultPtr));
         }
@@ -354,7 +354,7 @@ UnackedRpcResults::recordCompletion(uint64_t clientId,
 }
 
 /**
- * Recover a record of an RPC from RpcRecord log entry.
+ * Recover a record of an RPC from RpcResult log entry.
  * It may insert a new clientId to #clients. (Protected with concurrent GC.)
  * The leaseTerm is not provided and fetched from coordinator lazily while
  * servicing an RPC from same client or during GC of cleanByTimeout().
@@ -366,7 +366,7 @@ UnackedRpcResults::recordCompletion(uint64_t clientId,
  * \param ackId
  *      The ack number transmitted with the RPC whose id number is rpcId.
  * \param result
- *      The reference to log entry of RpcRecord.
+ *      The reference to log entry of RpcResult.
  */
 void
 UnackedRpcResults::recoverRecord(uint64_t clientId,
@@ -399,7 +399,7 @@ UnackedRpcResults::recoverRecord(uint64_t clientId,
         client->recordNewRpc(rpcId);
         client->updateResult(rpcId, result);
     } else if (client->hasRecord(rpcId)) {
-        LOG(WARNING, "Duplicate RpcRecord found during recovery. "
+        LOG(WARNING, "Duplicate RpcResult found during recovery. "
                 "<clientID, rpcID, ackId> = <"
                 "%" PRIu64 ", " "%" PRIu64 ", " "%" PRIu64 ">",
                 clientId, rpcId, ackId);

@@ -15,6 +15,7 @@
 
 #include "RecoverySegmentBuilder.h"
 #include "Object.h"
+#include "RpcResult.h"
 #include "SegmentIterator.h"
 #include "ServerId.h"
 #include "ShortMacros.h"
@@ -81,7 +82,7 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
         }
         if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB
             && type != LOG_ENTRY_TYPE_SAFEVERSION
-            && type != LOG_ENTRY_TYPE_RPCRECORD
+            && type != LOG_ENTRY_TYPE_RPCRESULT
             && type != LOG_ENTRY_TYPE_PREP
             && type != LOG_ENTRY_TYPE_PREPTOMB
             && type != LOG_ENTRY_TYPE_TXDECISION)
@@ -123,10 +124,10 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             tableId = tomb.getTableId();
             keyHash = Key::getHash(tableId,
                                    tomb.getKey(), tomb.getKeyLength());
-        } else if (type == LOG_ENTRY_TYPE_RPCRECORD) {
-            RpcRecord rpcRecord(entryBuffer);
-            tableId = rpcRecord.getTableId();
-            keyHash = rpcRecord.getKeyHash();
+        } else if (type == LOG_ENTRY_TYPE_RPCRESULT) {
+            RpcResult rpcResult(entryBuffer);
+            tableId = rpcResult.getTableId();
+            keyHash = rpcResult.getKeyHash();
         } else if (type == LOG_ENTRY_TYPE_PREP) {
             PreparedOp op(entryBuffer, 0, entryBuffer.size());
             tableId = op.object.getTableId();

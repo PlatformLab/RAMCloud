@@ -112,34 +112,34 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Buffer buffer;
         object.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_OBJ, buffer));
-    }{ // RpcRecord should go in partition 1.
+    }{ // RpcResult should go in partition 1.
         Key key(1, "1", 1);
         Buffer dataBuffer;
-        RpcRecord rpcRecord(1, key.getHash(), 6, 4, 2, dataBuffer);
+        RpcResult rpcResult(1, key.getHash(), 6, 4, 2, dataBuffer);
         Buffer buffer;
-        rpcRecord.assembleForLog(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_RPCRECORD, buffer));
-    }{ // RpcRecord should go in partition 0.
+        rpcResult.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_RPCRESULT, buffer));
+    }{ // RpcResult should go in partition 0.
         Key key(1, "2", 1);
         Buffer dataBuffer;
-        RpcRecord rpcRecord(1, key.getHash(), 5, 3, 1, dataBuffer);
+        RpcResult rpcResult(1, key.getHash(), 5, 3, 1, dataBuffer);
         Buffer buffer;
-        rpcRecord.assembleForLog(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_RPCRECORD, buffer));
-    }{ // RpcRecord not in any partition.
+        rpcResult.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_RPCRESULT, buffer));
+    }{ // RpcResult not in any partition.
         Key key(10, "1", 1);
         Buffer dataBuffer;
-        RpcRecord rpcRecord(10, key.getHash(), 10, 5, 2, dataBuffer);
+        RpcResult rpcResult(10, key.getHash(), 10, 5, 2, dataBuffer);
         Buffer buffer;
-        rpcRecord.assembleForLog(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_RPCRECORD, buffer));
-    }{ // RpcRecord not written before the tablet existed.
+        rpcResult.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_RPCRESULT, buffer));
+    }{ // RpcResult not written before the tablet existed.
         Key key(2, "1", 1);
         Buffer dataBuffer;
-        RpcRecord rpcRecord(2, key.getHash(), 2, 1, 0, dataBuffer);
+        RpcResult rpcResult(2, key.getHash(), 2, 1, 0, dataBuffer);
         Buffer buffer;
-        rpcRecord.assembleForLog(buffer);
-        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_RPCRECORD, buffer));
+        rpcResult.assembleForLog(buffer);
+        ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_RPCRESULT, buffer));
     }{ // PreparedOp and PreparedOpTombstone should go in partition 1.
         Key key(1, "1", 1);
         Buffer dataBuffer;
@@ -246,7 +246,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
             "object at offset 14, length 34 with tableId 1, key '2' | "
             "tombstone at offset 50, length 33 with tableId 1, key '2' | "
-            "rpcRecord at offset 85, length 44 with tableId 1, "
+            "rpcResult at offset 85, length 44 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 5, rpcId 3 | "
             "preparedOp at offset 131, length 62 with tableId 1, key '2', "
                     "leaseId 1, rpcId 10 | "
@@ -258,7 +258,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
             "object at offset 14, length 34 with tableId 1, key '1' | "
             "tombstone at offset 50, length 33 with tableId 1, key '1' | "
-            "rpcRecord at offset 85, length 44 with tableId 1, "
+            "rpcResult at offset 85, length 44 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 6, rpcId 4 | "
             "preparedOp at offset 131, length 62 with tableId 1, key '1', "
                     "leaseId 1, rpcId 10 | "

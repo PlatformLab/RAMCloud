@@ -2115,26 +2115,26 @@ TEST_F(MasterServiceTest, txDecision_commit) {
                    key3, "new", 3, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
-    uint64_t rpcRecordPtr;
+    uint64_t rpcResultPtr;
     {
-        RpcRecord rpcRecord(key1.getTableId(), key1.getHash(),
+        RpcResult rpcResult(key1.getTableId(), key1.getHash(),
                             1, 10, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op1, 0,
-                            &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                            &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
         service->preparedOps.bufferOp(1, 10, newOpPtr);
     } {
-        RpcRecord rpcRecord(key2.getTableId(), key2.getHash(),
+        RpcResult rpcResult(key2.getTableId(), key2.getHash(),
                             1, 11, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op2, 0,
-                            &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                            &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
         service->preparedOps.bufferOp(1, 11, newOpPtr);
     } {
-        RpcRecord rpcRecord(key3.getTableId(), key3.getHash(),
+        RpcResult rpcResult(key3.getTableId(), key3.getHash(),
                             1, 12, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op3, 0,
-                            &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                            &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
         service->preparedOps.bufferOp(1, 12, newOpPtr);
     }
@@ -2211,26 +2211,26 @@ TEST_F(MasterServiceTest, txDecision_abort) {
                    key3, "new", 3, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
-    uint64_t rpcRecordPtr;
+    uint64_t rpcResultPtr;
     {
-        RpcRecord rpcRecord(key1.getTableId(), key1.getHash(),
+        RpcResult rpcResult(key1.getTableId(), key1.getHash(),
                             1, 10, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op1, 0,
-                            &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                            &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
         service->preparedOps.bufferOp(1, 10, newOpPtr);
     } {
-        RpcRecord rpcRecord(key2.getTableId(), key2.getHash(),
+        RpcResult rpcResult(key2.getTableId(), key2.getHash(),
                             1, 11, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op2, 0,
-                            &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                            &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
         service->preparedOps.bufferOp(1, 11, newOpPtr);
     } {
-        RpcRecord rpcRecord(key3.getTableId(), key3.getHash(),
+        RpcResult rpcResult(key3.getTableId(), key3.getHash(),
                             1, 12, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op3, 0,
-                            &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                            &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
         service->preparedOps.bufferOp(1, 12, newOpPtr);
     }
@@ -2287,19 +2287,19 @@ TEST_F(MasterServiceTest, txDecision_unknownTablet) {
                    key3, "new", 3, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
-    uint64_t rpcRecordPtr;
+    uint64_t rpcResultPtr;
     {
-        RpcRecord rpcRecord(key1.getTableId(), key1.getHash(),
+        RpcResult rpcResult(key1.getTableId(), key1.getHash(),
                             1, 10, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op1, 0,
-                            &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                            &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
         service->preparedOps.bufferOp(1, 10, newOpPtr);
     } {
-        RpcRecord rpcRecord(key3.getTableId(), key3.getHash(),
+        RpcResult rpcResult(key3.getTableId(), key3.getHash(),
                             1, 12, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op3, 0,
-                            &newOpPtr, &isCommit, &rpcRecord, &rpcRecordPtr));
+                            &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
         service->preparedOps.bufferOp(1, 12, newOpPtr);
     }
