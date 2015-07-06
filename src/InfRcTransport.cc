@@ -1299,6 +1299,15 @@ InfRcTransport::Poller::poll()
         CycleCounter<RawMetric> receiveTicks;
         int numRequests = t->infiniband->pollCompletionQueue(t->serverRxCq,
                 MAX_COMPLETIONS, wc);
+        if ((t->numFreeServerSrqBuffers - numRequests) == 0) {
+            // The receive buffer queue has run completely dry. This is bad
+            // for performance: if any requests arrive while the queue is empty,
+            // Infiniband imposes a long wait period (milliseconds?) before
+            // the caller retries.
+            RAMCLOUD_CLOG(WARNING, "Infiniband receive buffers ran out "
+                    "(%d new requests arrived); could cause significant "
+                    "delays", numRequests);
+        }
         for (int i = 0; i < numRequests; i++) {
             foundWork = 1;
             ibv_wc* request = &wc[i];
@@ -1330,11 +1339,16 @@ InfRcTransport::Poller::poll()
             ServerRpc *r = t->serverRpcPool.construct(t, qp, header.nonce);
 
             uint32_t len = request->byte_len - sizeof32(header);
-            if (t->numFreeServerSrqBuffers < 2) {
-                // Running low on buffers; copy the data so we can return
-                // the buffer immediately.
-                LOG(NOTICE, "Receive buffers running low; copying %u-byte "
-                    "request", len);
+            // It's very important that we don't let the receive buffer
+            // queue get completely empty (if this happens, Infiniband
+            // won't retry until after a long delay), so when the queue
+            // starts running low we copy incoming packets in order to
+            // return the buffers immediately. The constant below was
+            // originally 2, but that turned out not to be sufficient.
+            // Measurements of the YCSB benchmarks in 7/2015 suggest that
+            // a value of 4 is (barely) okay, but we now use 8 to provide a
+            // larger margin of safety, even if a burst of packets arrives.
+            if (t->numFreeServerSrqBuffers < 8) {
                 r->requestPayload.appendCopy(bd->buffer + sizeof(header), len);
                 t->postSrqReceiveAndKickTransmit(t->serverSrq, bd);
             } else {
