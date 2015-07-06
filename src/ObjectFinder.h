@@ -145,12 +145,13 @@ class ObjectFinder::Indexlet : public RAMCloud::Indexlet {
     public:
     Indexlet(const void *firstKey, uint16_t firstKeyLength,
              const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-             ServerId serverId, string serviceLocator)
+             ServerId serverId, string serviceLocator, uint64_t backingTableId)
         : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                    firstNotOwnedKeyLength)
         , serverId(serverId)
         , serviceLocator(serviceLocator)
         , session(NULL)
+        , backingTableId(backingTableId)
     {}
 
     Indexlet(const Indexlet& indexlet)
@@ -158,6 +159,7 @@ class ObjectFinder::Indexlet : public RAMCloud::Indexlet {
         , serverId(indexlet.serverId)
         , serviceLocator(indexlet.serviceLocator)
         , session(NULL)
+        , backingTableId(indexlet.backingTableId)
     {}
 
     /// The server id of the master owning this indexlet.
@@ -170,6 +172,9 @@ class ObjectFinder::Indexlet : public RAMCloud::Indexlet {
     /// repeated calls to TransportManager; NULL means that we haven't
     /// yet fetched the session from TransportManager.
     Transport::SessionRef session;
+
+    /// The backing table id for this indexlet. This is used in transactions.
+    uint64_t backingTableId;
 };
 
 /**

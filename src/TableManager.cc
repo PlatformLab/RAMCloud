@@ -817,6 +817,8 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
                     "server list; omitting locator for entry",
                     indexlet->serverId.toString().c_str());
             }
+
+            entry.set_backing_table_id(indexlet->backingTableId);
         }
     }
 }

@@ -98,9 +98,12 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
 
                 ServerId serverId(indexlet.server_id());
                 string serviceLocator = indexlet.service_locator();
+                uint64_t backingTableId = indexlet.backing_table_id();
                 ObjectFinder::Indexlet rawIndexlet(firstKey, firstKeyLength,
-                                    firstNotOwnedKey, firstNotOwnedKeyLength,
-                                    serverId, serviceLocator);
+                                                   firstNotOwnedKey,
+                                                   firstNotOwnedKeyLength,
+                                                   serverId, serviceLocator,
+                                                   backingTableId);
 
                 tableIndexMap->insert(std::make_pair(
                         std::make_pair(tableId, indexId), rawIndexlet));

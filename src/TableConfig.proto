@@ -75,6 +75,9 @@ message TableConfig {
 
       /// The service locator for the master owning this indexlet.
       required string service_locator = 4;
+      
+      /// The backing table id for this indexlet.
+      required uint64 backing_table_id = 5;
     }
 
     /// The id of the index.

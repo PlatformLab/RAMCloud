@@ -38,7 +38,7 @@ class IndexRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
         tableIndexMap->clear();
         auto id = std::make_pair(10, 1); // Pair of table id and index id.
 
-        ObjectFinder::Indexlet indexlet("", 0, "", 0, ServerId(), buffer);
+        ObjectFinder::Indexlet indexlet("", 0, "", 0, ServerId(), buffer, 0UL);
         tableIndexMap->insert(std::make_pair(id, indexlet));
     }
     uint32_t called;

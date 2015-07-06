@@ -93,13 +93,16 @@ struct Refresher : public ObjectFinder::TableConfigFetcher {
         char* w = new char('w');
 
         ObjectFinder::Indexlet indexlet0(reinterpret_cast<void*>(b), 1,
-            reinterpret_cast<void*>(l), 1, ServerId(), "mock:host=server0");
+                                         reinterpret_cast<void*>(l), 1,
+                                         ServerId(), "mock:host=server0", 0UL);
         ObjectFinder::Indexlet indexlet1(reinterpret_cast<void*>(l), 1,
-            reinterpret_cast<void*>(w), 1, ServerId(), "mock:host=server1");
+                                         reinterpret_cast<void*>(w), 1,
+                                         ServerId(), "mock:host=server1", 1UL);
         ObjectFinder::Indexlet indexlet2(NULL, 0, reinterpret_cast<void*>(l)
-                                     , 1, ServerId(), "mock:host=server2");
-        ObjectFinder::Indexlet indexlet3(reinterpret_cast<void*>(l), 1, NULL
-                                     , 0, ServerId(), "mock:host=server3");
+                                         , 1, ServerId(), "mock:host=server2",
+                                         2UL);
+        ObjectFinder::Indexlet indexlet3(reinterpret_cast<void*>(l), 1, NULL, 0,
+                                         ServerId(), "mock:host=server3", 3UL);
 
         tableIndexMap->insert(std::make_pair(
                                         std::make_pair(1, 0), indexlet0));
@@ -245,6 +248,29 @@ TEST_F(ObjectFinderTest, lookup_index_success) {
 
     // Make sure that the session was cached.
     EXPECT_EQ(session, objectFinder->lookupIndexlet(1, 1, "abc", 3)->session);
+}
+
+TEST_F(ObjectFinderTest, lookupIndexlet_backingTable) {
+
+    // start of the first indexlet
+    ObjectFinder::Indexlet* indexlet0 = objectFinder->
+            lookupIndexlet(1, 0, "b", 1);
+    EXPECT_EQ(0UL, indexlet0->backingTableId);
+
+    // start of the second indexlet
+    ObjectFinder::Indexlet* indexlet1 = objectFinder->
+            lookupIndexlet(1, 0, "l", 1);
+    EXPECT_EQ(1UL, indexlet1->backingTableId);
+
+    // where first key is NULL
+    ObjectFinder::Indexlet* indexlet2 = objectFinder->
+            lookupIndexlet(1, 1, "b", 1);
+    EXPECT_EQ(2UL, indexlet2->backingTableId);
+
+    // where last key is NULL
+    ObjectFinder::Indexlet* indexlet3 = objectFinder->
+            lookupIndexlet(1, 1, "z", 1);
+    EXPECT_EQ(3UL, indexlet3->backingTableId);
 }
 
 TEST_F(ObjectFinderTest, lookupIndexlet) {

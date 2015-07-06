@@ -61,7 +61,7 @@ class IndexLookupRpcRefresher : public ObjectFinder::TableConfigFetcher {
             ObjectFinder::Indexlet indexlet(
                 reinterpret_cast<void *>(&firstKey), 1,
                 reinterpret_cast<void *>(&firstNotOwnedKey), 1,
-                ServerId(), buffer);
+                ServerId(), buffer, 0UL);
             tableIndexMap->insert(std::make_pair(id, indexlet));
         }
     }
