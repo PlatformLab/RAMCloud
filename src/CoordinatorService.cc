@@ -266,6 +266,13 @@ CoordinatorService::coordSplitAndMigrateIndexlet(
 {
     const void* splitKey = rpc->requestPayload->getRange(
             sizeof(*reqHdr), reqHdr->splitKeyLength);
+
+    if (splitKey == NULL) {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
+
     tableManager.coordSplitAndMigrateIndexlet(
             ServerId(reqHdr->newOwnerId), reqHdr->tableId, reqHdr->indexId,
             splitKey, reqHdr->splitKeyLength);
@@ -639,7 +646,7 @@ CoordinatorService::serverControlAll(
     respHdr->totalRespLength = 0;
     uint32_t reqOffset = sizeof32(*reqHdr);
     const void* inputData = rpc->requestPayload->getRange(reqOffset,
-                                                          reqHdr->inputLength);
+            reqHdr->inputLength);   // inputData may be NULL.
 
     std::list<ServerControlRpcContainer> rpcs;
     ServerId nextServerId;
@@ -807,7 +814,7 @@ CoordinatorService::checkServerControlRpcs(
             continue;
         }
 
-        // Rule 2: Try to wait on the rpc.  If the server responded, we can
+        // Rule 2: Try to wait on the rpc. If the server responded, we can
         // process the rpc.
         if (controlRpc->rpc.waitRaw()) {
             // if the response RPC fits in the response, append the response.

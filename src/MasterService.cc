@@ -342,6 +342,13 @@ MasterService::dropIndexletOwnership(
     const void* firstNotOwnedKey = rpc->requestPayload->getRange(
             reqOffset, reqHdr->firstNotOwnedKeyLength);
 
+    if ((firstKey == NULL && reqHdr->firstKeyLength > 0) ||
+            (firstNotOwnedKey == NULL && reqHdr->firstNotOwnedKeyLength > 0)) {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
+
     indexletManager.deleteIndexlet(
             reqHdr->tableId, reqHdr->indexId,
             firstKey, reqHdr->firstKeyLength,
@@ -737,6 +744,13 @@ MasterService::insertIndexEntry(
     uint32_t reqOffset = sizeof32(*reqHdr);
     const void* indexKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->indexKeyLength);
+
+    if (indexKeyStr == NULL) {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
+
     respHdr->common.status = indexletManager.insertEntry(
             reqHdr->tableId, reqHdr->indexId,
             indexKeyStr, reqHdr->indexKeyLength, reqHdr->primaryKeyHash);
@@ -1191,9 +1205,16 @@ MasterService::multiRead(const WireFormat::MultiOp::Request* reqHdr,
                 rpc->requestPayload->getOffset<
                 WireFormat::MultiOp::Request::ReadPart>(reqOffset);
         reqOffset += sizeof32(WireFormat::MultiOp::Request::ReadPart);
+
         const void* stringKey = rpc->requestPayload->getRange(
                 reqOffset, currentReq->keyLength);
         reqOffset += currentReq->keyLength;
+
+        if (stringKey == NULL) {
+            respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+            break;
+        }
+
         Key key(currentReq->tableId, stringKey, currentReq->keyLength);
 
         WireFormat::MultiOp::Response::ReadPart* currentResp =
@@ -1409,6 +1430,11 @@ MasterService::prepForIndexletMigration(
     void* firstNotOwnedKey = rpc->requestPayload->getRange(
             reqOffset, reqHdr->firstNotOwnedKeyLength);
 
+    if ((firstKey == NULL && reqHdr->firstKeyLength > 0) ||
+            (firstNotOwnedKey == NULL && reqHdr->firstNotOwnedKeyLength > 0)) {
+        throw FatalError(HERE, "Ill-formed RPC in prepForIndexletMigration.");
+    }
+
     // Try to add the indexlet.
     bool added = indexletManager.addIndexlet(
             reqHdr->tableId, reqHdr->indexId,
@@ -1507,6 +1533,13 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
     uint32_t reqOffset = sizeof32(*reqHdr);
     const void* stringKey = rpc->requestPayload->getRange(
             reqOffset, reqHdr->keyLength);
+
+    if (stringKey == NULL) {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
+
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
     RejectRules rejectRules = reqHdr->rejectRules;
@@ -1547,6 +1580,13 @@ MasterService::readKeysAndValue(
     uint32_t reqOffset = sizeof32(*reqHdr);
     const void* stringKey = rpc->requestPayload->getRange(
             reqOffset, reqHdr->keyLength);
+
+    if (stringKey == NULL) {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
+
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
     RejectRules rejectRules = reqHdr->rejectRules;
@@ -1574,6 +1614,7 @@ MasterService::receiveMigrationData(
         WireFormat::ReceiveMigrationData::Response* respHdr,
         Rpc* rpc)
 {
+    // TODO(ankitak)
     uint64_t tableId = reqHdr->tableId;
     uint64_t firstKeyHash = reqHdr->firstKeyHash;
     uint32_t segmentBytes = reqHdr->segmentBytes;
@@ -1648,6 +1689,13 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
 {
     const void* stringKey = rpc->requestPayload->getRange(
             sizeof32(*reqHdr), reqHdr->keyLength);
+
+    if (stringKey == NULL) {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
+
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
     // Buffer for object being removed, so we can remove corresponding
@@ -1690,6 +1738,13 @@ MasterService::removeIndexEntry(
     uint32_t reqOffset = sizeof32(*reqHdr);
     const void* indexKeyStr =
             rpc->requestPayload->getRange(reqOffset, reqHdr->indexKeyLength);
+
+    if (indexKeyStr == NULL) {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
+
     respHdr->common.status = indexletManager.removeEntry(
             reqHdr->tableId, reqHdr->indexId,
             indexKeyStr, reqHdr->indexKeyLength, reqHdr->primaryKeyHash);
@@ -1977,6 +2032,10 @@ MasterService::splitAndMigrateIndexlet(
     void* splitKey = rpc->requestPayload->getRange(
             sizeof32(*reqHdr), splitKeyLength);
 
+    if (splitKey == NULL) {
+        throw FatalError(HERE, "Ill-formed RPC in splitAndMigrateIndexlet.");
+    }
+
     // Find the indexlet we're trying to split / migrate to ensure we own it.
     bool foundIndexlet = indexletManager.hasIndexlet(
             tableId, indexId, splitKey, splitKeyLength);
@@ -2188,6 +2247,8 @@ MasterService::takeTabletOwnership(
                     "tableId %lu: overlaps with one or more different ranges.",
                     reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
 
+            // This error is uncaught in the caller function at the coordinator.
+            // It will cause the coordinator to crash as something is wrong.
             respHdr->common.status = STATUS_INTERNAL_ERROR;
         }
     }
@@ -2215,6 +2276,15 @@ MasterService::takeIndexletOwnership(
     reqOffset+=reqHdr->firstKeyLength;
     const void* firstNotOwnedKey = rpc->requestPayload->getRange(
             reqOffset, reqHdr->firstNotOwnedKeyLength);
+
+    if ((firstKey == NULL && reqHdr->firstKeyLength > 0) ||
+            (firstNotOwnedKey == NULL && reqHdr->firstNotOwnedKeyLength > 0)) {
+        // This error is uncaught in the caller function at the coordinator.
+        // It will cause the coordinator to crash as something is wrong.
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
 
     indexletManager.addIndexlet(
             reqHdr->tableId, reqHdr->indexId, reqHdr->backingTableId,
@@ -2251,6 +2321,12 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
     WireFormat::TxParticipant *participants =
         (WireFormat::TxParticipant*)rpc->requestPayload->getRange(reqOffset,
                 sizeof32(WireFormat::TxParticipant) * participantCount);
+
+    if (participants == NULL) {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
 
     if (reqHdr->decision == WireFormat::TxDecision::COMMIT) {
         for (uint32_t i = 0; i < participantCount; ++i) {
@@ -2382,6 +2458,12 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                 sizeof32(WireFormat::TxParticipant) * participantCount);
 
     reqOffset += sizeof32(WireFormat::TxParticipant) * participantCount;
+
+    if (participants == NULL) {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
 
     // 2. Process operations.
     uint32_t numRequests = reqHdr->opCount;

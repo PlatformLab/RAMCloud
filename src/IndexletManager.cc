@@ -636,6 +636,13 @@ IndexletManager::lookupIndexKeys(
     const void* lastKey =
             rpc->requestPayload->getRange(reqOffset, lastKeyLength);
 
+    if ((firstKey == NULL && firstKeyLength > 0) ||
+            (lastKey == NULL && lastKeyLength > 0)) {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
+
     RAMCLOUD_LOG(DEBUG, "Looking up: tableId %lu, indexId %u.\n"
                         "first key: %s\n last  key: %s\n",
                         reqHdr->tableId, reqHdr->indexId,

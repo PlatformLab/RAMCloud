@@ -462,7 +462,7 @@ Object::fillKeyOffsets()
             keyOffsets = static_cast<const struct KeyOffsets *>(
                                 keysAndValueBuffer->getRange(
                                 keysAndValueOffset, KEY_INFO_LENGTH(numKeys)));
-            // check if the buffer is big enough
+            // Check if the keysAndValueBuffer had all the information required.
             if (!keyOffsets)
                 return false;
         }
@@ -523,7 +523,7 @@ Object::getKey(KeyIndex keyIndex, KeyLength *keyLength)
         return static_cast<const uint8_t *>(keysAndValue) + keyOffset;
     else
         return keysAndValueBuffer->getRange(keyOffset + keysAndValueOffset,
-                                            length);
+                length);
 }
 
 /**
