@@ -1625,7 +1625,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
 
-    EXPECT_EQ("found=true tableId=1 byteCount=214 recordCount=3"
+    EXPECT_EQ("found=true tableId=1 byteCount=215 recordCount=3"
               , verifyMetadata(1));
 
     // Check object is locked.
@@ -1732,7 +1732,7 @@ TEST_F(ObjectManagerTest, commitRead) {
     EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
-    EXPECT_EQ("found=true tableId=1 byteCount=214 recordCount=3"
+    EXPECT_EQ("found=true tableId=1 byteCount=215 recordCount=3"
               , verifyMetadata(1));
 
     // Check object is locked.

@@ -2314,6 +2314,7 @@ ObjectManager::dumpSegment(Segment* segment)
             Buffer buffer;
             it.appendToBuffer(buffer);
             RpcResult rpcResult(buffer);
+            // TODO(willsheu): Log index RPC results fully
             result += format("%srpcResult at offset %u, length %u with tableId "
                     "%lu, keyHash 0x%016" PRIX64 ", leaseId %lu, rpcId %lu",
                     separator, it.getOffset(), it.getLength(),

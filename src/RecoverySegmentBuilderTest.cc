@@ -246,25 +246,25 @@ TEST_F(RecoverySegmentBuilderTest, build) {
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
             "object at offset 14, length 34 with tableId 1, key '2' | "
             "tombstone at offset 50, length 33 with tableId 1, key '2' | "
-            "rpcResult at offset 85, length 44 with tableId 1, "
+            "rpcResult at offset 85, length 45 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 5, rpcId 3 | "
-            "preparedOp at offset 131, length 62 with tableId 1, key '2', "
+            "preparedOp at offset 132, length 62 with tableId 1, key '2', "
                     "leaseId 1, rpcId 10 | "
-            "preparedOpTombstone at offset 195, length 44 with tableId 1, "
+            "preparedOpTombstone at offset 196, length 44 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 1, rpcId 10 | "
-            "txDecision at offset 241, length 40 with tableId 1, "
+            "txDecision at offset 242, length 40 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 5",
             ObjectManager::dumpSegment(&recoverySegments[0]));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
             "object at offset 14, length 34 with tableId 1, key '1' | "
             "tombstone at offset 50, length 33 with tableId 1, key '1' | "
-            "rpcResult at offset 85, length 44 with tableId 1, "
+            "rpcResult at offset 85, length 45 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 6, rpcId 4 | "
-            "preparedOp at offset 131, length 62 with tableId 1, key '1', "
+            "preparedOp at offset 132, length 62 with tableId 1, key '1', "
                     "leaseId 1, rpcId 10 | "
-            "preparedOpTombstone at offset 195, length 44 with tableId 1, "
+            "preparedOpTombstone at offset 196, length 44 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 1, rpcId 10 | "
-            "txDecision at offset 241, length 40 with tableId 1, "
+            "txDecision at offset 242, length 40 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 6",
             ObjectManager::dumpSegment(&recoverySegments[1]));
 

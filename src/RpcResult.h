@@ -42,19 +42,30 @@ namespace RAMCloud {
  */
 class RpcResult {
   public:
+    enum RecordType : bool { OBJECT, INDEX };
+    
     RpcResult(uint64_t tableId, KeyHash keyHash,
               uint64_t leaseId, uint64_t rpcId, uint64_t ackId,
               Buffer& respBuffer, uint32_t respOff = 0, uint32_t respLen = 0);
     RpcResult(uint64_t tableId, KeyHash keyHash,
               uint64_t leaseId, uint64_t rpcId, uint64_t ackId,
               const void* response, uint32_t respLen);
+    RpcResult(uint64_t tableId, KeyLength indexKeyLength,
+              const void* indexKey, uint64_t leaseId, uint64_t rpcId,
+              uint64_t ackId, Buffer& respBuffer,
+              uint32_t respOff = 0, uint32_t respLen = 0);
+    RpcResult(uint64_t tableId, KeyLength indexKeyLength,
+              const void* indexKey, uint64_t leaseId, uint64_t rpcId,
+              uint64_t ackId, const void* response, uint32_t respLen);
     explicit RpcResult(Buffer& buffer, uint32_t offset = 0,
                        uint32_t length = 0);
 
     void assembleForLog(Buffer& buffer);
     void assembleForLog(void* buffer);
     void appendRespToBuffer(Buffer& buffer);
+    void appendIndexKeyToBuffer(Buffer& buffer);
 
+    RecordType getType();
     uint64_t getTableId();
     KeyHash getKeyHash();
     uint64_t getLeaseId();
@@ -63,6 +74,9 @@ class RpcResult {
 
     const void* getResp(uint32_t *length = NULL);
     uint32_t getRespLength();
+
+    const void* getIndexKey(KeyLength *length = NULL);
+    KeyLength getIndexKeyLength();
 
     bool checkIntegrity();
     uint32_t getSerializedLength();
@@ -87,14 +101,18 @@ class RpcResult {
          *      rpcId given for this linearizable RPC.
          * \param ackId
          *      ackId given for this linearizable RPC.
+         * \param type
+         *      Category of RPC this record refers to.
          */
         Header(uint64_t tableId, KeyHash keyHash,
-               uint64_t leaseId, uint64_t rpcId, uint64_t ackId)
+               uint64_t leaseId, uint64_t rpcId, uint64_t ackId,
+               RecordType type = OBJECT)
             : tableId(tableId),
               keyHash(keyHash),
               leaseId(leaseId),
               rpcId(rpcId),
               ackId(ackId),
+              type(type),
               checksum(0)
         {
         }
@@ -116,15 +134,24 @@ class RpcResult {
         /// Acknowledgement given by the client that dispatched this RPC.
         uint64_t ackId;
 
+        /// The type of RPC this record refers to - either a standard object
+        /// RPC, or an index entry RPC.
+        RecordType type;
+
         /// CRC32C checksum covering everything but this field, including the
         /// response.
         uint32_t checksum;
+
+        /// If type == INDEX, then the header will first be followed with an
+        /// a 2-byte index key length and then the index key.
+        /// This member is only here to denote this.
+        char indexKey[0];
 
         /// Following this class will be the response.
         /// This member is only here to denote this.
         char response[0];
     } __attribute__((__packed__));
-    static_assert(sizeof(Header) == 44,
+    static_assert(sizeof(Header) == 45,
         "Unexpected serialized RpcResult size");
 
     /// Copy of the RpcResult header that is in, or will be written to, the log.
@@ -145,6 +172,16 @@ class RpcResult {
 
     /// The byte offset in the respBuffer where response start
     uint32_t respOffset;
+
+    /// The byte offset in the respBuffer where the index key starts.
+    uint32_t indexKeyOffset;
+
+    /// If type == INDEX, this will be the length of the index key.
+    KeyLength indexKeyLength;
+
+    /// If type == INDEX, this will point to the region of memory where the
+    /// index key is stored. Otherwise, this points to NULL.
+    const void* indexKey;
 
     DISALLOW_COPY_AND_ASSIGN(RpcResult);
 };

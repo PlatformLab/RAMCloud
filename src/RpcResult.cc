@@ -61,7 +61,10 @@ RpcResult::RpcResult(uint64_t tableId,
       respLength(),
       response(),
       respBuffer(&respBuffer),
-      respOffset(respOff)
+      respOffset(respOff),
+      indexKeyOffset(),
+      indexKeyLength(),
+      indexKey(NULL)
 {
     // compute the actual default value
     if (respLen == 0)
@@ -112,7 +115,125 @@ RpcResult::RpcResult(uint64_t tableId,
       respLength(respLen),
       response(response),
       respBuffer(),
-      respOffset()
+      respOffset(),
+      indexKeyOffset(),
+      indexKeyLength(),
+      indexKey(NULL)
+{
+}
+
+/**
+ * Construct an index RpcResult in preparation for storing it in the
+ * log.
+ * This form is used when the header information is available in
+ * individual pieces, while the response is stored in a Buffer
+ * (typical use: during linearizable write RPCs).
+ *
+ * \param tableId
+ *      TableId for the object modified by this RPC.
+ * \param indexKeyLength
+ *      Length of the index key that this RPC modifies.
+ * \param indexKey
+ *      Pointer to the region of memory containing the index key this RPC
+ *      modifies.
+ * \param leaseId
+ *      leaseId given for this linearizable RPC.
+ * \param rpcId
+ *      rpcId given for this linearizable RPC.
+ * \param ackId
+ *      ackId given for this linearizable RPC.
+ * \param respBuffer
+ *      Buffer containing all chunks that will comprise this RPC's
+ *      response.
+ * \param respOff
+ *      Byte offset in the buffer where response start
+ * \param respLen
+ *      Length of response.
+ *      A length of 0 means that the RpcResult occupies the entire
+ *      buffer starting at offset.
+ */
+RpcResult::RpcResult(uint64_t tableId,
+                     KeyLength indexKeyLength,
+                     const void* indexKey,
+                     uint64_t leaseId,
+                     uint64_t rpcId,
+                     uint64_t ackId,
+                     Buffer& respBuffer,
+                     uint32_t respOff,
+                     uint32_t respLen)
+    : header(tableId,
+             0,
+             leaseId,
+             rpcId,
+             ackId,
+             INDEX),
+      respLength(),
+      response(),
+      respBuffer(&respBuffer),
+      respOffset(respOff),
+      indexKeyOffset(),
+      indexKeyLength(indexKeyLength),
+      indexKey(indexKey)
+{
+    // compute the actual default value
+    if (respLen == 0)
+        respLength = this->respBuffer->size() - respOffset;
+    else
+        respLength = respLen;
+
+    //TODO(seojin): is that needed?
+    void* retPtr;
+    if (respBuffer.peek(respOffset, &retPtr) >= respLength)
+        response = static_cast<char*>(retPtr);
+}
+
+/**
+ * Construct an index RpcResult in preparation for storing it in the
+ * log.
+ * This form is used when the header information is available in
+ * individual pieces, and memory for response is already prepared.
+ * (typical use: during linearizable write RPCs).
+ *
+ * \param tableId
+ *      TableId for the object modified by this RPC.
+ * \param indexKeyLength
+ *      Length of the index key that this RPC modifies.
+ * \param indexKey
+ *      Pointer to the region of memory containing the index key this RPC
+ *      modifies.
+ * \param leaseId
+ *      leaseId given for this linearizable RPC.
+ * \param rpcId
+ *      rpcId given for this linearizable RPC.
+ * \param ackId
+ *      ackId given for this linearizable RPC.
+ * \param response
+ *      Buffer containing all chunks that will comprise this RPC's
+ *      response.
+ * \param respLen
+ *      Length of response.
+ */
+RpcResult::RpcResult(uint64_t tableId,
+                     KeyLength indexKeyLength,
+                     const void* indexKey,
+                     uint64_t leaseId,
+                     uint64_t rpcId,
+                     uint64_t ackId,
+                     const void* response,
+                     uint32_t respLen)
+    : header(tableId,
+             0,
+             leaseId,
+             rpcId,
+             ackId,
+             INDEX),
+      respLength(respLen),
+      response(response),
+      respBuffer(),
+      respOffset(),
+      indexKeyOffset(),
+      indexKeyLength(indexKeyLength),
+      indexKey(indexKey)
 {
 }
 
@@ -138,18 +259,38 @@ RpcResult::RpcResult(Buffer& buffer, uint32_t offset, uint32_t length)
       respLength(),
       response(),
       respBuffer(&buffer),
-      respOffset(sizeof32(header) + offset)
+      respOffset(sizeof32(header) + offset),
+      indexKeyOffset(sizeof32(header) + sizeof32(KeyLength) + offset),
+      indexKeyLength(),
+      indexKey()
 {
-    if (length == 0)
-        respLength = downCast<uint16_t>(buffer.size() -
-                  offset - sizeof32(Header));
-    else
-        respLength = downCast<uint16_t>(length - sizeof32(Header));
+    uint32_t headerSize = sizeof32(Header);
+    if (header.type == OBJECT) {
+        if (length == 0)
+            respLength = downCast<uint16_t>(buffer.size() -
+                                            offset - headerSize);
+        else
+            respLength = downCast<uint16_t>(length - headerSize);
+    } else {
+        indexKeyLength = *buffer.getOffset<KeyLength>(offset + headerSize);
+
+        respOffset = headerSize + offset + sizeof32(KeyLength) + indexKeyLength;
+        
+        if (length == 0)
+            respLength = downCast<uint16_t>(buffer.size() -
+                                            offset - headerSize -
+                                            sizeof32(KeyLength) -
+                                            indexKeyLength);
+        else
+            respLength = downCast<uint16_t>(length - headerSize -
+                                            sizeof32(KeyLength) -
+                                            indexKeyLength);
+    }
 }
 
 /**
- * Append the full RpcResult, including header, and response exactly as it
- * should be stored in the log, to a buffer
+ * Append the full RpcResult, including header, and if needed, index key, and
+ * response exactly as it should be stored in the log, to a buffer.
  *
  * \param buffer
  *      The buffer to append a serialized version of this RpcResult to.
@@ -159,13 +300,19 @@ RpcResult::assembleForLog(Buffer& buffer)
 {
     header.checksum = computeChecksum();
     buffer.appendExternal(&header, sizeof32(header));
+    
+    // Append index key length and index key if needed.
+    if (header.type == INDEX) {
+        appendIndexKeyToBuffer(buffer);
+    }
+    
     //buffer.appendExternal(&clusterTime, 8);
     appendRespToBuffer(buffer);
 }
 
 /**
- * Copy the full serialized RpcResult including the header and the response
- * to a contiguous region of memory memBlock.
+ * Copy the full serialized RpcResult including the header, and if needed, index
+ * key, and the response to a contiguous region of memory memBlock.
  *
  * \param memBlock
  *      Destination to copy a serialized version of this RpcResult to.
@@ -180,7 +327,17 @@ RpcResult::assembleForLog(void* memBlock)
 
     memcpy(dst, &header, sizeof32(header));
     //memcpy(dst + sizeof32(header), &clusterTime, 8);
-    memcpy(dst + sizeof32(header), getResp(), respLength);
+    if (header.type == OBJECT) {
+        memcpy(dst + sizeof32(header), getResp(), respLength);
+    } else {
+        // Index RPC
+        KeyLength keyLen = getIndexKeyLength();
+        memcpy(dst + sizeof32(header), &keyLen, sizeof32(KeyLength));
+        memcpy(dst + sizeof32(header) + sizeof32(KeyLength),
+               getIndexKey(), keyLen);
+        memcpy(dst + sizeof32(header) + sizeof32(KeyLength) +
+               keyLen, getResp(), respLength);
+    }
 }
 
 /**
@@ -204,6 +361,35 @@ RpcResult::appendRespToBuffer(Buffer& buffer)
         buffer.appendExternal(it.getData(), it.getLength());
         it.next();
     }
+}
+
+/**
+ * Append the index key modified by this RPC to a provided buffer.
+ *
+ * \param buffer
+ *      The buffer to append the index key to.
+ */
+void
+RpcResult::appendIndexKeyToBuffer(Buffer& buffer)
+{
+    KeyLength keyLen = getIndexKeyLength();
+    buffer.appendCopy<KeyLength>(&keyLen);
+    
+    if (indexKey) {
+        buffer.append(indexKey, keyLen);
+        return;
+    }
+
+    buffer.append(respBuffer, indexKeyOffset, keyLen);
+}
+
+/**
+ * Obtain the type of RPC this record refers to - either OBJECT or INDEX.
+ */
+RpcResult::RecordType
+RpcResult::getType()
+{
+    return header.type;
 }
 
 /**
@@ -280,6 +466,37 @@ RpcResult::getRespLength()
 }
 
 /**
+ * Obtain a pointer to the index key modified by this RPC.
+ *
+ * \param[out] length
+ *      The length of the index key in bytes.
+ *
+ * \return
+ *      NULL if the RpcResult is malformed,
+ *      a pointer to a contiguous copy of the index key otherwise.
+ */
+const void*
+RpcResult::getIndexKey(KeyLength *length)
+{
+    if (length)
+        *length = indexKeyLength;
+
+    if (indexKey)
+        return indexKey;
+    else
+        return respBuffer->getRange(indexKeyOffset, getIndexKeyLength());
+}
+
+/**
+ * Obtain the length of the index key this RPC modifies.
+ */
+KeyLength
+RpcResult::getIndexKeyLength()
+{
+    return indexKeyLength;
+}
+
+/**
  * Compute a checksum on the RpcResult and determine whether or not it matches
  * what is stored in the RpcResult. Returns true if the checksum looks ok,
  * otherwise returns false.
@@ -296,7 +513,12 @@ RpcResult::checkIntegrity()
 uint32_t
 RpcResult::getSerializedLength()
 {
-    return sizeof32(header) + respLength;
+    if (header.type == OBJECT) {
+        return sizeof32(header) + respLength;
+    } else { // INDEX
+        return sizeof32(header) + sizeof32(KeyLength) + getIndexKeyLength() +
+                respLength;
+    }
 }
 
 /**
@@ -310,6 +532,14 @@ RpcResult::computeChecksum()
 
     Crc32C crc;
     crc.update(&header, downCast<uint32_t>(OFFSET_OF(Header, checksum)));
+
+    if (header.type == INDEX) {
+        if (indexKey) {
+            crc.update(indexKey, getIndexKeyLength());
+        } else {
+            crc.update(*respBuffer, indexKeyOffset, getIndexKeyLength());
+        }
+    }
 
     if (response) {
         crc.update(response, getRespLength());
