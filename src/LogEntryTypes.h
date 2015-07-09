@@ -49,10 +49,10 @@ enum LogEntryType {
     /// See RpcResult.h
     LOG_ENTRY_TYPE_RPCRESULT,
 
-    /// See PreparedWrites.h::PreparedOp
+    /// See PreparedOps.h::PreparedOp
     LOG_ENTRY_TYPE_PREP,
 
-    /// See PreparedWrites.h::PreparedOpTombstone
+    /// See PreparedOps.h::PreparedOpTombstone
     LOG_ENTRY_TYPE_PREPTOMB,
 
     /// See TxDecisionRecord

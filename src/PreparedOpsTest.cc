@@ -15,7 +15,7 @@
 
 #include "TestUtil.h"
 
-#include "PreparedWrites.h"
+#include "PreparedOps.h"
 #include "Context.h"
 #include "RamCloud.h"
 

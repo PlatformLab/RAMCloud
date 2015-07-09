@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "PreparedOps.h"
 #include "UnackedRpcResults.h"
 #include "LeaseCommon.h"
 #include "MasterService.h"

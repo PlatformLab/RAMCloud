@@ -19,7 +19,7 @@
 #include "SegmentIterator.h"
 #include "ServerId.h"
 #include "ShortMacros.h"
-#include "PreparedWrites.h"
+#include "PreparedOps.h"
 #include "TxDecisionRecord.h"
 
 namespace RAMCloud {

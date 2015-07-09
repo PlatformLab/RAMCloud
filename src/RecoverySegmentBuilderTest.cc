@@ -16,7 +16,7 @@
 #include "TestUtil.h"
 #include "Object.h"
 #include "ObjectManager.h"
-#include "PreparedWrites.h"
+#include "PreparedOps.h"
 #include "RecoverySegmentBuilder.h"
 #include "SegmentIterator.h"
 #include "SegmentManager.h"

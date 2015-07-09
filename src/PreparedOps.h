@@ -13,14 +13,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_PREPAREDWRITES_H
-#define RAMCLOUD_PREPAREDWRITES_H
+#ifndef RAMCLOUD_PREPAREDOPS_H
+#define RAMCLOUD_PREPAREDOPS_H
 
 #include <map>
 #include <utility>
 #include "Common.h"
 #include "Object.h"
 #include "SpinLock.h"
+#include "WireFormat.h"
 #include "WorkerTimer.h"
 
 namespace RAMCloud {

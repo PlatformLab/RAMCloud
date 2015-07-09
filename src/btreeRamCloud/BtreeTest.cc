@@ -18,7 +18,7 @@
 
 #include <gtest/gtest.h>
 #include "btreeRamCloud/Btree.h"
-#include "PreparedWrites.h"
+#include "PreparedOps.h"
 #include "RamCloud.h"
 #include "TxRecoveryManager.h"
 #include "UnackedRpcResults.h"

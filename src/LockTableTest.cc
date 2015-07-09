@@ -15,7 +15,7 @@
 
 #include "TestUtil.h"       //Has to be first, compiler complains
 #include "LockTable.h"
-#include "PreparedWrites.h"
+#include "PreparedOps.h"
 #include "ServerConfig.h"
 #include "MasterTableMetadata.h"
 

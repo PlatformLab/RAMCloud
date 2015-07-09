@@ -16,7 +16,7 @@
 #include "LockTable.h"
 #include "BitOps.h"
 #include "Memory.h"
-#include "PreparedWrites.h"
+#include "PreparedOps.h"
 
 namespace RAMCloud {
 
