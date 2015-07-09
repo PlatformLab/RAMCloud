@@ -63,11 +63,12 @@ class RpcResultTest : public ::testing::Test {
         objectRecords[1] = &*rpcResultFromBuffer;
         records[0] = &*rpcResultFromResponse;
         records[1] = &*rpcResultFromBuffer;
-        
+
         // Index rpc records
         indexRpcRecordFromResponse.construct(key.getTableId(),
                                              key.getStringKeyLength(),
-                                             static_cast<const void*>(stringKey),
+                                             static_cast<const void*>(
+                                                     stringKey),
                                              1UL,
                                              10UL,
                                              9UL,
@@ -77,8 +78,8 @@ class RpcResultTest : public ::testing::Test {
 
         indexRpcRecordFromResponse->assembleForLog(indexBuffer);
 
-        // prepend some garbage to indexBuffer so that we can test the constructor
-        // with a non-zero offset
+        // prepend some garbage to indexBuffer so that we can test the
+        // constructor with a non-zero offset
         memcpy(indexBuffer.allocPrepend(sizeof(stringKey)), &stringKey,
                 sizeof(stringKey));
 
@@ -121,7 +122,7 @@ class RpcResultTest : public ::testing::Test {
 TEST_F(RpcResultTest, constructor_fromResponse) {
     RpcResult& record = *records[0];
     Key key(572, stringKey, 5);
-    
+
     EXPECT_EQ(RpcResult::RecordType::OBJECT, record.header.type);
 
     EXPECT_EQ(572U, record.header.tableId);
@@ -142,7 +143,7 @@ TEST_F(RpcResultTest, constructor_fromResponse) {
 TEST_F(RpcResultTest, constructor_fromBuffer) {
     RpcResult& record = *records[1];
     Key key(572, stringKey, 5);
-    
+
     EXPECT_EQ(RpcResult::RecordType::OBJECT, record.header.type);
 
     EXPECT_EQ(572U, record.header.tableId);
@@ -179,7 +180,7 @@ TEST_F(RpcResultTest, constructor_indexFromResponse) {
     EXPECT_EQ(10UL, record.header.rpcId);
     EXPECT_EQ(9UL, record.header.ackId);
     EXPECT_EQ(2043374754UL, record.header.checksum);
-    
+
     EXPECT_TRUE(record.indexKey);
     EXPECT_TRUE(record.response);
 
@@ -195,7 +196,7 @@ TEST_F(RpcResultTest, constructor_indexFromResponse) {
 TEST_F(RpcResultTest, constructor_indexFromBuffer) {
     RpcResult& record = *indexRecords[1];
     Key key(572, stringKey, 5);
-    
+
     EXPECT_EQ(RpcResult::RecordType::INDEX, record.header.type);
 
     EXPECT_EQ(572U, record.header.tableId);
@@ -208,7 +209,7 @@ TEST_F(RpcResultTest, constructor_indexFromBuffer) {
     EXPECT_FALSE(record.response);
     EXPECT_FALSE(record.indexKey);
     EXPECT_TRUE(record.respBuffer);
-    
+
     EXPECT_EQ(sizeof(stringKey), record.indexKeyLength);
     EXPECT_EQ("key!", string(reinterpret_cast<const char*>(
         (record.respBuffer)->getRange(
@@ -307,7 +308,7 @@ TEST_F(RpcResultTest, assembleForLog_index) {
                   sizeof(WireFormat::Write::Response), buffer.size());
 
         EXPECT_EQ(RpcResult::RecordType::INDEX, header->type);
-        
+
         EXPECT_EQ(572U, header->tableId);
         EXPECT_EQ(0UL, header->keyHash);
         EXPECT_EQ(1UL, header->leaseId);
@@ -342,7 +343,7 @@ TEST_F(RpcResultTest, assembleForLog_indexContigMemory) {
                 record.getSerializedLength()));
 
         record.assembleForLog(target);
-        
+
         RpcResult::Header* header =
             reinterpret_cast<RpcResult::Header*>(target);
 
@@ -351,7 +352,7 @@ TEST_F(RpcResultTest, assembleForLog_indexContigMemory) {
                   record.getSerializedLength());
 
         EXPECT_EQ(RpcResult::RecordType::INDEX, header->type);
-        
+
         EXPECT_EQ(572U, header->tableId);
         EXPECT_EQ(0UL, header->keyHash);
         EXPECT_EQ(1UL, header->leaseId);
@@ -397,10 +398,10 @@ TEST_F(RpcResultTest, appendIndexKeyToBuffer) {
         Buffer buffer;
         record.appendIndexKeyToBuffer(buffer);
         EXPECT_EQ(sizeof(KeyLength) + sizeof(stringKey), buffer.size());
-        
+
         KeyLength* keyLen = buffer.getStart<KeyLength>();
         EXPECT_EQ(sizeof(stringKey), *keyLen);
-        
+
         const void* key = buffer.getRange(sizeof(*keyLen), *keyLen);
         EXPECT_EQ("key!", string(reinterpret_cast<const char*>(key)));
     }
@@ -410,7 +411,7 @@ TEST_F(RpcResultTest, getType) {
     for (uint32_t i = 0; i < arrayLength(objectRecords); i++)
         EXPECT_EQ(RpcResult::RecordType::OBJECT,
                   objectRecords[i]->getType());
-    
+
     for (uint32_t i = 0; i < arrayLength(indexRecords); i++)
         EXPECT_EQ(RpcResult::RecordType::INDEX,
                   indexRecords[i]->getType());

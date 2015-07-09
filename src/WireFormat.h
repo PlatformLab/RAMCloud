@@ -1706,7 +1706,8 @@ struct TxPrepare {
 
     /// Type of Tx Operation
     /// Note: Make sure INVALID is always last.
-    enum OpType { READ, REMOVE, WRITE, INVALID };
+    enum OpType { READ, REMOVE, WRITE, REMOVE_INDEX_ENTRY, INSERT_INDEX_ENTRY,
+                  INVALID };
 
     /// Possible participant server responses to the request to prepare the
     /// included transaction operations for commit.
@@ -1795,6 +1796,68 @@ struct TxPrepare {
                 , rpcId(rpcId)
                 , length(length)
                 , rejectRules(rejectRules)
+            {
+            }
+        } __attribute__((packed));
+
+        // A structure describing an index entry insert operation which is a
+        // part of a transaction prepare request.
+        struct InsertIndexEntryOp {
+            OpType type;
+            uint64_t rpcId;
+            // Id of the backing table for the targeted indexlet.
+            uint64_t backingTableId;
+            uint64_t tableId;           // Id of the table containing the object
+            // for which index entry is being inserted.
+            uint8_t indexId;            // Id of the index for which the entry
+            // is being inserted.
+            uint16_t indexKeyLength;    // Length of index key in bytes.
+            uint64_t primaryKeyHash;    // Hash of the primary key of the object
+            // for which index entry is being inserted.
+
+            // In buffer: Actual bytes of the index key goes here.
+            InsertIndexEntryOp(uint64_t rpcId, uint64_t backingTableId,
+                               uint64_t tableId,
+                               uint8_t indexId, uint16_t indexKeyLength,
+                               uint64_t primaryKeyHash)
+                : type(OpType::INSERT_INDEX_ENTRY)
+                , rpcId(rpcId)
+                , backingTableId(backingTableId)
+                , tableId(tableId)
+                , indexId(indexId)
+                , indexKeyLength(indexKeyLength)
+                , primaryKeyHash(primaryKeyHash)
+            {
+            }
+        } __attribute__((packed));
+
+        // A structure describing an index entry remove operation which is a
+        // part of a transaction prepare request.
+        struct RemoveIndexEntryOp {
+            OpType type;
+            uint64_t rpcId;
+            // Id of the backing table for the targeted indexlet.
+            uint64_t backingTableId;
+            uint64_t tableId;           // Id of the table containing the object
+            // for which index entry is being inserted.
+            uint8_t indexId;            // Id of the index for which the entry
+            // is being inserted.
+            uint16_t indexKeyLength;    // Length of index key in bytes.
+            uint64_t primaryKeyHash;    // Hash of the primary key of the object
+            // for which index entry is being removed.
+
+            // In buffer: Actual bytes of the index key goes here.
+            RemoveIndexEntryOp(uint64_t rpcId, uint64_t backingTableId,
+                               uint64_t tableId,
+                               uint8_t indexId, uint16_t indexKeyLength,
+                               uint64_t primaryKeyHash)
+                : type(OpType::REMOVE_INDEX_ENTRY)
+                , rpcId(rpcId)
+                , backingTableId(backingTableId)
+                , tableId(tableId)
+                , indexId(indexId)
+                , indexKeyLength(indexKeyLength)
+                , primaryKeyHash(primaryKeyHash)
             {
             }
         } __attribute__((packed));

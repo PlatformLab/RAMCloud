@@ -43,7 +43,7 @@ namespace RAMCloud {
 class RpcResult {
   public:
     enum RecordType : bool { OBJECT, INDEX };
-    
+
     RpcResult(uint64_t tableId, KeyHash keyHash,
               uint64_t leaseId, uint64_t rpcId, uint64_t ackId,
               Buffer& respBuffer, uint32_t respOff = 0, uint32_t respLen = 0);

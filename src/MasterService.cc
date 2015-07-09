@@ -2599,6 +2599,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
         Tub<PreparedOp> op;
         uint64_t tableId, rpcId;
         RejectRules rejectRules;
+        bool isIndexOp(false);
 
         respHdr->common.status = STATUS_OK;
         respHdr->vote = WireFormat::TxPrepare::PREPARED;
@@ -2688,6 +2689,76 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                          currentReq->length);
 
             reqOffset += currentReq->length;
+        } else if (*type == WireFormat::TxPrepare::INSERT_INDEX_ENTRY) {
+            const WireFormat::TxPrepare::Request::InsertIndexEntryOp
+                    *currentReq = rpc->requestPayload->getOffset<
+                        WireFormat::TxPrepare::Request::InsertIndexEntryOp>(
+                                reqOffset);
+
+            reqOffset += sizeof32(
+                    WireFormat::TxPrepare::Request::InsertIndexEntryOp);
+
+            uint16_t indexKeyLength = currentReq->indexKeyLength;
+
+            if (currentReq == NULL || rpc->requestPayload->size() <
+                reqOffset + indexKeyLength) {
+
+                respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+                respHdr->vote = WireFormat::TxPrepare::ABORT;
+                break;
+            }
+            tableId = currentReq->backingTableId;
+            rpcId = currentReq->rpcId;
+
+            // Use the Object in PreparedOp to store data for this operation.
+            buffer.emplaceAppend<KeyCount>((unsigned char) 1);
+            buffer.emplaceAppend<CumulativeKeyLength>(indexKeyLength);
+            buffer.appendExternal(rpc->requestPayload, reqOffset,
+                                  indexKeyLength);
+            buffer.emplaceAppend<uint64_t>(currentReq->tableId);
+            buffer.emplaceAppend<uint8_t>(currentReq->indexId);
+            buffer.emplaceAppend<uint64_t>(currentReq->primaryKeyHash);
+
+            op.construct(*type, reqHdr->lease.leaseId, rpcId, participantCount,
+                         participants, tableId, 0, 0, buffer);
+
+            reqOffset += indexKeyLength;
+            isIndexOp = true;
+        } else if (*type == WireFormat::TxPrepare::REMOVE_INDEX_ENTRY) {
+            const WireFormat::TxPrepare::Request::RemoveIndexEntryOp
+                    *currentReq = rpc->requestPayload->getOffset<
+                        WireFormat::TxPrepare::Request::RemoveIndexEntryOp>(
+                                reqOffset);
+
+            reqOffset += sizeof32(
+                    WireFormat::TxPrepare::Request::RemoveIndexEntryOp);
+
+            uint16_t indexKeyLength = currentReq->indexKeyLength;
+
+            if (currentReq == NULL || rpc->requestPayload->size() <
+                reqOffset + indexKeyLength) {
+
+                respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+                respHdr->vote = WireFormat::TxPrepare::ABORT;
+                break;
+            }
+            tableId = currentReq->backingTableId;
+            rpcId = currentReq->rpcId;
+
+            // Use the Object in PreparedOp to store data for this operation.
+            buffer.emplaceAppend<KeyCount>((unsigned char) 1);
+            buffer.emplaceAppend<CumulativeKeyLength>(indexKeyLength);
+            buffer.appendExternal(rpc->requestPayload, reqOffset,
+                                  indexKeyLength);
+            buffer.emplaceAppend<uint64_t>(currentReq->tableId);
+            buffer.emplaceAppend<uint8_t>(currentReq->indexId);
+            buffer.emplaceAppend<uint64_t>(currentReq->primaryKeyHash);
+
+            op.construct(*type, reqHdr->lease.leaseId, rpcId, participantCount,
+                         participants, tableId, 0, 0, buffer);
+
+            reqOffset += indexKeyLength;
+            isIndexOp = true;
         } else {
             respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
             break;
@@ -2711,22 +2782,29 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
         }
 
         uint64_t rpcResultPtr;
-        KeyLength pKeyLen;
-        const void* pKey = op->object.getKey(0, &pKeyLen);
         respHdr->common.status = STATUS_OK;
+
         WireFormat::TxPrepare::Vote vote = WireFormat::TxPrepare::PREPARED;
-        RpcResult rpcResult(
-                tableId,
-                Key::getHash(tableId, pKey, pKeyLen),
-                reqHdr->lease.leaseId, rpcId, reqHdr->ackId,
-                &vote, sizeof(vote));
+        Tub<RpcResult> rpcResult;
+
+        KeyLength keyLen;
+        const void* key = op->object.getKey(0, &keyLen);
+        if (!isIndexOp) {
+            rpcResult.construct(tableId,
+                                Key::getHash(tableId, key, keyLen),
+                                reqHdr->lease.leaseId, rpcId, reqHdr->ackId,
+                                &vote, sizeof32(vote));
+        } else {
+            rpcResult.construct(tableId, keyLen, key, reqHdr->lease.leaseId,
+                                rpcId, reqHdr->ackId, &vote, sizeof32(vote));
+        }
 
         uint64_t newOpPtr;
         bool isCommitVote;
         try {
             respHdr->common.status = objectManager.prepareOp(
                     *op, &rejectRules, &newOpPtr, &isCommitVote,
-                    &rpcResult, &rpcResultPtr);
+                    &*rpcResult, &rpcResultPtr);
         } catch (RetryException& e) {
             objectManager.syncChanges();
             throw;

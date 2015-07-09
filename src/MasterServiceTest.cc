@@ -2446,6 +2446,158 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
                             value.size()));
 }
 
+TEST_F(MasterServiceTest, txPrepare_indexBasics) {
+    uint64_t tableId = ramcloud->createTable("dataTable");
+    uint64_t backingTableId = ramcloud->createTable("backingTable");
+
+    uint8_t indexId = 1;
+    string firstKey = "abc";
+    string firstNotOwnedKey = "xyz";
+    Key oldKey(backingTableId, "def", 3);
+    Key newKey(backingTableId, "ghi", 3);
+    uint64_t pKeyHash = 12345UL;
+
+    service->indexletManager.addIndexlet(
+            tableId, indexId, backingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    service->indexletManager.insertEntry(tableId, indexId,
+                                         oldKey.getStringKey(),
+                                         oldKey.getStringKeyLength(),
+                                         pKeyHash);
+    service->objectManager.log.sync();
+
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    TxParticipant participants[3];
+    participants[0] = TxParticipant(backingTableId, 0UL, 10U);
+    participants[1] = TxParticipant(backingTableId, 0UL, 11U);
+    participants[2] = TxParticipant(backingTableId, 0UL, 12U);
+
+    TxPrepare::Request reqHdr;
+    TxPrepare::Response respHdr;
+    Buffer reqBuffer, respBuffer;
+    Service::Rpc rpc(NULL, &reqBuffer, &respBuffer);
+
+    reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
+    reqHdr.common.service = WireFormat::MASTER_SERVICE;
+    reqHdr.lease = {1, 10, 5};
+    reqHdr.ackId = 9;
+    reqHdr.participantCount = 3;
+    reqHdr.opCount = 2;
+    reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
+    reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 3);
+
+    // InsertIndexEntryOp
+    TxPrepare::Request::InsertIndexEntryOp op1(10UL, backingTableId, tableId,
+                                               indexId,
+                                               newKey.getStringKeyLength(),
+                                               pKeyHash);
+    reqBuffer.appendExternal(&op1, sizeof32(op1));
+    reqBuffer.appendCopy(newKey.getStringKey(), newKey.getStringKeyLength());
+
+    // RemoveIndexEntryOp
+    TxPrepare::Request::RemoveIndexEntryOp op2(11UL, backingTableId, tableId,
+                                               indexId,
+                                               oldKey.getStringKeyLength(),
+                                               pKeyHash);
+    reqBuffer.appendExternal(&op2, sizeof32(op2));
+    reqBuffer.appendCopy(oldKey.getStringKey(), oldKey.getStringKeyLength());
+
+    EXPECT_FALSE(isObjectLocked(oldKey));
+    EXPECT_FALSE(isObjectLocked(newKey));
+    service->txPrepare(&reqHdr, &respHdr, &rpc);
+
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
+    EXPECT_EQ(TxPrepare::PREPARED, respHdr.vote);
+
+    EXPECT_EQ(2U, service->preparedOps.items.size());
+    EXPECT_TRUE(isObjectLocked(oldKey));
+    EXPECT_TRUE(isObjectLocked(newKey));
+}
+
+TEST_F(MasterServiceTest, txPrepare_indexInvalidBack) {
+    uint64_t tableId = ramcloud->createTable("dataTable");
+    uint64_t backingTableId = ramcloud->createTable("backingTable");
+    uint64_t fakeBackId = 10UL;
+
+    uint8_t indexId = 1;
+    string firstKey = "abc";
+    string firstNotOwnedKey = "xyz";
+    Key key1(backingTableId, "def", 3);
+    Key key2(fakeBackId, "ghi", 3);
+    Key key3(backingTableId, "ghi", 3);
+    uint64_t pKeyHash = 12345UL;
+
+    service->indexletManager.addIndexlet(
+            tableId, indexId, backingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    service->indexletManager.insertEntry(tableId, indexId,
+                                         key1.getStringKey(),
+                                         key1.getStringKeyLength(),
+                                         pKeyHash);
+    service->objectManager.log.sync();
+
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    TxParticipant participants[3];
+    participants[0] = TxParticipant(backingTableId, 0UL, 10U);
+    participants[1] = TxParticipant(fakeBackId, 0UL, 11U);
+    participants[2] = TxParticipant(backingTableId, 0UL, 12U);
+
+    TxPrepare::Request reqHdr;
+    TxPrepare::Response respHdr;
+    Buffer reqBuffer, respBuffer;
+    Service::Rpc rpc(NULL, &reqBuffer, &respBuffer);
+
+    reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
+    reqHdr.common.service = WireFormat::MASTER_SERVICE;
+    reqHdr.lease = {1, 10, 5};
+    reqHdr.ackId = 9;
+    reqHdr.participantCount = 3;
+    reqHdr.opCount = 3;
+    reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
+    reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 3);
+
+    // Real op
+    TxPrepare::Request::RemoveIndexEntryOp op1(10UL, backingTableId, tableId,
+                                               indexId,
+                                               key1.getStringKeyLength(),
+                                               pKeyHash);
+    reqBuffer.appendExternal(&op1, sizeof32(op1));
+    reqBuffer.appendCopy(key1.getStringKey(), key1.getStringKeyLength());
+
+    // Fail op
+    TxPrepare::Request::RemoveIndexEntryOp op2(11UL, fakeBackId, tableId,
+                                               indexId,
+                                               key2.getStringKeyLength(),
+                                               pKeyHash);
+    reqBuffer.appendExternal(&op2, sizeof32(op2));
+    reqBuffer.appendCopy(key2.getStringKey(), key2.getStringKeyLength());
+
+    // Never reached op
+    TxPrepare::Request::RemoveIndexEntryOp op3(11UL, backingTableId, tableId,
+                                               indexId,
+                                               key2.getStringKeyLength(),
+                                               pKeyHash);
+    reqBuffer.appendExternal(&op3, sizeof32(op3));
+    reqBuffer.appendCopy(key3.getStringKey(), key3.getStringKeyLength());
+
+    EXPECT_FALSE(isObjectLocked(key1));
+    EXPECT_FALSE(isObjectLocked(key3));
+    service->txPrepare(&reqHdr, &respHdr, &rpc);
+
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET, respHdr.common.status);
+    EXPECT_EQ(TxPrepare::ABORT, respHdr.vote);
+
+    EXPECT_EQ(1U, service->preparedOps.items.size());
+    EXPECT_TRUE(isObjectLocked(key1));
+    EXPECT_FALSE(isObjectLocked(key3));
+}
+
 TEST_F(MasterServiceTest, txPrepare_retriedPrepares) {
     // 1. Test setup: Add objects to be used during experiment.
     ramcloud->write(1, "key1", 4, "item1", 5);

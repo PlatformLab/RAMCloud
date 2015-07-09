@@ -1334,8 +1334,8 @@ ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
  */
 Status
 ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
-                uint64_t* newOpPtr, bool* isCommitVote,
-                RpcResult* rpcResult, uint64_t* rpcResultPtr)
+                         uint64_t* newOpPtr, bool* isCommitVote,
+                         RpcResult* rpcResult, uint64_t* rpcResultPtr)
 {
     *isCommitVote = false;
     if (!anyWrites) {
@@ -1350,11 +1350,16 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
         if (!context->coordinatorSession->getLocation().empty()) {
             ProtoBuf::ServerList backups;
             CoordinatorClient::getBackupList(context, &backups);
-            TransportManager& transportManager =
-                *context->transportManager;
+            TransportManager& transportManager = *context->transportManager;
             foreach(auto& backup, backups.server())
-                transportManager.getSession(backup.service_locator());
+                    transportManager.getSession(backup.service_locator());
         }
+    }
+
+    bool isIndexOp(false);
+    if (newOp.header.type == WireFormat::TxPrepare::INSERT_INDEX_ENTRY ||
+        newOp.header.type == WireFormat::TxPrepare::REMOVE_INDEX_ENTRY) {
+        isIndexOp = true;
     }
 
     uint16_t keyLength = 0;
@@ -1385,43 +1390,46 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     Log::Reference currentReference;
     uint64_t currentVersion = VERSION_NONEXISTENT;
 
-    HashTable::Candidates currentHashTableEntry;
+    if (!isIndexOp) {
+        HashTable::Candidates currentHashTableEntry;
 
-    if (lookup(lock, key, currentType, currentBuffer, 0,
-               &currentReference, &currentHashTableEntry)) {
-        if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
-            removeIfTombstone(currentReference.toInteger(), this);
-        } else {
-            Object currentObject(currentBuffer);
-            currentVersion = currentObject.getVersion();
+        if (lookup(lock, key, currentType, currentBuffer, 0,
+                   &currentReference, &currentHashTableEntry)) {
+            if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
+                removeIfTombstone(currentReference.toInteger(), this);
+            } else {
+                Object currentObject(currentBuffer);
+                currentVersion = currentObject.getVersion();
+            }
         }
-    }
 
-    if (rejectRules != NULL) {
-        Status status = rejectOperation(rejectRules, currentVersion);
-        if (status != STATUS_OK) {
-            RAMCLOUD_LOG(DEBUG, "TxPrepare fail. Type: %d Key: %.*s, "
-                "RejectRule outcome: %s rejectRule.givenVersion %lu "
-                "currentVersion %lu",
-                    newOp.header.type,
-                    keyLength, reinterpret_cast<const char*>(keyString),
-                    statusToString(status),
-                    rejectRules->givenVersion, currentVersion);
-            writePrepareFail(rpcResult, rpcResultPtr);
-            return STATUS_OK;
+        if (rejectRules != NULL) {
+            Status status = rejectOperation(rejectRules, currentVersion);
+            if (status != STATUS_OK) {
+                RAMCLOUD_LOG(DEBUG, "TxPrepare fail. Type: %d Key: %.*s, "
+                             "RejectRule outcome: %s rejectRule.givenVersion"
+                             "%lu currentVersion %lu",
+                             newOp.header.type,
+                             keyLength,
+                             reinterpret_cast<const char*>(keyString),
+                             statusToString(status),
+                             rejectRules->givenVersion, currentVersion);
+                writePrepareFail(rpcResult, rpcResultPtr);
+                return STATUS_OK;
+            }
         }
+
+        // Existing objects get a bump in version, new objects start from
+        // the next version allocated in the table.
+        uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
+                segmentManager.allocateVersion() : currentVersion + 1;
+
+        newOp.object.setVersion(newObjectVersion);
+        newOp.object.setTimestamp(WallTime::secondsTimestamp());
+
+        assert(currentVersion == VERSION_NONEXISTENT ||
+               newOp.object.getVersion() > currentVersion);
     }
-
-    // Existing objects get a bump in version, new objects start from
-    // the next version allocated in the table.
-    uint64_t newObjectVersion = (currentVersion == VERSION_NONEXISTENT) ?
-            segmentManager.allocateVersion() : currentVersion + 1;
-
-    newOp.object.setVersion(newObjectVersion);
-    newOp.object.setTimestamp(WallTime::secondsTimestamp());
-
-    assert(currentVersion == VERSION_NONEXISTENT ||
-           newOp.object.getVersion() > currentVersion);
 
     Log::AppendVector appends[2];
 

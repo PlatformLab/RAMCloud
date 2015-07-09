@@ -275,7 +275,7 @@ RpcResult::RpcResult(Buffer& buffer, uint32_t offset, uint32_t length)
         indexKeyLength = *buffer.getOffset<KeyLength>(offset + headerSize);
 
         respOffset = headerSize + offset + sizeof32(KeyLength) + indexKeyLength;
-        
+
         if (length == 0)
             respLength = downCast<uint16_t>(buffer.size() -
                                             offset - headerSize -
@@ -300,12 +300,12 @@ RpcResult::assembleForLog(Buffer& buffer)
 {
     header.checksum = computeChecksum();
     buffer.appendExternal(&header, sizeof32(header));
-    
+
     // Append index key length and index key if needed.
     if (header.type == INDEX) {
         appendIndexKeyToBuffer(buffer);
     }
-    
+
     //buffer.appendExternal(&clusterTime, 8);
     appendRespToBuffer(buffer);
 }
@@ -374,7 +374,7 @@ RpcResult::appendIndexKeyToBuffer(Buffer& buffer)
 {
     KeyLength keyLen = getIndexKeyLength();
     buffer.appendCopy<KeyLength>(&keyLen);
-    
+
     if (indexKey) {
         buffer.append(indexKey, keyLen);
         return;
