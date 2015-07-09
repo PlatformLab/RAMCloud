@@ -2398,6 +2398,11 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
     } else {
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         rpc->sendReply();
+
+        // Sync before reply is not required for consistency. We do sync to
+        // reduce latency of subsequent requests.
+        objectManager.syncChanges();
+        return;
     }
 
     objectManager.syncChanges();

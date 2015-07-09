@@ -583,6 +583,7 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_basic) {
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->decision = WireFormat::TxDecision::COMMIT;
     transactionTask->sendDecisionRpc();
 
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
