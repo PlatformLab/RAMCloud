@@ -339,7 +339,7 @@ TEST_F(TxRecoveryManagerTest, DecisionRpc_constructor) {
                 ramcloud->clientContext->transportManager->getSession(
                 "mock:host=master1");
     task->leaseId = 21;
-    task->decision = WireFormat::TxDecision::INVALID;
+    task->decision = WireFormat::TxDecision::UNDECIDED;
 
     TxRecoveryManager::RecoveryTask::DecisionRpc
             rpc(&context, session, task.get());

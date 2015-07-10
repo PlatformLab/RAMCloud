@@ -199,7 +199,7 @@ TxRecoveryManager::RecoveryTask::RecoveryTask(
     : context(context)
     , leaseId(leaseId)
     , state(State::REQEST_ABORT)
-    , decision(WireFormat::TxDecision::INVALID)
+    , decision(WireFormat::TxDecision::UNDECIDED)
     , participants()
     , nextParticipantEntry()
     , decisionRpcs()
@@ -706,7 +706,7 @@ TxRecoveryManager::RecoveryTask::toString()
         case WireFormat::TxDecision::ABORT:
             s.append(" decision{ABORT}");
             break;
-        case WireFormat::TxDecision::INVALID:
+        case WireFormat::TxDecision::UNDECIDED:
             s.append(" decision{INVALID}");
             break;
     }

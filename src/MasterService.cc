@@ -2487,7 +2487,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
         RejectRules rejectRules;
 
         respHdr->common.status = STATUS_OK;
-        respHdr->vote = WireFormat::TxPrepare::COMMIT;
+        respHdr->vote = WireFormat::TxPrepare::PREPARED;
 
         Buffer buffer;
         const WireFormat::TxPrepare::OpType *type =
@@ -2587,7 +2587,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
         UnackedRpcHandle* rh = &rpcHandles.back();
         if (rh->isDuplicate()) {
             respHdr->vote = parsePrepRpcResult(rh->resultLoc());
-            if (respHdr->vote == WireFormat::TxPrepare::COMMIT) {
+            if (respHdr->vote == WireFormat::TxPrepare::PREPARED) {
                 continue;
             } else if (respHdr->vote == WireFormat::TxPrepare::ABORT) {
                 break;
@@ -2600,7 +2600,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
         KeyLength pKeyLen;
         const void* pKey = op->object.getKey(0, &pKeyLen);
         respHdr->common.status = STATUS_OK;
-        WireFormat::TxPrepare::Vote vote = WireFormat::TxPrepare::COMMIT;
+        WireFormat::TxPrepare::Vote vote = WireFormat::TxPrepare::PREPARED;
         RpcResult rpcResult(
                 tableId,
                 Key::getHash(tableId, pKey, pKeyLen),

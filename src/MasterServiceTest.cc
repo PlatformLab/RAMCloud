@@ -2420,7 +2420,7 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
     service->txPrepare(&reqHdr, &respHdr, &rpc);
 
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
-    EXPECT_EQ(TxPrepare::COMMIT, respHdr.vote);
+    EXPECT_EQ(TxPrepare::PREPARED, respHdr.vote);
 
     // 4. Check outcome of Prepare.
     EXPECT_EQ(3U, service->preparedOps.items.size());
@@ -2524,7 +2524,7 @@ TEST_F(MasterServiceTest, txPrepare_retriedPrepares) {
     service->txPrepare(&reqHdr, &respHdr, &rpc);
 
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
-    EXPECT_EQ(TxPrepare::COMMIT, respHdr.vote);
+    EXPECT_EQ(TxPrepare::PREPARED, respHdr.vote);
 
     // 4. Check outcome of Prepare.
     EXPECT_EQ(3U, service->preparedOps.items.size());
@@ -2535,7 +2535,7 @@ TEST_F(MasterServiceTest, txPrepare_retriedPrepares) {
     // 5. Another prepare with same content.
     service->txPrepare(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
-    EXPECT_EQ(TxPrepare::COMMIT, respHdr.vote);
+    EXPECT_EQ(TxPrepare::PREPARED, respHdr.vote);
 
     EXPECT_EQ(3U, service->preparedOps.items.size());
     EXPECT_TRUE(isObjectLocked(key1));
@@ -2599,7 +2599,7 @@ TEST_F(MasterServiceTest, txPrepare_retriedPrepares) {
     service->txPrepare(&reqHdr, &respHdr, &rpc3);
 
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
-    EXPECT_EQ(TxPrepare::COMMIT, respHdr.vote);
+    EXPECT_EQ(TxPrepare::PREPARED, respHdr.vote);
 
     EXPECT_EQ(4U, service->preparedOps.items.size());
     EXPECT_TRUE(isObjectLocked(key1));

@@ -1683,7 +1683,9 @@ struct TxDecision {
     static const Opcode opcode = Opcode::TX_DECISION;
     static const ServiceType service = MASTER_SERVICE;
 
-    enum Decision { COMMIT, ABORT, INVALID };
+    enum Decision { COMMIT,         // Indicate that transaction should commit.
+                    ABORT,          // Indicate that transaction should abort.
+                    UNDECIDED };    // Intermediate state; should never be sent.
 
     struct Request {
         RequestCommon common;
@@ -1708,7 +1710,7 @@ struct TxPrepare {
     /// Note: Make sure INVALID is always last.
     enum OpType { READ, REMOVE, WRITE, INVALID };
 
-    enum Vote { COMMIT, ABORT };
+    enum Vote { PREPARED, ABORT };
 
     struct Request {
         RequestCommon common;

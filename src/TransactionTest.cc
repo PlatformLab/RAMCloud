@@ -143,7 +143,7 @@ TEST_F(TransactionTest, commit_abort) {
 
 TEST_F(TransactionTest, commit_internalError) {
     transaction->commit();
-    transaction->taskPtr.get()->decision = WireFormat::TxDecision::INVALID;
+    transaction->taskPtr.get()->decision = WireFormat::TxDecision::UNDECIDED;
     EXPECT_THROW(transaction->commit(), InternalError);
 }
 

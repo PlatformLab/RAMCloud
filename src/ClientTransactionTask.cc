@@ -29,7 +29,7 @@ ClientTransactionTask::ClientTransactionTask(RamCloud* ramcloud)
     , participantCount(0)
     , participantList()
     , state(INIT)
-    , decision(WireFormat::TxDecision::INVALID)
+    , decision(WireFormat::TxDecision::UNDECIDED)
     , lease()
     , txId(0)
     , prepareRpcs()
@@ -324,7 +324,7 @@ ClientTransactionTask::processPrepareRpcResults()
         } else if (rpc->responseHeader->status == STATUS_OK) {
             WireFormat::TxPrepare::Response* respHdr =
                     rpc->response->getStart<WireFormat::TxPrepare::Response>();
-            if (respHdr->vote != WireFormat::TxPrepare::COMMIT) {
+            if (respHdr->vote == WireFormat::TxPrepare::ABORT) {
                 decision = WireFormat::TxDecision::ABORT;
             }
         } else if (rpc->responseHeader->status == STATUS_UNKNOWN_TABLET) {

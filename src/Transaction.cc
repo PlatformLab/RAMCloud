@@ -54,7 +54,8 @@ Transaction::commit()
         ramcloud->poll();
     }
 
-    if (expect_false(task->getDecision() == WireFormat::TxDecision::INVALID)) {
+    if (expect_false(task->getDecision() ==
+            WireFormat::TxDecision::UNDECIDED)) {
         ClientException::throwException(HERE, STATUS_INTERNAL_ERROR);
     }
 
