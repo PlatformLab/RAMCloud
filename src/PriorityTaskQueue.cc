@@ -15,6 +15,7 @@
 
 #include "PriorityTaskQueue.h"
 #include "Logger.h"
+#include "PerfStats.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -198,6 +199,7 @@ PriorityTaskQueue::performTasksUntilHalt()
 void
 PriorityTaskQueue::main()
 try {
+    PerfStats::registerStats(&PerfStats::threadStats);
     performTasksUntilHalt();
 } catch (const std::exception& e) {
     LOG(ERROR, "Fatal error in PriorityTaskQueue: %s", e.what());
