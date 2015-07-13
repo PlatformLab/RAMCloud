@@ -31,6 +31,9 @@ namespace RAMCloud {
  * used, for example, as a result of the GET_PERF_STATS server control).
  * In order for aggregation to work, each thread must invoke the
  * registerStats method.
+ *
+ * This class should eventually replace RawMetrics because it is more
+ * efficient (due to its use of thread-local structures).
  */
 struct PerfStats {
     /// Unique identifier for this thread (threads are numbered starting
@@ -97,8 +100,36 @@ struct PerfStats {
     uint64_t cleanerActiveCycles;
 
     //--------------------------------------------------------------------
-    // Statistics for the dispatch thread follow below.
+    // Statistics for backup I/O follow below.
     //--------------------------------------------------------------------
+
+    /// Total bytes of data read from secondary storage.
+    uint64_t backupReadBytes;
+
+    /// Total time (in Cycles::rdtsc ticks) during which secondary
+    /// storage device(s) were actively performing backup reads.
+    uint64_t backupReadActiveCycles;
+
+    /// Total bytes of data written to secondary storage.
+    uint64_t backupWriteBytes;
+
+    /// Total time (in Cycles::rdtsc ticks) during which secondary
+    /// storage device(s) were actively performing backup writes.
+    uint64_t backupWriteActiveCycles;
+
+    //--------------------------------------------------------------------
+    // Statistics for the network follow below.
+    //--------------------------------------------------------------------
+
+    /// Total bytes received from the network via all transports.
+    uint64_t networkInputBytes;
+
+    /// Total bytes transmitted on the network by all transports.
+    uint64_t networkOutputBytes;
+
+    /// Total time (in Cycles::rdtsc ticks) during which bytes
+    /// were being transmitted.
+    uint64_t networkOutputCycles;
 
     //--------------------------------------------------------------------
     // Temporary counters. The values below have no pre-defined use;

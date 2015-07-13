@@ -28,6 +28,7 @@
 #include "Memory.h"
 #include "RawMetrics.h"
 #include "ShortMacros.h"
+#include "PerfStats.h"
 
 namespace RAMCloud {
 
@@ -518,6 +519,7 @@ SingleFileStorage::unlockedRead(Frame::Lock& lock, void* buf, size_t count,
     {
         CycleCounter<RawMetric> _(&metrics->backup.storageReadTicks);
         r = pread(fd, buf, count, offset);
+        PerfStats::threadStats.backupReadActiveCycles += _.stop();
     }
     if (r == -1) {
         DIE("Failed to read replica: %s, "
@@ -558,6 +560,7 @@ SingleFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
              offset, count);
     }
     r = pwrite(fd, metadataBuf, metadataCount, metadataOffset);
+    PerfStats::threadStats.backupWriteActiveCycles += writeTicks.stop();
     if (r == -1) {
         DIE("Failed to write metadata for replica: %s, "
             "starting offset in file %lu, length %lu",
@@ -616,6 +619,7 @@ SingleFileStorage::Frame::performRead(Lock& lock)
     } else {
         ++metrics->backup.storageReadCount;
         metrics->backup.storageReadBytes += storage->segmentSize;
+        PerfStats::threadStats.backupReadBytes += storage->segmentSize;
         // Lock released during this call; assume any field could have changed.
         storage->unlockedRead(lock, buffer.get(),
                      storage->segmentSize, frameStart, storage->usingDevNull);
@@ -665,6 +669,7 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
     } else {
         ++metrics->backup.storageWriteCount;
         metrics->backup.storageWriteBytes += dirtyLength;
+        PerfStats::threadStats.backupWriteBytes += dirtyLength;
         // Lock released during this call; assume any field could have changed.
         storage->unlockedWrite(lock, firstDirtyBlock, dirtyLength,
                       frameStart + startOfFirstDirtyBlock,

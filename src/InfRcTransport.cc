@@ -92,6 +92,7 @@
 #include "ServiceManager.h"
 #include "ShortMacros.h"
 #include "PerfCounter.h"
+#include "PerfStats.h"
 #include "TimeTrace.h"
 #include "Util.h"
 
@@ -869,8 +870,10 @@ InfRcTransport::reapTxBuffers()
 
     // Has TX just transitioned to idle?
     if (n > 0 && freeTxBuffers.size() == MAX_TX_QUEUE_DEPTH) {
+        uint64_t transmitTime = transmitCycleCounter->stop();
         metrics->transport.infiniband.transmitActiveTicks +=
-            transmitCycleCounter->stop();
+            transmitTime;
+        PerfStats::threadStats.networkOutputCycles += transmitTime;
         transmitCycleCounter.destroy();
 
         // It's now safe to delete queue pairs (see comment by declaration
@@ -1015,6 +1018,7 @@ InfRcTransport::sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp)
 
     metrics->transport.transmit.iovecCount += sgesUsed;
     metrics->transport.transmit.byteCount += message->size();
+    PerfStats::threadStats.networkOutputBytes += message->size();
     if (!transmitCycleCounter) {
         transmitCycleCounter.construct();
     }
@@ -1234,6 +1238,7 @@ InfRcTransport::Poller::poll()
                         reinterpret_cast<BufferDescriptor *>(response->wr_id);
             if (response->byte_len < 1000)
                 prefetch(bd->buffer, response->byte_len);
+            PerfStats::threadStats.networkInputBytes += response->byte_len;
             if (response->status != IBV_WC_SUCCESS) {
                 LOG(ERROR, "wc.status(%d:%s) != IBV_WC_SUCCESS",
                     response->status,
@@ -1318,6 +1323,7 @@ InfRcTransport::Poller::poll()
                 reinterpret_cast<BufferDescriptor*>(request->wr_id);
             if (request->byte_len < 1000)
                 prefetch(bd->buffer, request->byte_len);
+            PerfStats::threadStats.networkInputBytes += request->byte_len;
 
             if (t->serverPortMap.find(request->qp_num)
                     == t->serverPortMap.end()) {
