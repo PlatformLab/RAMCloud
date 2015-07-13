@@ -3358,8 +3358,8 @@ TEST_F(MasterRecoverTest, failedToRecoverAll) {
             "recover: Waiting on recovery data for segment 87 from "
             "server .\\.0 at mock:host=backup1 | "
             "recover: getRecoveryData failed on server .\\.0 at "
-            "mock:host=backup1, trying next backup; failure was: "
-            "bad segment id",
+            "mock:host=backup1 for segment 87, trying next backup; "
+            "failure was: bad segment id",
             log.substr(0, log.find(" thrown at"))));
 }
 

@@ -3076,10 +3076,11 @@ MasterService::recover(uint64_t recoveryId, ServerId masterId,
                 task->replica.state = Replica::State::FAILED;
                 runningSet.erase(task->replica.segmentId);
             } catch (const ClientException& e) {
-                LOG(WARNING, "getRecoveryData failed on %s, "
+                LOG(WARNING, "getRecoveryData failed on %s for segment %lu, "
                         "trying next backup; failure was: %s",
                         context->serverList->toString(
                                 task->replica.backupId).c_str(),
+                        task->replica.segmentId,
                         e.str().c_str());
                 task->replica.state = Replica::State::FAILED;
                 runningSet.erase(task->replica.segmentId);
