@@ -39,7 +39,8 @@ namespace RAMCloud {
 
 /**
  * This class is used internally by servers to collect performance counters
- * and other useful metrics.
+ * and other useful metrics. Note: this class is now deprecated; better to
+ * use PerfStats because it is more efficient.
  */
 class RawMetrics {
   public:

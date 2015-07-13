@@ -83,6 +83,13 @@ PerfStats::collectStats(PerfStats* total)
         total->cleanerInputDiskBytes += stats->cleanerInputDiskBytes;
         total->cleanerSurvivorBytes += stats->cleanerSurvivorBytes;
         total->cleanerActiveCycles += stats->cleanerActiveCycles;
+        total->backupReadBytes += stats->backupReadBytes;
+        total->backupReadActiveCycles += stats->backupReadActiveCycles;
+        total->backupWriteBytes += stats->backupWriteBytes;
+        total->backupWriteActiveCycles += stats->backupWriteActiveCycles;
+        total->networkInputBytes += stats->networkInputBytes;
+        total->networkOutputBytes += stats->networkOutputBytes;
+        total->networkOutputCycles += stats->networkOutputCycles;
         total->temp1 += stats->temp1;
         total->temp2 += stats->temp2;
         total->temp3 += stats->temp3;
