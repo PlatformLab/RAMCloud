@@ -268,7 +268,7 @@ class MasterService : public Service {
                 WireFormat::RemoveIndexEntry::Response* respHdr,
                 Rpc* rpc);
     void requestInsertIndexEntries(Object& object);
-    void requestRemoveIndexEntries(Buffer& objectBuffer);
+    void requestRemoveIndexEntries(Object& object);
     void splitAndMigrateIndexlet(
                 const WireFormat::SplitAndMigrateIndexlet::Request* reqHdr,
                 WireFormat::SplitAndMigrateIndexlet::Response* respHdr,

@@ -1313,7 +1313,8 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
     // Delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
         if (objectBuffers[i].size() > 0) {
-            requestRemoveIndexEntries(objectBuffers[i]);
+            Object oldObject(objectBuffers[i]);
+            requestRemoveIndexEntries(oldObject);
         }
     }
 }
@@ -1403,7 +1404,8 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
     // So, delete old index entries if any.
     for (uint32_t i = 0; i < numRequests; i++) {
         if (oldObjectBuffers[i].size() > 0) {
-            requestRemoveIndexEntries(oldObjectBuffers[i]);
+            Object oldObject(oldObjectBuffers[i]);
+            requestRemoveIndexEntries(oldObject);
         }
     }
 }
@@ -1717,7 +1719,8 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
 
     // Remove index entries corresponding to old object, if any.
     if (oldBuffer.size() > 0) {
-        requestRemoveIndexEntries(oldBuffer);
+        Object oldObject(oldBuffer);
+        requestRemoveIndexEntries(oldObject);
     }
 }
 
@@ -1802,15 +1805,13 @@ MasterService::requestInsertIndexEntries(Object& object)
  * Helper function used by remove methods in this class to send requests
  * for removing index entries (corresponding to the object being removed)
  * to the index servers.
- * \param objectBuffer
- *      Pointer to the buffer in log for the object for which
- *      index entries are to be deleted.
+ * \param object
+ *      Information about the object for which index entries are to be
+ *      deleted.
  */
 void
-MasterService::requestRemoveIndexEntries(Buffer& objectBuffer)
+MasterService::requestRemoveIndexEntries(Object& object)
 {
-    Object object(objectBuffer);
-
     KeyCount keyCount = object.getKeyCount();
     if (keyCount <= 1)
         return;
@@ -2713,14 +2714,14 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
                                     reinterpret_cast<void*>(rpcResultPtr));
     }
 
-    // Respond to the client RPC now. Removing old index entries can be
-    // done asynchronously while maintaining strong consistency.
-    rpc->sendReply();
-    // reqHdr, respHdr, and rpc are off-limits now!
-
-    // If this is a overwrite, delete old index entries if any.
+    // If this is a overwrite, delete old index entries if any (this can
+    // be done asynchronously after sending a reply).
     if (oldObjectBuffer.size() > 0) {
-        requestRemoveIndexEntries(oldObjectBuffer);
+        Object oldObject(oldObjectBuffer);
+        if (oldObject.getKeyCount() > 1) {
+            rpc->sendReply();
+            requestRemoveIndexEntries(oldObject);
+        }
     }
 }
 

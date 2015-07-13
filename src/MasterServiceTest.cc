@@ -1678,10 +1678,8 @@ TEST_F(MasterServiceTest, requestRemoveIndexEntries_noIndexEntries) {
     Key key(tableId, "key0", 4);
     Buffer tempBuffer;
     Object obj(key, "value", 5, 0, 0, tempBuffer);
-    Buffer objBuffer;
-    obj.assembleForLog(objBuffer);
 
-    service->requestRemoveIndexEntries(objBuffer);
+    service->requestRemoveIndexEntries(obj);
     EXPECT_EQ("", TestLog::get());
 }
 
@@ -1703,10 +1701,8 @@ TEST_F(MasterServiceTest, requestRemoveIndexEntries_basics) {
     Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
             "value", 5, &keysAndValBuffer);
     Object obj(tableId, 0, 0, keysAndValBuffer);
-    Buffer objBuffer;
-    obj.assembleForLog(objBuffer);
     Key key(tableId, keyList[0].key, keyList[0].keyLength);
-    service->requestRemoveIndexEntries(objBuffer);
+    service->requestRemoveIndexEntries(obj);
 
     EXPECT_EQ(format("requestRemoveIndexEntries: "
             "Removing index entry for tableId 1, keyIndex 1, "

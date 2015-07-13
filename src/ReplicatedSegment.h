@@ -458,7 +458,8 @@ class ReplicatedSegment : public Task {
     UpdateReplicationEpochTask& replicationEpoch;
 
     /**
-     * See ReplicaManager::dataMutex; there are many subtleties to the locking
+     * Reference to ReplicaManager::dataMutex. See documentation for
+     * ReplicaManager::dataMutex; there are many subtleties to the locking
      * in this module.
      */
     std::mutex& dataMutex;
