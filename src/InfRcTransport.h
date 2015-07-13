@@ -450,10 +450,6 @@ class InfRcTransport : public Transport {
     /// See registerMemory().
     ibv_mr* logMemoryRegion;
 
-    // CycleCounter that's constructed when TX goes active and is destroyed
-    // when all TX buffers have been reclaimed. Counts are added to metrics.
-    Tub<CycleCounter<uint64_t>> transmitCycleCounter;
-
     /// Pool allocator for our ServerRpc objects.
     ServerRpcPool<ServerRpc> serverRpcPool;
 

@@ -5651,12 +5651,12 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
     // This is the master client. Fill in the table, then measure
     // throughput while gradually increasing the number of workers.
     printf("#\n");
-    printf("# clients   throughput   worker    cleaner  compactor  "
-            "cleaner  dispatch\n");
-    printf("#           (kops/sec)   cores      cores    free %%    "
-            "free %%   utiliz.\n");
+    printf("# clients   throughput   worker   cleaner  compactor  "
+            "cleaner  dispatch  netOut    netIn\n");
+    printf("#           (kops/sec)   cores     cores    free %%    "
+            "free %%   utiliz.   (MB/s)    (MB/s)\n");
     printf("#------------------------------------------------------"
-            "-----------------\n");
+            "--------------------------------------------\n");
     fillTable(dataTable, numObjects, keyLength, size);
     for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
         sendCommand("run", "running", numSlaves, 1);
@@ -5670,20 +5670,19 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
         PerfStats finishStats = *statsBuffer.getStart<PerfStats>();
-        double elapsedTime = static_cast<double>(finishStats.collectionTime -
-                startStats.collectionTime)/ finishStats.cyclesPerSecond;
+        double elapsedCycles = static_cast<double>(
+                finishStats.collectionTime - startStats.collectionTime);
+        double elapsedTime = elapsedCycles/ finishStats.cyclesPerSecond;
         double rate = static_cast<double>(finishStats.writeCount -
                 startStats.writeCount) / elapsedTime;
         double utilization = static_cast<double>(
                 finishStats.workerActiveCycles -
-                startStats.workerActiveCycles) / static_cast<double>(
-                finishStats.collectionTime - startStats.collectionTime);
+                startStats.workerActiveCycles) / elapsedCycles;
         double cleanerUtilization = static_cast<double>(
                 (finishStats.compactorActiveCycles +
                 finishStats.cleanerActiveCycles) -
                 (startStats.compactorActiveCycles +
-                startStats.cleanerActiveCycles)) / static_cast<double>(
-                finishStats.collectionTime - startStats.collectionTime);
+                startStats.cleanerActiveCycles)) / elapsedCycles;
         double compactorFreePct =
                 static_cast<double>(finishStats.compactorInputBytes -
                 startStats.compactorInputBytes) -
@@ -5706,11 +5705,18 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
         }
         double dispatchUtilization = static_cast<double>(
                 finishStats.dispatchActiveCycles -
-                startStats.dispatchActiveCycles) / static_cast<double>(
-                finishStats.collectionTime - startStats.collectionTime);
-        printf("%5d       %8.2f   %8.3f  %8.3f %8.1f  %8.1f  %8.3f\n",
+                startStats.dispatchActiveCycles) / elapsedCycles;
+        double netOutRate = static_cast<double>(
+                finishStats.networkOutputBytes -
+                startStats.networkOutputBytes) / elapsedTime;
+        double netInRate = static_cast<double>(
+                finishStats.networkInputBytes -
+                startStats.networkInputBytes) / elapsedTime;
+        printf("%5d       %8.2f   %8.3f %8.3f %8.1f  %8.1f  %8.3f "
+                "%8.2f  %8.2f\n",
                 numSlaves, rate/1e03, utilization, cleanerUtilization,
-                compactorFreePct, cleanerFreePct, dispatchUtilization);
+                compactorFreePct, cleanerFreePct, dispatchUtilization,
+                netOutRate/1e06, netInRate/1e06);
     }
     sendCommand("done", "done", 1, numClients-1);
 }

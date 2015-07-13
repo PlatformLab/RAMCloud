@@ -127,10 +127,6 @@ struct PerfStats {
     /// Total bytes transmitted on the network by all transports.
     uint64_t networkOutputBytes;
 
-    /// Total time (in Cycles::rdtsc ticks) during which bytes
-    /// were being transmitted.
-    uint64_t networkOutputCycles;
-
     //--------------------------------------------------------------------
     // Temporary counters. The values below have no pre-defined use;
     // they are intended for temporary use during debugging or performance

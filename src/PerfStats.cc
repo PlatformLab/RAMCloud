@@ -89,7 +89,6 @@ PerfStats::collectStats(PerfStats* total)
         total->backupWriteActiveCycles += stats->backupWriteActiveCycles;
         total->networkInputBytes += stats->networkInputBytes;
         total->networkOutputBytes += stats->networkOutputBytes;
-        total->networkOutputCycles += stats->networkOutputCycles;
         total->temp1 += stats->temp1;
         total->temp2 += stats->temp2;
         total->temp3 += stats->temp3;

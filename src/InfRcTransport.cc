@@ -149,7 +149,6 @@ InfRcTransport::InfRcTransport(Context* context,
     , logMemoryBase(0)
     , logMemoryBytes(0)
     , logMemoryRegion(0)
-    , transmitCycleCounter()
     , serverRpcPool()
     , clientRpcPool()
     , deadQueuePairs()
@@ -870,12 +869,6 @@ InfRcTransport::reapTxBuffers()
 
     // Has TX just transitioned to idle?
     if (n > 0 && freeTxBuffers.size() == MAX_TX_QUEUE_DEPTH) {
-        uint64_t transmitTime = transmitCycleCounter->stop();
-        metrics->transport.infiniband.transmitActiveTicks +=
-            transmitTime;
-        PerfStats::threadStats.networkOutputCycles += transmitTime;
-        transmitCycleCounter.destroy();
-
         // It's now safe to delete queue pairs (see comment by declaration
         // for deadQueuePairs).
         while (!deadQueuePairs.empty()) {
@@ -1019,9 +1012,6 @@ InfRcTransport::sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp)
     metrics->transport.transmit.iovecCount += sgesUsed;
     metrics->transport.transmit.byteCount += message->size();
     PerfStats::threadStats.networkOutputBytes += message->size();
-    if (!transmitCycleCounter) {
-        transmitCycleCounter.construct();
-    }
     CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
     ibv_send_wr* badTxWorkRequest;
     if (expect_true(!testingDontReallySend)) {
@@ -1109,9 +1099,6 @@ InfRcTransport::ServerRpc::sendReply()
                     t->getMaxRpcSize()));
     }
 
-    if (!t->transmitCycleCounter) {
-        t->transmitCycleCounter.construct();
-    }
     t->sendZeroCopy(nonce, &replyPayload, qp);
     interval.stop();
 
@@ -1215,8 +1202,8 @@ InfRcTransport::ClientRpc::sendOrQueue()
  * checks for incoming RPC requests and responses and processes them.
  *
  * \return
- *      True if we were able to do anything useful, false if there was
- *      no meaningful data.
+ *      Nonzero if we were able to do anything useful, zero if there was
+ *      no work to be done.
  */
 int
 InfRcTransport::Poller::poll()
@@ -1385,7 +1372,9 @@ InfRcTransport::Poller::poll()
     // sent. It's done here in the hopes that it will happen when we
     // have nothing else to do, so it's effectively free.  It's much
     // more efficient if we can reclaim several buffers at once, so wait
-    // until buffers are running low before trying to reclaim.
+    // until buffers are running low before trying to reclaim.  This
+    // optimization improves the throughput of "clusterperf readThroughput"
+    // by about 5% (as of 7/2015).
     if (t->freeTxBuffers.size() < 3) {
         t->reapTxBuffers();
         if (t->freeTxBuffers.size() >= 3) {
