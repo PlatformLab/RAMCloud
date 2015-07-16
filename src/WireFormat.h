@@ -1710,7 +1710,7 @@ struct TxPrepare {
     /// Note: Make sure INVALID is always last.
     enum OpType { READ, REMOVE, WRITE, INVALID };
 
-    enum Vote { PREPARED, ABORT };
+    enum Vote { PREPARED, ABORT, COMMITTED };
 
     struct Request {
         RequestCommon common;

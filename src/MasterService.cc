@@ -2630,6 +2630,51 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
         rh->recordCompletion(rpcResultPtr);
     }
 
+    // when it is a single server transaction, we commit the transaction
+    // preemptively, so that a client doesn't need to send decision RPC.
+    if (numRequests == participantCount &&
+            respHdr->common.status == STATUS_OK &&
+            respHdr->vote == WireFormat::TxPrepare::PREPARED) {
+        for (uint32_t i = 0; i < participantCount; ++i) {
+            uint64_t opPtr = preparedOps.peekOp(reqHdr->lease.leaseId,
+                                                   participants[i].rpcId);
+
+            // Skip if object is not prepared since it is already committed.
+            if (!opPtr) {
+                continue;
+            }
+
+            Buffer opBuffer;
+            Log::Reference opRef(opPtr);
+            objectManager.getLog()->getEntry(opRef, opBuffer);
+            PreparedOp op(opBuffer, 0, opBuffer.size());
+
+            Status status;
+
+            if (op.header.type == WireFormat::TxPrepare::READ) {
+                status = objectManager.commitRead(op, opRef);
+            } else if (op.header.type == WireFormat::TxPrepare::REMOVE) {
+                status = objectManager.commitRemove(op, opRef);
+            } else if (op.header.type == WireFormat::TxPrepare::WRITE) {
+                status = objectManager.commitWrite(op, opRef);
+            }
+
+            // When an error happens in preemptive commit, we just respond
+            // with the regular response (vote == PREPARED) to the prepare RPC.
+            // Possible causes are tablet migration and slow log cleaner.
+            // All of them can be resolved by retry of txDecision.
+            if (status != STATUS_OK) {
+                objectManager.syncChanges();
+                rpc->sendReply();
+                return;
+            }
+
+            preparedOps.popOp(reqHdr->lease.leaseId,
+                                 participants[i].rpcId);
+        }
+        respHdr->vote = WireFormat::TxPrepare::COMMITTED;
+    }
+
     // By design, our response will be shorter than the request. This ensures
     // that the response can go back in a single RPC.
     assert(rpc->replyPayload->size() <= Transport::MAX_RPC_LEN);
