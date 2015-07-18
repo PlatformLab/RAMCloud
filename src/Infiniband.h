@@ -82,6 +82,7 @@ class Infiniband {
             : devices(ibv_get_device_list(NULL))
         {
             if (devices == NULL) {
+                LOG(WARNING, "Could not open infiniband device list");
                 throw TransportException(HERE,
                     "Could not open infiniband device list", errno);
             }
@@ -115,6 +116,8 @@ class Infiniband {
 
             auto dev = deviceList.lookup(name);
             if (dev == NULL) {
+                LOG(WARNING, "failed to find infiniband device: %s",
+                        name == NULL ? "any" : name);
                 throw TransportException(HERE,
                     format("failed to find infiniband device: %s",
                            name == NULL ? "any" : name), errno);
@@ -122,6 +125,8 @@ class Infiniband {
 
             ctxt = ibv_open_device(dev);
             if (ctxt == NULL) {
+                LOG(WARNING, "failed to open infiniband device: %s",
+                        name == NULL ? "any" : name);
                 throw TransportException(HERE,
                     format("failed to open infiniband device: %s",
                            name == NULL ? "any" : name), errno);
