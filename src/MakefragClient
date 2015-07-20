@@ -156,7 +156,7 @@ $(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/Histogr
 
 $(OBJDIR)/migrateTablet: $(OBJDIR)/MigrateTabletMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^ -L$(OBJDIR)
+	$(CXX) -o $@ $^ -L$(OBJDIR) $(LIBS)
 
 .PHONY: client client-lib client-lib-static client-lib-shared recovery ensureServers
 
