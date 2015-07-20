@@ -214,12 +214,14 @@ class MasterService : public Service {
                 uint64_t& totalTombstones,
                 uint64_t& totalBytes,
                 WireFormat::SplitAndMigrateIndexlet::Response* respHdr);
-    int migrateSingleLogEntry(LogIterator& it,
+    Status migrateSingleLogEntry(LogIterator& it,
                 Tub<Segment>& transferSeg,
                 uint64_t entryTotals[],
                 uint64_t& totalBytes,
-                const WireFormat::MigrateTablet::Request* reqHdr,
-                WireFormat::MigrateTablet::Response* respHdr);
+                uint64_t tableId,
+                uint64_t firstKeyHash,
+                uint64_t lastKeyHash,
+                ServerId receiver);
     void migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
                 WireFormat::MigrateTablet::Response* respHdr,
                 Rpc* rpc);
