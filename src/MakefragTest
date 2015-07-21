@@ -234,7 +234,8 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/HashTableBenchmark \
       $(OBJDIR)/ObjectManagerBenchmark \
       $(OBJDIR)/Perf \
-      $(OBJDIR)/RecoverSegmentBenchmark
+      $(OBJDIR)/RecoverSegmentBenchmark \
+      testInstall
 	$(OBJDIR)/test
 
 # This target is intended for running a subset of tests, such as those
@@ -249,6 +250,15 @@ ftest: $(OBJDIR)/test
 
 zooTest: $(OBJDIR)/zooTest
 	$(OBJDIR)/zooTest
+
+# The following target tries to compile a simple RAMCloud client app using
+# only installed files, in order to ensure that "make install" has pulled
+# together all the information needed by client apps. Note: this target
+# does *not* use the normal compilation flags, since we only want installed
+# info to be available.
+testInstall: install
+	g++ --std=c++0x -g -DNDEBUG -Iinclude -I. src/TestClient.cc \
+            -o $(OBJDIR)/TestClient -Lbin -lramcloud -Wl,-rpath=bin
 
 $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)

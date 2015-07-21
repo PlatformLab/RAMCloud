@@ -308,6 +308,9 @@ INSTALL_INCLUDES := \
     $(OBJDIR)/TableConfig.pb.h \
     $(OBJDIR)/Tablets.pb.h \
     $(NULL)
+
+INSTALLED_BINS := $(patsubst $(OBJDIR)/%, $(INSTALL_DIR)/bin/%, $(INSTALL_BINS))
+INSTALLED_LIBS := $(patsubst $(OBJDIR)/%, $(INSTALL_DIR)/lib/%, $(INSTALL_LIBS))
 	
 install: all
 	mkdir -p $(INSTALL_DIR)/bin
@@ -316,6 +319,11 @@ install: all
 	cp $(INSTALL_INCLUDES) $(INSTALL_DIR)/include/ramcloud
 	mkdir -p $(INSTALL_DIR)/lib
 	cp $(INSTALL_LIBS) $(INSTALL_DIR)/lib
+
+install-clean:
+	rm -f $(INSTALLED_BINS) $(INSTALLED_LIBS)
+	rm -rf $(INSTALL_DIR)/include/ramcloud
+	rm -rf lib include bin
 
 logcabin:
 	cd logcabin; \
