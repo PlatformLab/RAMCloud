@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -174,7 +174,6 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
             rpc->requestPayload.size());
 #endif
 
-    rpc->enqueueThreadToStartWork.start();
     // See if we have exceeded the concurrency limit for the service.
     if (serviceInfo->requestsRunning >= serviceInfo->maxThreads) {
         serviceInfo->waitingRpcs.push(rpc);
@@ -184,10 +183,8 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
 #if 0
     if ((header->opcode == WireFormat::READ) &&
             (header->service == WireFormat::MASTER_SERVICE)) {
-        rpc->enqueueThreadToStartWork.stop();
         Service::Rpc serviceRpc(NULL, &rpc->requestPayload, &rpc->replyPayload);
         services[WireFormat::MASTER_SERVICE]->service.handleRpc(&serviceRpc);
-        rpc->returnToTransport.start();
         rpc->sendReply();
         return;
     }
@@ -367,23 +364,9 @@ ServiceManager::workerMain(Worker* worker)
             if (worker->rpc == WORKER_EXIT)
                 break;
 
-            worker->rpc->enqueueThreadToStartWork.stop();
-
-            worker->threadWork.start();
             Service::Rpc rpc(worker, &worker->rpc->requestPayload,
                     &worker->rpc->replyPayload);
             worker->serviceInfo->service.handleRpc(&rpc);
-
-            worker->threadWork.stop();
-
-            // Certain RPC's, including the EnlistService RPC, will NULL out
-            // the Rpc object before handleRpc returns, usually because they
-            // want to return before postprocessing.
-            //
-            // This then causes a segfault here in the CoordinatorService if we
-            // do not explicitly check for NULL .
-            if (worker->rpc)
-                worker->rpc->returnToTransport.start();
 
             // Pass the RPC back to ServiceManager for completion.
             Fence::leave();
