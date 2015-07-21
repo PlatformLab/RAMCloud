@@ -14,6 +14,7 @@
  */
 
 #include <mutex>
+#include <unordered_set>
 
 #include "Common.h"
 #include "Cycles.h"
@@ -22,30 +23,32 @@
 
 namespace RAMCloud {
 
-/// See SpinLock.h for more details.
-namespace SpinLockInternal {
+/// This namespace is used to keep track of all of the SpinLocks currently
+/// in existence, so that we can enumerate them to monitor lock contention.
+namespace SpinLockTable {
     /**
-     * List of all SpinLocks.
+     * Returns a structure containing the addresses of all SpinLocks
+     * currently in existence.
      * 
      * There is a function wrapper around this variable to force
      * initialization before usage. This is relevant when SpinLock is
      * initialized in the constructor of a statically declared object.
      */
-    SpinLockInternal::SpinLockList* head() {
-        static SpinLockInternal::SpinLockList _;
-        return &_;
+    std::unordered_set<SpinLock*>* allLocks() {
+        static std::unordered_set<SpinLock*> map;
+        return &map;
     }
 
     /** 
-     * This mutex protects the list pointed to by "head()".
+     * This mutex protects the map pointed to by "allLocks()".
      * 
      * See the comment above for why this is a function and not a variable.
      */
     std::mutex* lock() {
-        static std::mutex _;
-        return &_;
+        static std::mutex mutex;
+        return &mutex;
     }
-} // namespace SpinLockList
+} // namespace SpinLockTable
 
 /**
  * Construct a new, unnamed SpinLock. This method should be avoided in
@@ -58,10 +61,9 @@ SpinLock::SpinLock()
     , acquisitions(0)
     , contendedAcquisitions(0)
     , contendedTicks(0)
-    , listHook()
 {
-    std::lock_guard<std::mutex> lock(*SpinLockInternal::lock());
-    SpinLockInternal::head()->push_back(*this);
+    std::lock_guard<std::mutex> lock(*SpinLockTable::lock());
+    SpinLockTable::allLocks()->insert(this);
 }
 
 /**
@@ -73,17 +75,15 @@ SpinLock::SpinLock(string name)
     , acquisitions(0)
     , contendedAcquisitions(0)
     , contendedTicks(0)
-    , listHook()
 {
-    std::lock_guard<std::mutex> lock(*SpinLockInternal::lock());
-    SpinLockInternal::head()->push_back(*this);
+    std::lock_guard<std::mutex> lock(*SpinLockTable::lock());
+    SpinLockTable::allLocks()->insert(this);
 }
 
 SpinLock::~SpinLock()
 {
-    std::lock_guard<std::mutex> lock(*SpinLockInternal::lock());
-    SpinLockInternal::head()->erase(
-            SpinLockInternal::head()->iterator_to(*this));
+    std::lock_guard<std::mutex> lock(*SpinLockTable::lock());
+    SpinLockTable::allLocks()->erase(this);
 }
 
 /**
@@ -161,17 +161,30 @@ SpinLock::setName(string name)
 void
 SpinLock::getStatistics(ProtoBuf::SpinLockStatistics* stats)
 {
-    std::lock_guard<std::mutex> lock(*SpinLockInternal::lock());
-    SpinLockInternal::SpinLockList::iterator it =
-        SpinLockInternal::head()->begin();
-    while (it != SpinLockInternal::head()->end()) {
+    std::lock_guard<std::mutex> lock(*SpinLockTable::lock());
+    std::unordered_set<SpinLock*>* allLocks =
+            SpinLockTable::allLocks();
+    std::unordered_set<SpinLock*>::iterator it = allLocks->begin();
+    while (it != allLocks->end()) {
+        SpinLock* spin = *it;
         ProtoBuf::SpinLockStatistics_Lock* lock(stats->add_locks());
-        lock->set_name(it->name);
-        lock->set_acquisitions(it->acquisitions);
-        lock->set_contended_acquisitions(it->contendedAcquisitions);
-        lock->set_contended_nsec(Cycles::toNanoseconds(it->contendedTicks));
+        lock->set_name(spin->name);
+        lock->set_acquisitions(spin->acquisitions);
+        lock->set_contended_acquisitions(spin->contendedAcquisitions);
+        lock->set_contended_nsec(Cycles::toNanoseconds(spin->contendedTicks));
         it++;
     }
+}
+
+/**
+ * Return the total of SpinLocks currently in existence; intended
+ * primarily for testing.
+ */
+int
+SpinLock::numLocks()
+{
+    std::lock_guard<std::mutex> lock(*SpinLockTable::lock());
+    return downCast<int>(SpinLockTable::allLocks()->size());
 }
 
 } // namespace RAMCloud

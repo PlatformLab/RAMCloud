@@ -17,7 +17,6 @@
 #define RAMCLOUD_SPINLOCK_H
 
 #include "Atomic.h"
-#include "BoostIntrusive.h"
 #include "SpinLockStatistics.pb.h"
 
 namespace RAMCloud {
@@ -43,6 +42,7 @@ class SpinLock {
     void unlock();
     void setName(string name);
     static void getStatistics(ProtoBuf::SpinLockStatistics* stats);
+    static int numLocks();
 
   PRIVATE:
     /// Implements the lock: 0 means free, anything else means locked.
@@ -63,20 +63,6 @@ class SpinLock {
     /// Count of the number of processor ticks spent waiting to acquire this
     /// lock due to it having already been held.
     uint64_t contendedTicks;
-
-  // Unfortunately, this needs to be public.
-  public:
-    /// Hook that allows us to add every SpinLock to a global linked-list.
-    /// We can then enumerate them all to monitor their contention.
-    IntrusiveListHook listHook;
-};
-
-/**
- * This namespace contains the head of a linked list containing all SpinLocks
- * in the process.
- */
-namespace SpinLockInternal {
-    INTRUSIVE_LIST_TYPEDEF(SpinLock, listHook) SpinLockList;
 };
 
 } // end RAMCloud

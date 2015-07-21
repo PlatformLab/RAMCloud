@@ -40,6 +40,22 @@ TEST(SpinLockTest, basics) {
     EXPECT_EQ(0U, lock.contendedTicks);
 }
 
+TEST(SpinLockTest, constructorDestructor_maintainLockTable) {
+    Tub<SpinLock> lock1, lock2, lock3;
+    int startCount = SpinLock::numLocks();
+    lock1.construct("lock1");
+    EXPECT_EQ(1, SpinLock::numLocks() - startCount);
+    lock2.construct("lock2");
+    lock3.construct("lock3");
+    EXPECT_EQ(3, SpinLock::numLocks() - startCount);
+    lock2.destroy();
+    EXPECT_EQ(2, SpinLock::numLocks() - startCount);
+    lock1.destroy();
+    EXPECT_EQ(1, SpinLock::numLocks() - startCount);
+    lock3.destroy();
+    EXPECT_EQ(0, SpinLock::numLocks() - startCount);
+}
+
 // Helper function that runs in a separate thread for the following test.
 static void blockingChild(SpinLock* lock, volatile bool* done)
 {
@@ -132,9 +148,13 @@ TEST(SpinLockTest, getStatistics) {
 
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "locks { name: \"Jimmy Page\" acquisitions: 2 "
-        "contended_acquisitions: 1 contended_nsec: 10000 } "
+        "contended_acquisitions: 1 contended_nsec: 10000 } ",
+        stats.ShortDebugString()));
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "locks { name: \"John Bonham\" acquisitions: 51 "
-        "contended_acquisitions: 12 contended_nsec: 5000 } "
+        "contended_acquisitions: 12 contended_nsec: 5000 } ",
+        stats.ShortDebugString()));
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "locks { name: \"Robert Plant\" acquisitions: 0 "
         "contended_acquisitions: 0 contended_nsec: 0 }",
         stats.ShortDebugString()));
