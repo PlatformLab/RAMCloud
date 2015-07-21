@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,7 +24,7 @@
 
 namespace RAMCloud {
 
-class RecoverSegmentBenchmark {
+class MigrateTabletBenchmark {
 
   public:
     Context context;
@@ -32,7 +32,7 @@ class RecoverSegmentBenchmark {
     ServerList serverList;
     MasterService* service;
 
-    RecoverSegmentBenchmark(string logSize, string hashTableSize,
+    MigrateTabletBenchmark(string logSize, string hashTableSize,
         int numSegments)
         : context()
         , config(ServerConfig::forTesting())
@@ -51,7 +51,7 @@ class RecoverSegmentBenchmark {
         service->setServerId({1, 0});
     }
 
-    ~RecoverSegmentBenchmark()
+    ~MigrateTabletBenchmark()
     {
         delete service;
     }
@@ -78,8 +78,14 @@ class RecoverSegmentBenchmark {
 
                 Buffer buffer;
                 object.assembleForLog(buffer);
-                if (!segments[i]->append(LOG_ENTRY_TYPE_OBJ, buffer))
+
+                Segment::Reference ref{};
+                if (!segments[i]->append(LOG_ENTRY_TYPE_OBJ, buffer, &ref))
                     break;
+
+                service->objectManager.getObjectMap()->insert(
+                        key.getHash(), ref.toInteger());
+
                 nextKeyVal++;
                 numObjects++;
             }
@@ -111,27 +117,34 @@ class RecoverSegmentBenchmark {
         metrics->temp.count8 =
         metrics->temp.count9 = 0;
 
-        /*
-         * Now run a fake recovery.
-         */
-        SideLog sideLog(service->objectManager.getLog());
+        Tub<Segment> transferSeg{};
+
+        uint64_t entryTotals[TOTAL_LOG_ENTRY_TYPES] = {0};
+        uint64_t totalBytes = 0;
+
+        // Now run the send side of a fake migration.
         uint64_t before = Cycles::rdtsc();
         for (int i = 0; i < numSegments; i++) {
             Segment* s = segments[i];
-            Buffer buffer;
-            s->appendToBuffer(buffer);
-            SegmentCertificate certificate;
-            s->getAppendedLength(&certificate);
-            const void* contigSeg = buffer.getRange(0, buffer.size());
-            SegmentIterator it(contigSeg, buffer.size(), certificate);
-            service->objectManager.replaySegment(&sideLog, it);
+            SegmentIterator it{*s};
+            while (!it.isDone()) {
+                Status r = service->migrateSingleLogEntry(
+                                it, transferSeg, entryTotals, totalBytes,
+                                0, 0lu, ~0lu,
+                                ServerId{});
+                if (r != STATUS_OK) {
+                    printf("Catastrophic failure\n");
+                    exit(-1);
+                }
+                it.next();
+            }
         }
         uint64_t ticks = Cycles::rdtsc() - before;
 
         uint64_t totalObjectBytes = numObjects * dataLen;
         uint64_t totalSegmentBytes = numSegments *
                                      Segment::DEFAULT_SEGMENT_SIZE;
-        printf("Recovery of %d %dKB Segments with %d byte Objects took %lu "
+        printf("Migration of %d %dKB Segments with %d byte Objects took %lu "
             "ms\n", numSegments, Segment::DEFAULT_SEGMENT_SIZE / 1024,
             dataLen, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);
         printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
@@ -141,9 +154,9 @@ class RecoverSegmentBenchmark {
             static_cast<double>(totalSegmentBytes));
 
         double seconds = Cycles::toSeconds(ticks);
-        printf("Recovery object throughput: %.2f MB/s\n",
+        printf("Migrate object throughput: %.2f MB/s\n",
                static_cast<double>(totalObjectBytes) / seconds / 1024. / 1024.);
-        printf("Recovery log throughput: %.2f MB/s\n",
+        printf("Migrate log throughput: %.2f MB/s\n",
               static_cast<double>(totalSegmentBytes) / seconds / 1024. / 1024.);
 
         printf("\n");
@@ -195,7 +208,7 @@ if (metrics->temp.count##i.load()) { \
         }
     }
 
-    DISALLOW_COPY_AND_ASSIGN(RecoverSegmentBenchmark);
+    DISALLOW_COPY_AND_ASSIGN(MigrateTabletBenchmark);
 };
 
 }  // namespace RAMCloud
@@ -208,7 +221,7 @@ main()
 
     for (int i = 0; dataLen[i] != 0; i++) {
         printf("==========================\n");
-        RAMCloud::RecoverSegmentBenchmark rsb("2048", "10%", numSegments);
+        RAMCloud::MigrateTabletBenchmark rsb("2048", "10%", numSegments);
         rsb.run(numSegments, dataLen[i]);
     }
 

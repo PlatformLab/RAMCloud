@@ -237,6 +237,7 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/ObjectManagerBenchmark \
       $(OBJDIR)/Perf \
       $(OBJDIR)/RecoverSegmentBenchmark \
+      $(OBJDIR)/MigrateTabletBenchmark \
       testInstall
 	$(OBJDIR)/test
 
@@ -271,6 +272,10 @@ $(OBJDIR)/Echo: $(OBJDIR)/Echo.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	$(CXX) -o $@ $^ $(LIBS)
 
 $(OBJDIR)/RecoverSegmentBenchmark: $(OBJDIR)/RecoverSegmentBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) -o $@ $^ $(LIBS)
+
+$(OBJDIR)/MigrateTabletBenchmark: $(OBJDIR)/MigrateTabletBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
 

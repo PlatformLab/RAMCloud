@@ -823,7 +823,7 @@ MasterService::lookupIndexKeys(
  */
 Status
 MasterService::migrateSingleLogEntry(
-        LogIterator& it,
+        SegmentIterator& it,
         Tub<Segment>& transferSeg,
         uint64_t entryTotals[],
         uint64_t& totalBytes,
@@ -896,8 +896,10 @@ MasterService::migrateSingleLogEntry(
     if (!transferSeg->append(type, buffer)) {
         transferSeg->close();
         LOG(DEBUG, "Sending migration segment");
-        MasterClient::receiveMigrationData(context, receiver,
-                transferSeg.get(), tableId, firstKeyHash);
+        if (expect_true(receiver != ServerId{})) {
+            MasterClient::receiveMigrationData(context, receiver,
+                    transferSeg.get(), tableId, firstKeyHash);
+        }
 
         transferSeg.destroy();
         transferSeg.construct();
@@ -975,7 +977,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // Scan the log from oldest to newest entries until we reach the head
     for (; !it.onHead(); it.next()) {
         Status error = migrateSingleLogEntry(
-                it, transferSeg, entryTotals, totalBytes,
+                *it.getCurrentSegmentIterator(),
+                transferSeg, entryTotals, totalBytes,
                 tableId, firstKeyHash, lastKeyHash,
                 receiver);
         if (error) return;
@@ -1008,7 +1011,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
 
         for (; it.getPosition() < position; it.next()) {
             Status error = migrateSingleLogEntry(
-                    it, transferSeg, entryTotals, totalBytes,
+                    *it.getCurrentSegmentIterator(),
+                    transferSeg, entryTotals, totalBytes,
                     tableId, firstKeyHash, lastKeyHash,
                     receiver);
             if (error) return;

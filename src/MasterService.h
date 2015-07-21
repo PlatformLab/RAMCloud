@@ -214,7 +214,8 @@ class MasterService : public Service {
                 uint64_t& totalTombstones,
                 uint64_t& totalBytes,
                 WireFormat::SplitAndMigrateIndexlet::Response* respHdr);
-    Status migrateSingleLogEntry(LogIterator& it,
+  public: // For MigrateTabletBenchmark.
+    Status migrateSingleLogEntry(SegmentIterator& it,
                 Tub<Segment>& transferSeg,
                 uint64_t entryTotals[],
                 uint64_t& totalBytes,
@@ -222,6 +223,7 @@ class MasterService : public Service {
                 uint64_t firstKeyHash,
                 uint64_t lastKeyHash,
                 ServerId receiver);
+  PRIVATE:
     void migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
                 WireFormat::MigrateTablet::Response* respHdr,
                 Rpc* rpc);

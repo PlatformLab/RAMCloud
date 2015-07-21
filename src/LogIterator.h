@@ -51,6 +51,15 @@ class LogIterator {
     Log::Reference getReference();
     void setPosition(LogPosition position);
 
+    /**
+     * Used by some tests that would otherwise have to take a LogIterator
+     * (which is hard to create) that instead take a SegmentIterator
+     * (which is easy to create from mocked segments).
+     * */
+    SegmentIterator* getCurrentSegmentIterator() {
+        return currentIterator.get();
+    }
+
     // Renew the segmentList with the latest updates from the log.
     // If we reach the head segment, and do not lock the head, our current
     // SegmentIterator will cache the length of the segment at the time of its
