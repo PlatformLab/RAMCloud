@@ -203,9 +203,11 @@ InfRcTransport::InfRcTransport(Context* context,
           sizeof(address.address))) {
             close(serverSetupSocket);
             serverSetupSocket = -1;
-            LOG(ERROR, "failed to bind socket: %s", strerror(errno));
-            throw TransportException(HERE, format("failed to bind socket: %s",
-                    strerror(errno)));
+            LOG(ERROR, "failed to bind socket for port %s: %s",
+                    sl->getOption("port").c_str(), strerror(errno));
+            throw TransportException(HERE, format(
+                    "failed to bind socket for port %s: %s",
+                    sl->getOption("port").c_str(), strerror(errno)));
         }
 
         try {
@@ -1081,7 +1083,6 @@ InfRcTransport::ServerRpc::sendReply()
     ReadRequestHandle_MetricSet::Interval interval(
             &ReadRequestHandle_MetricSet::serviceReturnToPostSend);
 
-    Transport::ServerRpc::returnToTransport.stop();
     CycleCounter<RawMetric> _(&metrics->transport.transmit.ticks);
     ++metrics->transport.transmit.messageCount;
     ++metrics->transport.transmit.packetCount;
