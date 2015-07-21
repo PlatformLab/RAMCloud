@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -61,7 +61,7 @@ struct TabletsBuilder {
                State state = NORMAL,
                uint64_t userData = 0lu,
                ServerId serverId = ServerId(0, 0),
-               Log::Position ctime = Log::Position(0, 0))
+               LogPosition ctime = LogPosition(0, 0))
     {
         ProtoBuf::Tablets::Tablet& tablet(*tablets.add_tablet());
         tablet.set_table_id(tableId);

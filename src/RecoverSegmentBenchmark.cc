@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -120,7 +120,7 @@ class RecoverSegmentBenchmark {
             Segment* s = segments[i];
             Buffer buffer;
             s->appendToBuffer(buffer);
-            Segment::Certificate certificate;
+            SegmentCertificate certificate;
             s->getAppendedLength(&certificate);
             const void* contigSeg = buffer.getRange(0, buffer.size());
             SegmentIterator it(contigSeg, buffer.size(), certificate);

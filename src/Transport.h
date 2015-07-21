@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -19,14 +19,14 @@
 #include <string>
 #include <boost/intrusive_ptr.hpp>
 
-#include "Common.h"
 #include "Atomic.h"
 #include "BoostIntrusive.h"
 #include "Buffer.h"
-#include "ServiceLocator.h"
-#include "PerfCounter.h"
+#include "CodeLocation.h"
+#include "Exception.h"
 
 namespace RAMCloud {
+class ServiceLocator;
 
 /**
  * An exception that is thrown when the Transport class encounters a problem.
@@ -53,8 +53,6 @@ struct TransportException : public Exception {
  * characteristics.
  */
 class Transport {
-  typedef RAMCloud::Perf::ReadThreadingCost_MetricSet
-      ReadThreadingCost_MetricSet;
   public:
     class RpcNotifier;
 
@@ -75,13 +73,7 @@ class Transport {
             : requestPayload(),
               replyPayload(),
               epoch(INVALID_EPOCH),
-              outstandingRpcListHook(),
-              enqueueThreadToStartWork(
-                      &ReadThreadingCost_MetricSet::enqueueThreadToStartWork,
-                      false),
-              returnToTransport(
-                      &ReadThreadingCost_MetricSet::returnToTransport,
-                      false)
+              outstandingRpcListHook()
         {}
 
         /**
@@ -153,8 +145,6 @@ class Transport {
          * constructed by ServerRpcPool and removed when they're destroyed.
          */
         IntrusiveListHook outstandingRpcListHook;
-        ReadThreadingCost_MetricSet::Interval enqueueThreadToStartWork;
-        ReadThreadingCost_MetricSet::Interval returnToTransport;
       protected:
 
       PRIVATE:

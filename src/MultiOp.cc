@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -15,7 +15,10 @@
 
 #include <utility>
 
+#include "Context.h"
+#include "Dispatch.h"
 #include "MultiOp.h"
+#include "ObjectFinder.h"
 #include "ShortMacros.h"
 #include "TimeTrace.h"
 
@@ -128,7 +131,7 @@ MultiOp::dispatchRequest(MultiOpObject* request,
     *session = NULL;
 
     try {
-       *session = ramcloud->objectFinder.lookup(request->tableId,
+       *session = ramcloud->objectFinder->lookup(request->tableId,
                   request->key, request->keyLength);
     }
     catch (TableDoesntExistException &e) {
@@ -228,7 +231,7 @@ MultiOp::finishRpc(MultiOp::PartRpc* rpc) {
                         reinterpret_cast<const char*>(request->key));
                 messageLogged = true;
             }
-            ramcloud->objectFinder.flush(request->tableId);
+            ramcloud->objectFinder->flush(request->tableId);
             request->status = STATUS_RETRY;
         }
 
@@ -480,7 +483,7 @@ MultiOp::PartRpc::handleTransportError()
         session = NULL;
     }
     for (uint32_t i = 0; i < reqHdr->count; i++) {
-        ramcloud->objectFinder.flush(requests[i]->tableId);
+        ramcloud->objectFinder->flush(requests[i]->tableId);
     }
     return true;
 }

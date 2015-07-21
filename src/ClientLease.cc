@@ -14,8 +14,10 @@
  */
 
 #include "ClientLease.h"
+#include "Cycles.h"
 #include "LeaseCommon.h"
 #include "RamCloud.h"
+#include "RpcTracker.h"
 
 namespace RAMCloud {
 
@@ -92,7 +94,7 @@ ClientLease::handleTimerEvent()
 
             // Only reschedule for lease renewal if there are
             // unfinished rpcs.
-            if (ramcloud->rpcTracker.hasUnfinishedRpc()) {
+            if (ramcloud->rpcTracker->hasUnfinishedRpc()) {
                 uint64_t renewCycleTime = 0;
                 if (leaseTermLenUs > LeaseCommon::RENEW_THRESHOLD_US) {
                     renewCycleTime = Cycles::fromMicroseconds(

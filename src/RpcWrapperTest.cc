@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -298,7 +298,7 @@ TEST_F(RpcWrapperTest, simpleWait_success) {
     wrapper.response->emplaceAppend<WireFormat::ResponseCommon>()->status =
             STATUS_OK;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
-    wrapper.simpleWait(context.dispatch);
+    wrapper.simpleWait(&context);
 }
 
 TEST_F(RpcWrapperTest, simpleWait_errorStatus) {
@@ -311,7 +311,7 @@ TEST_F(RpcWrapperTest, simpleWait_errorStatus) {
     wrapper.state = RpcWrapper::RpcState::FINISHED;
     string message = "no exception";
     try {
-        wrapper.simpleWait(context.dispatch);
+        wrapper.simpleWait(&context);
     }
     catch (ClientException& e) {
         message = e.toSymbol();

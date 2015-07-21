@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,8 +17,9 @@
 #define RAMCLOUD_COORDINATORSERVERLIST_H
 
 #include <condition_variable>
-#include <deque>
+#include <thread>
 #include <list>
+#include <deque>
 
 #include "MasterRecoveryInfo.pb.h"
 #include "ServerListEntry.pb.h"

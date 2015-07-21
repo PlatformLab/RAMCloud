@@ -89,7 +89,7 @@ class CppBuildTask extends DefaultTask {
                            "-Iinclude",
                            "-Wl,-rpath=${objPath}:${outputDir.path}",
                            "-lramcloud",
-                           "-lramcloudtest",
+//                           "-lramcloudtest",
                            "-g",
                            "${change.file.path}",
                            "-o",

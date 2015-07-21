@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -231,7 +231,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_TXDECISION, buffer));
     }
 
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     uint32_t length = segment->getAppendedLength(&certificate);
     char buf[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buf, length));
@@ -284,7 +284,7 @@ TEST_F(RecoverySegmentBuilderTest, build_safeVersionEntries) {
     safeVersion.assembleForLog(buffer);
 
     ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer));
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     uint32_t length = segment->getAppendedLength(&certificate);
     char buf[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buf, length));
@@ -306,7 +306,7 @@ TEST_F(RecoverySegmentBuilderTest, build_safeVersionEntries) {
 TEST_F(RecoverySegmentBuilderTest, extractDigest) {
     auto extractDigest = RecoverySegmentBuilder::extractDigest;
     LogSegment* segment = segmentManager.allocHeadSegment();
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     uint32_t length = segment->getAppendedLength(&certificate);
     char buffer[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buffer, length));

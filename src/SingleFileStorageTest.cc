@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -90,7 +90,7 @@ class SingleFileStorageTest : public ::testing::Test {
         data.write(0, length, f);
 
         // Next, write the corresponding metadata.
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         certificate.segmentLength = length;
         BackupReplicaMetadata metadata(certificate, logId, segmentId,
                 segmentSize, 0, closed, primary);

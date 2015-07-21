@@ -16,8 +16,6 @@
 #ifndef RAMCLOUD_RPCTRACKER_H
 #define RAMCLOUD_RPCTRACKER_H
 
-#include "Common.h"
-
 namespace RAMCloud {
 
 class RamCloud;

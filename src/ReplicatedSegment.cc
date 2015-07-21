@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -239,7 +239,7 @@ ReplicatedSegment::close()
     // It is necessary to update queued.bytes here because the segment believes
     // it has fully replicated all data when queued.close and
     // getCommitted().bytes == queued.bytes.
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     uint32_t appendedBytes = segment->getAppendedLength(&certificate);
     queued.bytes = appendedBytes;
     queuedCertificate = certificate;
@@ -370,7 +370,7 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId, bool useMinCopysets)
  *      appending to it.
  */
 void
-ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
+ReplicatedSegment::sync(uint32_t offset, SegmentCertificate* certificate)
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     TEST_LOG("syncing segment %lu to offset %u", segmentId, offset);
@@ -401,7 +401,7 @@ ReplicatedSegment::sync(uint32_t offset, Segment::Certificate* certificate)
     // If the caller did not provide the desired certificate, obtain the
     // latest one and use that.
     uint32_t appendedBytes = offset;
-    Segment::Certificate localCertificate;
+    SegmentCertificate localCertificate;
     if (certificate == NULL) {
         appendedBytes = segment->getAppendedLength(&localCertificate);
         certificate = &localCertificate;
@@ -793,7 +793,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             // If segment is being re-replicated don't send the certificate
             // for the opening write; the replica should atomically commit when
             // it has been fully caught up.
-            Segment::Certificate* certificateToSend = &openingWriteCertificate;
+            SegmentCertificate* certificateToSend = &openingWriteCertificate;
             if (replica.replicateAtomically)
                 certificateToSend = NULL;
 
@@ -838,7 +838,7 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             uint32_t offset = replica.sent.bytes;
             uint32_t length = queued.bytes - offset;
-            Segment::Certificate* certificateToSend = &queuedCertificate;
+            SegmentCertificate* certificateToSend = &queuedCertificate;
 
             // Breaks atomicity of log entries, but it could happen anyway
             // if a segment gets partially written to disk.

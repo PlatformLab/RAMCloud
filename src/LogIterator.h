@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -47,9 +47,9 @@ class LogIterator {
     bool isDone();
     void next();
     bool onHead();
-    Log::Position getPosition();
+    LogPosition getPosition();
     Log::Reference getReference();
-    void setPosition(Log::Position position);
+    void setPosition(LogPosition position);
 
     // Renew the segmentList with the latest updates from the log.
     // If we reach the head segment, and do not lock the head, our current

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -153,7 +153,7 @@ TEST_P(SegmentTest, append_whiteBox) {
     s.append(LOG_ENTRY_TYPE_OBJ, "hi", 2, &ref);
 
     EXPECT_EQ(s.segletBlocks[0], reinterpret_cast<const void*>(ref.reference));
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     EXPECT_EQ(4U, s.getAppendedLength(&certificate));
     EXPECT_EQ(4u, certificate.segmentLength);
     EXPECT_EQ(0x87a632e2u, certificate.checksum);
@@ -183,7 +183,7 @@ TEST_P(SegmentTest, append_fullLogEntry) {
     EXPECT_EQ(type, LOG_ENTRY_TYPE_OBJ);
 
     EXPECT_EQ(s.segletBlocks[0], reinterpret_cast<const void*>(ref.reference));
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     EXPECT_EQ(4U, s.getAppendedLength(&certificate));
     EXPECT_EQ(4u, certificate.segmentLength);
     EXPECT_EQ(0x87a632e2u, certificate.checksum);
@@ -364,7 +364,7 @@ TEST_P(SegmentTest, getAppendedLength) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
 
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     EXPECT_EQ(0lu, s.getAppendedLength(&certificate));
     EXPECT_EQ(0lu, certificate.segmentLength);
     EXPECT_EQ(0x48674bc7lu, certificate.checksum);
@@ -549,7 +549,7 @@ TEST_P(SegmentTest, checkMetadataIntegrity_simple) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
 
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     s.getAppendedLength(&certificate);
     EXPECT_TRUE(s.checkMetadataIntegrity(certificate));
     s.append(LOG_ENTRY_TYPE_OBJ, "asdfhasdf", 10);
@@ -572,7 +572,7 @@ TEST_P(SegmentTest, checkMetadataIntegrity_badLength) {
     TestLog::Enable _;
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     uint32_t segmentSize = GetParam()->segmentSize - 100;
 
     Segment::EntryHeader header(LOG_ENTRY_TYPE_OBJ, 1024*1024*1024);

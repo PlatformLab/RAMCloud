@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -67,7 +67,7 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
                  bool screwItUp = false)
     {
         frames.emplace_back(storage.open(true));
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         uint32_t epoch = downCast<uint32_t>(segmentId) + 100;
         BackupReplicaMetadata metadata(certificate, crashedMasterId.getId(),
                                        segmentId, 1024, epoch,
@@ -274,7 +274,7 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
     ASSERT_TRUE(recovery->replicas[1].recoverySegments[0].append(
         LOG_ENTRY_TYPE_OBJ, buffer));
     buffer.reset();
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     memset(&certificate, 0xff, sizeof(certificate));
     status = recovery->getRecoverySegment(456, 88, 0, &buffer, &certificate);
     EXPECT_EQ(STATUS_OK, status);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -16,6 +16,7 @@
 #include "TestUtil.h"
 #include "MockTransport.h"
 #include "IndexRpcWrapper.h"
+#include "ObjectFinder.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {
@@ -52,7 +53,7 @@ class IndexRpcWrapperTest : public ::testing::Test {
         : ramcloud("mock:")
         , transport(ramcloud.clientContext)
     {
-        ramcloud.objectFinder.tableConfigFetcher.reset(
+        ramcloud.objectFinder->tableConfigFetcher.reset(
                 new IndexRpcWrapperRefresher);
         ramcloud.clientContext->transportManager->registerMock(&transport);
     }

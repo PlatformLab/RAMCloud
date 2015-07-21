@@ -14,8 +14,10 @@
  */
 
 #include "TestUtil.h"       //Has to be first, compiler complains
-#include "MockCluster.h"
 #include "ClientTransactionTask.h"
+#include "ClientLease.h"
+#include "MockCluster.h"
+#include "RpcTracker.h"
 
 namespace RAMCloud {
 
@@ -84,7 +86,7 @@ class ClientTransactionTaskTest : public ::testing::Test {
         session3 = static_cast<BindTransport::BindSession*>(session.get());
 
         transactionTask.construct(ramcloud.get());
-        transactionTask->lease = ramcloud->clientLease.getLease();
+        transactionTask->lease = ramcloud->clientLease->getLease();
 
         prepareRpc.construct(ramcloud.get(), session, transactionTask.get());
         decisionRpc.construct(ramcloud.get(), session, transactionTask.get());
@@ -1055,7 +1057,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_send) {
     EXPECT_EQ(0U, prepareRpc->reqHdr->ackId);
     EXPECT_TRUE(RpcWrapper::NOT_STARTED == prepareRpc->state);
     prepareRpc->send();
-    EXPECT_EQ(ramcloud->rpcTracker.ackId(), prepareRpc->reqHdr->ackId);
+    EXPECT_EQ(ramcloud->rpcTracker->ackId(), prepareRpc->reqHdr->ackId);
     EXPECT_TRUE(RpcWrapper::NOT_STARTED != prepareRpc->state);
 }
 

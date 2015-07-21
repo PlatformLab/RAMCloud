@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -45,7 +45,7 @@ class IndexLookupRpcRefresher : public ObjectFinder::TableConfigFetcher {
             if (i == (numTablets - 1))
                 endKeyHash = ~0UL;
             Tablet rawEntry({10, startKeyHash, endKeyHash, ServerId(),
-                            Tablet::NORMAL, Log::Position()});
+                            Tablet::NORMAL, LogPosition()});
             TabletWithLocator entry(rawEntry, buffer);
 
             TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
@@ -103,7 +103,7 @@ class IndexLookupTest : public ::testing::Test {
         ramcloud.construct("mock:");
         transport.construct(ramcloud->clientContext);
 
-        ramcloud->objectFinder.tableConfigFetcher.reset(
+        ramcloud->objectFinder->tableConfigFetcher.reset(
                 new IndexLookupRpcRefresher);
         ramcloud->clientContext->transportManager->registerMock(
                 transport.get());

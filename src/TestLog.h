@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,7 +16,7 @@
 #ifndef RAMCLOUD_TESTLOG_H
 #define RAMCLOUD_TESTLOG_H
 
-#include "Common.h"
+#include "Logger.h"
 
 namespace RAMCloud {
 

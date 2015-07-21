@@ -78,7 +78,7 @@ class ObjectManagerTest : public ::testing::Test {
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint32_t segmentCapacity,
                          Key& key, uint64_t version, string objContents,
-                         Segment::Certificate* outCertificate)
+                         SegmentCertificate* outCertificate)
     {
         Segment s;
         uint32_t dataLength = downCast<uint32_t>(objContents.length()) + 1;
@@ -110,7 +110,7 @@ class ObjectManagerTest : public ::testing::Test {
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          ObjectTombstone& tomb,
-                         Segment::Certificate* outCertificate)
+                         SegmentCertificate* outCertificate)
     {
         Segment s;
         Buffer newTombstoneBuffer;
@@ -136,7 +136,7 @@ class ObjectManagerTest : public ::testing::Test {
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          ObjectSafeVersion& safeVer,
-                         Segment::Certificate* outCertificate)
+                         SegmentCertificate* outCertificate)
     {
         Segment s;
         Buffer newSafeVerBuffer;
@@ -163,7 +163,7 @@ class ObjectManagerTest : public ::testing::Test {
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          RpcResult &rpcResult,
-                         Segment::Certificate* outCertificate)
+                         SegmentCertificate* outCertificate)
     {
         Segment s;
         Buffer newRpcRecBuffer;
@@ -190,7 +190,7 @@ class ObjectManagerTest : public ::testing::Test {
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          PreparedOp &op,
-                         Segment::Certificate* outCertificate)
+                         SegmentCertificate* outCertificate)
     {
         Segment s;
         Buffer newBuffer;
@@ -217,7 +217,7 @@ class ObjectManagerTest : public ::testing::Test {
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          PreparedOpTombstone &opTomb,
-                         Segment::Certificate* outCertificate)
+                         SegmentCertificate* outCertificate)
     {
         Segment s;
         Buffer newBuffer;
@@ -244,7 +244,7 @@ class ObjectManagerTest : public ::testing::Test {
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
                          TxDecisionRecord &record,
-                         Segment::Certificate* outCertificate)
+                         SegmentCertificate* outCertificate)
     {
         Segment s;
         Buffer newBuffer;
@@ -731,7 +731,7 @@ TEST_F(ObjectManagerTest, replaySegment_nextNodeIdMap) {
     uint64_t *bTreeKey = reinterpret_cast<uint64_t*>(keyStr);
     *bTreeKey = 12345;
     Key key0(0, keyStr, 8);
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     len = buildRecoverySegment(seg, segLen, key0, 1, "newer guy", &certificate);
     Tub<SegmentIterator> it;
     it.construct(&seg[0], len, certificate);
@@ -751,7 +751,7 @@ TEST_F(ObjectManagerTest, replaySegment_tombstoneSynthesis) {
     Tub<SegmentIterator> it;
 
     Key key0(0, "key0", 4);
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     len = buildRecoverySegment(seg, segLen, key0, 1, "original", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
@@ -786,7 +786,7 @@ TEST_F(ObjectManagerTest, replaySegment_tombstoneSegmentId) {
     Tub<SegmentIterator> it;
 
     Key key0(0, "key0", 4);
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     len = buildRecoverySegment(seg, segLen, key0, 1, "original", &certificate);
     it.construct(&seg[0], len, certificate);
     objectManager.replaySegment(&sl, *it);
@@ -845,7 +845,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
 
     // Case 1a: Newer object already there; ignore object.
     Key key0(0, "key0", 4);
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     len = buildRecoverySegment(seg, segLen, key0, 1, "newer guy", &certificate);
     Tub<SegmentIterator> it;
     it.construct(&seg[0], len, certificate);
@@ -1128,7 +1128,7 @@ TEST_F(ObjectManagerTest, replaySafeversion) {
     Buffer buffer;
     SideLog sl(&objectManager.log);
     Log::Reference reference;
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     Tub<SegmentIterator> it;
 
     ////////////////////////////////////////////////////////////////////
@@ -1220,7 +1220,7 @@ TEST_F(ObjectManagerTest, replaySegment_rpcResult) {
               unackedRpcResults->clients.find(expectedLeaseId));
 
     {
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         Buffer buf;
         RpcResult rpcResult(0, 1, expectedLeaseId, liveRpcId, ackId, buf);
         len = buildRecoverySegment(seg, segLen, rpcResult, &certificate);
@@ -1236,7 +1236,7 @@ TEST_F(ObjectManagerTest, replaySegment_rpcResult) {
     // Test noop case.
 
     {
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         Buffer buf;
         RpcResult rpcResult(0, 1, expectedLeaseId, deadRpcId, 0, buf);
         len = buildRecoverySegment(seg, segLen, rpcResult, &certificate);
@@ -1262,7 +1262,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     EXPECT_EQ(0UL, preparedOps->peekOp(1UL, 10UL));
 
     {   // 1. Test regular PreparedOp.
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         Buffer buf;
         Key key(10, "1", 1);
         Buffer dataBuffer;
@@ -1278,7 +1278,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
 
 
     {   // 2. Ignored preparedOp due to old version number.
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         Buffer buf;
         Key key(10, "2", 1);
         Buffer dataBuffer;
@@ -1301,7 +1301,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
 
 
     {   // 3. preparedOp with higher version number.
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         Buffer buf;
         Key key(10, "2", 1);
         Buffer dataBuffer;
@@ -1344,7 +1344,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     // 1. Replays a preparedOp first, its tombstone second.
     ///////////////////////////////////////////////////////
     {   // 1A. Test regular PreparedOp
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         Buffer buf;
         Key key(10, "1", 1);
         Buffer dataBuffer;
@@ -1360,7 +1360,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     EXPECT_FALSE(preparedOps->isDeleted(1UL, 10UL));
 
     {   // 1B. Tombstone for PreparedOp in 1.
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         Buffer buf;
         Key key(10, "1", 1);
         Buffer dataBuffer;
@@ -1379,7 +1379,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     // 2. Replays a preparedOpTombsone first, preparedOp second.
     ////////////////////////////////////////////////////////////
     {   // Tombstone for PreparedOp.
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         Buffer buf;
         Key key(10, "2", 1);
         Buffer dataBuffer;
@@ -1395,7 +1395,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     EXPECT_TRUE(preparedOps->isDeleted(1UL, 11UL));
 
     {   // Regular PreparedOp
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         Buffer buf;
         Key key(10, "2", 1);
         Buffer dataBuffer;
@@ -1424,7 +1424,7 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_basic) {
     EXPECT_FALSE(txRecoveryManager->isRunning());
 
     {
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         Buffer buf;
         TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
         record.addParticipant(1, 2, 3);
@@ -1455,7 +1455,7 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
     EXPECT_FALSE(txRecoveryManager->isRunning());
 
     {
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         Buffer buf;
         TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
         record.addParticipant(1, 2, 3);

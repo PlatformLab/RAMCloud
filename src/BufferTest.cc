@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -149,7 +149,8 @@ class BufferTest: public ::testing::Test {
 
         ~TestChunk()
         {
-            TEST_LOG("Destroyed chunk containing '%.*s'", length, data);
+            RAMCLOUD_TEST_LOG("Destroyed chunk containing '%.*s'", length,
+                    data);
             data = NULL;
             length = 0;
             next = NULL;

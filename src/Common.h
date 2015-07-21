@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,26 +21,7 @@
 #ifndef RAMCLOUD_COMMON_H
 #define RAMCLOUD_COMMON_H
 
-// Unfortunately, unit tests based on gtest can't access private members
-// of classes.  If the following uppercase versions of "private" and
-// "protected" are used instead, it works around the problem:  when
-// compiling unit test files (anything that includes TestUtil.h)
-// everything becomes public.
-
-#ifdef EXPOSE_PRIVATES
-#define PRIVATE public
-#define PROTECTED public
-#define PUBLIC public
-#else
-#define PRIVATE private
-#define PROTECTED protected
-#define PUBLIC public
-#endif
-
 #include <sys/time.h>
-
-#define __STDC_LIMIT_MACROS
-#include <cstdint>
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -48,33 +29,15 @@
 #include <xmmintrin.h>
 
 #include <cinttypes>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <memory>
-#include <cassert>
-#include <string>
 #include <typeinfo>
-#include <vector>
 #include <boost/foreach.hpp>
-
-namespace RAMCloud {
-using std::string;
-using std::pair;
-using std::vector;
-}
 
 #define foreach BOOST_FOREACH
 #define reverse_foreach BOOST_REVERSE_FOREACH
 
-// A macro to disallow the copy constructor and operator= functions
-#ifndef DISALLOW_COPY_AND_ASSIGN
-#define DISALLOW_COPY_AND_ASSIGN(TypeName) \
-    TypeName(const TypeName&) = delete;             \
-    TypeName& operator=(const TypeName&) = delete;
-#endif
-
+#include "Minimal.h"
 #include "Context.h"
+#include "Exception.h"
 #include "Logger.h"
 #include "Status.h"
 
@@ -101,21 +64,6 @@ namespace RAMCloud {
  *      Prefer #arrayLength().
  */
 #define unsafeArrayLength(array) (sizeof(array) / sizeof(array[0]))
-
-/**
- * Cast a bigger int down to a smaller one.
- * Asserts that no precision is lost at runtime.
- */
-template<typename Small, typename Large>
-Small
-downCast(const Large& large)
-{
-    Small small = static_cast<Small>(large);
-    // The following comparison (rather than "large==small") allows
-    // this method to convert between signed and unsigned values.
-    assert(large-small == 0);
-    return small;
-}
 
 /// Return the number of elements in a statically allocated array.
 template<typename T, size_t length>
@@ -164,17 +112,11 @@ uint32_t randomNumberGenerator(uint32_t n);
 #define VIRTUAL_FOR_TESTING
 #endif
 
-string format(const char* format, ...)
-    __attribute__((format(printf, 1, 2)));
-string vformat(const char* format, va_list ap)
-    __attribute__((format(printf, 1, 0)));
-
 string demangle(const char* name);
 
 } // namespace RAMCloud
 
 #include "CodeLocation.h"
-#include "Exception.h"
 
 namespace RAMCloud {
 
@@ -226,14 +168,6 @@ get(const Map& map, const typename Map::key_type& key)
 #define OFFSET_OF(type, field) (reinterpret_cast<size_t> \
         (reinterpret_cast<char*>(&(reinterpret_cast<type*>(100)->field))) \
         - 100)
-
-/**
- * Return the size of the given type as a uint32_t. This convenience macro
- * tavoids having downcasts everywhere we take sizeof, which returns size_t,
- * but want a uint32_t instead. Stay tuned for a fancier templated version
- * by syang0 and ongaro...
- */
-#define sizeof32(type) downCast<uint32_t>(sizeof(type))
 
 /**
  * The length of a cache line in bytes (or upper-bound estimate). Used to
@@ -305,18 +239,6 @@ timevalToMicroseconds(struct timeval* tv)
 #else
 #define DEBUG_BUILD true
 #endif
-
-/*
- * The following two macros are used in highly optimized code paths to hint
- * to the compiler what the expected truth value of a given expression is.
- * For instance, an 'if (expr) { ... }' statement in a hot code path might
- * benefit from being coded 'if (expect_true(expr)) { ... }' if we know that
- * 'expr' is usually true. If, instead, 'expr' is almost always false, one may
- * use the expect_false macro instead.
- */
-#define expect_true(expr)   __builtin_expect((expr), true)
-#define expect_false(expr)   __builtin_expect((expr), false)
-
 
 /**
  * The following variables are used for convenience of debugging and

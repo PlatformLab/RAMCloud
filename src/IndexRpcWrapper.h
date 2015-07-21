@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Context.h"
-#include "ObjectFinder.h"
 #include "RamCloud.h"
 #include "RpcWrapper.h"
 
@@ -24,6 +22,8 @@
 namespace RAMCloud {
 
 // Forward declarations
+class Context;
+class ObjectFinder;
 class RamCloud;
 class MasterService;
 

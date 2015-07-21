@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,13 +16,14 @@
 #ifndef RAMCLOUD_RPCWRAPPER_H
 #define RAMCLOUD_RPCWRAPPER_H
 
-#include "Dispatch.h"
 #include "Fence.h"
 #include "ServerId.h"
 #include "Transport.h"
 #include "WireFormat.h"
 
 namespace RAMCloud {
+class Context;
+class Dispatch;
 class RamCloud;
 
 /**
@@ -204,7 +205,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     virtual bool handleTransportError();
     void retry(uint32_t minDelayMicros, uint32_t maxDelayMicros);
     virtual void send();
-    void simpleWait(Dispatch* dispatch);
+    void simpleWait(Context* context);
     const char* stateString();
     bool waitInternal(Dispatch* dispatch, uint64_t abortTime = ~0UL);
 

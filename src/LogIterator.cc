@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -193,12 +193,12 @@ LogIterator::onHead()
 /**
  * Get the current position in the log that we have walked to.
  */
-Log::Position
+LogPosition
 LogIterator::getPosition() {
     if (currentIterator)
-        return Log::Position(currentSegmentId, currentIterator->getOffset());
+        return LogPosition(currentSegmentId, currentIterator->getOffset());
     else
-        return Log::Position(currentSegmentId + 1, 0);
+        return LogPosition(currentSegmentId + 1, 0);
 }
 
 /**
@@ -218,7 +218,7 @@ LogIterator::getReference() {
  * It is assumed that the position passed in is valid for the current log.
  */
 void
-LogIterator::setPosition(Log::Position position) {
+LogIterator::setPosition(LogPosition position) {
     if (currentIterator)
         currentIterator.destroy();
 

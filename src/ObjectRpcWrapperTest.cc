@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -15,6 +15,7 @@
 
 #include "TestUtil.h"
 #include "MockTransport.h"
+#include "ObjectFinder.h"
 #include "ObjectRpcWrapper.h"
 #include "ShortMacros.h"
 
@@ -37,7 +38,7 @@ class ObjRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
 
         tableMap->clear();
         Tablet rawEntry({10, 0, ~0, ServerId(),
-                    Tablet::NORMAL, Log::Position()});
+                    Tablet::NORMAL, LogPosition()});
         TabletWithLocator entry(rawEntry, buffer);
 
         TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
@@ -55,7 +56,7 @@ class ObjectRpcWrapperTest : public ::testing::Test {
         : ramcloud("mock:")
         , transport(ramcloud.clientContext)
     {
-        ramcloud.objectFinder.tableConfigFetcher.reset(
+        ramcloud.objectFinder->tableConfigFetcher.reset(
                 new ObjRpcWrapperRefresher);
         ramcloud.clientContext->transportManager->registerMock(&transport);
     }

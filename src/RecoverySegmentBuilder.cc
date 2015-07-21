@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -60,7 +60,7 @@ namespace RAMCloud {
  */
 void
 RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
-                              const Segment::Certificate& certificate,
+                              const SegmentCertificate& certificate,
                               int numPartitions,
                               const ProtoBuf::RecoveryPartition& partitions,
                               Segment* recoverySegments)
@@ -100,7 +100,7 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
         if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
             // Copy SAFEVERSION to all the partitions for
             // safeVersion recovery on all recovery masters
-            Log::Position position(header->segmentId, it.getOffset());
+            LogPosition position(header->segmentId, it.getOffset());
             for (int i = 0; i < numPartitions; i++) {
                 if (!recoverySegments[i].append(type, entryBuffer)) {
                     LOG(WARNING, "Failure appending to a recovery segment "
@@ -165,7 +165,7 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
         }
         uint64_t partitionId = partition->user_data();
 
-        Log::Position position(header->segmentId, it.getOffset());
+        LogPosition position(header->segmentId, it.getOffset());
         if (!isEntryAlive(position, partition)) {
             LOG(NOTICE, "Skipping object with <tableId, keyHash> of "
                 "<%lu,%lu> because it appears to have existed prior "
@@ -209,7 +209,7 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
  */
 bool
 RecoverySegmentBuilder::extractDigest(const void* buffer, uint32_t length,
-                                      const Segment::Certificate& certificate,
+                                      const SegmentCertificate& certificate,
                                       Buffer* digestBuffer,
                                       Buffer* tableStatsBuffer)
 {
@@ -267,7 +267,7 @@ RecoverySegmentBuilder::extractDigest(const void* buffer, uint32_t length,
  * offset.
  *
  * \param position
- *      Log::Position indicating where this entry occurred in the log. Used to
+ *      LogPosition indicating where this entry occurred in the log. Used to
  *      determine if it was written before a tablet it could belong to was
  *      created.
  * \param tablet
@@ -279,10 +279,10 @@ RecoverySegmentBuilder::extractDigest(const void* buffer, uint32_t length,
  *      a previous instance of the tablet and should be dropped.
  */
 bool
-RecoverySegmentBuilder::isEntryAlive(const Log::Position& position,
+RecoverySegmentBuilder::isEntryAlive(const LogPosition& position,
                                      const ProtoBuf::Tablets::Tablet* tablet)
 {
-    Log::Position minimum(tablet->ctime_log_head_id(),
+    LogPosition minimum(tablet->ctime_log_head_id(),
                           tablet->ctime_log_head_offset());
     return position >= minimum;
 }

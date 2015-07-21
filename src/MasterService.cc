@@ -419,7 +419,7 @@ MasterService::getHeadOfLog(const WireFormat::GetHeadOfLog::Request* reqHdr,
         WireFormat::GetHeadOfLog::Response* respHdr,
         Rpc* rpc)
 {
-    Log::Position head = objectManager.getLog()->rollHeadOver();
+    LogPosition head = objectManager.getLog()->rollHeadOver();
     respHdr->headSegmentId = head.getSegmentId();
     respHdr->headSegmentOffset = head.getSegmentOffset();
 }
@@ -884,7 +884,7 @@ MasterService::migrateSingleLogEntry(
 
         // Note that we can do better. The stupid way
         // is to track each object or tombstone we've sent. The smarter
-        // way is to just record the Log::Position when we started
+        // way is to just record the LogPosition when we started
         // iterating and only send newer tombstones.
     }
 
@@ -959,7 +959,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
 
     MasterClient::prepForMigration(context, newOwnerMasterId, tableId,
             firstKeyHash, lastKeyHash);
-    Log::Position newOwnerLogHead = MasterClient::getHeadOfLog(
+    LogPosition newOwnerLogHead = MasterClient::getHeadOfLog(
             context, newOwnerMasterId);
 
     LOG(NOTICE, "Migrating tablet [0x%lx,0x%lx] in tableId %lu to %s",
@@ -1003,7 +1003,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         }
 
         // Now we mark the position and finish the migration
-        Log::Position position = objectManager.getLog()->getHead();
+        LogPosition position = objectManager.getLog()->getHead();
         it.refresh();
 
         for (; it.getPosition() < position; it.next()) {
@@ -1644,7 +1644,7 @@ MasterService::receiveMigrationData(
         return;
     }
 
-    Segment::Certificate certificate = reqHdr->certificate;
+    SegmentCertificate certificate = reqHdr->certificate;
     rpc->requestPayload->truncateFront(sizeof(*reqHdr));
     if (rpc->requestPayload->size() != segmentBytes + reqHdr->keyLength) {
         LOG(ERROR, "RPC size (%u) does not match advertised length (%u)",
@@ -1964,7 +1964,7 @@ MasterService::migrateSingleIndexObject(
 
         // Note that we can do better. The stupid way
         // is to track each object or tombstone we've sent. The smarter
-        // way is to just record the Log::Position when we started
+        // way is to just record the LogPosition when we started
         // iterating and only send newer tombstones.
 
         totalTombstones++;
@@ -2122,7 +2122,7 @@ MasterService::splitAndMigrateIndexlet(
         }
 
         // Now we mark the position and finish the migration
-        Log::Position position = objectManager.getLog()->getHead();
+        LogPosition position = objectManager.getLog()->getHead();
         it.refresh();
 
         for (; it.getPosition() < position; it.next()) {
@@ -3020,7 +3020,7 @@ MasterService::recover(uint64_t recoveryId, ServerId masterId,
                     context->serverList->toString(
                             task->replica.backupId).c_str());
             try {
-                Segment::Certificate certificate = task->rpc->wait();
+                SegmentCertificate certificate = task->rpc->wait();
                 task->rpc.destroy();
                 uint64_t grdTime = Cycles::rdtsc() - task->startTime;
                 metrics->master.segmentReadTicks += grdTime;
@@ -3305,7 +3305,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     }
 
     // Record the log position before recovery started.
-    Log::Position headOfLog = objectManager.getLog()->rollHeadOver();
+    LogPosition headOfLog = objectManager.getLog()->rollHeadOver();
 
     // Recover Segments, firing ObjectManager::replaySegment for each one.
     bool successful = false;

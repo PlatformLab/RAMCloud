@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -120,10 +120,10 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
 /**
  * Return the position of the current log head.
  */
-Log::Position
+LogPosition
 Log::getHead() {
     Lock lock(appendLock);
-    return Position(head->id, head->getAppendedLength());
+    return LogPosition(head->id, head->getAppendedLength());
 }
 
 /**
@@ -194,7 +194,7 @@ Log::sync()
     if (appendedLength > originalHead->syncedLength) {
         // Get the latest segment length and certificate. This allows us to
         // batch up other appends that came in while we were waiting.
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         appendedLength = originalHead->getAppendedLength(&certificate);
 
         // Drop the append lock. We don't want to block other appending threads
@@ -225,7 +225,7 @@ Log::sync()
  * be at strictly lower positions in the log, so it's easy to filter during
  * recovery.
  */
-Log::Position
+LogPosition
 Log::rollHeadOver()
 {
     Lock lock(syncLock);
@@ -237,12 +237,12 @@ Log::rollHeadOver()
     // into the main log (by adding segments to a new log digest and syncing
     // that to disk). See RAM-489.
     head = allocNextSegment(true);
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     uint32_t appendedLength = head->getAppendedLength(&certificate);
     head->replicatedSegment->sync(appendedLength, &certificate);
     head->syncedLength = appendedLength;
 
-    return Position(head->id, head->getAppendedLength());
+    return LogPosition(head->id, head->getAppendedLength());
 }
 
 /******************************************************************************

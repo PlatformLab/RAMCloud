@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -81,10 +81,10 @@ class Log : public AbstractLog {
 
     void enableCleaner();
     void disableCleaner();
-    Log::Position getHead();
+    LogPosition getHead();
     void getMetrics(ProtoBuf::LogMetrics& m);
     void sync();
-    Log::Position rollHeadOver();
+    LogPosition rollHeadOver();
 
   PRIVATE:
     LogSegment* allocNextSegment(bool mustNotFail);

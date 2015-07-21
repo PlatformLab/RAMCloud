@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -348,7 +348,7 @@ class ReplicatedSegment : public Task {
     bool isSynced() const;
     void close();
     void handleBackupFailure(ServerId failedId, bool useMinCopysets);
-    void sync(uint32_t offset = ~0u, Segment::Certificate* certificate = NULL);
+    void sync(uint32_t offset = ~0u, SegmentCertificate* certificate = NULL);
     const Segment* swapSegment(const Segment* newSegment);
 
     /**
@@ -525,7 +525,7 @@ class ReplicatedSegment : public Task {
      * a way such that all writes not covered by the certificate (since the
      * last write containing a certificate) will be atomically undone.
      */
-    Segment::Certificate queuedCertificate;
+    SegmentCertificate queuedCertificate;
 
     /**
      * Bytes to send atomically to backups with the opening backup write rpc.
@@ -541,7 +541,7 @@ class ReplicatedSegment : public Task {
      * sent without any object data (due to the no-write-before-preceding-close
      * rule).
      */
-    Segment::Certificate openingWriteCertificate;
+    SegmentCertificate openingWriteCertificate;
 
     /// True if all known replicas of this segment should be freed on backups.
     bool freeQueued;

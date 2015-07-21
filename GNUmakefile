@@ -86,6 +86,10 @@ EPYDOC ?= epydoc
 EPYDOCFLAGS ?= --simple-term -v
 DOXYGEN ?= doxygen
 
+# Directory for installation: various subdirectories such as include and
+# bin will be created by "make install".
+INSTALL_DIR ?= .
+
 # Check if OnLoad is installed on the system. OnLoad is required to build
 # SolarFlare driver code.
 ONLOAD_VERSION := $(shell $(ONLOAD_DIR)/scripts/onload --version 2>/dev/null)
@@ -238,6 +242,80 @@ tags-clean:
 # prints the value of a make variable.
 print-%:
 	@echo $* = $($*)
+
+# Rebuild the Java bindings
+java:
+	cd bindings/java; ./gradlew clean; ./gradlew build
+
+INSTALL_BINS := \
+    $(OBJDIR)/client \
+    $(OBJDIR)/coordinator \
+    $(OBJDIR)/ensureServers \
+    $(OBJDIR)/libramcloud.so \
+    $(OBJDIR)/server \
+    $(NULL)
+
+INSTALL_LIBS := \
+    $(OBJDIR)/libramcloud.a \
+    $(NULL)
+
+INSTALL_INCLUDES := \
+    src/Atomic.h \
+    src/BoostIntrusive.h \
+    src/Buffer.h \
+    src/ClientException.h \
+    src/CodeLocation.h \
+    src/CoordinatorClient.h \
+    src/CoordinatorRpcWrapper.h \
+    src/Crc32C.h \
+    src/Exception.h \
+    src/Fence.h \
+    src/Key.h \
+    src/IndexRpcWrapper.h \
+    src/LinearizableObjectRpcWrapper.h \
+    src/LogEntryTypes.h \
+    src/Logger.h \
+    src/LogMetadata.h \
+    src/MasterClient.h \
+    src/Minimal.h \
+    src/Object.h \
+    src/ObjectBuffer.h \
+    src/ObjectRpcWrapper.h \
+    src/PerfStats.h \
+    src/RamCloud.h \
+    src/RpcWrapper.h \
+    src/RpcTracker.h \
+    src/RejectRules.h \
+    src/ServerId.h \
+    src/ServerIdRpcWrapper.h \
+    src/ServerMetrics.h \
+    src/ServiceMask.h \
+    src/SpinLock.h \
+    src/Status.h \
+    src/TestLog.h \
+    src/Transport.h \
+    src/Tub.h \
+    src/WireFormat.h \
+    $(OBJDIR)/Histogram.pb.h \
+    $(OBJDIR)/Indexlet.pb.h \
+    $(OBJDIR)/LogMetrics.pb.h \
+    $(OBJDIR)/MasterRecoveryInfo.pb.h \
+    $(OBJDIR)/RecoveryPartition.pb.h \
+    $(OBJDIR)/ServerConfig.pb.h \
+    $(OBJDIR)/ServerList.pb.h \
+    $(OBJDIR)/ServerStatistics.pb.h \
+    $(OBJDIR)/SpinLockStatistics.pb.h \
+    $(OBJDIR)/TableConfig.pb.h \
+    $(OBJDIR)/Tablets.pb.h \
+    $(NULL)
+	
+install: all
+	mkdir -p $(INSTALL_DIR)/bin
+	cp $(INSTALL_BINS) $(INSTALL_DIR)/bin
+	mkdir -p $(INSTALL_DIR)/include/ramcloud
+	cp $(INSTALL_INCLUDES) $(INSTALL_DIR)/include/ramcloud
+	mkdir -p $(INSTALL_DIR)/lib
+	cp $(INSTALL_LIBS) $(INSTALL_DIR)/lib
 
 logcabin:
 	cd logcabin; \

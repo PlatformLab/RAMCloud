@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,8 +22,7 @@
 #define RAMCLOUD_SERVERID_H
 
 #include <functional>
-#include "Common.h"
-
+#include "Minimal.h"
 
 namespace RAMCloud {
 

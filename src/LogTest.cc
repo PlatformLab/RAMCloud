@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -127,8 +127,8 @@ TEST_F(LogTest, enableCleaner_and_disableCleaner) {
 
 TEST_F(LogTest, getHead) {
     EXPECT_EQ(l.getHead(),
-            Log::Position(l.head->id, l.head->getAppendedLength()));
-    Log::Position oldPos = l.getHead();
+            LogPosition(l.head->id, l.head->getAppendedLength()));
+    LogPosition oldPos = l.getHead();
     l.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
     EXPECT_LT(oldPos, l.getHead());
 }
@@ -163,12 +163,12 @@ TEST_F(LogTest, sync) {
 }
 
 TEST_F(LogTest, rollHeadOver) {
-    Log::Position oldPos = Log::Position(0, 0);
+    LogPosition oldPos = LogPosition(0, 0);
     LogSegment* oldHead = l.head;
     EXPECT_LT(oldPos, l.rollHeadOver());
     EXPECT_NE(oldHead, l.head);
 
-    oldPos = Log::Position(l.head->id, l.head->getAppendedLength());
+    oldPos = LogPosition(l.head->id, l.head->getAppendedLength());
     oldHead = l.head;
     EXPECT_LT(oldPos, l.rollHeadOver());
     EXPECT_NE(oldHead, l.head);

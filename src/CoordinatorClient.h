@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,12 +21,10 @@
 #include "RecoveryPartition.pb.h"
 #include "TableConfig.pb.h"
 
-#include "Common.h"
 #include "ClientException.h"
 #include "CoordinatorRpcWrapper.h"
 #include "ServiceMask.h"
 #include "ServerId.h"
-#include "TransportManager.h"
 #include "ServerConfig.pb.h"
 
 namespace RAMCloud {
@@ -171,7 +169,7 @@ class HintServerCrashedRpc : public CoordinatorRpcWrapper {
     HintServerCrashedRpc(Context* context, ServerId serverId);
     ~HintServerCrashedRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(context->dispatch);}
+    void wait() {simpleWait(context);}
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(HintServerCrashedRpc);
@@ -188,7 +186,7 @@ class ReassignTabletOwnershipRpc : public CoordinatorRpcWrapper {
             uint64_t ctimeSegmentId, uint32_t ctimeSegmentOffset);
     ~ReassignTabletOwnershipRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(context->dispatch);}
+    void wait() {simpleWait(context);}
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(ReassignTabletOwnershipRpc);
@@ -234,7 +232,7 @@ class SendServerListRpc : public CoordinatorRpcWrapper {
     SendServerListRpc(Context* context, ServerId destination);
     ~SendServerListRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(context->dispatch);}
+    void wait() {simpleWait(context);}
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(SendServerListRpc);
@@ -250,7 +248,7 @@ class SetMasterRecoveryInfoRpc : public CoordinatorRpcWrapper {
                              const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
     ~SetMasterRecoveryInfoRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(context->dispatch);}
+    void wait() {simpleWait(context);}
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(SetMasterRecoveryInfoRpc);

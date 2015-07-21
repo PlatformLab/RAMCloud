@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,7 +19,9 @@
 #include <assert.h>
 
 #include "ClusterMetrics.h"
+#include "Context.h"
 #include "Cycles.h"
+#include "Dispatch.h"
 #include "ShortMacros.h"
 #include "Crc32C.h"
 #include "ObjectFinder.h"
@@ -310,7 +312,6 @@ try
         exit(0);
     }
 
-    return 0;
     b = Cycles::rdtsc();
     client.createTable("test");
     uint64_t table;

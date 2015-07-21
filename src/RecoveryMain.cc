@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -341,7 +341,7 @@ try
     // dump the tablet map
     for (uint32_t t = 0; t < tableCount; t++) {
         Transport::SessionRef session =
-            client.objectFinder.lookup(tables[t], "0", 1);
+            client.objectFinder->lookup(tables[t], "0", 1);
         LOG(NOTICE, "%s has table %lu",
             session->getServiceLocator().c_str(), tables[t]);
     }
@@ -365,7 +365,7 @@ try
     // Wait for recovery to complete
     for (uint32_t t = 0; t < tableCount; t++) {
         uint64_t tableId = tables[t];
-        client.objectFinder.waitForAllTabletsNormal(tableId);
+        client.objectFinder->waitForAllTabletsNormal(tableId);
     }
     LOG(NOTICE, "all tablets now normal");
 
@@ -381,7 +381,7 @@ try
                 stopTime = Cycles::rdtsc();
         } catch (...) {
         }
-        auto session = client.objectFinder.lookup(tables[t], "0", 1);
+        auto session = client.objectFinder->lookup(tables[t], "0", 1);
         if (nb.size() == objectDataSize) {
             LOG(NOTICE, "recovered value read from %s has length %u",
                 session->getServiceLocator().c_str(), nb.size());

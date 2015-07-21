@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -71,7 +71,7 @@ class BackupServiceTest : public ::testing::Test {
     void
     closeSegment(ServerId masterId, uint64_t segmentId) {
         Segment segment;
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         uint32_t length = segment.getAppendedLength(&certificate);
         BackupClient::writeSegment(&context, backupId, masterId, segmentId, 0,
                                    &segment, 0, length, &certificate,
@@ -82,7 +82,7 @@ class BackupServiceTest : public ::testing::Test {
     openSegment(ServerId masterId, uint64_t segmentId, bool primary = true)
     {
         Segment segment;
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         uint32_t length = segment.getAppendedLength(&certificate);
         BackupClient::writeSegment(&context, backupId, masterId,
                                    segmentId, 0, &segment, 0, length,
@@ -110,7 +110,7 @@ class BackupServiceTest : public ::testing::Test {
     {
         Segment segment;
         segment.copyIn(offset, s.c_str(), downCast<uint32_t>(s.length()) + 1);
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         BackupClient::writeSegment(&context, backupId, masterId,
                                    segmentId, epoch,
                                    &segment,
@@ -312,7 +312,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
         static_cast<SingleFileStorage*>(backup->storage.get());
 
     Buffer empty;
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
     Tub<BackupReplicaMetadata> metadata;
     std::vector<BackupStorage::FrameRef> frames;
     { // closed

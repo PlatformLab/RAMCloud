@@ -257,7 +257,7 @@ LockTable::keysMatch(Key& key, Entry lockObjectRef)
                 return true;
             }
         } else {
-            DIE("LockTable contains non LOG_ENTRY_TYPE_PREP type;"
+            RAMCLOUD_DIE("LockTable contains non LOG_ENTRY_TYPE_PREP type;"
                 "found %s instead", LogEntryTypeHelpers::toString(type));
         }
     }

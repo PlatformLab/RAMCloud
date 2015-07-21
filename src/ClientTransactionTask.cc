@@ -13,8 +13,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "ClientLease.h"
 #include "ClientTransactionTask.h"
+#include "Context.h"
+#include "ObjectFinder.h"
 #include "RamCloud.h"
+#include "RpcTracker.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -136,7 +141,7 @@ ClientTransactionTask::performTask()
             foundWork |= sendDecisionRpc();
             foundWork |= processDecisionRpcResults();
             if (decisionRpcs.empty() && nextCacheEntry == commitCache.end()) {
-                ramcloud->rpcTracker.rpcFinished(txId);
+                ramcloud->rpcTracker->rpcFinished(txId);
                 state = DONE;
             }
         }
@@ -166,7 +171,7 @@ ClientTransactionTask::performTask()
                         "transaction.",
                         statusToString(e.status));
         }
-        ramcloud->rpcTracker.rpcFinished(txId);
+        ramcloud->rpcTracker->rpcFinished(txId);
         state = DONE;
     }
     return foundWork;
@@ -236,8 +241,8 @@ ClientTransactionTask::Poller::poll()
 void
 ClientTransactionTask::initTask()
 {
-    lease = ramcloud->clientLease.getLease();
-    txId = ramcloud->rpcTracker.newRpcIdBlock(this, commitCache.size());
+    lease = ramcloud->clientLease->getLease();
+    txId = ramcloud->rpcTracker->newRpcIdBlock(this, commitCache.size());
 
     nextCacheEntry = commitCache.begin();
     uint64_t i = 0;
@@ -377,14 +382,14 @@ ClientTransactionTask::sendDecisionRpc()
         // resulting in poor batching.
         if (nextRpc == NULL) {
             rpcSession =
-                    ramcloud->objectFinder.lookup(key->tableId,
-                                                  key->keyHash);
+                    ramcloud->objectFinder->lookup(key->tableId,
+                                                   key->keyHash);
             decisionRpcs.emplace_back(ramcloud, rpcSession, this);
             nextRpc = &decisionRpcs.back();
         }
 
         Transport::SessionRef session =
-                ramcloud->objectFinder.lookup(key->tableId, key->keyHash);
+                ramcloud->objectFinder->lookup(key->tableId, key->keyHash);
         if (session->getServiceLocator() == rpcSession->getServiceLocator()
             && nextRpc->reqHdr->participantCount <
                     DecisionRpc::MAX_OBJECTS_PER_RPC) {
@@ -436,14 +441,14 @@ ClientTransactionTask::sendPrepareRpc()
         // resulting in poor batching.
         if (nextRpc == NULL) {
             rpcSession =
-                    ramcloud->objectFinder.lookup(key->tableId,
-                                                  key->keyHash);
+                    ramcloud->objectFinder->lookup(key->tableId,
+                                                   key->keyHash);
             prepareRpcs.emplace_back(ramcloud, rpcSession, this);
             nextRpc = &prepareRpcs.back();
         }
 
         Transport::SessionRef session =
-                ramcloud->objectFinder.lookup(key->tableId, key->keyHash);
+                ramcloud->objectFinder->lookup(key->tableId, key->keyHash);
         if (session->getServiceLocator() == rpcSession->getServiceLocator()
             && nextRpc->reqHdr->opCount < PrepareRpc::MAX_OBJECTS_PER_RPC) {
             nextRpc->appendOp(nextCacheEntry);
@@ -562,7 +567,7 @@ ClientTransactionTask::DecisionRpc::retryRequest()
     for (uint32_t i = 0; i < reqHdr->participantCount; i++) {
         const CacheKey* key = &ops[i]->first;
         CacheEntry* entry = &ops[i]->second;
-        ramcloud->objectFinder.flush(key->tableId);
+        ramcloud->objectFinder->flush(key->tableId);
         entry->state = CacheEntry::PENDING;
     }
     task->nextCacheEntry = task->commitCache.begin();
@@ -623,7 +628,7 @@ ClientTransactionTask::PrepareRpc::handleTransportError()
 void
 ClientTransactionTask::PrepareRpc::send()
 {
-    reqHdr->ackId = ramcloud->rpcTracker.ackId();
+    reqHdr->ackId = ramcloud->rpcTracker->ackId();
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
 }
@@ -682,7 +687,7 @@ ClientTransactionTask::PrepareRpc::retryRequest()
     for (uint32_t i = 0; i < reqHdr->opCount; i++) {
         const CacheKey* key = &ops[i]->first;
         CacheEntry* entry = &ops[i]->second;
-        ramcloud->objectFinder.flush(key->tableId);
+        ramcloud->objectFinder->flush(key->tableId);
         entry->state = CacheEntry::PENDING;
     }
     task->nextCacheEntry = task->commitCache.begin();

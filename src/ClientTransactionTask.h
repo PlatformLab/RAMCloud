@@ -20,6 +20,7 @@
 #include <map>
 #include <memory>
 
+#include "Dispatch.h"
 #include "RamCloud.h"
 
 namespace RAMCloud {

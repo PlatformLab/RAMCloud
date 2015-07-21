@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,7 +35,7 @@ class SegmentIteratorTest : public ::testing::Test {
     }
 
     Segment s;
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentIteratorTest);
 };
@@ -63,7 +63,7 @@ TEST_F(SegmentIteratorTest, constructor_fromSegment_nonEmpty) {
 TEST_F(SegmentIteratorTest, constructor_fromBuffer) {
     char buf[8192];
     {
-        SegmentIterator it(buf, 0, Segment::Certificate());
+        SegmentIterator it(buf, 0, SegmentCertificate());
         EXPECT_THROW(it.checkMetadataIntegrity(),
                      SegmentIteratorException);
     }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,31 +28,31 @@ struct Refresher : public ObjectFinder::TableConfigFetcher {
 
         called++;
         Tablet rawTablet2({1, 0, ~0, ServerId(),
-                                Tablet::NORMAL, Log::Position()});
+                                Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet2(rawTablet2, "mock:host=server1");
 
         Tablet rawTablet3({2, 0, 1000, ServerId(),
-                                Tablet::NORMAL, Log::Position()});
+                                Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet3(rawTablet3, "mock:host=server2");
 
         Tablet rawTablet4({2, 1000, ~0, ServerId(),
-                                Tablet::NORMAL, Log::Position()});
+                                Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet4(rawTablet4, "mock:host=server6");
 
         Tablet rawTablet5({3, 0, 1000, ServerId(),
-                                Tablet::NORMAL, Log::Position()});
+                                Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet5(rawTablet5, "mock:host=server3");
 
         Tablet rawTablet8({3, 10000, ~0, ServerId(),
-                                Tablet::NORMAL, Log::Position()});
+                                Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet8(rawTablet8, "mock:host=server3");
 
         Tablet rawTablet6({4, 0, ~0, ServerId(),
-                                Tablet::NORMAL, Log::Position()});
+                                Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet6(rawTablet6, "mock:host=server4");
 
         Tablet rawTablet7({5, 13274077256558369931LLU, 18303021482201187663LLU,
-                            ServerId(), Tablet::NORMAL, Log::Position()});
+                            ServerId(), Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet7(rawTablet7, "mock:host=server5");
 
         if (called <= 2) {

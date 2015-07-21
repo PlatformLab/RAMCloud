@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -303,7 +303,7 @@ TEST_F(LogIteratorTest, next) {
 TEST_F(LogIteratorTest, getPosition_setPosition) {
     l.sync();
     LogIterator i(l, false);
-    Log::Position oldPos = i.getPosition();
+    LogPosition oldPos = i.getPosition();
     i.next();
     EXPECT_NE(oldPos, i.getPosition());
     i.setPosition(oldPos);
@@ -340,7 +340,7 @@ TEST_F(LogIteratorTest, refresh) {
         LogIterator i(l, true);
         while (!i.isDone())
             i.next();
-        Log::Position oldPos = i.getPosition();
+        LogPosition oldPos = i.getPosition();
         EXPECT_TRUE(i.headLocked);
 
         l.appendLock.unlock();

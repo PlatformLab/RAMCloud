@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -543,7 +543,7 @@ TEST_F(RamCloudTest, remove) {
 
 TEST_F(RamCloudTest, objectServerControl) {
     ramcloud->write(tableId1, "0", 1, "zfzfzf", 6);
-    string serverLocator = ramcloud->objectFinder.lookupTablet(tableId1
+    string serverLocator = ramcloud->objectFinder->lookupTablet(tableId1
                            , Key::getHash(tableId1, "0", 1))->serviceLocator;
     Server* targetServer;
     foreach (Server* server, cluster.servers) {
@@ -631,7 +631,7 @@ TEST_F(RamCloudTest, testingKill) {
     TestLog::reset();
     cluster.servers[0]->ping->ignoreKill = true;
     // Create the RPC object directly rather than calling testingKill
-    // (testingKill would hang in objectFinder.waitForTabletDown).
+    // (testingKill would hang in objectFinder->waitForTabletDown).
     KillRpc rpc(ramcloud.get(), tableId1, "0", 1);
     EXPECT_EQ("kill: Server remotely told to kill itself.", TestLog::get());
 }
@@ -651,8 +651,8 @@ TEST_F(RamCloudTest, write) {
 
     // Checks rpcId was assigned for the linearizable write RPC
     // and acknowledged by this client.
-    EXPECT_EQ(1UL, ramcloud->rpcTracker.ackId());
-    EXPECT_EQ(2UL, ramcloud->rpcTracker.nextRpcId);
+    EXPECT_EQ(1UL, ramcloud->rpcTracker->ackId());
+    EXPECT_EQ(2UL, ramcloud->rpcTracker->nextRpcId);
 
     ObjectBuffer value;
     ramcloud->readKeysAndValue(tableId1, "0", 1, &value);

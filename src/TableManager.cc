@@ -646,7 +646,7 @@ TableManager::reassignTabletOwnership(
 
     // Get current head of log to preclude all previous data in the log
     // from being considered part of this tablet.
-    Log::Position headOfLogAtCreation(ctimeSegmentId,
+    LogPosition headOfLogAtCreation(ctimeSegmentId,
                                       ctimeSegmentOffset);
     tablet->ctime = headOfLogAtCreation;
     tablet->serverId = newOwner;
@@ -944,7 +944,7 @@ TableManager::splitRecoveringTablet(uint64_t tableId, uint64_t splitKeyHash)
 void
 TableManager::tabletRecovered(
         uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
-        ServerId serverId, Log::Position ctime)
+        ServerId serverId, LogPosition ctime)
 {
     Lock lock(mutex);
 
@@ -1043,7 +1043,7 @@ TableManager::createTable(const Lock& lock, const char* name,
             // using (0,0) is safe because we know this is a new table: there
             // can't be any existing information for this table stored on the
             // master.
-            Log::Position ctime(0, 0);
+            LogPosition ctime(0, 0);
             table->tablets.push_back(new Tablet(tableId, startKeyHash,
                     endKeyHash, currentTabletMaster, Tablet::NORMAL, ctime));
         }
@@ -1545,7 +1545,7 @@ TableManager::recreateTable(const Lock& lock, ProtoBuf::Table* info)
     int numTablets = info->tablet_size();
     for (int i = 0; i < numTablets; i++) {
         const ProtoBuf::Table::Tablet& tabletInfo = info->tablet(i);
-        Log::Position ctime(tabletInfo.ctime_log_head_id(),
+        LogPosition ctime(tabletInfo.ctime_log_head_id(),
                 tabletInfo.ctime_log_head_offset());
         Tablet::Status status;
         if (tabletInfo.state() == ProtoBuf::Table::Tablet::NORMAL)
@@ -1559,7 +1559,7 @@ TableManager::recreateTable(const Lock& lock, ProtoBuf::Table* info)
                 tabletInfo.end_key_hash(),
                 ServerId(tabletInfo.server_id()),
                 status,
-                Log::Position(tabletInfo.ctime_log_head_id(),
+                LogPosition(tabletInfo.ctime_log_head_id(),
                               tabletInfo.ctime_log_head_offset()));
         table->tablets.push_back(tablet);
         LOG(NOTICE, "Recovered tablet 0x%lx-0x%lx for table '%s' (id %lu) "

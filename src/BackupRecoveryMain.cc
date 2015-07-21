@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,6 +21,7 @@
 #include "CycleCounter.h"
 #include "Cycles.h"
 #include "Logger.h"
+#include "ObjectFinder.h"
 #include "OptionParser.h"
 #include "PingClient.h"
 #include "ShortMacros.h"
@@ -73,7 +74,7 @@ try
     client.createTable("mainTable");
     uint64_t table = client.getTableId("mainTable");
     Transport::SessionRef mainTableSession =
-        client.objectFinder.lookup(table, "0", 1);
+        client.objectFinder->lookup(table, "0", 1);
 
     // Create a single value on all masters so that they each have a valid
     // log digest created.  When we choose to crash them we don't want the
@@ -89,7 +90,7 @@ try
         client.createTable(name);
         uint64_t table = client.getTableId(name);
         Transport::SessionRef session =
-                client.objectFinder.lookup(table, "0", 1);
+                client.objectFinder->lookup(table, "0", 1);
         // Round-robin table allocation: create tables until we find we've
         // created an extra table on the server with mainTable.
         if (session->getServiceLocator() ==
@@ -110,15 +111,15 @@ try
     }
 
     Transport::SessionRef session =
-        client.objectFinder.lookup(lastBackupTable, "0", 1);
+        client.objectFinder->lookup(lastBackupTable, "0", 1);
     LOG(NOTICE, "Killing %s", session->getServiceLocator().c_str());
 
     CycleCounter<> backupRecoveryCycles;
     KillRpc killOp(&client, lastBackupTable, "0", 1);
 
     // Ensure recovery of the master portion completed.
-    client.objectFinder.waitForTabletDown(lastBackupTable);
-    client.objectFinder.waitForAllTabletsNormal(lastBackupTable);
+    client.objectFinder->waitForTabletDown(lastBackupTable);
+    client.objectFinder->waitForAllTabletsNormal(lastBackupTable);
 
     // Wait for backup recovery to finish.
     // The way this is detected is a bit weird since it isn't usually

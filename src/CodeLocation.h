@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,10 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Common.h"
-
 #ifndef RAMCLOUD_CODELOCATION_H
 #define RAMCLOUD_CODELOCATION_H
+
+#include "Minimal.h"
 
 namespace RAMCloud {
 

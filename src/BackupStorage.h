@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,6 +19,7 @@
 #include <boost/dynamic_bitset.hpp>
 
 #include "Buffer.h"
+#include "Exception.h"
 #include "ServerId.h"
 #include "Tub.h"
 

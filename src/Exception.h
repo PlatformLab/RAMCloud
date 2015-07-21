@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,9 +16,14 @@
 #ifndef RAMCLOUD_EXCEPTION_H
 #define RAMCLOUD_EXCEPTION_H
 
-#include "Common.h"
+#include "CodeLocation.h"
+#include "Minimal.h"
 
 namespace RAMCloud {
+
+// Imported from Common.h (don't want to include Common.h here, since
+// that would expose it to all RAMCloud clients).
+string demangle(const char* name);
 
 /**
  * The base class for all RAMCloud exceptions.

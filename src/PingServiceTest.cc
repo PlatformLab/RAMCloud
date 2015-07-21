@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -65,7 +65,7 @@ class MockTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
 
         tableMap->clear();
         Tablet rawEntry({tableId, 0, ~0, ServerId(),
-                    Tablet::NORMAL, Log::Position()});
+                    Tablet::NORMAL, LogPosition()});
         TabletWithLocator entry(rawEntry, locator);
 
         TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};

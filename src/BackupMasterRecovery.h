@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -85,7 +85,7 @@ class BackupMasterRecovery : public Task {
                               uint64_t segmentId,
                               int partitionId,
                               Buffer* buffer,
-                              Segment::Certificate* certificate);
+                              SegmentCertificate* certificate);
     void free();
     uint64_t getRecoveryId();
     void performTask();
@@ -335,7 +335,7 @@ class BackupReplicaMetadata {
      * Create metadata and seal it with a checksum.
      * See below for the meaning of each of the fields.
      */
-    BackupReplicaMetadata(const Segment::Certificate& certificate,
+    BackupReplicaMetadata(const SegmentCertificate& certificate,
                           uint64_t logId,
                           uint64_t segmentId,
                           uint32_t segmentCapacity,
@@ -376,7 +376,7 @@ class BackupReplicaMetadata {
      * storage frame as this metadata. Supplied by masters on calls
      * to append data to replicas.
      */
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
 
     /**
      * Particular log the replica stored in the same storage frame

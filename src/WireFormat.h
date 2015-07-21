@@ -23,10 +23,8 @@
 #ifndef RAMCLOUD_WIREFORMAT_H
 #define RAMCLOUD_WIREFORMAT_H
 
-#include "Common.h"
-#include "LogMetadata.h"
 #include "RejectRules.h"
-#include "Segment.h"
+#include "LogMetadata.h"
 #include "Status.h"
 
 namespace RAMCloud { namespace WireFormat {
@@ -268,16 +266,16 @@ struct BackupGetRecoveryData {
             , certificate()
         {}
         Response(const ResponseCommon& common,
-                 const Segment::Certificate& certificate)
+                 const SegmentCertificate& certificate)
             : common(common)
             , certificate(certificate)
         {}
         ResponseCommon common;
-        Segment::Certificate certificate; ///< Certificate for the segment
-                                          ///< which follows this fields in
-                                          ///< the response field. Used by
-                                          ///< master to iterate over the
-                                          ///< segment.
+        SegmentCertificate certificate; ///< Certificate for the segment
+                                        ///< which follows this fields in
+                                        ///< the response field. Used by
+                                        ///< master to iterate over the
+                                        ///< segment.
     } __attribute__((packed));
 };
 
@@ -417,7 +415,7 @@ struct BackupWrite {
                 bool close,
                 bool primary,
                 bool certificateIncluded,
-                const Segment::Certificate& certificate)
+                const SegmentCertificate& certificate)
             : common(common)
             , masterId(masterId)
             , segmentId(segmentId)
@@ -448,10 +446,10 @@ struct BackupWrite {
                                   ///< true then it includes a valid certificate
                                   ///< that should be placed in the segment
                                   ///< after the data from this write.
-        Segment::Certificate certificate; ///< Certificate which should be
-                                          ///< written to storage
-                                          ///< following the data included
-                                          ///< in this rpc.
+        SegmentCertificate certificate; ///< Certificate which should be
+                                        ///< written to storage
+                                        ///< following the data included
+                                        ///< in this rpc.
         // Opaque byte string follows with data to write.
     } __attribute__((packed));
     struct Response {
@@ -1326,10 +1324,10 @@ struct ReceiveMigrationData {
         uint16_t keyLength;     // Length of a key belonging to the indexlet.
         uint32_t segmentBytes;  // Length of the Segment containing migrated
                                 // data following this header.
-        Segment::Certificate certificate; // Certificate for the segment
-                                          // being migrated. Used by
-                                          // master to iterate over the
-                                          // segment.
+        SegmentCertificate certificate; // Certificate for the segment
+                                        // being migrated. Used by
+                                        // master to iterate over the
+                                        // segment.
         // In buffer: The actual bytes for a key belonging to the indexlet
         // (used to determine which indexlet is being migrated);
         // followed by:

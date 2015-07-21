@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,6 +22,7 @@
 #include "Buffer.h"
 #include "Crc32C.h"
 #include "LogEntryTypes.h"
+#include "LogMetadata.h"
 #include "Seglet.h"
 #include "SegletAllocator.h"
 #include "Tub.h"
@@ -194,71 +195,6 @@ class Segment {
 
   public:
     /**
-     * Indicates which porition of a segment contains valid data and
-     * information to verify the integrity of the metadata of the segment.
-     * Segments return these opaque certificates on calls to
-     * getAppendedLength(). Calling checkMetadataIntegrity() with a certificate
-     * guarantees (with some probability) the segment metadata hasn't been
-     * corrupted and is iterable through the length given in the certificate.
-     * This is used by SegmentIterators to ensure the portion of the segment
-     * they intend to iterate across is intact. ReplicaManager transmits
-     * certificates to backups along with segment data which backups store
-     * for when the segment data is used during recovery. Because only the
-     * portion of the segment that is covered by the certificate is used,
-     * the certificate acts as a way to atomically commit segment data to
-     * backups.
-     *
-     * Code outside of the Segment and SegmentIterator class should not
-     * need to understand the internals, except to retrieve the segmentLength
-     * field, and shouldn't attempt to use certificates other than through
-     * the SegmentIterator or Segment code.
-     */
-    class Certificate {
-      public:
-        Certificate()
-            : segmentLength()
-            , checksum()
-        {}
-
-        /**
-         * Compare this Certificate with another. Returns true if they're equal,
-         * else false.
-         */
-        bool
-        operator==(const Certificate& other) const
-        {
-            return segmentLength == other.segmentLength &&
-                   checksum == other.checksum;
-        }
-
-        /**
-         * Return a string representation of the certificate.
-         */
-        string
-        toString() const
-        {
-            return format("<%u, 0x%08x>", segmentLength, checksum);
-        }
-
-        /// Number of valid bytes in the segment that #checksum covers.
-        /// Determines how much of the segment should be checked for integrity
-        /// and how much of the segment should be iterated over for
-        /// SegmentIterator.
-        uint32_t segmentLength;
-
-      PRIVATE:
-        /// Checksum covering all metadata in the segment: EntryHeaders and
-        /// their corresponding variably-sized length fields, as well as fields
-        /// above in this struct.
-        Crc32C::ResultType checksum;
-
-        friend class Segment;
-        friend class SegmentIterator;
-    } __attribute__((__packed__));
-    static_assert(sizeof(Certificate) == 8,
-                  "Unexpected padding in Segment::Certificate");
-
-    /**
      * Segment References are handles used to access entries that have been
      * appended to a Segment. Since segments may be discontiguous, we cannot
      * simply return pointers to the start of an entry. However, since entries
@@ -367,11 +303,11 @@ class Segment {
                                  uint32_t offset,
                                  uint32_t* entryDataLength = NULL,
                                  uint32_t* lengthWithMetadata = NULL);
-    uint32_t getAppendedLength(Certificate* certificate = NULL) const;
+    uint32_t getAppendedLength(SegmentCertificate* certificate = NULL) const;
     uint32_t getSegletsAllocated();
     uint32_t getSegletsInUse();
     bool freeUnusedSeglets(uint32_t count);
-    bool checkMetadataIntegrity(const Certificate& certificate);
+    bool checkMetadataIntegrity(const SegmentCertificate& certificate);
     uint32_t copyOut(uint32_t offset, void* buffer, uint32_t length) const;
     Reference getReference(uint32_t offset);
 
@@ -488,7 +424,7 @@ class Segment {
     /// Latest Segment checksum (crc32c). This is a checksum of all metadata
     /// in the Segment (that is, every Segment::Entry and ::Header).
     /// Any user data that is stored in the Segment is unprotected. Integrity
-    /// is their responsibility. Used to generate Segment::Certificates.
+    /// is their responsibility. Used to generate SegmentCertificates.
     Crc32C checksum;
 
     friend class SegmentIterator;

@@ -17,12 +17,10 @@
 #define RAMCLOUD_MASTERCLIENT_H
 
 #include "Buffer.h"
-#include "Common.h"
 #include "CoordinatorClient.h"
 #include "IndexRpcWrapper.h"
 #include "Key.h"
-#include "Log.h"
-#include "Segment.h"
+#include "LogMetadata.h"
 #include "ServerId.h"
 #include "ServerIdRpcWrapper.h"
 #include "ServerStatistics.pb.h"
@@ -33,6 +31,7 @@ namespace RAMCloud {
 
 // forward declaration
 class MasterService;
+class Segment;
 
 /**
  * Provides methods for invoking RPCs to RAMCloud masters.  The invoking
@@ -49,7 +48,7 @@ class MasterClient {
             uint16_t firstNotOwnedKeyLength);
     static void dropTabletOwnership(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
-    static Log::Position getHeadOfLog(Context* context, ServerId serverId);
+    static LogPosition getHeadOfLog(Context* context, ServerId serverId);
     static void insertIndexEntry(MasterService* master,
             uint64_t tableId, uint8_t indexId,
             const void* indexKey, KeyLength indexKeyLength,
@@ -137,7 +136,7 @@ class GetHeadOfLogRpc : public ServerIdRpcWrapper {
   public:
     GetHeadOfLogRpc(Context* context, ServerId serverId);
     ~GetHeadOfLogRpc() {}
-    Log::Position wait();
+    LogPosition wait();
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(GetHeadOfLogRpc);
@@ -155,7 +154,7 @@ class InsertIndexEntryRpc : public IndexRpcWrapper {
             uint64_t primaryKeyHash);
     ~InsertIndexEntryRpc() {}
     void indexNotFound();
-    void wait() {simpleWait(context->dispatch);}
+    void wait() {simpleWait(context);}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(InsertIndexEntryRpc);
@@ -260,7 +259,7 @@ class RemoveIndexEntryRpc : public IndexRpcWrapper {
              uint64_t primaryKeyHash);
     ~RemoveIndexEntryRpc() {}
     void indexNotFound();
-    void wait() {simpleWait(context->dispatch);}
+    void wait() {simpleWait(context);}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RemoveIndexEntryRpc);

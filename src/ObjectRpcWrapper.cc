@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -15,6 +15,7 @@
 
 #include "ShortMacros.h"
 #include "Logger.h"
+#include "ObjectFinder.h"
 #include "ObjectRpcWrapper.h"
 #include "RamCloud.h"
 
@@ -93,7 +94,7 @@ ObjectRpcWrapper::checkStatus()
                 "refreshing object map",
                 session->getServiceLocator().c_str(),
                 tableId, keyHash);
-        ramcloud->objectFinder.flush(tableId);
+        ramcloud->objectFinder->flush(tableId);
         send();
         return false;
     }
@@ -107,9 +108,9 @@ ObjectRpcWrapper::handleTransportError()
     // There was a transport-level failure. Flush cached state related
     // to this session, and related to the object mapping for our object.
     // Then retry.
-    ramcloud->objectFinder.flushSession(tableId, keyHash);
+    ramcloud->objectFinder->flushSession(tableId, keyHash);
     session = NULL;
-    ramcloud->objectFinder.flush(tableId);
+    ramcloud->objectFinder->flush(tableId);
     send();
     return false;
 }
@@ -118,7 +119,7 @@ ObjectRpcWrapper::handleTransportError()
 void
 ObjectRpcWrapper::send()
 {
-    session = ramcloud->objectFinder.lookup(tableId, keyHash);
+    session = ramcloud->objectFinder->lookup(tableId, keyHash);
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
 }

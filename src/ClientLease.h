@@ -18,6 +18,7 @@
 
 #include "Common.h"
 #include "CoordinatorClient.h"
+#include "Dispatch.h"
 #include "WireFormat.h"
 
 namespace RAMCloud {

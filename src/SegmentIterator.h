@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -48,7 +48,7 @@ class SegmentIterator {
   public:
     explicit SegmentIterator(Segment& segment);
     SegmentIterator(const void* buffer, uint32_t length,
-                    const Segment::Certificate& certificate);
+                    const SegmentCertificate& certificate);
     SegmentIterator(const SegmentIterator& other);
     SegmentIterator& operator=(const SegmentIterator& other);
     ~SegmentIterator();
@@ -160,7 +160,7 @@ class SegmentIterator {
     /// checkMetadataIntegrity() must be called explicitly before iterating
     /// over the segment, otherwise, only the length is used from the
     /// certificate and the metadata of the segment is trusted.
-    Segment::Certificate certificate;
+    SegmentCertificate certificate;
 
     /// Current offset into the segment. This points to the entry we're on and
     /// will use in the getType, getLength, appendToBuffer, etc. calls.

@@ -20,6 +20,7 @@
 #include "Cycles.h"
 #include "EnumerationIterator.h"
 #include "LogIterator.h"
+#include "LogMetadata.h"
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "Memory.h"
@@ -49,7 +50,7 @@ class MasterServiceRefresher : public ObjectFinder::TableConfigFetcher {
         tableMap->clear();
 
         Tablet rawEntry({1, 0, ~0, ServerId(),
-                            Tablet::NORMAL, Log::Position()});
+                            Tablet::NORMAL, LogPosition()});
         TabletWithLocator entry(rawEntry, "mock:host=master");
 
         TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
@@ -57,7 +58,7 @@ class MasterServiceRefresher : public ObjectFinder::TableConfigFetcher {
 
         if (refreshCount > 0) {
             Tablet rawEntry2({99, 0, ~0, ServerId(),
-                    Tablet::NORMAL, Log::Position()});
+                    Tablet::NORMAL, LogPosition()});
             TabletWithLocator entry2(rawEntry2, "mock:host=master");
 
             TabletKey key2 {entry2.tablet.tableId, entry2.tablet.startKeyHash};
@@ -130,7 +131,7 @@ class MasterServiceTest : public ::testing::Test {
         service->objectManager.log.sync();
 
         ramcloud.construct(&context, "mock:host=coordinator");
-        ramcloud->objectFinder.tableConfigFetcher.reset(
+        ramcloud->objectFinder->tableConfigFetcher.reset(
                 new MasterServiceRefresher);
 
         service->tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
@@ -141,7 +142,7 @@ class MasterServiceTest : public ::testing::Test {
     void
     threadfunIncrementOne(uint64_t tblid, std::string key) {
         RamCloud myRamcloud(&context, "mock:host=coordinator");
-        myRamcloud.objectFinder.tableConfigFetcher.reset(
+        myRamcloud.objectFinder->tableConfigFetcher.reset(
                 new MasterServiceRefresher);
         uint16_t keyLen = uint16_t(key.length());
         myRamcloud.incrementInt64(tblid, key.data(), keyLen, 1, NULL, NULL);
@@ -152,7 +153,7 @@ class MasterServiceTest : public ::testing::Test {
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint32_t segmentCapacity,
             Key& key, uint64_t version, string objContents,
-            Segment::Certificate* outCertificate)
+            SegmentCertificate* outCertificate)
     {
         Segment s;
         uint32_t dataLength = downCast<uint32_t>(objContents.length()) + 1;
@@ -181,7 +182,7 @@ class MasterServiceTest : public ::testing::Test {
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
             ObjectTombstone& tomb,
-            Segment::Certificate* outCertificate)
+            SegmentCertificate* outCertificate)
     {
         Segment s;
         Buffer newTombstoneBuffer;
@@ -205,7 +206,7 @@ class MasterServiceTest : public ::testing::Test {
     uint32_t
     buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
             ObjectSafeVersion &safeVer,
-            Segment::Certificate* outCertificate)
+            SegmentCertificate* outCertificate)
     {
         Segment s;
         Buffer newSafeVerBuffer;
@@ -246,7 +247,7 @@ class MasterServiceTest : public ::testing::Test {
     {
         Segment seg;
         SegmentHeader header(logId, segmentId, 1000);
-        Segment::Certificate certificate;
+        SegmentCertificate certificate;
         seg.append(LOG_ENTRY_TYPE_SEGHEADER, &header, sizeof(header));
         seg.getAppendedLength(&certificate);
 
@@ -588,10 +589,10 @@ TEST_F(MasterServiceTest, enumerate_mergeTablet) {
 }
 
 TEST_F(MasterServiceTest, getHeadOfLog) {
-    EXPECT_EQ(Log::Position(2, 88),
+    EXPECT_EQ(LogPosition(2, 88),
             MasterClient::getHeadOfLog(&context, masterServer->serverId));
     ramcloud->write(1, "0", 1, "abcdef", 6);
-    EXPECT_EQ(Log::Position(3, 96),
+    EXPECT_EQ(LogPosition(3, 96),
             MasterClient::getHeadOfLog(&context, masterServer->serverId));
 }
 
@@ -809,7 +810,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     Log* master2Log = &master2->master->objectManager.log;
     master2Log->sync();
 
-    Log::Position master2HeadPositionBefore = Log::Position(
+    LogPosition master2HeadPositionBefore = LogPosition(
             master2Log->head->id, master2Log->head->getAppendedLength());
 
     // JIRA Issue: RAM-441: Without the syncCoordinatorServerList() call in
@@ -834,9 +835,9 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     // appropriate. It should be greater than the log position before
     // migration, but less than the current log position (since we added
     // data).
-    Log::Position master2HeadPositionAfter = Log::Position(
+    LogPosition master2HeadPositionAfter = LogPosition(
             master2Log->head->id, master2Log->head->getAppendedLength());
-    Log::Position ctimeCoord =
+    LogPosition ctimeCoord =
             cluster.coordinator->tableManager.getTablet(tbl, 0).ctime;
     EXPECT_GT(ctimeCoord, master2HeadPositionBefore);
     EXPECT_LT(ctimeCoord, master2HeadPositionAfter);

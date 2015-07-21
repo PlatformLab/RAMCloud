@@ -16,6 +16,7 @@
 #include "TestUtil.h"
 #include "LinearizableObjectRpcWrapper.h"
 #include "MockCluster.h"
+#include "RpcTracker.h"
 #include "WireFormat.h"
 
 namespace RAMCloud {
@@ -49,9 +50,9 @@ TEST_F(LinearizableObjectRpcWrapperTest, destroy_rpc_in_progress) {
         WireFormat::Write::Request* reqHdr(
                 wrapper.allocHeader<WireFormat::Write>());
         wrapper.fillLinearizabilityHeader<WireFormat::Write::Request>(reqHdr);
-        EXPECT_EQ(0UL, ramcloud.rpcTracker.ackId());
+        EXPECT_EQ(0UL, ramcloud.rpcTracker->ackId());
     }
-    EXPECT_EQ(1UL, ramcloud.rpcTracker.ackId());
+    EXPECT_EQ(1UL, ramcloud.rpcTracker->ackId());
 }
 
 TEST_F(LinearizableObjectRpcWrapperTest, fillLinearizabilityHeader_writeRpc) {
@@ -84,9 +85,9 @@ TEST_F(LinearizableObjectRpcWrapperTest, waitInternal) {
     EXPECT_EQ(1UL, reqHdr->rpcId);
     EXPECT_EQ(0UL, reqHdr->ackId);
 
-    EXPECT_EQ(0UL, ramcloud.rpcTracker.ackId());
+    EXPECT_EQ(0UL, ramcloud.rpcTracker->ackId());
     wrapper.waitInternal(ramcloud.clientContext->dispatch);
-    EXPECT_EQ(1UL, ramcloud.rpcTracker.ackId());
+    EXPECT_EQ(1UL, ramcloud.rpcTracker->ackId());
 
     //2. CANCELLED operation.
     LinearizableObjectRpcWrapper wrapper2(&ramcloud, true, 10, "abc", 3, 4);
@@ -99,9 +100,9 @@ TEST_F(LinearizableObjectRpcWrapperTest, waitInternal) {
     EXPECT_EQ(2UL, reqHdr->rpcId);
     EXPECT_EQ(1UL, reqHdr->ackId);
 
-    EXPECT_EQ(1UL, ramcloud.rpcTracker.ackId());
+    EXPECT_EQ(1UL, ramcloud.rpcTracker->ackId());
     wrapper2.cancel();
-    EXPECT_EQ(2UL, ramcloud.rpcTracker.ackId());
+    EXPECT_EQ(2UL, ramcloud.rpcTracker->ackId());
 }
 
 TEST_F(LinearizableObjectRpcWrapperTest, tryFinish) {
@@ -121,9 +122,9 @@ TEST_F(LinearizableObjectRpcWrapperTest, tryFinish) {
     EXPECT_EQ(0UL, reqHdr->ackId);
 
     TestLog::reset();
-    EXPECT_EQ(0UL, ramcloud.rpcTracker.ackId());
+    EXPECT_EQ(0UL, ramcloud.rpcTracker->ackId());
     wrapper.tryFinish();
-    EXPECT_EQ(1UL, ramcloud.rpcTracker.ackId());
+    EXPECT_EQ(1UL, ramcloud.rpcTracker->ackId());
 
     EXPECT_EQ("tryFinish: called", TestLog::get());
 }

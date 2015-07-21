@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -96,7 +96,7 @@ FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
  *      The objects matching the above parameters will be returned in this
  *      buffer, organized as a Segment.
  */
-Segment::Certificate
+SegmentCertificate
 BackupClient::getRecoveryData(Context* context,
                               ServerId backupId,
                               uint64_t recoveryId,
@@ -169,13 +169,13 @@ GetRecoveryDataRpc::GetRecoveryDataRpc(Context* context,
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
-Segment::Certificate
+SegmentCertificate
 GetRecoveryDataRpc::wait()
 {
     waitAndCheckErrors();
     const WireFormat::BackupGetRecoveryData::Response* respHdr(
             getResponseHeader<WireFormat::BackupGetRecoveryData>());
-    Segment::Certificate certificate = respHdr->certificate;
+    SegmentCertificate certificate = respHdr->certificate;
 
     // respHdr off limits.
     response->truncateFront(sizeof(
@@ -568,7 +568,7 @@ BackupClient::writeSegment(Context* context,
                            const Segment* segment,
                            uint32_t offset,
                            uint32_t length,
-                           const Segment::Certificate* certificate,
+                           const SegmentCertificate* certificate,
                            bool open,
                            bool close,
                            bool primary)
@@ -646,7 +646,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  const Segment* segment,
                                  uint32_t offset,
                                  uint32_t length,
-                                 const Segment::Certificate* certificate,
+                                 const SegmentCertificate* certificate,
                                  bool open,
                                  bool close,
                                  bool primary)
@@ -664,7 +664,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
     if (reqHdr->certificateIncluded)
         reqHdr->certificate = *certificate;
     else
-        reqHdr->certificate = Segment::Certificate();
+        reqHdr->certificate = SegmentCertificate();
     reqHdr->open = open;
     reqHdr->close = close;
     reqHdr->primary = primary;

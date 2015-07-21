@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,6 +34,7 @@
 #include "MultiWrite.h"
 #include "OptionParser.h"
 #include "Object.h"
+#include "ObjectFinder.h"
 #include "RawMetrics.h"
 #include "RamCloud.h"
 #include "Segment.h"
@@ -1838,7 +1839,7 @@ try
     uint64_t tableId = ramcloud.getTableId(options.tableName.c_str());
 
     string locator =
-        ramcloud.objectFinder.lookupTablet(tableId, 0)->serviceLocator;
+        ramcloud.objectFinder->lookupTablet(tableId, 0)->serviceLocator;
 
     ProtoBuf::ServerConfig serverConfig;
     ramcloud.getServerConfig(locator.c_str(), serverConfig);

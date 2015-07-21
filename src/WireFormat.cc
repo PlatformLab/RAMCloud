@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <iostream>
+
 #include "WireFormat.h"
 #include "Buffer.h"
 

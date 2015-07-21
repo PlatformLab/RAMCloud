@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,7 +24,7 @@
 #ifndef RAMCLOUD_CLIENTEXCEPTION_H
 #define RAMCLOUD_CLIENTEXCEPTION_H
 
-#include "Common.h"
+#include "Exception.h"
 #include "Status.h"
 
 namespace RAMCloud {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -53,14 +53,14 @@ struct Tablet {
     Status status;
 
     /**
-     * The Log::Position of the log belonging to the master that owns this
+     * The LogPosition of the log belonging to the master that owns this
      * tablet when it was assigned to the server. Any earlier position
      * cannot contain data belonging to this tablet.
      */
-    Log::Position ctime;
+    LogPosition ctime;
 
     Tablet(uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
-            ServerId serverId, Status status, Log::Position ctime)
+            ServerId serverId, Status status, LogPosition ctime)
         : tableId(tableId)
         , startKeyHash(startKeyHash)
         , endKeyHash(endKeyHash)

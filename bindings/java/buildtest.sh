@@ -4,8 +4,45 @@ cd ../..
 
 make clean
 make -j12 test
-g++ -shared -fPIC -o bindings/java/lib/libramcloudtest.so obj.javabindings/AbstractLog.o obj.javabindings/BackupClient.o obj.javabindings/BackupFailureMonitor.o obj.javabindings/BackupMasterRecovery.o obj.javabindings/BackupSelector.o obj.javabindings/BackupService.o obj.javabindings/BackupStorage.o obj.javabindings/CleanableSegmentManager.o obj.javabindings/CoordinatorServerList.o obj.javabindings/CoordinatorService.o obj.javabindings/CoordinatorUpdateInfo.pb.o obj.javabindings/CoordinatorUpdateManager.o obj.javabindings/DataBlock.o obj.javabindings/Enumeration.o obj.javabindings/EnumerationIterator.o obj.javabindings/EnumerationIterator.pb.o obj.javabindings/FailureDetector.o obj.javabindings/HashTable.o obj.javabindings/InMemoryStorage.o obj.javabindings/IndexletManager.o obj.javabindings/Log.o obj.javabindings/LogCleaner.o obj.javabindings/LogDigest.o obj.javabindings/LogEntryRelocator.o obj.javabindings/LogIterator.o obj.javabindings/MasterRecoveryManager.o obj.javabindings/MasterService.o obj.javabindings/MasterTableMetadata.o obj.javabindings/MembershipService.o obj.javabindings/MinCopysetsBackupSelector.o obj.javabindings/MockCluster.o obj.javabindings/MockDriver.o obj.javabindings/MockExternalStorage.o obj.javabindings/MockInfiniband.o obj.javabindings/MockTransport.o obj.javabindings/ObjectManager.o obj.javabindings/OptionParser.o obj.javabindings/PingService.o obj.javabindings/PriorityTaskQueue.o obj.javabindings/Recovery.o obj.javabindings/RecoverySegmentBuilder.o obj.javabindings/ReplicaManager.o obj.javabindings/ReplicatedSegment.o obj.javabindings/RuntimeOptions.o obj.javabindings/SegmentIterator.o obj.javabindings/SegmentManager.o obj.javabindings/Server.o obj.javabindings/ServerListEntry.pb.o obj.javabindings/SideLog.o obj.javabindings/SingleFileStorage.o obj.javabindings/Table.pb.o obj.javabindings/TableManager.o obj.javabindings/TableManager.pb.o obj.javabindings/TableStats.o obj.javabindings/Tablet.o obj.javabindings/TabletManager.o obj.javabindings/TaskQueue.o obj.javabindings/WallTime.o -ldl -lpcrecpp -lboost_program_options -lprotobuf -lrt -lboost_filesystem -lboost_system -lssl -lcrypto -rdynamic -libverbs
+g++ -shared -fPIC -o bindings/java/lib/libramcloudtest.so \
+    obj.javabindings/AbstractLog.o obj.javabindings/BackupClient.o \
+    obj.javabindings/BackupFailureMonitor.o \
+    obj.javabindings/BackupMasterRecovery.o obj.javabindings/BackupSelector.o \
+    obj.javabindings/BackupService.o obj.javabindings/BackupStorage.o \
+    obj.javabindings/CleanableSegmentManager.o \
+    obj.javabindings/CoordinatorServerList.o \
+    obj.javabindings/CoordinatorService.o \
+    obj.javabindings/CoordinatorUpdateInfo.pb.o \
+    obj.javabindings/CoordinatorUpdateManager.o \
+    obj.javabindings/DataBlock.o obj.javabindings/Enumeration.o \
+    obj.javabindings/EnumerationIterator.o \
+    obj.javabindings/EnumerationIterator.pb.o \
+    obj.javabindings/FailureDetector.o obj.javabindings/HashTable.o \
+    obj.javabindings/InMemoryStorage.o obj.javabindings/IndexletManager.o \
+    obj.javabindings/Log.o obj.javabindings/LogCleaner.o \
+    obj.javabindings/LogDigest.o obj.javabindings/LogEntryRelocator.o \
+    obj.javabindings/LogIterator.o obj.javabindings/MasterRecoveryManager.o \
+    obj.javabindings/MasterService.o obj.javabindings/MasterTableMetadata.o \
+    obj.javabindings/MembershipService.o \
+    obj.javabindings/MinCopysetsBackupSelector.o \
+    obj.javabindings/MockCluster.o \
+    obj.javabindings/MockDriver.o \
+    obj.javabindings/MockExternalStorage.o \
+    obj.javabindings/MockInfiniband.o \
+    obj.javabindings/MockTransport.o obj.javabindings/ObjectManager.o \
+    obj.javabindings/OptionParser.o obj.javabindings/PingService.o \
+    obj.javabindings/PriorityTaskQueue.o obj.javabindings/Recovery.o \
+    obj.javabindings/RecoverySegmentBuilder.o \
+    obj.javabindings/ReplicaManager.o obj.javabindings/ReplicatedSegment.o \
+    obj.javabindings/RuntimeOptions.o obj.javabindings/SegmentIterator.o \
+    obj.javabindings/SegmentManager.o obj.javabindings/Server.o \
+    obj.javabindings/ServerListEntry.pb.o obj.javabindings/SideLog.o \
+    obj.javabindings/SingleFileStorage.o obj.javabindings/Table.pb.o \
+    obj.javabindings/TableManager.o obj.javabindings/TableManager.pb.o \
+    obj.javabindings/TableStats.o obj.javabindings/Tablet.o \
+    obj.javabindings/TabletManager.o obj.javabindings/TaskQueue.o \
+    obj.javabindings/WallTime.o \
+    -ldl -lpcrecpp -lboost_program_options -lprotobuf -lrt \
+    -lboost_filesystem -lboost_system -lssl -lcrypto -rdynamic -libverbs
 make clean
 make -j12 DEBUG=no
-
-#g++ -shared -lpthread -o obj.javabindings/libramcloud.so obj.javabindings/AbstractServerList.o obj.javabindings/Buffer.o obj.javabindings/CRamCloud.o obj.javabindings/ClientException.o obj.javabindings/ClusterMetrics.o obj.javabindings/CodeLocation.o obj.javabindings/Context.o obj.javabindings/CoordinatorClient.o obj.javabindings/CoordinatorRpcWrapper.o obj.javabindings/CoordinatorSession.o obj.javabindings/Crc32C.o obj.javabindings/Common.o obj.javabindings/Cycles.o obj.javabindings/Dispatch.o obj.javabindings/Driver.o obj.javabindings/ExternalStorage.o obj.javabindings/FailSession.o obj.javabindings/FastTransport.o obj.javabindings/IndexLookup.o obj.javabindings/IndexRpcWrapper.o obj.javabindings/IpAddress.o obj.javabindings/Key.o obj.javabindings/LogEntryTypes.o obj.javabindings/Logger.o obj.javabindings/LargeBlockOfMemory.o obj.javabindings/LogMetricsStringer.o obj.javabindings/MacAddress.o obj.javabindings/MasterClient.o obj.javabindings/Memory.o obj.javabindings/MultiOp.o obj.javabindings/MultiRead.o obj.javabindings/MultiRemove.o obj.javabindings/MultiWrite.o obj.javabindings/MurmurHash3.o obj.javabindings/Object.o obj.javabindings/ObjectBuffer.o obj.javabindings/ObjectFinder.o obj.javabindings/ObjectRpcWrapper.o obj.javabindings/PcapFile.o obj.javabindings/PerfCounter.o obj.javabindings/PingClient.o obj.javabindings/PortAlarm.o obj.javabindings/RamCloud.o obj.javabindings/RawMetrics.o obj.javabindings/SegletAllocator.o obj.javabindings/Seglet.o obj.javabindings/Segment.o obj.javabindings/RpcWrapper.o obj.javabindings/ServerIdRpcWrapper.o obj.javabindings/ServerList.o obj.javabindings/ServerMetrics.o obj.javabindings/ServerRpcPool.o obj.javabindings/Service.o obj.javabindings/ServiceLocator.o obj.javabindings/ServiceManager.o obj.javabindings/SessionAlarm.o obj.javabindings/SpinLock.o obj.javabindings/Status.o obj.javabindings/StringUtil.o obj.javabindings/TableEnumerator.o obj.javabindings/TcpTransport.o obj.javabindings/TestLog.o obj.javabindings/ThreadId.o obj.javabindings/TimeCounter.o obj.javabindings/TimeTrace.o obj.javabindings/Transport.o obj.javabindings/TransportManager.o obj.javabindings/UdpDriver.o obj.javabindings/Util.o obj.javabindings/WireFormat.o obj.javabindings/WorkerSession.o obj.javabindings/WorkerTimer.o obj.javabindings/ZooStorage.o obj.javabindings/Infiniband.o obj.javabindings/InfRcTransport.o obj.javabindings/InfUdDriver.o obj.javabindings/Histogram.pb.o obj.javabindings/LogMetrics.pb.o obj.javabindings/MasterRecoveryInfo.pb.o obj.javabindings/MetricList.pb.o obj.javabindings/ServerConfig.pb.o obj.javabindings/ServerList.pb.o obj.javabindings/ServerStatistics.pb.o obj.javabindings/SpinLockStatistics.pb.o obj.javabindings/Tablets.pb.o obj.javabindings/Indexlet.pb.o obj.javabindings/RecoveryPartition.pb.o obj.javabindings/TableConfig.pb.o -Wl,--no-undefined  /usr/local/lib/libzookeeper_mt.a -lpcrecpp -lboost_program_options -lprotobuf -lrt -lboost_filesystem -lboost_system -lpthread -lssl -lcrypto -rdynamic -libverbs

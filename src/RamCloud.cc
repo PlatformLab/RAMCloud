@@ -16,6 +16,7 @@
 #include <stdarg.h>
 
 #include "RamCloud.h"
+#include "ClientLease.h"
 #include "CoordinatorSession.h"
 #include "LinearizableObjectRpcWrapper.h"
 #include "FailSession.h"
@@ -25,10 +26,11 @@
 #include "MultiRemove.h"
 #include "MultiWrite.h"
 #include "Object.h"
+#include "ObjectFinder.h"
 #include "ProtoBuf.h"
+#include "RpcTracker.h"
 #include "ShortMacros.h"
 #include "TimeTrace.h"
-#include "RpcTracker.h"
 
 namespace RAMCloud {
 
@@ -65,12 +67,12 @@ static RejectRules defaultRejectRules;
  */
 RamCloud::RamCloud(const char* locator, const char* clusterName)
     : coordinatorLocator(locator)
-    , realClientContext()
-    , clientContext(realClientContext.construct(false))
+    , realClientContext(new Context(false))
+    , clientContext(realClientContext)
     , status(STATUS_OK)
-    , clientLease(this)
-    , objectFinder(clientContext)
-    , rpcTracker()
+    , clientLease(new ClientLease(this))
+    , objectFinder(new ObjectFinder(clientContext))
+    , rpcTracker(new RpcTracker())
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
@@ -83,12 +85,12 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
 RamCloud::RamCloud(Context* context, const char* locator,
         const char* clusterName)
     : coordinatorLocator(locator)
-    , realClientContext()
+    , realClientContext(NULL)
     , clientContext(context)
     , status(STATUS_OK)
-    , clientLease(this)
-    , objectFinder(clientContext)
-    , rpcTracker()
+    , clientLease(new ClientLease(this))
+    , objectFinder(new ObjectFinder(clientContext))
+    , rpcTracker(new RpcTracker())
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
@@ -99,10 +101,14 @@ RamCloud::RamCloud(Context* context, const char* locator,
 
 RamCloud::~RamCloud()
 {
+    delete clientLease;
+
     // Force ObjectManager to drop all of its cached sessions; otherwise
     // they won't get destroyed until after their transports have been deleted.
-    objectFinder.reset();
-    realClientContext.destroy();
+    objectFinder->reset();
+    delete objectFinder;
+    delete rpcTracker;
+    delete realClientContext;
 }
 
 /**
@@ -545,7 +551,7 @@ EnumerateTableRpc::EnumerateTableRpc(RamCloud* ramcloud, uint64_t tableId,
 uint64_t
 EnumerateTableRpc::wait(Buffer& state)
 {
-    simpleWait(ramcloud->clientContext->dispatch);
+    simpleWait(ramcloud->clientContext);
     const WireFormat::Enumerate::Response* respHdr(
             getResponseHeader<WireFormat::Enumerate>());
     uint64_t result = respHdr->tabletFirstHash;
@@ -1331,7 +1337,7 @@ ReadHashesRpc::ReadHashesRpc(RamCloud* ramcloud, uint64_t tableId,
 uint32_t
 ReadHashesRpc::wait(uint32_t* numObjects)
 {
-    simpleWait(ramcloud->clientContext->dispatch);
+    simpleWait(ramcloud->clientContext);
     const WireFormat::ReadHashes::Response* respHdr(
             getResponseHeader<WireFormat::ReadHashes>());
     *numObjects = respHdr->numObjects;
@@ -1636,7 +1642,7 @@ void
 LookupIndexKeysRpc::wait(uint32_t* numHashes, uint16_t* nextKeyLength,
         uint64_t* nextKeyHash)
 {
-    simpleWait(context->dispatch);
+    simpleWait(context);
 
     const WireFormat::LookupIndexKeys::Response* respHdr(
             getResponseHeader<WireFormat::LookupIndexKeys>());
@@ -2491,7 +2497,8 @@ RamCloud::testingGetServerId(uint64_t tableId,
         const void* key, uint16_t keyLength)
 {
     KeyHash keyHash = Key::getHash(tableId, key, keyLength);
-    return objectFinder.lookupTablet(tableId, keyHash)->tablet.serverId.getId();
+    return objectFinder->lookupTablet(tableId,
+            keyHash)->tablet.serverId.getId();
 }
 
 /**
@@ -2507,7 +2514,7 @@ RamCloud::testingGetServiceLocator(uint64_t tableId,
         const void* key, uint16_t keyLength)
 {
     KeyHash keyHash = Key::getHash(tableId, key, keyLength);
-    return objectFinder.lookupTablet(tableId, keyHash)->serviceLocator;
+    return objectFinder->lookupTablet(tableId, keyHash)->serviceLocator;
 }
 
 /**
@@ -2528,7 +2535,7 @@ void
 RamCloud::testingKill(uint64_t tableId, const void* key, uint16_t keyLength)
 {
     KillRpc rpc(this, tableId, key, keyLength);
-    objectFinder.waitForTabletDown(tableId);
+    objectFinder->waitForTabletDown(tableId);
 }
 
 /**
@@ -2618,7 +2625,7 @@ SetRuntimeOptionRpc::SetRuntimeOptionRpc(RamCloud* ramcloud,
 void
 RamCloud::testingWaitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs)
 {
-    objectFinder.waitForAllTabletsNormal(tableId, timeoutNs);
+    objectFinder->waitForAllTabletsNormal(tableId, timeoutNs);
 }
 
 /**

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -15,6 +15,7 @@
 
 #include "ClientException.h"
 #include "Cycles.h"
+#include "Dispatch.h"
 #include "Exception.h"
 #include "Logger.h"
 #include "RpcWrapper.h"
@@ -306,13 +307,13 @@ RpcWrapper::send()
  * and checks for errors.  It is invoked by various other wrapper
  * classes as their implementation of \c wait.
  *
- * \param dispatch
- *      Dispatch to use for polling while waiting.
+ * \param context
+ *      The dispatcher for this context will be used for polling while waiting.
  */
 void
-RpcWrapper::simpleWait(Dispatch* dispatch)
+RpcWrapper::simpleWait(Context* context)
 {
-    waitInternal(dispatch);
+    waitInternal(context->dispatch);
     if (responseHeader->status != STATUS_OK)
         ClientException::throwException(HERE, responseHeader->status);
 }

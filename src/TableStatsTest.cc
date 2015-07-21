@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -43,21 +43,21 @@ class TableStatsTest : public ::testing::Test {
 
     void fillTabletsStandard() {
         tablets.clear();
-        Tablet t1 = {1, 1, 1, ServerId(), Tablet::NORMAL, Log::Position()};
+        Tablet t1 = {1, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
         tablets.push_back(t1);
-        Tablet t2 = {2, 1, 10, ServerId(), Tablet::NORMAL, Log::Position()};
+        Tablet t2 = {2, 1, 10, ServerId(), Tablet::NORMAL, LogPosition()};
         tablets.push_back(t2);
-        Tablet t3 = {64, 1, 1, ServerId(), Tablet::NORMAL, Log::Position()};
+        Tablet t3 = {64, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
         tablets.push_back(t3);
-        Tablet t4 = {64, 21, 40, ServerId(), Tablet::NORMAL, Log::Position()};
+        Tablet t4 = {64, 21, 40, ServerId(), Tablet::NORMAL, LogPosition()};
         tablets.push_back(t4);
-        Tablet t5 = {65, 1, 1, ServerId(), Tablet::NORMAL, Log::Position()};
+        Tablet t5 = {65, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
         tablets.push_back(t5);
-        Tablet t6 = {65, 21, 50, ServerId(), Tablet::NORMAL, Log::Position()};
+        Tablet t6 = {65, 21, 50, ServerId(), Tablet::NORMAL, LogPosition()};
         tablets.push_back(t6);
-        Tablet t7 = {66, 1, 1, ServerId(), Tablet::NORMAL, Log::Position()};
+        Tablet t7 = {66, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
         tablets.push_back(t7);
-        Tablet t8 = {66, 21, 60, ServerId(), Tablet::NORMAL, Log::Position()};
+        Tablet t8 = {66, 21, 60, ServerId(), Tablet::NORMAL, LogPosition()};
         tablets.push_back(t8);
     }
 
@@ -251,7 +251,7 @@ TEST_F(TableStatsTest, estimator_estimate_basic) {
 
     TableStats::Estimator::Entry ret;
 
-    Tablet tt1 = {1, 1, 1, ServerId(), Tablet::NORMAL, Log::Position()};
+    Tablet tt1 = {1, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
     ret = e.estimate(&tt1);
     EXPECT_EQ(1u, ret.keyRange);
     EXPECT_EQ(static_cast<unsigned>((TableStats::threshold
@@ -259,7 +259,7 @@ TEST_F(TableStatsTest, estimator_estimate_basic) {
               ret.byteCount);
     EXPECT_EQ(63333u / 11, ret.recordCount);
 
-    Tablet tt2 = {66, 21, 60, ServerId(), Tablet::NORMAL, Log::Position()};
+    Tablet tt2 = {66, 21, 60, ServerId(), Tablet::NORMAL, LogPosition()};
     ret = e.estimate(&tt2);
 
     MasterTableMetadata::Entry* entry;
@@ -285,14 +285,14 @@ TEST_F(TableStatsTest, estimator_estimate_keyRange_zero) {
 
     TableStats::Estimator::Entry ret;
 
-    Tablet tt1 = {1, 1, 1, ServerId(), Tablet::NORMAL, Log::Position()};
+    Tablet tt1 = {1, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
     ret = e.estimate(&tt1);
     EXPECT_EQ(1.0, ret.keyRange);
     EXPECT_EQ(0u, ret.byteCount);
     EXPECT_EQ(0u, ret.recordCount);
 
     Tablet tt2 = {66, 1, 1,
-                  ServerId(), Tablet::NORMAL, Log::Position()};
+                  ServerId(), Tablet::NORMAL, LogPosition()};
     ret = e.estimate(&tt2);
     EXPECT_EQ(1.0, ret.keyRange);
     EXPECT_EQ(0u, ret.byteCount);
@@ -305,7 +305,7 @@ TEST_F(TableStatsTest, estimator_Estimate_full_tablet) {
     // Fill tablets
     tablets.clear();
     Tablet t7 = {66, 0, 0xFFFFFFFFFFFFFFFF,
-                 ServerId(), Tablet::NORMAL, Log::Position()};
+                 ServerId(), Tablet::NORMAL, LogPosition()};
     tablets.push_back(t7);
 
     TableStats::Estimator e(digest, &tablets);
@@ -313,7 +313,7 @@ TEST_F(TableStatsTest, estimator_Estimate_full_tablet) {
     TableStats::Estimator::Entry ret;
 
     Tablet tt2 = {66, 0, 0xFFFFFFFFFFFFFFFF,
-                  ServerId(), Tablet::NORMAL, Log::Position()};
+                  ServerId(), Tablet::NORMAL, LogPosition()};
     ret = e.estimate(&tt2);
 
     MasterTableMetadata::Entry* entry;

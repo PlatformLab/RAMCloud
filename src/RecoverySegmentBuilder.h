@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -42,15 +42,15 @@ namespace RAMCloud {
 class RecoverySegmentBuilder {
   PUBLIC:
     static void build(const void* buffer, uint32_t length,
-                      const Segment::Certificate& certificate,
+                      const SegmentCertificate& certificate,
                       int numPartitions,
                       const ProtoBuf::RecoveryPartition& partitions,
                       Segment* recoverySegments);
     static bool extractDigest(const void* buffer, uint32_t length,
-                              const Segment::Certificate& certificate,
+                              const SegmentCertificate& certificate,
                               Buffer* digestBuffer, Buffer* tableStatsBuffer);
   PRIVATE:
-    static bool isEntryAlive(const Log::Position& position,
+    static bool isEntryAlive(const LogPosition& position,
                              const ProtoBuf::Tablets::Tablet* tablet);
     static const ProtoBuf::Tablets::Tablet*
     whichPartition(uint64_t tableId, KeyHash keyHash,

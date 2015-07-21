@@ -234,3 +234,16 @@ acknowledged. If it is, we can clean it up. If not, the log entry is still
 valid and needs to be copied to a new location in the log. After relocating
 the log entry, we should update UnackedRpcResults to have correct pointer
 to the log entry.
+
+Header Minimization
+-------------------
+In several places in the RAMCloud sources, nested structures are referenced
+with a pointer rather than an inline structure, e.g.
+    ClientLease *clientLease
+not
+    ClientLease clientLease
+This ccomplicates storage management slightly (e.g., destructors must free
+the nested object), but it eliminates the need for the corresponding header
+file to be included. This is important primarily in header files that are
+used by clients, such as RamCloud.h:  without this approach, virtually every
+RAMCloud header file would be needed to compile a client application.

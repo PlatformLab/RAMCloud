@@ -13,7 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Common.h"
 #include "RamCloud.h"
 #include "ObjectRpcWrapper.h"
 #include "RpcTracker.h"

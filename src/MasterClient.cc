@@ -180,7 +180,7 @@ DropTabletOwnershipRpc::DropTabletOwnershipRpc(Context* context,
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
-Log::Position
+LogPosition
 MasterClient::getHeadOfLog(Context* context, ServerId serverId)
 {
     GetHeadOfLogRpc rpc(context, serverId);
@@ -217,7 +217,7 @@ GetHeadOfLogRpc::GetHeadOfLogRpc(Context* context, ServerId serverId)
  *      The intended server for this RPC is not part of the cluster;
  *      if it ever existed, it has since crashed.
  */
-Log::Position
+LogPosition
 GetHeadOfLogRpc::wait()
 {
     waitAndCheckErrors();
