@@ -460,15 +460,6 @@ TEST_F(ClientTransactionTaskTest, insertCacheEntry) {
 }
 
 TEST_F(ClientTransactionTaskTest, performTask_basic) {
-    // Make sure objects exist first.
-    ramcloud->write(tableId1, "test1", 5, "hello", 5);
-    ramcloud->write(tableId1, "test2", 5, "hello", 5);
-    ramcloud->write(tableId1, "test3", 5, "hello", 5);
-    ramcloud->write(tableId1, "test4", 5, "hello", 5);
-    ramcloud->write(tableId1, "test5", 5, "hello", 5);
-    ramcloud->write(tableId2, "test1", 5, "hello", 5);
-    ramcloud->write(tableId3, "test1", 5, "hello", 5);
-
     insertWrite(tableId1, "test1", 5, "hello", 5);
     insertWrite(tableId1, "test2", 5, "hello", 5);
     insertWrite(tableId1, "test3", 5, "hello", 5);
@@ -603,9 +594,6 @@ TEST_F(ClientTransactionTaskTest, initTask) {
 }
 
 TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_basic) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -620,9 +608,6 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_basic) {
 }
 
 TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_unknownTablet) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -641,9 +626,6 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_unknownTablet) {
 }
 
 TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_ServerNotUp) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -661,9 +643,6 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_ServerNotUp) {
 }
 
 TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_notReady) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -679,9 +658,6 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_notReady) {
 // TODO(cstlee) : Unit test processDecisionRpcResults_badStatus
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_basic) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -695,9 +671,6 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_basic) {
 }
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     // Start another transaction to cause a lock
     {
         ClientTransactionTask task(ramcloud.get());
@@ -728,9 +701,6 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort) {
 }
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_unknownTablet) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -749,8 +719,6 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_unknownTablet) {
 }
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_ServerNotUp) {
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -769,9 +737,6 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_ServerNotUp) {
 
 // TODO(cstlee) : Unit test processPrepareRpcResults_badStatus
 //TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_badStatus) {
-//    // Must make sure the object exists before we try to transaction on it.
-//    ramcloud->write(tableId1, "test", 4, "hello", 5);
-//
 //    insertWrite(tableId1, "test", 4, "hello", 5);
 //    transactionTask->initTask();
 //    transactionTask->lease.leaseId = 0;
@@ -789,9 +754,6 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_ServerNotUp) {
 //}
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_notReady) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
