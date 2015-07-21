@@ -220,7 +220,7 @@ TEST_F(LogCabinStorageTest, get_lostLeadership) {
     Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     Buffer value;
     EXPECT_THROW(storage->get("/test/var1", &value),
-                 ExternalStorage::LostLeadershipException);
+                 FatalError);
 }
 
 TEST_F(LogCabinStorageTest, get_noSuchObject) {
@@ -260,7 +260,7 @@ TEST_F(LogCabinStorageTest, getChildren_lostLeadership) {
     Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     std::vector<ExternalStorage::Object> children;
     EXPECT_THROW(storage->getChildren("/test", &children),
-                 ExternalStorage::LostLeadershipException);
+                 FatalError);
 }
 
 TEST_F(LogCabinStorageTest, getChildren_noSuchObject) {
@@ -301,7 +301,7 @@ TEST_F(LogCabinStorageTest, remove_lostLeadership) {
     storage->tree.setCondition("/test/leader", "me");
     Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     EXPECT_THROW(storage->remove("/test/var1"),
-                 ExternalStorage::LostLeadershipException);
+                 FatalError);
 }
 
 TEST_F(LogCabinStorageTest, remove_file) {
@@ -329,7 +329,7 @@ TEST_F(LogCabinStorageTest, set_lostLeadership) {
     Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     EXPECT_THROW(storage->set(ExternalStorage::Hint::CREATE,
                               "/test", "value1"),
-                 ExternalStorage::LostLeadershipException);
+                 FatalError);
 }
 
 TEST_F(LogCabinStorageTest, set_sucess) {
@@ -357,7 +357,7 @@ TEST_F(LogCabinStorageTest, setWorkspace_lostLeadership) {
     storage->tree.setCondition("/test/leader", "me");
     Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     EXPECT_THROW(storage->setWorkspace("/a/"),
-                 ExternalStorage::LostLeadershipException);
+                 FatalError);
 }
 
 TEST_F(LogCabinStorageTest, setWorkspace_ok) {
@@ -380,7 +380,7 @@ TEST_F(LogCabinStorageTest, leaseRewnerMain_deadline) {
     // first renewLease will succeed, second will fail due to condition
     Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     EXPECT_THROW(storage->leaseRenewerMain(LogCabinStorage::Clock::now()),
-                 ExternalStorage::LostLeadershipException);
+                 FatalError);
     EXPECT_GE(storage->expireLeaseIntervalMs * 1000UL * 1000UL,
               storage->lastTimeoutNs);
     EXPECT_LT(storage->expireLeaseIntervalMs * 1000UL * 500UL,
@@ -391,7 +391,7 @@ TEST_F(LogCabinStorageTest, makeParents_lostLeadership) {
     storage->tree.setCondition("/test/leader", "me");
     Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     EXPECT_THROW(storage->makeParents("/a/b"),
-                 ExternalStorage::LostLeadershipException);
+                 FatalError);
 }
 
 TEST_F(LogCabinStorageTest, makeParents_severalLevels) {
@@ -411,17 +411,17 @@ TEST_F(LogCabinStorageTest, renewLease_lostLeadership) {
     storage->tree.setCondition("/test/leader", "me");
     Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     EXPECT_THROW(storage->renewLease(LogCabinStorage::TimePoint::max()),
-                 ExternalStorage::LostLeadershipException);
+                 FatalError);
 }
 
 TEST_F(LogCabinStorageTest, renewLease_timeout) {
     Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
     EXPECT_THROW(storage->renewLease(LogCabinStorage::Clock::now() -
                                      std::chrono::milliseconds(10)),
-                 ExternalStorage::LostLeadershipException);
+                 FatalError);
     EXPECT_EQ(1U, storage->lastTimeoutNs);
     EXPECT_THROW(storage->renewLease(LogCabinStorage::Clock::now()),
-                 ExternalStorage::LostLeadershipException);
+                 FatalError);
     EXPECT_EQ(1U, storage->lastTimeoutNs);
     // timeouts were set on copy of tree, original was left intact
     EXPECT_EQ(0U, storage->tree.getTimeout());

@@ -25,6 +25,8 @@ OBJDIR	:= obj$(OBJSUFFIX)
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
 
+# Determines whether or not RAMCloud is built with support for LogCabin as an
+# ExternalStorage implementation.
 LOGCABIN ?= yes
 ifeq ($(LOGCABIN),yes)
 LOGCABIN_LIB ?= logcabin/build/liblogcabin.a
@@ -34,6 +36,8 @@ LOGCABIN_LIB :=
 LOGCABIN_DIR :=
 endif
 
+# Determines whether or not RAMCloud is built with support for ZooKeeper as an
+# ExternalStorage implementation.
 ZOOKEEPER ?= yes
 ifeq ($(ZOOKEEPER),yes)
 ZOOKEEPER_LIB ?= /usr/local/lib/libzookeeper_mt.a
@@ -97,9 +101,11 @@ endif
 INCLUDES := -I$(TOP)/src \
             -I$(TOP)/$(OBJDIR) \
             -I$(GTEST_DIR)/include \
-            -I$(LOGCABIN_DIR)/include \
             -I/usr/local/openonload-201405/src/include \
              $(NULL)
+ifeq ($(LOGCABIN),yes)
+INCLUDES := $(INCLUDES) -I$(LOGCABIN_DIR)/include
+endif
 
 CC ?= gcc
 CXX ?= g++

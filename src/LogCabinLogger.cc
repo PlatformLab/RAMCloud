@@ -67,6 +67,10 @@ logHandler(LogCabin::Client::Debug::DebugMessage message)
 /**
  * Set up debug logging in the LogCabin library to log to the RAMCloud
  * logger.
+ * \param logLevel
+ *      Configure LogCabin to log messages that are at least as important as
+ *      the given RAMCloud log level (messages that are less important will be
+ *      not be logged).
  */
 void
 setup(LogLevel logLevel)

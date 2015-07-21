@@ -1,4 +1,3 @@
-
 /* Copyright (c) 2013 Stanford University
  * Copyright (c) 2015 Diego Ongaro
  *
@@ -23,6 +22,9 @@
 #include "Logger.h"
 
 namespace RAMCloud {
+/**
+ * Contains functions for configuring LogCabin debug log messages.
+ */
 namespace LogCabinLogger {
 
 void setup(LogLevel logLevel);

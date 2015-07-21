@@ -225,9 +225,9 @@ LogCabinStorage::get(const char* name, Buffer* value)
             return false;
         }
         case LCStatus::CONDITION_NOT_MET: {
-            RAMCLOUD_LOG(WARNING, "Lost LogCabin leadership: %s",
+            RAMCLOUD_DIE("Lost LogCabin leadership: "
+                         "someone else timed out this server's lease (%s)",
                          result.error.c_str());
-            throw LostLeadershipException(HERE);
         }
         default: {
             RAMCLOUD_DIE("Error reading %s: %s",
@@ -255,9 +255,9 @@ LogCabinStorage::getChildren(const char* name,
             return;
         }
         case LCStatus::CONDITION_NOT_MET: {
-            RAMCLOUD_LOG(WARNING, "Lost LogCabin leadership: %s",
+            RAMCLOUD_DIE("Lost LogCabin leadership: "
+                         "someone else timed out this server's lease (%s)",
                          result.error.c_str());
-            throw LostLeadershipException(HERE);
         }
         default: {
             RAMCLOUD_DIE("Error listing %s: %s",
@@ -291,9 +291,9 @@ LogCabinStorage::getChildren(const char* name,
                     break;
                 }
                 case LCStatus::CONDITION_NOT_MET: {
-                    RAMCLOUD_LOG(WARNING, "Lost LogCabin leadership: %s",
+                    RAMCLOUD_DIE("Lost LogCabin leadership: someone else "
+                                 "timed out this server's lease (%s)",
                                  result.error.c_str());
-                    throw LostLeadershipException(HERE);
                 }
                 default: {
                     RAMCLOUD_DIE("Error reading %s: %s",
@@ -341,9 +341,9 @@ LogCabinStorage::remove(const char* name)
             return;
         }
         case LCStatus::CONDITION_NOT_MET: {
-            RAMCLOUD_LOG(WARNING, "Lost LogCabin leadership: %s",
+            RAMCLOUD_DIE("Lost LogCabin leadership: "
+                         "someone else timed out this server's lease (%s)",
                          result.error.c_str());
-            throw LostLeadershipException(HERE);
         }
         case LCStatus::TYPE_ERROR: {
             // it's probably a directory, try removeDirectory
@@ -363,9 +363,9 @@ LogCabinStorage::remove(const char* name)
             return;
         }
         case LCStatus::CONDITION_NOT_MET: {
-            RAMCLOUD_LOG(WARNING, "Lost LogCabin leadership: %s",
+            RAMCLOUD_DIE("Lost LogCabin leadership: "
+                         "someone else timed out this server's lease (%s)",
                          result.error.c_str());
-            throw LostLeadershipException(HERE);
         }
         case LCStatus::TYPE_ERROR: // fallthrough (tried both ways now)
         default: {
@@ -398,9 +398,9 @@ LogCabinStorage::set(Hint flavor, const char* name, const char* value,
                 break; // try again
             }
             case LCStatus::CONDITION_NOT_MET: {
-                RAMCLOUD_LOG(WARNING, "Lost LogCabin leadership: %s",
+                RAMCLOUD_DIE("Lost LogCabin leadership: "
+                             "someone else timed out this server's lease (%s)",
                              result.error.c_str());
-                throw LostLeadershipException(HERE);
             }
             default: {
                 RAMCLOUD_DIE("Error writing %s: %s",
@@ -424,9 +424,9 @@ LogCabinStorage::setWorkspace(const char* pathPrefix)
             return;
         }
         case LCStatus::CONDITION_NOT_MET: {
-            RAMCLOUD_LOG(WARNING, "Lost LogCabin leadership: %s",
+            RAMCLOUD_DIE("Lost LogCabin leadership: "
+                         "someone else timed out this server's lease (%s)",
                          result.error.c_str());
-            throw LostLeadershipException(HERE);
         }
         default: {
             RAMCLOUD_DIE("Error setting working directory to %s: %s",
@@ -473,9 +473,9 @@ LogCabinStorage::makeParents(const char* name)
             return;
         }
         case LCStatus::CONDITION_NOT_MET: {
-            RAMCLOUD_LOG(WARNING, "Lost LogCabin leadership: %s",
+            RAMCLOUD_DIE("Lost LogCabin leadership: "
+                         "someone else timed out this server's lease (%s)",
                          result.error.c_str());
-            throw LostLeadershipException(HERE);
         }
         default: {
             RAMCLOUD_DIE("Error creating parents of %s: %s",
@@ -512,13 +512,15 @@ LogCabinStorage::renewLease(TimePoint deadline)
         case LCStatus::OK: {
             return;
         }
-        case LCStatus::TIMEOUT: // fallthrough
-        case LCStatus::CONDITION_NOT_MET: {
-            RAMCLOUD_LOG(WARNING, "Lost LogCabin leadership: %s",
+        case LCStatus::TIMEOUT: {
+            RAMCLOUD_DIE("Lost LogCabin leadership: "
+                         "couldn't renew within deadline period (%s)",
                          result.error.c_str());
-            // there's no stack frame above to catch this, but let's use the
-            // exception anyway since the rest of the file does
-            throw LostLeadershipException(HERE);
+        }
+        case LCStatus::CONDITION_NOT_MET: {
+            RAMCLOUD_DIE("Lost LogCabin leadership: "
+                         "someone else timed out this server's lease (%s)",
+                         result.error.c_str());
         }
         default: {
             RAMCLOUD_DIE("Error writing %s: %s",
