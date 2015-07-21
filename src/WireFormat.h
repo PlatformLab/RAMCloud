@@ -1710,7 +1710,11 @@ struct TxPrepare {
     /// Note: Make sure INVALID is always last.
     enum OpType { READ, REMOVE, WRITE, INVALID };
 
-    enum Vote { PREPARED, ABORT, COMMITTED };
+    /// Possible participant server responses to the request to prepare the
+    /// included transaction operations for commit.
+    enum Vote { PREPARED,       // OK to commit if all servers agree.
+                ABORT,          // DO NOT commit; should abort commit.
+                COMMITTED };
 
     struct Request {
         RequestCommon common;
