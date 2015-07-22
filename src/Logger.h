@@ -73,7 +73,7 @@ enum LogModule {
  */
 class Logger {
   public:
-    explicit Logger(LogLevel level = NOTICE);
+    explicit Logger(LogLevel level = WARNING);
     ~Logger();
     static Logger& get();
 
