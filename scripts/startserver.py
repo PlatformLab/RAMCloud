@@ -32,6 +32,7 @@ def start_server(options):
         else:
             hosts_used.append(file.split('_')[0])
 
+    hosts = getHosts()
     mhost = hosts[0] # just default value
     for host in hosts:
         # host[0] = rcxx

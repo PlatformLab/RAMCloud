@@ -162,7 +162,7 @@ class Sandbox(object):
                                                      p.sonce]))
 
             if self.cleanup:
-                chost = hosts[0] # coordinator
+                chost = getHosts()[-1] # coordinator
                 killers.append(subprocess.Popen(['ssh', chost[0],
                                     '%s/killcoord' % scripts_path]))
 

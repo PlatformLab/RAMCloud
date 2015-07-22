@@ -196,7 +196,7 @@ class Cluster(object):
         self.masters_started = 0
         self.backups_started = 0
 
-        self.coordinator_host= hosts[0]
+        self.coordinator_host= getHosts()[0]
         self.coordinator_locator = coord_locator(self.transport,
                                                  self.coordinator_host)
         self.log_subdir = log.createDir(log_dir, log_exists)
@@ -319,14 +319,14 @@ class Cluster(object):
         """
         log_prefix = '%s/server%d.%s' % (
                       self.log_subdir, self.next_server_id, host[0])
-                     
+
         command = ('%s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
                    '--logFile %s.log --preferredIndex %d %s' %
                    (valgrind_command,
                     server_binary, self.coordinator_locator,
                     server_locator(self.transport, host, port),
                     self.replicas,
-                    self.log_level, 
+                    self.log_level,
                     log_prefix,
                     self.next_server_id,
                     args))
@@ -429,7 +429,7 @@ class Cluster(object):
             ensureCommand = ('%s -C %s -m %d -b %d -l 1 --wait %d '
                              '--logFile %s/ensureServers.log' %
                              (ensure_servers_bin, self.coordinator_locator,
-                             numMasters, numBackups, timeout, 
+                             numMasters, numBackups, timeout,
                              self.log_subdir))
             if self.verbose:
                 print("ensureServers command: %s" % ensureCommand)
@@ -578,7 +578,7 @@ def run(
         valgrind_args='',	   # Additional arguments for valgrind
         disjunct=False,            # Disjunct entities on a server
         coordinator_host=None
-        ):       
+        ):
     """
     Start a coordinator and servers, as indicated by the arguments.
     Then start one or more client processes and wait for them to complete.
@@ -591,24 +591,24 @@ def run(
 
     if verbose:
         print('num_servers=(%d), available hosts=(%d) defined in config.py'
-              % (num_servers, len(hosts)))
+              % (num_servers, len(getHosts())))
         print ('disjunct=', disjunct)
 
 # When disjunct=True, disjuncts Coordinator and Clients on Server nodes.
     if disjunct:
-        if num_servers + num_clients + 1 > len(hosts):
+        if num_servers + num_clients + 1 > len(getHosts()):
             raise Exception('num_servers (%d)+num_clients (%d)+1(coord) exceeds the available hosts (%d)'
-                            % (num_servers, num_clients, len(hosts)))
+                            % (num_servers, num_clients, len(getHosts())))
     else:
-        if num_servers > len(hosts):
+        if num_servers > len(getHosts()):
             raise Exception('num_servers (%d) exceeds the available hosts (%d)'
-                            % (num_servers, len(hosts)))
+                            % (num_servers, len(getHosts())))
 
     if not share_hosts and not client_hosts:
-        if (len(hosts) - num_servers) < 1:
+        if (len(getHosts()) - num_servers) < 1:
             raise Exception('Asked for %d servers without sharing hosts with %d '
                             'clients, but only %d hosts were available'
-                            % (num_servers, num_clients, len(hosts)))
+                            % (num_servers, num_clients, len(getHosts())))
 
     masters_started = 0
     backups_started = 0
@@ -626,7 +626,7 @@ def run(
         cluster.disk = disk1
         cluster.enable_logcabin = enable_logcabin
         cluster.disjunct = disjunct
-        cluster.hosts = hosts
+        cluster.hosts = getHosts()
 
         if not coordinator_host:
             coordinator_host = cluster.hosts[len(cluster.hosts)-1]

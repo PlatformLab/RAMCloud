@@ -21,14 +21,15 @@ run RAMCloud scripts at your site.
 """
 
 from common import captureSh
+import commands
 import os
 import re
 import subprocess
 import sys
 
 __all__ = ['coordinator_port', 'default_disk1','default_disk2', 'git_branch',
-           'git_ref', 'git_diff', 'hosts', 'obj_dir', 'obj_path', 'scripts_path',
-           'second_backup_port', 'server_port', 'top_path']
+           'git_ref', 'git_diff', 'obj_dir', 'obj_path', 'scripts_path',
+           'second_backup_port', 'server_port', 'top_path', 'getHosts']
 
 # git_branch is the name of the current git branch, which is used
 # for purposes such as computing objDir.
@@ -81,16 +82,6 @@ if '/usr/local/lib' not in ld_library_path:
     ld_library_path.insert(0, '/usr/local/lib')
 os.environ['LD_LIBRARY_PATH'] = ':'.join(ld_library_path)
 
-# All of the hosts available for servers or clients; each entry
-# consists of a name for the host (for ssh), an IP address
-# to use for creating service locators. and an id for generating
-# Ethernet addresses.
-hosts = []
-for i in range(1, 61):
-    hosts.append(('rc%02d' % i,
-                  '192.168.1.%d' % (100 + i),
-                  i))
-
 # Host on which old master is run for running recoveries.
 # Need not be a member of hosts
 old_master_host = ('rcmaster', '192.168.1.1', 81)
@@ -114,6 +105,62 @@ default_disk2 = '-f /dev/sdb2'
 # Try to include local overrides.
 try:
     from localconfig import *
-except:
+except ImportError:
     pass
 
+
+# Returns a list of the hosts available for servers or clients;
+# each entry consists of a name for the host (for ssh), an IP address
+# to use for creating service locators, and an id for generating
+# Ethernet addresses.
+#
+# By default, the function will return a list generated from servers
+# locked by the current user in rcres (an RAMCloud internal utility).
+# If rcres is not available, a custom list can be defined in
+# localconfig.py (see below and the wiki for additional instructions).
+# In the event that rcres is available and a custom list is defined,
+# the function will validate the custom list against rcres.
+#
+# Example for constructing a custom list in localconfig.py:
+# hosts = []
+# for i in range(1, 61):
+#     hosts.append(('rc%02d' % i,
+#                   '192.168.1.%d' % (100 + i),
+#                   i))
+
+def getHosts():
+  # Find servers locked by user via rcres
+  rcresOutput = commands.getoutput('rcres ls -l | grep "$(whoami)" | cut -c13-16 | grep "rc[0-9]" | cut -c3-4')
+  rcresFailed = re.match(".*command not found.*", rcresOutput)
+
+  # If hosts overridden in localconfig.py, check that all servers are locked
+  if hosts:
+    requstedUnlockedHosts = []
+    for host in hosts:
+      if str("%02d" % host[2]) not in rcresOutput.split():
+        requstedUnlockedHosts.append(host[0])
+
+    if not rcresFailed and len(requstedUnlockedHosts) > 0:
+      raise Exception ("Manually defined hosts list in localconfig.py includes the "
+        "following servers not locked by user in rcres:\r\n\t%s" % requstedUnlockedHosts)
+
+    return hosts
+
+  # hosts has not been overridden, check that rcres has some servers for us
+  else:
+    if rcresFailed:
+      raise Exception ("config.py could not invoke rcres (%s);\r\n"
+        "\tplease specify a custom hosts list in scripts/localconfig.py" % rcresOutput)
+
+    if len(rcresOutput) == 0:
+      raise Exception ("config.py found 0 rcXX servers locked in rcres;\r\n"
+        "\tcheck your locks or specify a custom hosts list in scripts/localconfig.py")
+
+    # Everything checks out, build list
+    serverList = []
+    for hostNum in rcresOutput.split():
+      i = int(hostNum)
+      serverList.append(('rc%02d' % i,
+                         '192.168.1.%d' % (100 + i),
+                         i))
+    return serverList
