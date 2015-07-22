@@ -259,6 +259,9 @@ INSTALL_LIBS := \
     $(OBJDIR)/libramcloud.a \
     $(NULL)
 
+# The header files below are those that must be installed in order to
+# compile RAMCloud applications. Please try to keep this list as short
+# as possible.
 INSTALL_INCLUDES := \
     src/Atomic.h \
     src/BoostIntrusive.h \
