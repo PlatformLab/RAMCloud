@@ -808,18 +808,20 @@ MasterService::lookupIndexKeys(
  *      The total number of bytes copied into segments for transfer thus
  *      far, which we add to whenever we append any entry to a transfer
  *      segment.
- * \param reqHdr
- *      Header from the incoming RPC request; contains parameters
- *      for this operation.
- * \param[out] respHdr
- *      Header for the response that will be returned to the client.
- *      The caller has pre-allocated the right amount of space in the
- *      response buffer for this type of request, and has zeroed out
- *      its contents (so, for example, status is already zero).
+ * \param tableId
+ *      ID of the table from which objects are being migrated.
+ * \param firstKeyHash
+ *      Lowest key hash that will be migrated.
+ * \param lastKeyHash
+ *      Highest key hash that will be migrated.
+ * \param receiver
+ *      ServerId of the master that is receiving the migration data. Each time
+ *      a transfer segment fills, this server will be sent an RPC containing
+ *      the data.
  * \return
- *      Returns 0 on success (either the entry is ignored or successfully added
- *      to the segment) and 1 on failure (an entry could not be successfully
- *      appended to an empty segment).
+ *      Returns STATUS_OK on success (either the entry is ignored or
+ *      successfully added to the segment) or another status failure (an entry
+ *      could not be successfully appended to an empty segment).
  */
 Status
 MasterService::migrateSingleLogEntry(

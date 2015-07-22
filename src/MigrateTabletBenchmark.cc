@@ -141,7 +141,7 @@ class MigrateTabletBenchmark {
         }
         uint64_t ticks = Cycles::rdtsc() - before;
 
-        uint64_t totalObjectBytes = numObjects * dataLen;
+        uint64_t totalObjectBytes = numObjects * (dataLen + sizeof(nextKeyVal));
         uint64_t totalSegmentBytes = numSegments *
                                      Segment::DEFAULT_SEGMENT_SIZE;
         printf("Migration of %d %dKB Segments with %d byte Objects took %lu "
@@ -154,16 +154,17 @@ class MigrateTabletBenchmark {
             static_cast<double>(totalSegmentBytes));
 
         double seconds = Cycles::toSeconds(ticks);
-        printf("Migrate object throughput: %.2f MB/s\n",
-               static_cast<double>(totalObjectBytes) / seconds / 1024. / 1024.);
-        printf("Migrate log throughput: %.2f MB/s\n",
-              static_cast<double>(totalSegmentBytes) / seconds / 1024. / 1024.);
+        double objectThroughput =
+               static_cast<double>(totalObjectBytes) / seconds / 1024. / 1024.;
+        printf("Migrate object throughput: %.2f MB/s\n", objectThroughput);
 
-        printf("\n");
-        printf("Verify object checksums: %.2f ms\n",
-               Cycles::toSeconds(metrics->master.verifyChecksumTicks.load()) *
-               1000.);
-        metrics->master.verifyChecksumTicks = 0;
+        double logThroughput = static_cast<double>(totalSegmentBytes) / seconds / 1024. / 1024.;
+        printf("Migrate log throughput: %.2f MB/s\n", logThroughput);
+
+        printf("\n> %d %d %d %lu %lu %lu %lu %.2f %.2f\n\n",
+                numSegments, Segment::DEFAULT_SEGMENT_SIZE, dataLen,
+                sizeof(nextKeyVal), numObjects, totalObjectBytes, totalSegmentBytes,
+                objectThroughput, logThroughput);
 
 #define DUMP_TEMP_TICKS(i)  \
 if (metrics->temp.ticks##i.load()) { \
@@ -214,10 +215,21 @@ if (metrics->temp.count##i.load()) { \
 }  // namespace RAMCloud
 
 int
-main()
+main(int argc, char* argv[])
 {
     int numSegments = 600 / 8; // = 72.
     int dataLen[] = { 64, 128, 256, 512, 1024, 2048, 8192, 0 };
+
+    printf("> segments segmentSize objectSize keySize objectCount "
+            "totalObjectBytes totalSegmentBytes objectThroughputMBs "
+            "logThroughputMBs\n\n");
+
+    if (argc == 2) {
+        int dataLen = atoi(argv[1]);
+        RAMCloud::MigrateTabletBenchmark rsb("2048", "10%", numSegments);
+        rsb.run(numSegments, dataLen);
+        return 0;
+    }
 
     for (int i = 0; dataLen[i] != 0; i++) {
         printf("==========================\n");
