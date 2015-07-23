@@ -33,6 +33,7 @@ class Logger;
 class MasterRecoveryManager;
 class MasterService;
 class MockContextMember;
+class ObjectFinder;
 class ServiceManager;
 class SessionAlarmTimer;
 class PortAlarmTimer;
@@ -132,6 +133,10 @@ class Context {
     // NULL except on coordinators. Owned elsewhere;
     // not freed by this class.
     MasterRecoveryManager* recoveryManager;
+
+    // On Client and Master, this locator tells which master is the owner of
+    // an object.
+    ObjectFinder* objectFinder;
 
   PRIVATE:
     void destroy();

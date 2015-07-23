@@ -189,7 +189,7 @@ IndexLookup::isReady()
         // required by both rules 5 and 6.
         KeyHash pKHash = activeHashes[numAssigned & ARRAY_MASK];
         Transport::SessionRef session =
-            ramcloud->objectFinder->lookup(tableId, pKHash);
+            ramcloud->clientContext->objectFinder->lookup(tableId, pKHash);
 
         // Rule 5:
         // Try to assign the current key hash to an existing RPC corresponding
@@ -260,7 +260,7 @@ IndexLookup::isReady()
             readRpcs[i].status = RESULT_READY;
             // Update objectFinder if no pKHashes got processed in a readRpc.
             if (numProcessedPKHashes == 0)
-                ramcloud->objectFinder->flush(tableId);
+                ramcloud->clientContext->objectFinder->flush(tableId);
             if (numProcessedPKHashes < readRpcs[i].numHashes) {
                 for (size_t p = numRemoved; p < numInserted; p ++) {
                     // Some of the key hashes couldn't be looked up in this

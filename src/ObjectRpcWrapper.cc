@@ -23,8 +23,8 @@ namespace RAMCloud {
 
 /**
  * Constructor for ObjectRpcWrapper objects.
- * \param ramcloud
- *      The RAMCloud object that governs this RPC.
+ * \param context
+ *      Overall information about RAMCloud cluster.
  * \param tableId
  *      The table containing the desired object.
  * \param key
@@ -44,11 +44,11 @@ namespace RAMCloud {
  *      if NULL then we use a built-in buffer. Any existing contents
  *      of this buffer will be cleared automatically by the transport.
  */
-ObjectRpcWrapper::ObjectRpcWrapper(RamCloud* ramcloud, uint64_t tableId,
+ObjectRpcWrapper::ObjectRpcWrapper(Context* context, uint64_t tableId,
         const void* key, uint16_t keyLength, uint32_t responseHeaderLength,
         Buffer* response)
     : RpcWrapper(responseHeaderLength, response)
-    , ramcloud(ramcloud)
+    , context(context)
     , tableId(tableId)
     , keyHash(Key::getHash(tableId, key, keyLength))
 {
@@ -57,8 +57,8 @@ ObjectRpcWrapper::ObjectRpcWrapper(RamCloud* ramcloud, uint64_t tableId,
 /**
  * Alternate constructor for ObjectRpcWrapper objects, in which the desired
  * server is specified with a key hash, rather than a key value.
- * \param ramcloud
- *      The RAMCloud object that governs this RPC.
+ * \param context
+ *      Overall information about RAMCloud cluster.
  * \param tableId
  *      The table containing the desired object.
  * \param keyHash
@@ -74,10 +74,10 @@ ObjectRpcWrapper::ObjectRpcWrapper(RamCloud* ramcloud, uint64_t tableId,
  *      Optional client-supplied buffer to use for the RPC's response;
  *      if NULL then we use a built-in buffer.
  */
-ObjectRpcWrapper::ObjectRpcWrapper(RamCloud* ramcloud, uint64_t tableId,
+ObjectRpcWrapper::ObjectRpcWrapper(Context* context, uint64_t tableId,
         uint64_t keyHash, uint32_t responseHeaderLength, Buffer* response)
     : RpcWrapper(responseHeaderLength, response)
-    , ramcloud(ramcloud)
+    , context(context)
     , tableId(tableId)
     , keyHash(keyHash)
 {
@@ -94,7 +94,7 @@ ObjectRpcWrapper::checkStatus()
                 "refreshing object map",
                 session->getServiceLocator().c_str(),
                 tableId, keyHash);
-        ramcloud->objectFinder->flush(tableId);
+        context->objectFinder->flush(tableId);
         send();
         return false;
     }
@@ -108,9 +108,9 @@ ObjectRpcWrapper::handleTransportError()
     // There was a transport-level failure. Flush cached state related
     // to this session, and related to the object mapping for our object.
     // Then retry.
-    ramcloud->objectFinder->flushSession(tableId, keyHash);
+    context->objectFinder->flushSession(tableId, keyHash);
     session = NULL;
-    ramcloud->objectFinder->flush(tableId);
+    context->objectFinder->flush(tableId);
     send();
     return false;
 }
@@ -119,7 +119,7 @@ ObjectRpcWrapper::handleTransportError()
 void
 ObjectRpcWrapper::send()
 {
-    session = ramcloud->objectFinder->lookup(tableId, keyHash);
+    session = context->objectFinder->lookup(tableId, keyHash);
     state = IN_PROGRESS;
     session->sendRequest(&request, response, this);
 }

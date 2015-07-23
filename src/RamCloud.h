@@ -199,7 +199,6 @@ class RamCloud {
     // See "Header Minimization" in designNotes for info on why these
     // are pointers.
     ClientLease *clientLease;
-    ObjectFinder *objectFinder;
     RpcTracker *rpcTracker;
 
   private:
@@ -307,7 +306,7 @@ class FillWithTestDataRpc : public ObjectRpcWrapper {
             uint16_t keyLength, uint32_t numObjects, uint32_t objectSize);
     ~FillWithTestDataRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(ramcloud->clientContext);}
+    void wait() {simpleWait(context);}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(FillWithTestDataRpc);
@@ -493,7 +492,7 @@ class KillRpc : public ObjectRpcWrapper {
             uint16_t keyLength);
     ~KillRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(ramcloud->clientContext);}
+    void wait() {simpleWait(context);}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(KillRpc);
@@ -533,7 +532,7 @@ class MigrateTabletRpc : public ObjectRpcWrapper {
             ServerId newMasterOwnerId);
     ~MigrateTabletRpc() {}
     /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(ramcloud->clientContext);}
+    void wait() {simpleWait(context);}
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(MigrateTabletRpc);

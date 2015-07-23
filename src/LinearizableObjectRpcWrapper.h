@@ -56,6 +56,9 @@ class LinearizableObjectRpcWrapper
 
     bool waitInternal(Dispatch* dispatch, uint64_t abortTime = ~0UL);
 
+    // General client information.
+    RamCloud* ramcloud;
+
     /**
      * If the linearizability feature is on, we save the rpcId assigned in
      * #fillLinearizabilityHeader function.

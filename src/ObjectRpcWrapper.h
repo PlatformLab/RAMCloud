@@ -33,10 +33,10 @@ class RamCloud;
  */
 class ObjectRpcWrapper : public RpcWrapper {
   public:
-    explicit ObjectRpcWrapper(RamCloud* ramcloud, uint64_t tableId,
+    explicit ObjectRpcWrapper(Context* context, uint64_t tableId,
             const void* key, uint16_t keyLength, uint32_t responseHeaderLength,
             Buffer* response = NULL);
-    explicit ObjectRpcWrapper(RamCloud* ramcloud, uint64_t tableId,
+    explicit ObjectRpcWrapper(Context* context, uint64_t tableId,
             uint64_t keyHash, uint32_t responseHeaderLength,
             Buffer* response = NULL);
 
@@ -50,8 +50,9 @@ class ObjectRpcWrapper : public RpcWrapper {
     virtual bool handleTransportError();
     virtual void send();
 
-    /// Overall client state information.
-    RamCloud* ramcloud;
+    /// Overall ramcloud state information. Primarily we access dispatch and
+    /// objectFinder.
+    Context* context;
 
     /// Information about an object that determines which server the request
     /// is sent to; we must save this information for use in retries.

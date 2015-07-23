@@ -103,7 +103,7 @@ class IndexLookupTest : public ::testing::Test {
         ramcloud.construct("mock:");
         transport.construct(ramcloud->clientContext);
 
-        ramcloud->objectFinder->tableConfigFetcher.reset(
+        ramcloud->clientContext->objectFinder->tableConfigFetcher.reset(
                 new IndexLookupRpcRefresher);
         ramcloud->clientContext->transportManager->registerMock(
                 transport.get());

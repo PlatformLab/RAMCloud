@@ -543,8 +543,9 @@ TEST_F(RamCloudTest, remove) {
 
 TEST_F(RamCloudTest, objectServerControl) {
     ramcloud->write(tableId1, "0", 1, "zfzfzf", 6);
-    string serverLocator = ramcloud->objectFinder->lookupTablet(tableId1
-                           , Key::getHash(tableId1, "0", 1))->serviceLocator;
+    string serverLocator = ramcloud->clientContext->objectFinder->lookupTablet(
+                             tableId1, Key::getHash(tableId1, "0", 1))->
+                                serviceLocator;
     Server* targetServer;
     foreach (Server* server, cluster.servers) {
         if (serverLocator.compare(server->config.localLocator) == 0)

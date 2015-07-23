@@ -167,7 +167,7 @@ ObjectFinder::flush(uint64_t tableId) {
  * Return a string representation of all the table id's presented
  * at the tableMap at any given moment. Used mainly for testing.
  *
- * \return 
+ * \return
  *      A human-readable string describing the contents of tableMap.
  */
 string
@@ -199,7 +199,7 @@ ObjectFinder::debugString() const {
  *      It does not necessarily have to be null terminated like a string.
  * \param keyLength
  *      Size in bytes of the key.
- * \return 
+ * \return
  *      Session for communication with the server who holds the tablet
  *
  * \throw TableDoesntExistException
@@ -220,7 +220,7 @@ ObjectFinder::lookup(uint64_t tableId, const void* key, uint16_t keyLength) {
  *      The table containing the desired object.
  * \param keyHash
  *      A hash value in the space of key hashes.
-* \return 
+* \return
  *      Session for communication with the server who holds the tablet
  *
  * \throw TableDoesntExistException
@@ -248,7 +248,7 @@ ObjectFinder::lookup(uint64_t tableId, KeyHash keyHash)
  *      Blob corresponding to the key.
  * \param keyLength
  *      Length of key.
- * 
+ *
  * \return
  *      Session for communication with the server who holds the indexlet.
  *      If the indexlet doesn't exist, return a NULL session.
@@ -280,7 +280,7 @@ ObjectFinder::lookup(uint64_t tableId, uint8_t indexId,
  *      Blob corresponding to the key.
  * \param keyLength
  *      Length of key.
- * 
+ *
  * \return
  *      Reference to Indexlet with the details of the server that owns
  *      the specified key. This reference may be invalidated by any future

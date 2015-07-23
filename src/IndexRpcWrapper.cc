@@ -22,7 +22,7 @@ namespace RAMCloud {
 
 /**
  * Constructor for IndexRpcWrapper objects.
- * 
+ *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.
  * \param tableId
@@ -54,7 +54,7 @@ IndexRpcWrapper::IndexRpcWrapper(
             uint32_t responseHeaderLength, Buffer* responseBuffer)
     : RpcWrapper(responseHeaderLength, responseBuffer)
     , context(ramcloud->clientContext)
-    , objectFinder(ramcloud->objectFinder)
+    , objectFinder(ramcloud->clientContext->objectFinder)
     , tableId(tableId)
     , indexId(indexId)
     , key(key)
@@ -64,7 +64,7 @@ IndexRpcWrapper::IndexRpcWrapper(
 
 /**
  * Constructor for IndexRpcWrapper objects.
- * 
+ *
  * \param master
  *      The master that governs this RPC.
  * \param tableId
@@ -85,7 +85,7 @@ IndexRpcWrapper::IndexRpcWrapper(
  *      contain at least this much data, and a pointer to the header
  *      will be stored in the responseHeader for the use of wrapper
  *      subclasses.
- * 
+ *
  * \param responseBuffer
  *      Optional client-supplied buffer to use for the RPC's response;
  *      if NULL then we use a built-in buffer.
@@ -96,7 +96,7 @@ IndexRpcWrapper::IndexRpcWrapper(
             uint32_t responseHeaderLength, Buffer* responseBuffer)
     : RpcWrapper(responseHeaderLength, responseBuffer)
     , context(master->context)
-    , objectFinder(&master->objectFinder)
+    , objectFinder(master->context->objectFinder)
     , tableId(tableId)
     , indexId(indexId)
     , key(key)

@@ -50,9 +50,10 @@ LinearizableObjectRpcWrapper::LinearizableObjectRpcWrapper(
         RamCloud* ramcloud, bool linearizable, uint64_t tableId,
         const void* key, uint16_t keyLength, uint32_t responseHeaderLength,
         Buffer* response)
-    : ObjectRpcWrapper(ramcloud, tableId, key, keyLength,
+    : ObjectRpcWrapper(ramcloud->clientContext, tableId, key, keyLength,
                        responseHeaderLength, response)
     , linearizabilityOn(linearizable)
+    , ramcloud(ramcloud)
     , assignedRpcId(0)
 {
 }
@@ -82,9 +83,10 @@ LinearizableObjectRpcWrapper::LinearizableObjectRpcWrapper(
 LinearizableObjectRpcWrapper::LinearizableObjectRpcWrapper(
         RamCloud* ramcloud, bool linearizable, uint64_t tableId,
         uint64_t keyHash, uint32_t responseHeaderLength, Buffer* response)
-    : ObjectRpcWrapper(ramcloud, tableId, keyHash,
+    : ObjectRpcWrapper(ramcloud->clientContext, tableId, keyHash,
                        responseHeaderLength, response)
     , linearizabilityOn(linearizable)
+    , ramcloud(ramcloud)
     , assignedRpcId(0)
 {
 }

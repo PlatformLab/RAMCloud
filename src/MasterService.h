@@ -88,12 +88,6 @@ class MasterService : public Service {
     const ServerConfig* config;
 
     /**
-     * The ObjectFinder class that is used to locate servers containing
-     * indexlets for data that this server may own.
-     */
-    ObjectFinder objectFinder;
-
-    /**
      * The ObjectManager class that is responsible for object storage.
      */
     ObjectManager objectManager;

@@ -74,7 +74,6 @@ MasterService::Replica::Replica(uint64_t backupId, uint64_t segmentId,
 MasterService::MasterService(Context* context, const ServerConfig* config)
     : context(context)
     , config(config)
-    , objectFinder(context)
     , objectManager(context,
                     &serverId,
                     config,

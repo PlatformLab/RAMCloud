@@ -131,7 +131,7 @@ class MasterServiceTest : public ::testing::Test {
         service->objectManager.log.sync();
 
         ramcloud.construct(&context, "mock:host=coordinator");
-        ramcloud->objectFinder->tableConfigFetcher.reset(
+        context.objectFinder->tableConfigFetcher.reset(
                 new MasterServiceRefresher);
 
         service->tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
@@ -142,8 +142,6 @@ class MasterServiceTest : public ::testing::Test {
     void
     threadfunIncrementOne(uint64_t tblid, std::string key) {
         RamCloud myRamcloud(&context, "mock:host=coordinator");
-        myRamcloud.objectFinder->tableConfigFetcher.reset(
-                new MasterServiceRefresher);
         uint16_t keyLen = uint16_t(key.length());
         myRamcloud.incrementInt64(tblid, key.data(), keyLen, 1, NULL, NULL);
     }

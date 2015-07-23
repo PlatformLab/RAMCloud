@@ -408,7 +408,7 @@ TxRecoveryManager::RecoveryTask::DecisionRpc::retryRequest()
 {
     for (uint32_t i = 0; i < reqHdr->participantCount; i++) {
         Participant* entry = &(*ops[i]);
-        context->masterService->objectFinder.flush(entry->tableId);
+        context->objectFinder->flush(entry->tableId);
         entry->state = Participant::PENDING;
     }
     task->nextParticipantEntry = task->participants.begin();
@@ -468,18 +468,15 @@ TxRecoveryManager::RecoveryTask::sendDecisionRpc()
 
         try {
             if (nextRpc == NULL) {
-                rpcSession =
-                        context->masterService->objectFinder.lookup(
-                                entry->tableId,
-                                entry->keyHash);
+                rpcSession = context->objectFinder->lookup(entry->tableId,
+                                                           entry->keyHash);
                 decisionRpcs.emplace_back(context, rpcSession, this);
                 nextRpc = &decisionRpcs.back();
             }
 
             Transport::SessionRef session =
-                    context->masterService->objectFinder.lookup(
-                                entry->tableId,
-                                entry->keyHash);
+                    context->objectFinder->lookup(entry->tableId,
+                                                  entry->keyHash);
             if (session->getServiceLocator() == rpcSession->getServiceLocator()
                 && nextRpc->reqHdr->participantCount <
                         DecisionRpc::MAX_OBJECTS_PER_RPC) {
@@ -584,7 +581,7 @@ TxRecoveryManager::RecoveryTask::RequestAbortRpc::retryRequest()
 {
     for (uint32_t i = 0; i < reqHdr->participantCount; i++) {
         Participant* entry = &(*ops[i]);
-        context->masterService->objectFinder.flush(entry->tableId);
+        context->objectFinder->flush(entry->tableId);
         entry->state = Participant::PENDING;
     }
     task->nextParticipantEntry = task->participants.begin();
@@ -648,18 +645,15 @@ TxRecoveryManager::RecoveryTask::sendRequestAbortRpc()
 
         try {
             if (nextRpc == NULL) {
-                rpcSession =
-                        context->masterService->objectFinder.lookup(
-                                entry->tableId,
-                                entry->keyHash);
+                rpcSession = context->objectFinder->lookup(entry->tableId,
+                                                           entry->keyHash);
                 requestAbortRpcs.emplace_back(context, rpcSession, this);
                 nextRpc = &requestAbortRpcs.back();
             }
 
             Transport::SessionRef session =
-                    context->masterService->objectFinder.lookup(
-                                entry->tableId,
-                                entry->keyHash);
+                    context->objectFinder->lookup(entry->tableId,
+                                                  entry->keyHash);
             if (session->getServiceLocator() == rpcSession->getServiceLocator()
                 && nextRpc->reqHdr->participantCount <
                         RequestAbortRpc::MAX_OBJECTS_PER_RPC) {

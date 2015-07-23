@@ -18,6 +18,7 @@
 #include "CoordinatorServerList.h"
 #include "CoordinatorSession.h"
 #include "Dispatch.h"
+#include "ObjectFinder.h"
 #include "ServiceManager.h"
 #include "ShortMacros.h"
 #include "SessionAlarm.h"
@@ -84,6 +85,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , coordinatorServerList(NULL)
     , tableManager(NULL)
     , recoveryManager(NULL)
+    , objectFinder(NULL)
 {
     try {
 #if TESTING
@@ -106,6 +108,8 @@ Context::Context(bool hasDedicatedDispatchThread)
         // portAlarmTimer = new PortAlarmTimer(this);
 
         coordinatorSession = new CoordinatorSession(this);
+
+        objectFinder = new ObjectFinder(this);
     } catch (...) {
         destroy();
         throw;
@@ -133,6 +137,14 @@ Context::destroy()
 
     // Make sure to delete the members in the opposite order from their
     // construction.
+
+    // TODO(seojin): why no such protection in MasterService code?
+    // Force ObjectManager to drop all of its cached sessions; otherwise
+    // they won't get destroyed until after their transports have been deleted.
+    if (objectFinder)
+        objectFinder->reset();
+    delete objectFinder;
+    objectFinder = NULL;
 
     delete coordinatorSession;
     coordinatorSession = NULL;

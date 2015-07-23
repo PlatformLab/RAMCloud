@@ -53,7 +53,7 @@ class IndexRpcWrapperTest : public ::testing::Test {
         : ramcloud("mock:")
         , transport(ramcloud.clientContext)
     {
-        ramcloud.objectFinder->tableConfigFetcher.reset(
+        ramcloud.clientContext->objectFinder->tableConfigFetcher.reset(
                 new IndexRpcWrapperRefresher);
         ramcloud.clientContext->transportManager->registerMock(&transport);
     }
