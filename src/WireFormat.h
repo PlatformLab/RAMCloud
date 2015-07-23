@@ -1714,7 +1714,11 @@ struct TxPrepare {
     /// included transaction operations for commit.
     enum Vote { PREPARED,       // OK to commit if all servers agree.
                 ABORT,          // DO NOT commit; should abort commit.
-                COMMITTED };
+                COMMITTED };    // Committed directly; no Decision RPCs needed.
+                                // This optimization occurs when the transaction
+                                // only involves a single server (single prepare
+                                // RPC) and the server can unilaterally decide
+                                // to commit.
 
     struct Request {
         RequestCommon common;

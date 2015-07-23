@@ -125,11 +125,30 @@ ClientTransactionTask::performTask()
             foundWork |= sendPrepareRpc();
             foundWork |= processPrepareRpcResults();
             if (prepareRpcs.empty() && nextCacheEntry == commitCache.end()) {
-                nextCacheEntry = commitCache.begin();
-                if (decision != WireFormat::TxDecision::ABORT) {
-                    decision = WireFormat::TxDecision::COMMIT;
+                switch (decision) {
+                    case WireFormat::TxDecision::UNDECIDED:
+                        decision = WireFormat::TxDecision::COMMIT;
+                        TEST_LOG("Set decision to COMMIT.");
+                        // NO break; fall through to go to DECISION state.
+                    case WireFormat::TxDecision::ABORT:
+                        nextCacheEntry = commitCache.begin();
+                        state = DECISION;
+                        TEST_LOG("Move from PREPARE to DECISION phase.");
+                        break;
+                    case WireFormat::TxDecision::COMMIT:
+                        // Prepare must have returned COMMITTED so the
+                        // transaction is now done.
+                        ramcloud->rpcTracker.rpcFinished(txId);
+                        state = DONE;
+                        TEST_LOG("Move from PREPARE to DONE phase; optimized.");
+                        break;
+                    default:
+                        RAMCLOUD_LOG(ERROR,
+                                     "Unexpected transaction decision value.");
+                        ClientException::throwException(HERE,
+                                                        STATUS_INTERNAL_ERROR);
+                        break;
                 }
-                state = DECISION;
             }
         }
         if (state == DECISION) {
@@ -149,6 +168,10 @@ ClientTransactionTask::performTask()
         switch (state) {
             case INIT:
             case PREPARE:
+                // If there is an error during the prepare, the "decision" that
+                // is currently set may be in error.  Reset the decision to
+                // UNDECIDED to signal the error.
+                decision = WireFormat::TxDecision::UNDECIDED;
                 RAMCLOUD_LOG(ERROR,
                         "Unexpected exception '%s' while preparing "
                         "transaction commit; will result in internal error.",
@@ -323,8 +346,39 @@ ClientTransactionTask::processPrepareRpcResults()
         foundWork = 1;
 
         try {
-            if (rpc->wait() == WireFormat::TxPrepare::ABORT) {
-                decision = WireFormat::TxDecision::ABORT;
+            WireFormat::TxPrepare::Vote newVote = rpc->wait();
+            if (newVote == WireFormat::TxPrepare::PREPARED) {
+                // Wait for other prepare requests to complete; nothing to do.
+                TEST_LOG("PREPARED");
+            } else if (newVote == WireFormat::TxPrepare::ABORT) {
+                // Decide the transaction should ABORT (as long as the
+                // transaction has not already committed).
+                if (expect_true(decision != WireFormat::TxDecision::COMMIT)) {
+                    decision = WireFormat::TxDecision::ABORT;
+                } else {
+                    // Possible Byzantine failure detected; do not continue.
+                    RAMCLOUD_LOG(ERROR,
+                            "TxPrepare trying to ABORT after COMMITTED.");
+                    ClientException::throwException(HERE,
+                                                    STATUS_INTERNAL_ERROR);
+                }
+            } else if (newVote == WireFormat::TxPrepare::COMMITTED) {
+                // Note the transaction has COMMITTED (as long as the
+                // transaction did not previously decided to abort).
+                if (expect_true(decision != WireFormat::TxDecision::ABORT)) {
+                    decision = WireFormat::TxDecision::COMMIT;
+                } else {
+                    // Possible Byzantine failure detected; do not continue.
+                    RAMCLOUD_LOG(ERROR,
+                            "TxPrepare claims COMMITTED after ABORT received.");
+                    ClientException::throwException(HERE,
+                                                    STATUS_INTERNAL_ERROR);
+                }
+            } else {
+                // Possible Byzantine failure detected; do not continue.
+                RAMCLOUD_LOG(ERROR, "TxPrepare returned unexpected result.");
+                ClientException::throwException(HERE,
+                                                STATUS_INTERNAL_ERROR);
             }
         } catch (UnknownTabletException& e) {
             // Target server did not contain the requested tablet; the

@@ -491,21 +491,56 @@ TEST_F(ClientTransactionTaskTest, performTask_basic) {
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
 }
 
+TEST_F(ClientTransactionTaskTest, performTask_singleRpcOptimization) {
+    insertWrite(tableId1, "test1", 5, "hello", 5);
+    insertWrite(tableId1, "test2", 5, "hello", 5);
+    insertWrite(tableId1, "test3", 5, "hello", 5);
+
+    TestLog::reset();
+    TestLog::setPredicate("performTask");
+    EXPECT_EQ(ClientTransactionTask::INIT, transactionTask->state);
+    EXPECT_EQ(1, transactionTask->performTask());// RPC 1 Sent, RPC 1 Processed
+    EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
+    EXPECT_EQ("performTask: Move from PREPARE to DONE phase; optimized.",
+              TestLog::get());
+}
+
 TEST_F(ClientTransactionTaskTest, performTask_setDecision) {
     transactionTask->state = ClientTransactionTask::INIT;
     transactionTask->decision = WireFormat::TxDecision::UNDECIDED;
+    TestLog::reset();
     transactionTask->performTask();
     EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
-
-    transactionTask->state = ClientTransactionTask::INIT;
-    transactionTask->decision = WireFormat::TxDecision::COMMIT;
-    transactionTask->performTask();
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ("performTask: Set decision to COMMIT. | "
+              "performTask: Move from PREPARE to DECISION phase.",
+              TestLog::get());
 
     transactionTask->state = ClientTransactionTask::INIT;
     transactionTask->decision = WireFormat::TxDecision::ABORT;
+    TestLog::reset();
     transactionTask->performTask();
     EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+    EXPECT_EQ("performTask: Move from PREPARE to DECISION phase.",
+              TestLog::get());
+
+    transactionTask->state = ClientTransactionTask::INIT;
+    transactionTask->decision = WireFormat::TxDecision::COMMIT;
+    TestLog::reset();
+    transactionTask->performTask();
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ("performTask: Move from PREPARE to DONE phase; optimized.",
+              TestLog::get());
+
+    transactionTask->state = ClientTransactionTask::INIT;
+    // Set to bad value.
+    *reinterpret_cast<uint32_t*>(&transactionTask->decision) = 4;
+    TestLog::reset();
+    transactionTask->performTask();
+    EXPECT_EQ("performTask: Unexpected transaction decision value. | "
+              "performTask: Unexpected exception 'internal RAMCloud error' "
+              "while preparing transaction commit; will result in internal "
+              "error.",
+              TestLog::get());
 }
 
 TEST_F(ClientTransactionTaskTest, performTask_ClientException) {
@@ -659,6 +694,7 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_notReady) {
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_basic) {
     insertWrite(tableId1, "test", 4, "hello", 5);
+    insertWrite(tableId2, "test", 4, "goodbye", 7);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
     transactionTask->sendPrepareRpc();
@@ -671,19 +707,9 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_basic) {
 }
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort) {
-    // Start another transaction to cause a lock
-    {
-        ClientTransactionTask task(ramcloud.get());
-        Key key(tableId1, "test", 4);
-        ClientTransactionTask::CacheEntry* entry =
-                task.insertCacheEntry(key, "hello", 5);
-        entry->type = ClientTransactionTask::CacheEntry::WRITE;
-        task.initTask();
-        task.nextCacheEntry = task.commitCache.begin();
-        task.sendPrepareRpc();
-    }
-
     insertWrite(tableId1, "test", 4, "hello", 5);
+    // Set reject rules to cause abort.
+    transactionTask->commitCache.begin()->second.rejectRules.doesntExist = true;
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
     transactionTask->sendPrepareRpc();
@@ -693,11 +719,50 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort) {
     EXPECT_EQ(1, transactionTask->processPrepareRpcResults());
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 
-    // TODO(cstlee): fix the whole test to work with single server commit.
-    // Started another TX now commits in prepare phase which causes the main
-    // TX also successfully commits.
+    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+}
 
-    //EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort_error) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    // Set reject rules to cause abort.
+    transactionTask->commitCache.begin()->second.rejectRules.doesntExist = true;
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+    transactionTask->decision = WireFormat::TxDecision::COMMIT;
+    TestLog::reset();
+    EXPECT_THROW(transactionTask->processPrepareRpcResults(), InternalError);
+    EXPECT_EQ("processPrepareRpcResults: "
+              "TxPrepare trying to ABORT after COMMITTED.",
+              TestLog::get());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+}
+
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_committed) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+
+    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
+    EXPECT_EQ(1, transactionTask->processPrepareRpcResults());
+    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+}
+
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_committed_error) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+    transactionTask->decision = WireFormat::TxDecision::ABORT;
+    TestLog::reset();
+    EXPECT_THROW(transactionTask->processPrepareRpcResults(), InternalError);
+    EXPECT_EQ("processPrepareRpcResults: "
+              "TxPrepare claims COMMITTED after ABORT received.",
+              TestLog::get());
+    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
 }
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_unknownTablet) {
