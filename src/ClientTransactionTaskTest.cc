@@ -21,6 +21,27 @@
 
 namespace RAMCloud {
 
+class MockClientTransactionRpcWrapper
+        : public ClientTransactionTask::ClientTransactionRpcWrapper {
+  public:
+    MockClientTransactionRpcWrapper(RamCloud* ramcloud,
+            Transport::SessionRef session,
+            ClientTransactionTask* task)
+        : ClientTransactionRpcWrapper(ramcloud,
+                                      session,
+                                      task,
+                                      sizeof(WireFormat::ResponseCommon))
+    {}
+
+    bool appendOp(ClientTransactionTask::CommitCacheMap::iterator opEntry) {
+        return false;
+    }
+
+    void markOpsForRetry() {
+        TEST_LOG("Retry marked.");
+    }
+};
+
 class ClientTransactionTaskTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
@@ -33,6 +54,7 @@ class ClientTransactionTaskTest : public ::testing::Test {
     BindTransport::BindSession* session1;
     BindTransport::BindSession* session2;
     BindTransport::BindSession* session3;
+    Tub<MockClientTransactionRpcWrapper> mockTransactionRpc;
     Tub<ClientTransactionTask::DecisionRpc> decisionRpc;
     Tub<ClientTransactionTask::PrepareRpc> prepareRpc;
     Tub<ClientTransactionTask> transactionTask;
@@ -48,6 +70,7 @@ class ClientTransactionTaskTest : public ::testing::Test {
         , session1(NULL)
         , session2(NULL)
         , session3(NULL)
+        , mockTransactionRpc()
         , decisionRpc()
         , prepareRpc()
         , transactionTask()
@@ -88,6 +111,9 @@ class ClientTransactionTaskTest : public ::testing::Test {
         transactionTask.construct(ramcloud.get());
         transactionTask->lease = ramcloud->clientLease->getLease();
 
+        mockTransactionRpc.construct(ramcloud.get(),
+                                     session,
+                                     transactionTask.get());
         prepareRpc.construct(ramcloud.get(), session, transactionTask.get());
         decisionRpc.construct(ramcloud.get(), session, transactionTask.get());
 
@@ -436,15 +462,6 @@ TEST_F(ClientTransactionTaskTest, insertCacheEntry) {
 }
 
 TEST_F(ClientTransactionTaskTest, performTask_basic) {
-    // Make sure objects exist first.
-    ramcloud->write(tableId1, "test1", 5, "hello", 5);
-    ramcloud->write(tableId1, "test2", 5, "hello", 5);
-    ramcloud->write(tableId1, "test3", 5, "hello", 5);
-    ramcloud->write(tableId1, "test4", 5, "hello", 5);
-    ramcloud->write(tableId1, "test5", 5, "hello", 5);
-    ramcloud->write(tableId2, "test1", 5, "hello", 5);
-    ramcloud->write(tableId3, "test1", 5, "hello", 5);
-
     insertWrite(tableId1, "test1", 5, "hello", 5);
     insertWrite(tableId1, "test2", 5, "hello", 5);
     insertWrite(tableId1, "test3", 5, "hello", 5);
@@ -476,21 +493,56 @@ TEST_F(ClientTransactionTaskTest, performTask_basic) {
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
 }
 
+TEST_F(ClientTransactionTaskTest, performTask_singleRpcOptimization) {
+    insertWrite(tableId1, "test1", 5, "hello", 5);
+    insertWrite(tableId1, "test2", 5, "hello", 5);
+    insertWrite(tableId1, "test3", 5, "hello", 5);
+
+    TestLog::reset();
+    TestLog::setPredicate("performTask");
+    EXPECT_EQ(ClientTransactionTask::INIT, transactionTask->state);
+    EXPECT_EQ(1, transactionTask->performTask());// RPC 1 Sent, RPC 1 Processed
+    EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
+    EXPECT_EQ("performTask: Move from PREPARE to DONE phase; optimized.",
+              TestLog::get());
+}
+
 TEST_F(ClientTransactionTaskTest, performTask_setDecision) {
     transactionTask->state = ClientTransactionTask::INIT;
     transactionTask->decision = WireFormat::TxDecision::UNDECIDED;
+    TestLog::reset();
     transactionTask->performTask();
     EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
-
-    transactionTask->state = ClientTransactionTask::INIT;
-    transactionTask->decision = WireFormat::TxDecision::COMMIT;
-    transactionTask->performTask();
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ("performTask: Set decision to COMMIT. | "
+              "performTask: Move from PREPARE to DECISION phase.",
+              TestLog::get());
 
     transactionTask->state = ClientTransactionTask::INIT;
     transactionTask->decision = WireFormat::TxDecision::ABORT;
+    TestLog::reset();
     transactionTask->performTask();
     EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+    EXPECT_EQ("performTask: Move from PREPARE to DECISION phase.",
+              TestLog::get());
+
+    transactionTask->state = ClientTransactionTask::INIT;
+    transactionTask->decision = WireFormat::TxDecision::COMMIT;
+    TestLog::reset();
+    transactionTask->performTask();
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+    EXPECT_EQ("performTask: Move from PREPARE to DONE phase; optimized.",
+              TestLog::get());
+
+    transactionTask->state = ClientTransactionTask::INIT;
+    // Set to bad value.
+    *reinterpret_cast<uint32_t*>(&transactionTask->decision) = 4;
+    TestLog::reset();
+    transactionTask->performTask();
+    EXPECT_EQ("performTask: Unexpected transaction decision value. | "
+              "performTask: Unexpected exception 'internal RAMCloud error' "
+              "while preparing transaction commit; will result in internal "
+              "error.",
+              TestLog::get());
 }
 
 TEST_F(ClientTransactionTaskTest, performTask_ClientException) {
@@ -579,9 +631,6 @@ TEST_F(ClientTransactionTaskTest, initTask) {
 }
 
 TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_basic) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -596,9 +645,6 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_basic) {
 }
 
 TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_unknownTablet) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -616,10 +662,7 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_unknownTablet) {
     EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
 }
 
-TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_failed) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
+TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_ServerNotUp) {
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -631,14 +674,12 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_failed) {
     TestLog::reset();
     EXPECT_EQ(1, transactionTask->processDecisionRpcResults());
     EXPECT_EQ("flushSession: flushing session for mock:host=master1 | "
-              "processDecisionRpcResults: FAILED", TestLog::get());
+              "processDecisionRpcResults: STATUS_SERVER_NOT_UP",
+              TestLog::get());
     EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
 }
 
 TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_notReady) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -654,10 +695,8 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_notReady) {
 // TODO(cstlee) : Unit test processDecisionRpcResults_badStatus
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_basic) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
+    insertWrite(tableId2, "test", 4, "goodbye", 7);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
     transactionTask->sendPrepareRpc();
@@ -670,22 +709,9 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_basic) {
 }
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
-    // Start another transaction to cause a lock
-    {
-        ClientTransactionTask task(ramcloud.get());
-        Key key(tableId1, "test", 4);
-        ClientTransactionTask::CacheEntry* entry =
-                task.insertCacheEntry(key, "hello", 5);
-        entry->type = ClientTransactionTask::CacheEntry::WRITE;
-        task.initTask();
-        task.nextCacheEntry = task.commitCache.begin();
-        task.sendPrepareRpc();
-    }
-
     insertWrite(tableId1, "test", 4, "hello", 5);
+    // Set reject rules to cause abort.
+    transactionTask->commitCache.begin()->second.rejectRules.doesntExist = true;
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
     transactionTask->sendPrepareRpc();
@@ -695,17 +721,53 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort) {
     EXPECT_EQ(1, transactionTask->processPrepareRpcResults());
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 
-    // TODO(cstlee): fix the whole test to work with single server commit.
-    // Started another TX now commits in prepare phase which causes the main
-    // TX also successfully commits.
+    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+}
 
-    //EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort_error) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    // Set reject rules to cause abort.
+    transactionTask->commitCache.begin()->second.rejectRules.doesntExist = true;
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+    transactionTask->decision = WireFormat::TxDecision::COMMIT;
+    TestLog::reset();
+    EXPECT_THROW(transactionTask->processPrepareRpcResults(), InternalError);
+    EXPECT_EQ("processPrepareRpcResults: "
+              "TxPrepare trying to ABORT after COMMITTED.",
+              TestLog::get());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+}
+
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_committed) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+
+    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
+    EXPECT_EQ(1, transactionTask->processPrepareRpcResults());
+    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+}
+
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_committed_error) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+    transactionTask->decision = WireFormat::TxDecision::ABORT;
+    TestLog::reset();
+    EXPECT_THROW(transactionTask->processPrepareRpcResults(), InternalError);
+    EXPECT_EQ("processPrepareRpcResults: "
+              "TxPrepare claims COMMITTED after ABORT received.",
+              TestLog::get());
+    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
 }
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_unknownTablet) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -723,9 +785,7 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_unknownTablet) {
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 }
 
-TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_failed) {
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_ServerNotUp) {
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -738,15 +798,12 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_failed) {
     TestLog::reset();
     EXPECT_EQ(1, transactionTask->processPrepareRpcResults());
     EXPECT_EQ("flushSession: flushing session for mock:host=master1 | "
-              "processPrepareRpcResults: FAILED", TestLog::get());
+              "processPrepareRpcResults: STATUS_SERVER_NOT_UP", TestLog::get());
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 }
 
 // TODO(cstlee) : Unit test processPrepareRpcResults_badStatus
 //TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_badStatus) {
-//    // Must make sure the object exists before we try to transaction on it.
-//    ramcloud->write(tableId1, "test", 4, "hello", 5);
-//
 //    insertWrite(tableId1, "test", 4, "hello", 5);
 //    transactionTask->initTask();
 //    transactionTask->lease.leaseId = 0;
@@ -764,9 +821,6 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_failed) {
 //}
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_notReady) {
-    // Must make sure the object exists before we try to transaction on it.
-    ramcloud->write(tableId1, "test", 4, "hello", 5);
-
     insertWrite(tableId1, "test", 4, "hello", 5);
     transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
@@ -921,6 +975,34 @@ TEST_F(ClientTransactionTaskTest, sendPrepareRpc_TableDoesntExist) {
                  TableDoesntExistException);
 }
 
+TEST_F(ClientTransactionTaskTest, ClientTransactionRpcWrapper_checkStatus) {
+    WireFormat::ResponseCommon resp;
+    resp.status = STATUS_TABLE_DOESNT_EXIST;
+    mockTransactionRpc->responseHeader = &resp;
+    TestLog::reset();
+    EXPECT_TRUE(mockTransactionRpc->checkStatus());
+    EXPECT_EQ("", TestLog::get());
+    resp.status = STATUS_UNKNOWN_TABLET;
+    EXPECT_TRUE(mockTransactionRpc->checkStatus());
+    EXPECT_EQ("markOpsForRetry: Retry marked.", TestLog::get());
+}
+
+TEST_F(ClientTransactionTaskTest,
+       ClientTransactionRpcWrapper_handleTransportError) {
+    TestLog::reset();
+    EXPECT_TRUE(mockTransactionRpc->handleTransportError());
+    EXPECT_TRUE(mockTransactionRpc->session == NULL);
+    EXPECT_EQ("flushSession: flushing session for mock:host=master3 | "
+              "markOpsForRetry: Retry marked.",
+              TestLog::get());
+}
+
+TEST_F(ClientTransactionTaskTest, ClientTransactionRpcWrapper_send) {
+    EXPECT_TRUE(RpcWrapper::NOT_STARTED == mockTransactionRpc->state);
+    EXPECT_THROW(mockTransactionRpc->send(), ServiceNotAvailableException);
+    EXPECT_TRUE(RpcWrapper::NOT_STARTED != mockTransactionRpc->state);
+}
+
 TEST_F(ClientTransactionTaskTest, DecisionRpc_constructor) {
     Transport::SessionRef session =
                 ramcloud->clientContext->transportManager->getSession(
@@ -936,39 +1018,6 @@ TEST_F(ClientTransactionTaskTest, DecisionRpc_constructor) {
     EXPECT_EQ(0U, rpc.reqHdr->participantCount);
 }
 
-TEST_F(ClientTransactionTaskTest, DecisionRpc_checkStatus) {
-    insertRemove(1, "test", 4);
-    transactionTask->nextCacheEntry = transactionTask->commitCache.end();
-    WireFormat::TxPrepare::Response resp;
-    resp.common.status = STATUS_TABLE_DOESNT_EXIST;
-    decisionRpc->responseHeader = &resp.common;
-    decisionRpc->checkStatus();
-    EXPECT_EQ(transactionTask->commitCache.end(),
-              transactionTask->nextCacheEntry);
-    resp.common.status = STATUS_UNKNOWN_TABLET;
-    decisionRpc->checkStatus();
-    EXPECT_EQ(transactionTask->commitCache.begin(),
-              transactionTask->nextCacheEntry);
-}
-
-TEST_F(ClientTransactionTaskTest, DecisionRpc_handleTransportError) {
-    insertRemove(1, "test", 4);
-    transactionTask->nextCacheEntry = transactionTask->commitCache.end();
-    TestLog::reset();
-    decisionRpc->handleTransportError();
-    EXPECT_TRUE(decisionRpc->session == NULL);
-    EXPECT_EQ(transactionTask->commitCache.begin(),
-              transactionTask->nextCacheEntry);
-    EXPECT_EQ("flushSession: flushing session for mock:host=master3",
-              TestLog::get());
-}
-
-TEST_F(ClientTransactionTaskTest, DecisionRpc_send) {
-    EXPECT_TRUE(RpcWrapper::NOT_STARTED == decisionRpc->state);
-    decisionRpc->send();
-    EXPECT_TRUE(RpcWrapper::NOT_STARTED != decisionRpc->state);
-}
-
 TEST_F(ClientTransactionTaskTest, DecisionRpc_appendOp) {
     insertRead(tableId1, "0", 1);
 
@@ -976,15 +1025,36 @@ TEST_F(ClientTransactionTaskTest, DecisionRpc_appendOp) {
             transactionTask->commitCache.begin();
     it->second.rpcId = 42;
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING, it->second.state);
-    decisionRpc->appendOp(it);
+    EXPECT_TRUE(decisionRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::DECIDE, it->second.state);
     EXPECT_EQ(decisionRpc->ops[decisionRpc->reqHdr->participantCount - 1], it);
     EXPECT_EQ("DecisionRpc :: lease{1} participantCount{1} "
               "ParticipantList[ {1, 3894390131083956718, 42} ]",
               rpcToString(decisionRpc.get()));
+
+    EXPECT_TRUE(decisionRpc->appendOp(it));
+    EXPECT_TRUE(decisionRpc->appendOp(it));
+    // RPC should now be full.
+    EXPECT_FALSE(decisionRpc->appendOp(it));
 }
 
-TEST_F(ClientTransactionTaskTest, DecisionRpc_retryRequest) {
+TEST_F(ClientTransactionTaskTest, DecisionRpc_wait) {
+    Buffer respBuf;
+    WireFormat::TxDecision::Response* respHdr =
+            respBuf.emplaceAppend<WireFormat::TxDecision::Response>();
+    decisionRpc->state = RpcWrapper::FAILED;
+    EXPECT_THROW(decisionRpc->wait(), ServerNotUpException);
+
+    decisionRpc->response = &respBuf;
+    respHdr->common.status = STATUS_UNKNOWN_TABLET;
+    decisionRpc->state = RpcWrapper::FINISHED;
+    EXPECT_THROW(decisionRpc->wait(), UnknownTabletException);
+
+    respHdr->common.status = STATUS_OK;
+    decisionRpc->wait();
+}
+
+TEST_F(ClientTransactionTaskTest, DecisionRpc_markOpsForRetry) {
     insertWrite(1, "test", 4, "hello", 5);
     insertWrite(2, "test", 4, "hello", 5);
     insertWrite(3, "test", 4, "hello", 5);
@@ -996,7 +1066,7 @@ TEST_F(ClientTransactionTaskTest, DecisionRpc_retryRequest) {
         it++;
     }
 
-    decisionRpc->retryRequest();
+    decisionRpc->markOpsForRetry();
 
     it = transactionTask->commitCache.begin();
     while (it != transactionTask->commitCache.end()) {
@@ -1016,49 +1086,19 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_constructor) {
     transactionTask->participantList.emplaceAppend<WireFormat::TxParticipant>(
             4, 5, 6);
 
+    // Bump the ackId making it non-zero so it's easier to check.
+    uint64_t tempRpcId = ramcloud->rpcTracker->newRpcId(transactionTask.get());
+    ramcloud->rpcTracker->rpcFinished(tempRpcId);
+    EXPECT_EQ(1U, ramcloud->rpcTracker->ackId());
+
     ClientTransactionTask::PrepareRpc rpc(
             ramcloud.get(), session, transactionTask.get());
     EXPECT_EQ(transactionTask->lease.leaseId, rpc.reqHdr->lease.leaseId);
-    EXPECT_EQ(0U, rpc.reqHdr->ackId);
+    EXPECT_EQ(1U, rpc.reqHdr->ackId);
     EXPECT_EQ(transactionTask->participantCount, rpc.reqHdr->participantCount);
-    EXPECT_EQ("PrepareRpc :: lease{42} ackId{0} participantCount{2} opCount{0}"
+    EXPECT_EQ("PrepareRpc :: lease{42} ackId{1} participantCount{2} opCount{0}"
               " ParticipantList[ {1, 2, 3} {4, 5, 6} ] OpSet[ ]",
               rpcToString(&rpc));
-}
-
-TEST_F(ClientTransactionTaskTest, PrepareRpc_checkStatus) {
-    insertRemove(1, "test", 4);
-    transactionTask->nextCacheEntry = transactionTask->commitCache.end();
-    WireFormat::TxPrepare::Response resp;
-    resp.common.status = STATUS_TABLE_DOESNT_EXIST;
-    prepareRpc->responseHeader = &resp.common;
-    prepareRpc->checkStatus();
-    EXPECT_EQ(transactionTask->commitCache.end(),
-              transactionTask->nextCacheEntry);
-    resp.common.status = STATUS_UNKNOWN_TABLET;
-    prepareRpc->checkStatus();
-    EXPECT_EQ(transactionTask->commitCache.begin(),
-              transactionTask->nextCacheEntry);
-}
-
-TEST_F(ClientTransactionTaskTest, PrepareRpc_handleTransportError) {
-    insertRemove(1, "test", 4);
-    transactionTask->nextCacheEntry = transactionTask->commitCache.end();
-    TestLog::reset();
-    prepareRpc->handleTransportError();
-    EXPECT_TRUE(prepareRpc->session == NULL);
-    EXPECT_EQ(transactionTask->commitCache.begin(),
-              transactionTask->nextCacheEntry);
-    EXPECT_EQ("flushSession: flushing session for mock:host=master3",
-              TestLog::get());
-}
-
-TEST_F(ClientTransactionTaskTest, PrepareRpc_send) {
-    EXPECT_EQ(0U, prepareRpc->reqHdr->ackId);
-    EXPECT_TRUE(RpcWrapper::NOT_STARTED == prepareRpc->state);
-    prepareRpc->send();
-    EXPECT_EQ(ramcloud->rpcTracker->ackId(), prepareRpc->reqHdr->ackId);
-    EXPECT_TRUE(RpcWrapper::NOT_STARTED != prepareRpc->state);
 }
 
 TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_read) {
@@ -1068,7 +1108,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_read) {
             transactionTask->commitCache.begin();
     it->second.rpcId = 42;
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING, it->second.state);
-    prepareRpc->appendOp(it);
+    EXPECT_TRUE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
     EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
     EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
@@ -1083,7 +1123,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_remove) {
             transactionTask->commitCache.begin();
     it->second.rpcId = 42;
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING, it->second.state);
-    prepareRpc->appendOp(it);
+    EXPECT_TRUE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
     EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
     EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
@@ -1098,7 +1138,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_write) {
             transactionTask->commitCache.begin();
     it->second.rpcId = 42;
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING, it->second.state);
-    prepareRpc->appendOp(it);
+    EXPECT_TRUE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
     EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
     EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
@@ -1115,7 +1155,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_invalid) {
     it->second.type = ClientTransactionTask::CacheEntry::INVALID;
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING, it->second.state);
     TestLog::reset();
-    prepareRpc->appendOp(it);
+    EXPECT_FALSE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING, it->second.state);
     EXPECT_EQ(0U, prepareRpc->reqHdr->opCount);
     EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{0} "
@@ -1123,7 +1163,37 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_invalid) {
     EXPECT_EQ("appendOp: Unknown transaction op type.", TestLog::get());
 }
 
-TEST_F(ClientTransactionTaskTest, PrepareRpc_retryRequest) {
+TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_full) {
+    insertRead(tableId1, "0", 1);
+
+    ClientTransactionTask::CommitCacheMap::iterator it =
+            transactionTask->commitCache.begin();
+
+    EXPECT_TRUE(prepareRpc->appendOp(it));
+    EXPECT_TRUE(prepareRpc->appendOp(it));
+    EXPECT_TRUE(prepareRpc->appendOp(it));
+    // RPC should now be full.
+    EXPECT_FALSE(prepareRpc->appendOp(it));
+}
+
+TEST_F(ClientTransactionTaskTest, PrepareRpc_wait) {
+    Buffer respBuf;
+    WireFormat::TxPrepare::Response* respHdr =
+            respBuf.emplaceAppend<WireFormat::TxPrepare::Response>();
+    prepareRpc->state = RpcWrapper::FAILED;
+    EXPECT_THROW(prepareRpc->wait(), ServerNotUpException);
+
+    prepareRpc->response = &respBuf;
+    respHdr->common.status = STATUS_UNKNOWN_TABLET;
+    prepareRpc->state = RpcWrapper::FINISHED;
+    EXPECT_THROW(prepareRpc->wait(), UnknownTabletException);
+
+    respHdr->common.status = STATUS_OK;
+    respHdr->vote = WireFormat::TxPrepare::ABORT;
+    EXPECT_EQ(WireFormat::TxPrepare::ABORT, prepareRpc->wait());
+}
+
+TEST_F(ClientTransactionTaskTest, PrepareRpc_markOpsForRetry) {
     insertWrite(1, "test", 4, "hello", 5);
     insertWrite(2, "test", 4, "hello", 5);
     insertWrite(3, "test", 4, "hello", 5);
@@ -1135,7 +1205,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_retryRequest) {
         it++;
     }
 
-    prepareRpc->retryRequest();
+    prepareRpc->markOpsForRetry();
 
     it = transactionTask->commitCache.begin();
     while (it != transactionTask->commitCache.end()) {
