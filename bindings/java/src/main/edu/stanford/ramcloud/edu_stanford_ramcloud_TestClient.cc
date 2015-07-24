@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <Cycles.h>
 #include <RamCloud.h>
 #include <TableEnumerator.h>
 #include "edu_stanford_ramcloud_TestClient.h"
