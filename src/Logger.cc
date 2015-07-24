@@ -20,6 +20,7 @@
 
 #include <boost/lexical_cast.hpp>
 
+#include "Cycles.h"
 #include "Logger.h"
 #include "ShortMacros.h"
 #include "ThreadId.h"
@@ -341,10 +342,14 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
                    const CodeLocation& where,
                    const char* fmt, ...)
 {
+    uint64_t start = Cycles::rdtsc();
     Lock lock(mutex);
 
     static int pid = getpid();
     va_list ap;
+    uint32_t bufferSize;
+    uint32_t needed;
+    string message;
     struct timespec now;
     clock_gettime(CLOCK_REALTIME, &now);
 
@@ -361,7 +366,7 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
             skip = &iter->second;
             if (Util::timespecLess(now, skip->nextPrintTime)) {
                 skip->skipCount++;
-                return;
+                goto done;
             }
 
             // We've printed this message before, but it was a while ago,
@@ -374,15 +379,15 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
     // Compute the body of the log message except for the initial timestamp
     // (i.e. process the original format string, and add location/process/thread
     // info).
-    string message = format("%s:%d in %s %s %s[%d:%lu]: ",
+    message = format("%s:%d in %s %s %s[%d:%lu]: ",
             where.relativeFile().c_str(), where.line,
             where.qualifiedFunction().c_str(), logModuleNames[module],
             logLevelNames[level], pid, ThreadId::get());
     char buffer[2000];
     va_start(ap, fmt);
-    uint32_t bufferSize = testingBufferSize ? testingBufferSize
+    bufferSize = testingBufferSize ? testingBufferSize
             : downCast<uint32_t>(sizeof(buffer));
-    uint32_t needed = vsnprintf(buffer, bufferSize, fmt, ap);
+    needed = vsnprintf(buffer, bufferSize, fmt, ap);
     va_end(ap);
     message += buffer;
     if (needed >= bufferSize) {
@@ -395,7 +400,7 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
 
     if (!collapse) {
         printMessage(now, message.c_str(), 0);
-        return;
+        goto done;
     }
 
     // If we reach this point of control, then we are collapsing but this is
@@ -424,6 +429,27 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
     // If collapseMap gets too large, just delete an entry at random.
     if (collapseMap.size() > maxCollapseMapSize) {
         collapseMap.erase(collapseMap.begin());
+    }
+
+  done:
+    // Make sure this method did not take very long to execute.  If the
+    // logging gets backed up it is really bad news, because it can lock
+    // up the server so that it appears dead and crash recovery happens
+    // (e.g., the Dispatch thread might be blocked waiting to log a message).
+    // Thus, generate a log message to help people trying to debug the "crash".
+    //
+    // One way this problem can happen is if logs are being sent back
+    // over ssh and there are a lot of log messages. Solution: don't
+    // do that! Always log to a local file.
+    double elapsedMs = Cycles::toSeconds(Cycles::rdtsc() - start)*1e3;
+    if (elapsedMs > 10) {
+        struct timespec now;
+        clock_gettime(CLOCK_REALTIME, &now);
+        printMessage(now, format("%s:%d in %s default ERROR[%d:%lu]: "
+                "Logger got stuck for %.1f ms, which could hang server\n",
+                HERE.relativeFile().c_str(), HERE.line,
+                HERE.qualifiedFunction().c_str(), getpid(), ThreadId::get(),
+                elapsedMs).c_str(), 0);
     }
 }
 
@@ -463,7 +489,7 @@ Logger::cleanCollapseMap(struct timespec now)
             // This entry contains suppressed log messages, but it's been
             // a long time since we printed the last one; print another one.
 
-            printMessage(skip->nextPrintTime, skip->message.c_str(),
+            printMessage(now, skip->message.c_str(),
                     skip->skipCount-1);
             skip->skipCount = 0;
             skip->nextPrintTime = Util::timespecAdd(now,
