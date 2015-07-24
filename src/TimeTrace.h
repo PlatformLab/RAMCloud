@@ -68,6 +68,11 @@ class TimeTrace {
     // safe to add more records, since that could result in inconsistent
     // output from printInternal.
     volatile bool readerActive;
+
+    // Refers to the most recently created time trace; provides a convenient
+    // global variable for situations where no other TimeTrace pointer
+    // is readily available.
+    static TimeTrace* globalTimeTrace;
 };
 
 } // namespace RAMCloud
