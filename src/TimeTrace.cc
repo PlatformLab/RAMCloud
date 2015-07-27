@@ -165,7 +165,6 @@ void TimeTrace::printInternal(string* s)
         // The NULL test below is only needed for testing.
     } while ((i != nextIndex) && (events[i].message != NULL));
     readerActive = false;
-    RAMCLOUD_LOG(NOTICE, "Finished logging time trace");
 }
 
 } // namespace RAMCloud

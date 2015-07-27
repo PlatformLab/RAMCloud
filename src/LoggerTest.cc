@@ -396,8 +396,8 @@ TEST_F(LoggerTest, cleanCollapseMap_print) {
     logger.collapseMap[pair3]
         = Logger::SkipInfo({1, 600000000}, 0, "message3\n");
     logger.cleanCollapseMap({1, 500000000});
-    EXPECT_EQ("0000000001.400000000 (7 duplicates of the following message "
-            "were suppressed)\n0000000001.400000000 message2\n",
+    EXPECT_EQ("0000000001.500000000 (7 duplicates of the following message "
+            "were suppressed)\n0000000001.500000000 message2\n",
             TestUtil::readFile("__test.log"));
     EXPECT_EQ(2U, logger.collapseMap.size());
     EXPECT_EQ(6, logger.collapseMap[pair2].nextPrintTime.tv_sec);
