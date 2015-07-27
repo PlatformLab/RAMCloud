@@ -27,7 +27,7 @@ GTEST_DIR ?= $(TOP)/gtest
 
 # Determines whether or not RAMCloud is built with support for LogCabin as an
 # ExternalStorage implementation.
-LOGCABIN ?= yes
+LOGCABIN ?= no
 ifeq ($(LOGCABIN),yes)
 LOGCABIN_LIB ?= logcabin/build/liblogcabin.a
 LOGCABIN_DIR ?= logcabin
