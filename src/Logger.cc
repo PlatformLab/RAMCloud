@@ -21,6 +21,7 @@
 #include <boost/lexical_cast.hpp>
 
 #include "Cycles.h"
+#include "LogCabinLogger.h"
 #include "Logger.h"
 #include "ShortMacros.h"
 #include "ThreadId.h"
@@ -43,7 +44,11 @@ static_assert(unsafeArrayLength(logLevelNames) == NUM_LOG_LEVELS,
  * Friendly names for each #LogModule value.
  * Keep this in sync with the LogModule enum.
  */
-static const char* logModuleNames[] = {"default", "transport"};
+static const char* logModuleNames[] = {
+    "default",
+    "transport",
+    "externalStorage"
+};
 
 static_assert(unsafeArrayLength(logModuleNames) == NUM_LOG_MODULES,
               "logModuleNames size does not match NUM_LOG_MODULES");
@@ -69,6 +74,9 @@ Logger::Logger(LogLevel level)
     , testingBufferSize(0)
 {
     setLogLevels(level);
+#if ENABLE_LOGCABIN
+    LogCabinLogger::setup(level);
+#endif
 }
 
 /**

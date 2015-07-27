@@ -15,6 +15,7 @@
 
 #include "Common.h"
 #include "ExternalStorage.h"
+#include "LogCabinStorage.h"
 #include "ZooStorage.h"
 
 namespace RAMCloud {
@@ -28,6 +29,50 @@ ExternalStorage::ExternalStorage()
     : workspace("/")
     , fullName(workspace)
 {}
+
+bool
+ExternalStorage::getLeaderInfo(const char* name, Buffer* value)
+{
+    return get(name, value);
+}
+
+/**
+ * Read an object from external storage, and parse it as a protocol
+ * buffer of type ProtoBufType.
+ *
+ * \param name
+ *      Name of the desired object; NULL-terminated hierarchical path
+ *      containing one or more path elements separated by slashes,
+ *      such as "foo" or "/foo/bar". Relative names (no leading slash)
+ *      are concatenated to the current workspace.
+ * \param value
+ *      A protocol buffer into which the object value is parsed.
+ *
+ * \return
+ *      If the specified object exists, then true is returned. If there
+ *      is no such object, then false is returned and value is empty.
+ *
+ * \throws LostLeadershipException
+ * \throws FormatError
+ */
+bool
+ExternalStorage::getProtoBuf(const char* name,
+                             google::protobuf::Message* value)
+{
+    Buffer externalData;
+    if (!get(name, &externalData))
+        return false;
+    uint32_t length = externalData.size();
+    string str(static_cast<const char*>(externalData.getRange(0, length)),
+            length);
+    if (!value->ParseFromString(str)) {
+        throw FormatError(HERE, format("couldn't parse '%s' "
+            "object in external storage as %s",
+            name, value->GetTypeName().c_str()));
+    }
+    return true;
+}
+
 
 // See header file for documentation.
 const char*
@@ -81,14 +126,20 @@ ExternalStorage::getFullName(const char* name)
  * system.
  *
  * \param locator
- *      Currently only one form of external storage is supported:
- *      ZooKeeper. In this case the string starts with "zk:" and the
+ *      Currently two forms of external storage are supported: LogCabin and
+ *      ZooKeeper.
+ *      For LogCabin the string starts with "lc:" and the rest of the string is
+ *      handed off to the LogCabin::Client::Cluster constructor (which
+ *      accepts comma-separated host:port pairs for the LogCabin servers, such
+ *      as "rc03:5254,rc04:5254"; each hostname may resolve to multiple
+ *      addresses).
+ *      For ZooKeeper the string starts with "zk:" and the
  *      rest of the string contains a comma-separated list of host:port
  *      pairs for the ZooKeeper servers, such as "rc03:2109,rc04:2109".
  *      In the future, other forms of external storage may be supported;
  *      each one will have its own distinctive prefix.
  * \param context
- *      Overal server information; needed by some forms of external storage.
+ *      Overall server information; needed by some forms of external storage.
  * @return
  *      If locator was recognized as an external storage locator, then
  *      the return value refers to an open connection to that system.
@@ -100,9 +151,22 @@ ExternalStorage::open(string locator, Context* context)
     if (storageOverride != NULL) {
         return storageOverride;
     }
-    if (locator.find("zk:") == 0) {
-        string zkInfo = locator.substr(3);
-        return new ZooStorage(zkInfo, context->dispatch);
+    if (locator.find("lc:") == 0) {
+        string cluster = locator.substr(3);
+#if ENABLE_LOGCABIN
+        return new LogCabinStorage(cluster);
+#else
+        RAMCLOUD_DIE("Could not open connection to LogCabin: support for "
+                     "LogCabin was disabled at compile time");
+#endif
+    } else if (locator.find("zk:") == 0) {
+        string cluster = locator.substr(3);
+#if ENABLE_ZOOKEEPER
+        return new ZooStorage(cluster, context->dispatch);
+#else
+        RAMCLOUD_DIE("Could not open connection to ZooKeeper: support for "
+                     "ZooKeeper was disabled at compile time");
+#endif
     }
     return NULL;
 }

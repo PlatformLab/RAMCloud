@@ -63,12 +63,12 @@ TEST_F(ExternalStorageTest, get_templated_basics) {
     storage.getResults.push(str);
 
     ProtoBuf::TableManager info2;
-    EXPECT_TRUE(storage.getProtoBuf<ProtoBuf::TableManager>("/node1", &info2));
+    EXPECT_TRUE(storage.getProtoBuf("/node1", &info2));
     EXPECT_EQ(123u, info2.next_table_id());
 }
 TEST_F(ExternalStorageTest, get_templated_noSuchObject) {
     ProtoBuf::TableManager info2;
-    EXPECT_FALSE(storage.getProtoBuf<ProtoBuf::TableManager>("/node1", &info2));
+    EXPECT_FALSE(storage.getProtoBuf("/node1", &info2));
 }
 TEST_F(ExternalStorageTest, get_templated_formatError) {
     storage.getResults.push("abc");
@@ -76,7 +76,7 @@ TEST_F(ExternalStorageTest, get_templated_formatError) {
     ProtoBuf::TableManager info2;
     string message = "no exception";
     try {
-        storage.getProtoBuf<ProtoBuf::TableManager>("/node1", &info2);
+        storage.getProtoBuf("/node1", &info2);
     } catch (ExternalStorage::FormatError& e) {
         message = e.message;
     }

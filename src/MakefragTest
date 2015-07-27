@@ -69,6 +69,7 @@ TESTS_SRCFILES := \
 		  src/LeaseManagerTest.cc \
 		  src/LinearizableObjectRpcWrapperTest.cc \
 		  src/LockTableTest.cc \
+		  src/LogCabinStorageTest.cc \
 		  src/LogCleanerTest.cc \
 		  src/LogDigestTest.cc \
 		  src/LogEntryRelocatorTest.cc \
@@ -227,6 +228,7 @@ $(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(OBJDIR)/gtest.a
 # The unit tests don't actually call all of these programs, but
 # they are included here to make sure they continue to build.
 test: $(OBJDIR)/test \
+      $(OBJDIR)/zooTest \
       $(OBJDIR)/CleanerCompactionBenchmark \
       $(OBJDIR)/ClusterPerf \
       $(OBJDIR)/CoordinatorCrashRecovery \

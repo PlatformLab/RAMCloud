@@ -24,8 +24,28 @@ OBJDIR	:= obj$(OBJSUFFIX)
 
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
+
+# Determines whether or not RAMCloud is built with support for LogCabin as an
+# ExternalStorage implementation.
+LOGCABIN ?= no
+ifeq ($(LOGCABIN),yes)
+LOGCABIN_LIB ?= logcabin/build/liblogcabin.a
+LOGCABIN_DIR ?= logcabin
+else
+LOGCABIN_LIB :=
+LOGCABIN_DIR :=
+endif
+
+# Determines whether or not RAMCloud is built with support for ZooKeeper as an
+# ExternalStorage implementation.
+ZOOKEEPER ?= yes
+ifeq ($(ZOOKEEPER),yes)
 ZOOKEEPER_LIB ?= /usr/local/lib/libzookeeper_mt.a
 ZOOKEEPER_DIR ?= /usr/local/zookeeper-3.4.5
+else
+ZOOKEEPER_LIB :=
+ZOOKEEPER_DIR :=
+endif
 
 
 ifeq ($(DEBUG),yes)
@@ -47,6 +67,12 @@ endif
 ifeq ($(VALGRIND),yes)
 COMFLAGS += -DVALGRIND
 endif
+ifeq ($(LOGCABIN),yes)
+COMFLAGS += -DENABLE_LOGCABIN
+endif
+ifeq ($(ZOOKEEPER),yes)
+COMFLAGS += -DENABLE_ZOOKEEPER
+endif
 
 COMWARNS := -Wall -Wformat=2 -Wextra \
             -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute
@@ -63,7 +89,8 @@ endif
 # Failed deconstructor inlines are generating noise
 # -Winline
 
-LIBS := $(EXTRALIBS) $(ZOOKEEPER_LIB) -lpcrecpp -lboost_program_options \
+LIBS := $(EXTRALIBS) $(LOGCABIN_LIB) $(ZOOKEEPER_LIB) \
+	-lpcrecpp -lboost_program_options \
 	-lprotobuf -lrt -lboost_filesystem -lboost_system \
 	-lpthread -lssl -lcrypto
 ifeq ($(DEBUG),yes)
@@ -71,7 +98,14 @@ ifeq ($(DEBUG),yes)
 LIBS += -rdynamic
 endif
 
-INCLUDES := -I$(TOP)/src -I$(TOP)/$(OBJDIR) -I$(GTEST_DIR)/include -I/usr/local/openonload-201405/src/include 
+INCLUDES := -I$(TOP)/src \
+            -I$(TOP)/$(OBJDIR) \
+            -I$(GTEST_DIR)/include \
+            -I/usr/local/openonload-201405/src/include \
+             $(NULL)
+ifeq ($(LOGCABIN),yes)
+INCLUDES := $(INCLUDES) -I$(LOGCABIN_DIR)/include
+endif
 
 CC ?= gcc
 CXX ?= g++

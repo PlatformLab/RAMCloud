@@ -49,6 +49,8 @@ CLIENT_SRCFILES := \
 		   src/LogEntryTypes.cc \
 		   src/Logger.cc \
 		   src/LargeBlockOfMemory.cc \
+		   src/LogCabinLogger.cc \
+		   src/LogCabinStorage.cc \
 		   src/LogMetricsStringer.cc \
 		   src/MacAddress.cc \
 		   src/MacIpAddress.cc \

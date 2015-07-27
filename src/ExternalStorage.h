@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_EXTERNALSTORAGE_H
 #define RAMCLOUD_EXTERNALSTORAGE_H
 
+#include <google/protobuf/message.h>
+
 #include "Buffer.h"
 #include "Exception.h"
 
@@ -36,7 +38,7 @@ class Context;
  * and available (for example, it might be implemented using a consensus
  * approach with multiple storage servers). No recoverable exceptions or
  * errors should be thrown by this class; the only exceptions thrown should
- * be unrecoverable once such as LostLeadershipException or internal
+ * be unrecoverable ones such as LostLeadershipException or internal
  * errors that should result in coordinator crashes. The storage system is
  * expected to be totally reliable; the worst that should happen is for
  * calls to this class to block while waiting for the storage system to
@@ -50,8 +52,8 @@ class ExternalStorage {
   PUBLIC:
     /**
      * The following structure holds information about a single object
-     * including both its name and its value. Its primary use is
-     * for enumerating all of the children of a node.
+     * including both its name and its value (if it has one). Its primary use
+     * is for enumerating all of the children of a node.
      */
     struct Object {
         /// Name of the object within its parent (not a full path name).
@@ -76,26 +78,27 @@ class ExternalStorage {
             , value(NULL)
             , length(0)
         {}
-        Object(const Object& other)
+        // move constructor
+        Object(Object&& other)
             : name(other.name)
             , value(other.value)
             , length(other.length)
         {
-            Object& o = const_cast<Object&>(other);
-            o.name = NULL;
-            o.value = NULL;
-            o.length = 0;
+            other.name = NULL;
+            other.value = NULL;
+            other.length = 0;
         }
-        Object& operator=(const Object& other)
+        // move assignment
+        Object& operator=(Object&& other)
         {
             if (this != &other) {
-                Object& o = const_cast<Object&>(other);
-                std::swap(name, o.name);
-                std::swap(value, o.value);
-                std::swap(length, o.length);
+                std::swap(name, other.name);
+                std::swap(value, other.value);
+                std::swap(length, other.length);
             }
             return *this;
         }
+        DISALLOW_COPY_AND_ASSIGN(Object);
     };
 
     /**
@@ -140,6 +143,16 @@ class ExternalStorage {
      * server acting as leader. This method waits until there is no longer
      * an active leader; at that point it claims leadership and returns.
      * Once this method returns, the caller can begin acting as coordinator.
+     * After this method returns, a background thread may crash this process at
+     * any time if the lease cannot be maintained.
+     *
+     * (It used to not be the case that the process could crash as soon as a
+     * lease was lost. A background thread would have to set a flag, and
+     * another thread would eventually call back into the ExternalStorage,
+     * notice the flag, and throw LostLeadershipException. The problem was that
+     * we don't know how long it'll take for another thread to call back in,
+     * and meanwhile the coordinator could engage in unsafe activity. Directly
+     * crashing the process as soon as a lease is lost is simpler and safer.)
      *
      *  \param name
      *      Name of an object that is used to synchronize leader election
@@ -156,7 +169,9 @@ class ExternalStorage {
     virtual void becomeLeader(const char* name, const string& leaderInfo) = 0;
 
     /**
-     * Read one object from external storage.
+     * Read a single non-lease object from external storage.
+     *
+     * See getLeaderInfo() to read the owner of a lease object.
      *
      * \param name
      *      Name of the desired object; NULL-terminated hierarchical path
@@ -165,6 +180,8 @@ class ExternalStorage {
      *      are concatenated to the current workspace.
      * \param value
      *      The contents of the object are returned in this buffer.
+     *      If the object is a pure node (directory), value is empty (and true
+     *      is returned).
      *
      * \return
      *      If the specified object exists, then true is returned. If there
@@ -185,52 +202,34 @@ class ExternalStorage {
      *      current workspace.
      * \param children
      *      This vector will be filled in with one entry for each child
-     *      of name. Any previous contents of the vector are discarded.
+     *      of name, including pure (directory) children. Any previous
+     *      contents of the vector are discarded.
      *
      * \throws LostLeadershipException
      */
     virtual void getChildren(const char* name, vector<Object>* children) = 0;
 
     /**
-     * Read an object from external storage, and parse it as a protocol
-     * buffer of type ProtoBufType.
+     * Read a single lease object from external storage.
      *
-     * \param name
-     *      Name of the desired object; NULL-terminated hierarchical path
-     *      containing one or more path elements separated by slashes,
-     *      such as "foo" or "/foo/bar". Relative names (no leading slash)
-     *      are concatenated to the current workspace.
-     * \param value
-     *      A protocol buffer into which the object value is parsed.
+     * Some external storage implementations pack more information than the
+     * leader locator into the leader's lease object. This method extracts just
+     * the value of 'leaderInfo' as previously passed into becomeLeader().
      *
-     * \return
-     *      If the specified object exists, then true is returned. If there
-     *      is no such object, then false is returned and value is empty.
-     *
-     * \throws LostLeadershipException
-     * \throws FormatError
+     * Everything else is the same as in get(), and the default implementation
+     * is just an alias for get().
      */
-    template<typename ProtoBufType>
-    bool
-    getProtoBuf(const char* name, ProtoBufType* value)
-    {
-        Buffer externalData;
-        if (!get(name, &externalData))
-            return false;
-        uint32_t length = externalData.size();
-        string str(static_cast<const char*>(externalData.getRange(0, length)),
-                length);
-        if (!value->ParseFromString(str)) {
-            throw FormatError(HERE, format("couldn't parse '%s' "
-                "object in external storage as %s",
-                name, value->GetTypeName().c_str()));
-        }
-        return true;
-    }
+    virtual bool getLeaderInfo(const char* name, Buffer* value);
+
+    bool getProtoBuf(const char* name, google::protobuf::Message* value);
 
     /**
      * Return the last value passed to setWorkspace (i.e. the path prefix
      * used for relative node names).
+     *
+     * \throws LostLeadershipException
+     *
+     * \warning This method is not thread safe.
      */
     virtual const char* getWorkspace();
 
@@ -292,6 +291,10 @@ class ExternalStorage {
      *
      * \param pathPrefix
      *      Top-level node in the workspace. Must start and end with "/".
+     *
+     * \throws LostLeadershipException
+     *
+     * \warning This method is not thread safe.
      */
     virtual void setWorkspace(const char* pathPrefix);
 

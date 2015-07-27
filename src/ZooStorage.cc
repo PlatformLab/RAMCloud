@@ -13,6 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#if ENABLE_ZOOKEEPER
+
 #include <vector>
 #include "TestUtil.h"
 #include "Common.h"
@@ -136,7 +138,7 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
 {
     Lock lock(mutex);
     int status;
-    children->resize(0);
+    children->clear();
     const char* fullName = getFullName(name);
 
     if (lostLeadership) {
@@ -758,3 +760,5 @@ ZooStorage::LeaseRenewer::handleTimerEvent()
 }
 
 } // namespace RAMCloud
+
+#endif // ENABLE_ZOOKEEPER
