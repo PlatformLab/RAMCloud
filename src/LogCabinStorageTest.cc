@@ -25,6 +25,8 @@
 namespace RAMCloud {
 namespace {
 
+typedef LogCabinStorage::BecomeLeaderState BecomeLeaderState;
+
 /**
  * This is plugged into LogCabinStorage in place of usleep, which is useful for
  * testing becomeLeader() without taking too long or relying on timing.
@@ -115,14 +117,9 @@ TEST_F(LogCabinStorageTest, destructor) {
     storage.destroy();
 }
 
-TEST_F(LogCabinStorageTest, becomeLeader_noOwnerKey) {
-    Buffer value;
-    storage->becomeLeader("/test/leader", "locator:new");
-    EXPECT_EQ(0U, mockUsleep->numSleeps);
-    storage->getLeaderInfo("/test/leader", &value);
-    EXPECT_EQ("locator:new", TestUtil::toString(&value));
-}
-
+// This tests the becomeLeader() function itself, from INITIAL to
+// OTHERS_LEASE_OBSERVED to OTHERS_LEASE_EXPIRED to LEASE_ACQUIRED.
+// As if the prior leader had set a key but then died.
 TEST_F(LogCabinStorageTest, becomeLeader_ownerKeySet_dead) {
     storage->checkLeaderIntervalMs = 300;
     Buffer value;
@@ -132,6 +129,22 @@ TEST_F(LogCabinStorageTest, becomeLeader_ownerKeySet_dead) {
     EXPECT_EQ(300000UL, mockUsleep->lastSleep);
     storage->getLeaderInfo("/test/leader", &value);
     EXPECT_EQ("locator:new", TestUtil::toString(&value));
+
+    // check assignments at top of becomeLeader()
+    EXPECT_EQ("/test/leader", storage->ownerKey);
+    EXPECT_EQ("locator:new", storage->leaderInfo);
+    EXPECT_EQ("/test/leader-keepalive", storage->keepAliveKey);
+}
+
+// Basic test for overall becomeLeader() when there is no
+// owner key set.
+TEST_F(LogCabinStorageTest, becomeLeader_noOwnerKey) {
+    Buffer value;
+    storage->becomeLeader("/test/leader", "locator:new");
+    EXPECT_EQ(0U, mockUsleep->numSleeps);
+    storage->getLeaderInfo("/test/leader", &value);
+    EXPECT_EQ("locator:new", TestUtil::toString(&value));
+
 }
 
 /**
@@ -151,7 +164,9 @@ struct MockUsleep_OwnerAlive : public MockUsleep {
     }
 };
 
-
+// This is an older test for becomeLeader before it was broken apart. There may
+// be some small value in keeping this test, so I've left it here for now. If
+// it's causing a maintenance headache, it should probably be deleted.
 TEST_F(LogCabinStorageTest, becomeLeader_ownerKeySet_alive_keepaliveNew) {
     mockUsleep.reset(new MockUsleep_OwnerAlive(storage.get()));
     storage->mockableUsleep = std::ref(*mockUsleep);
@@ -165,6 +180,9 @@ TEST_F(LogCabinStorageTest, becomeLeader_ownerKeySet_alive_keepaliveNew) {
     EXPECT_EQ("locator:new", TestUtil::toString(&value));
 }
 
+// This is an older test for becomeLeader before it was broken apart. There may
+// be some small value in keeping this test, so I've left it here for now. If
+// it's causing a maintenance headache, it should probably be deleted.
 TEST_F(LogCabinStorageTest, becomeLeader_ownerKeySet_alive_keepaliveExist) {
     mockUsleep.reset(new MockUsleep_OwnerAlive(storage.get()));
     storage->mockableUsleep = std::ref(*mockUsleep);
@@ -199,6 +217,9 @@ struct MockUsleep_OwnerKeyChanged : public MockUsleep {
     }
 };
 
+// This is an older test for becomeLeader before it was broken apart. There may
+// be some small value in keeping this test, so I've left it here for now. If
+// it's causing a maintenance headache, it should probably be deleted.
 // owner key set, owner changed while reading nth keepalive
 TEST_F(LogCabinStorageTest, becomeLeader_ownerKeyChanged) {
     mockUsleep.reset(new MockUsleep_OwnerKeyChanged(storage.get()));
@@ -210,10 +231,6 @@ TEST_F(LogCabinStorageTest, becomeLeader_ownerKeyChanged) {
     storage->getLeaderInfo("/test/leader", &value);
     EXPECT_EQ("locator:new", TestUtil::toString(&value));
 }
-
-// There should be a couple more cases here but they're harder to test:
-// owner key set, owner changed while reading first keepalive
-// owner key set, owner changed while setting owner key to self
 
 TEST_F(LogCabinStorageTest, get_lostLeadership) {
     storage->tree.setCondition("/test/leader", "me");
@@ -368,6 +385,131 @@ TEST_F(LogCabinStorageTest, setWorkspace_ok) {
     EXPECT_EQ("value1", TestUtil::toString(&value));
     EXPECT_TRUE(storage->get("/test/leader/foo", &value));
     EXPECT_EQ("value1", TestUtil::toString(&value));
+}
+
+TEST_F(LogCabinStorageTest, readExistingLease_none) {
+    storage->ownerKey = "/test/leader";
+    storage->leaderInfo = "locator:new";
+    storage->keepAliveKey = storage->ownerKey + "-keepalive";
+    EXPECT_EQ(BecomeLeaderState::OTHERS_LEASE_EXPIRED,
+              storage->readExistingLease());
+    EXPECT_EQ(storage->ownerKey,
+              storage->tree.getCondition().first);
+    EXPECT_EQ("",
+              storage->tree.getCondition().second);
+}
+
+TEST_F(LogCabinStorageTest, readExistingLease_ok) {
+    storage->ownerKey = "/test/leader";
+    storage->leaderInfo = "locator:new";
+    storage->keepAliveKey = storage->ownerKey + "-keepalive";
+    storage->keepAliveValue = "nonsense";
+    storage->set(ExternalStorage::Hint::CREATE,
+                 "/test/leader", "locator:old");
+    EXPECT_EQ(BecomeLeaderState::OTHERS_LEASE_OBSERVED,
+              storage->readExistingLease());
+    EXPECT_EQ(storage->ownerKey,
+              storage->tree.getCondition().first);
+    EXPECT_EQ("locator:old",
+              storage->tree.getCondition().second);
+    EXPECT_EQ("", storage->keepAliveValue);
+
+    storage->set(ExternalStorage::Hint::CREATE,
+                 "/test/leader-keepalive", "rawr");
+    EXPECT_EQ(BecomeLeaderState::OTHERS_LEASE_OBSERVED,
+              storage->readExistingLease());
+    EXPECT_EQ(storage->ownerKey,
+              storage->tree.getCondition().first);
+    EXPECT_EQ("locator:old",
+              storage->tree.getCondition().second);
+    EXPECT_EQ("rawr", storage->keepAliveValue);
+}
+
+// readExistingLease_ownerKeyChanged hard to test
+
+TEST_F(LogCabinStorageTest, waitAndCheckLease_ok) {
+    storage->checkLeaderIntervalMs = 300;
+    storage->ownerKey = "/test/leader";
+    storage->leaderInfo = "locator:new";
+    storage->keepAliveKey = storage->ownerKey + "-keepalive";
+    storage->keepAliveValue = "val1";
+    storage->set(ExternalStorage::Hint::CREATE,
+                 "/test/leader", "locator:old");
+    storage->set(ExternalStorage::Hint::CREATE,
+                 "/test/leader-keepalive", "val2");
+    EXPECT_EQ(BecomeLeaderState::OTHERS_LEASE_OBSERVED,
+              storage->waitAndCheckLease());
+    EXPECT_EQ("val2",
+              storage->keepAliveValue);
+    EXPECT_EQ(1U, mockUsleep->numSleeps);
+    EXPECT_EQ(300000UL, mockUsleep->lastSleep);
+
+    EXPECT_EQ(BecomeLeaderState::OTHERS_LEASE_EXPIRED,
+              storage->waitAndCheckLease());
+    EXPECT_EQ(2U, mockUsleep->numSleeps);
+}
+
+TEST_F(LogCabinStorageTest, waitAndCheckLease_none) {
+    storage->ownerKey = "/test/leader";
+    storage->leaderInfo = "locator:new";
+    storage->keepAliveKey = storage->ownerKey + "-keepalive";
+    storage->keepAliveValue = "val1";
+    storage->set(ExternalStorage::Hint::CREATE,
+                 "/test/leader", "locator:old");
+    EXPECT_EQ(BecomeLeaderState::OTHERS_LEASE_OBSERVED,
+              storage->waitAndCheckLease());
+    EXPECT_EQ("",
+              storage->keepAliveValue);
+    EXPECT_EQ(BecomeLeaderState::OTHERS_LEASE_EXPIRED,
+              storage->waitAndCheckLease());
+}
+
+TEST_F(LogCabinStorageTest, waitAndCheckLease_ownerKeyChanged) {
+    storage->ownerKey = "/test/leader";
+    storage->leaderInfo = "locator:new";
+    storage->keepAliveKey = storage->ownerKey + "-keepalive";
+    storage->tree.setCondition("foo", "bar");
+    EXPECT_EQ(BecomeLeaderState::INITIAL,
+              storage->waitAndCheckLease());
+}
+
+TEST_F(LogCabinStorageTest, takeOverLease_ok) {
+    storage->ownerKey = "/test/leader";
+    storage->leaderInfo = "locator:new";
+    storage->keepAliveKey = storage->ownerKey + "-keepalive";
+    storage->tree.makeDirectoryEx("/test");
+    MockRandom randomMocker(16);
+
+    EXPECT_EQ(BecomeLeaderState::LEASE_ACQUIRED,
+              storage->takeOverLease());
+    EXPECT_EQ("0000000000000010:locator:new",
+              storage->tree.readEx("/test/leader"));
+    EXPECT_EQ("/test/leader",
+              storage->tree.getCondition().first);
+    EXPECT_EQ("0000000000000010:locator:new",
+              storage->tree.getCondition().second);
+}
+
+TEST_F(LogCabinStorageTest, takeOverLease_makeParents_ok) {
+    storage->ownerKey = "/test/foo/leader";
+    storage->leaderInfo = "locator:new";
+    storage->keepAliveKey = storage->ownerKey + "-keepalive";
+    EXPECT_EQ(BecomeLeaderState::OTHERS_LEASE_EXPIRED,
+              storage->takeOverLease());
+    EXPECT_EQ(0U,
+              storage->tree.listDirectoryEx("/test/foo/").size());
+}
+
+// takeOverLease_makeParents_ownerKeyChanged hard to test
+
+TEST_F(LogCabinStorageTest, takeOverLease_ownerKeyChanged) {
+    storage->ownerKey = "/test/foo/leader";
+    storage->leaderInfo = "locator:new";
+    storage->keepAliveKey = storage->ownerKey + "-keepalive";
+    storage->tree.makeDirectoryEx("/test");
+    storage->tree.setCondition("foo", "bar");
+    EXPECT_EQ(BecomeLeaderState::INITIAL,
+              storage->takeOverLease());
 }
 
 // leaseRenewerMain exiting behavior tested with destructor

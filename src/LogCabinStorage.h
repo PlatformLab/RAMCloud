@@ -89,6 +89,43 @@ class LogCabinStorage : public ExternalStorage {
     typedef std::chrono::system_clock Clock;
     typedef Clock::time_point TimePoint;
 
+    /**
+     * becomeLeader() is written as a state machine; these are its possible
+     * states.
+     */
+    enum class BecomeLeaderState {
+        /**
+         * The start state assumes nothing about the lease.
+         * readExistingLease() is called from this state.
+         */
+        INITIAL,
+        /**
+         * At this point the current owner is known, but it could be dead or
+         * alive. The owner key's value has been read into the 'tree'
+         * condition, and the keepalive key's value has been read into
+         * 'keepAliveValue'.
+         * waitAndCheckLease() is called from this state.
+         */
+        OTHERS_LEASE_OBSERVED,
+        /**
+         * At this point, the current owner is known to be dead, and this
+         * server should try to assert the lease.
+         * takeOverLease() is called from this state.
+         */
+        OTHERS_LEASE_EXPIRED,
+        /**
+         * This server has gained the lease: becomeLeader() has completed.
+         */
+        LEASE_ACQUIRED,
+    };
+
+    // Helpers for becomeLeader. These are normally invoked in order, though
+    // setbacks may occur and waitAndCheckLease() is skipped if no owner key
+    // exists.
+    BecomeLeaderState readExistingLease();
+    BecomeLeaderState waitAndCheckLease();
+    BecomeLeaderState takeOverLease();
+
     void leaseRenewerMain(TimePoint start);
     void makeParents(const char* name);
     void renewLease(TimePoint deadline);
@@ -155,9 +192,27 @@ class LogCabinStorage : public ExternalStorage {
     LogCabin::Client::Tree tree;
 
     /**
+     * Name of the key that is used to synchronize leader election,
+     * as passed to becomeLeader(). Only set once becomeLeader() is called.
+     */
+    std::string ownerKey;
+
+    /**
+     * Value to be stored in ownerKey along with a random number,
+     * as passed to becomeLeader().  Only set once becomeLeader() is called.
+     */
+    std::string leaderInfo;
+
+    /**
      * The name of the key that #leaseRenewer periodically writes to.
      */
     std::string keepAliveKey;
+
+    /**
+     * In BecomeLeaderState::OTHERS_LEASE_OBSERVED, this is the value of
+     * keepAliveKey that was previously read. Undefined in other states.
+     */
+    std::string keepAliveValue;
 
     /**
      * Used in testing renewLease only.

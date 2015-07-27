@@ -46,7 +46,10 @@ LogCabinStorage::LogCabinStorage(const std::string& serverInfo)
     , exiting()
     , cluster(serverInfo)
     , tree(cluster.getTree())
+    , ownerKey()
+    , leaderInfo()
     , keepAliveKey()
+    , keepAliveValue()
     , lastTimeoutNs(0)
     , leaseRenewer()
 {
@@ -69,7 +72,10 @@ LogCabinStorage::LogCabinStorage(LogCabin::Client::Cluster cluster)
     , exiting()
     , cluster(cluster)
     , tree(cluster.getTree())
+    , ownerKey()
+    , leaderInfo()
     , keepAliveKey()
+    , keepAliveValue()
     , lastTimeoutNs(0)
     , leaseRenewer()
 {
@@ -94,110 +100,24 @@ LogCabinStorage::~LogCabinStorage()
 void
 LogCabinStorage::becomeLeader(const char* name, const std::string& leaderInfo)
 {
-    const std::string ownerKey = name;
-    keepAliveKey = ownerKey + "-keepalive"; // class member
-
-    LCResult result;
-    std::string contents;
-    std::string newContents;
-
-  top:
-    // Read current value of ownerKey into condition for all future operations
-    // in this function (if ownerKey changes after this, the code will jump
-    // back here to 'top').
-    tree.setCondition("", "");
-    contents.clear();
-    result = tree.read(ownerKey, contents);
-    switch (result.status) {
-        case LCStatus::OK: {
-            tree.setCondition(ownerKey, contents);
-            break;
-        }
-        case LCStatus::LOOKUP_ERROR: {
-            tree.setCondition(ownerKey, "");
-            goto takeover;
-        }
-        default: {
-            RAMCLOUD_DIE("Error reading %s: %s",
-                         ownerKey.c_str(),
-                         result.error.c_str());
-        }
-    }
-
-    // read current value of keepAlive key into 'contents'
-    contents.clear();
-    result = tree.read(keepAliveKey, contents);
-    switch (result.status) {
-        case LCStatus::OK: // fallthrough
-        case LCStatus::LOOKUP_ERROR: {
-           break;
-        }
-        case LCStatus::CONDITION_NOT_MET: {
-            goto top; // ownerKey changed, start over
-        }
-        default: {
-            RAMCLOUD_DIE("Error reading %s: %s",
-                         keepAliveKey.c_str(),
-                         result.error.c_str());
-        }
-    }
-
-  sleep:
-    // wait the required period of time
-    mockableUsleep(downCast<unsigned int>(checkLeaderIntervalMs * 1000));
-
-    // read value of keep-alive key again
-    newContents.clear();
-    result = tree.read(keepAliveKey, newContents);
-    switch (result.status) {
-        case LCStatus::OK: // fallthrough
-        case LCStatus::LOOKUP_ERROR: {
-            if (newContents != contents) {
-                // changed, leader was alive, sleep again
-                contents = newContents;
-                goto sleep;
-            } else {
-                // different: we get to break the lease
-                goto takeover;
-            }
-        }
-        case LCStatus::CONDITION_NOT_MET: {
-            goto top; // ownerKey changed, start over
-        }
-        default: {
-            RAMCLOUD_DIE("Error reading %s: %s",
-                         keepAliveKey.c_str(),
-                         result.error.c_str());
-        }
-    }
-
-  takeover:
-    // try to overwrite the lease
-    TimePoint start = Clock::now();
-    std::string leaderInfoWithNonce =
-        format("%016lx:", generateRandom()) + leaderInfo;
-    result = tree.write(ownerKey, leaderInfoWithNonce);
-    switch (result.status) {
-        case LCStatus::OK: {
-            tree.setCondition(ownerKey, leaderInfoWithNonce);
-            if (renewLeaseIntervalMs != 0) {
-                leaseRenewer = std::thread(&LogCabinStorage::leaseRenewerMain,
-                                           this,
-                                           start);
-            }
-            return;
-        }
-        case LCStatus::LOOKUP_ERROR: {
-            makeParents(ownerKey.c_str());
-            goto takeover; // try again
-        }
-        case LCStatus::CONDITION_NOT_MET: {
-            goto top; // ownerKey changed, start over
-        }
-        default: {
-            RAMCLOUD_DIE("Error writing %s: %s",
-                         ownerKey.c_str(),
-                         result.error.c_str());
+    ownerKey = name;
+    this->leaderInfo = leaderInfo;
+    keepAliveKey = ownerKey + "-keepalive";
+    keepAliveValue.clear();
+    BecomeLeaderState state = BecomeLeaderState::INITIAL;
+    while (true) {
+        switch (state) {
+            case BecomeLeaderState::INITIAL:
+                state = readExistingLease();
+                break;
+            case BecomeLeaderState::OTHERS_LEASE_OBSERVED:
+                state = waitAndCheckLease();
+                break;
+            case BecomeLeaderState::OTHERS_LEASE_EXPIRED:
+                state = takeOverLease();
+                break;
+            case BecomeLeaderState::LEASE_ACQUIRED:
+                return;
         }
     }
 }
@@ -437,6 +357,154 @@ LogCabinStorage::setWorkspace(const char* pathPrefix)
 }
 
 ///////// LogCabinStorage private //////////
+
+/**
+ * Helper for becomeLeader() called from the INITIAL state:
+ * gather information about the current lease holder.
+ * \return
+ *      Next state.
+ */
+LogCabinStorage::BecomeLeaderState
+LogCabinStorage::readExistingLease()
+{
+    // Read current value of ownerKey into condition for all future operations
+    // in this function (if ownerKey changes after this, we'll start back from
+    // here).
+    tree.setCondition("", "");
+    std::string ownerValue;
+    LCResult result = tree.read(ownerKey, ownerValue);
+    switch (result.status) {
+        case LCStatus::OK: {
+            tree.setCondition(ownerKey, ownerValue);
+            break;
+        }
+        case LCStatus::LOOKUP_ERROR: {
+            tree.setCondition(ownerKey, "");
+            return BecomeLeaderState::OTHERS_LEASE_EXPIRED;
+        }
+        default: {
+            RAMCLOUD_DIE("Error reading %s: %s",
+                         ownerKey.c_str(),
+                         result.error.c_str());
+        }
+    }
+
+    // Read current value of keepAlive key into keepAliveValue.
+    keepAliveValue.clear();
+    result = tree.read(keepAliveKey, keepAliveValue);
+    switch (result.status) {
+        case LCStatus::OK: // fallthrough
+        case LCStatus::LOOKUP_ERROR: {
+            return BecomeLeaderState::OTHERS_LEASE_OBSERVED;
+        }
+        case LCStatus::CONDITION_NOT_MET: {
+            // ownerKey changed, start over
+            return BecomeLeaderState::INITIAL;
+        }
+        default: {
+            RAMCLOUD_DIE("Error reading %s: %s",
+                         keepAliveKey.c_str(),
+                         result.error.c_str());
+        }
+    }
+}
+
+/**
+ * Helper for becomeLeader() called from the OTHERS_LEASE_OBSERVED state:
+ * sleep for the required interval and re-read the current keep alive value to
+ * see if it's changed.
+ * \return
+ *      Next state.
+ */
+LogCabinStorage::BecomeLeaderState
+LogCabinStorage::waitAndCheckLease()
+{
+    // wait the required period of time
+    mockableUsleep(downCast<unsigned int>(checkLeaderIntervalMs * 1000));
+
+    // read value of keep-alive key again
+    std::string newContents;
+    LCResult result = tree.read(keepAliveKey, newContents);
+    switch (result.status) {
+        case LCStatus::OK: // fallthrough
+        case LCStatus::LOOKUP_ERROR: {
+            if (newContents != keepAliveValue) {
+                // changed, leader was alive, sleep again
+                keepAliveValue = newContents;
+                return BecomeLeaderState::OTHERS_LEASE_OBSERVED;
+            } else {
+                // different: we get to break the lease
+                return BecomeLeaderState::OTHERS_LEASE_EXPIRED;
+            }
+        }
+        case LCStatus::CONDITION_NOT_MET: {
+            // ownerKey changed, start over
+            return BecomeLeaderState::INITIAL;
+        }
+        default: {
+            RAMCLOUD_DIE("Error reading %s: %s",
+                         keepAliveKey.c_str(),
+                         result.error.c_str());
+        }
+    }
+}
+
+/**
+ * Helper for becomeLeader() called from the OTHERS_LEASE_EXPIRED state:
+ * try to assert this server as the new lease-holder.
+ * \return
+ *      Next state.
+ */
+LogCabinStorage::BecomeLeaderState
+LogCabinStorage::takeOverLease()
+{
+    // try to overwrite the lease
+    TimePoint start = Clock::now();
+    std::string leaderInfoWithNonce =
+        format("%016lx:", generateRandom()) + leaderInfo;
+    LCResult result = tree.write(ownerKey, leaderInfoWithNonce);
+    switch (result.status) {
+        case LCStatus::OK: {
+            tree.setCondition(ownerKey, leaderInfoWithNonce);
+            if (renewLeaseIntervalMs != 0) {
+                leaseRenewer = std::thread(
+                    &LogCabinStorage::leaseRenewerMain,
+                    this,
+                    start);
+            }
+            return BecomeLeaderState::LEASE_ACQUIRED;
+        }
+        case LCStatus::LOOKUP_ERROR: {
+            // Similar to makeParents() but handles CONDITION_NOT_MET
+            result = tree.makeDirectory(ownerKey + "/..");
+            switch (result.status) {
+                case LCStatus::OK: {
+                    // return same state to try again
+                    return BecomeLeaderState::OTHERS_LEASE_EXPIRED;
+                }
+                case LCStatus::CONDITION_NOT_MET: {
+                    // ownerKey changed, start over
+                    return BecomeLeaderState::INITIAL;
+                }
+                default: {
+                    RAMCLOUD_DIE("Error creating parents of %s: %s",
+                                 ownerKey.c_str(),
+                                 result.error.c_str());
+                }
+            }
+        }
+        case LCStatus::CONDITION_NOT_MET: {
+            // ownerKey changed, start over
+            return BecomeLeaderState::INITIAL;
+        }
+        default: {
+            RAMCLOUD_DIE("Error writing %s: %s",
+                         ownerKey.c_str(),
+                         result.error.c_str());
+        }
+    }
+}
+
 
 /**
  * Main function for #leaseRenewer thread.
