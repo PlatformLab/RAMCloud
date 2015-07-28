@@ -14,7 +14,7 @@
 (( MAX_INDEXLET= 10)) # 30,10
 
 # set MAX = maximum number of clients
-(( MAX_CLIENTS= 30)) # 30,30
+(( MAX_CLIENTS= 40)) # 30,30
 
 # Number of concurrent operations the client should perform
 (( CONCURRENT_OPS=20)) # 30,20
@@ -42,6 +42,15 @@ mkdir -p "$LOG_DIR" > /dev/null
 
 cp scripts/runIndexScalability.sh $LOG_DIR
 cp scripts/clusterperf.py $LOG_DIR
+
+CONFIG_FILE="$LOG_DIR/config.log"
+touch $CONFIG_FILE
+printf "git status\r\n\r\n" >> $CONFIG_FILE
+git log | head -n 3 >> $CONFIG_FILE
+printf "===============================================\r\n\r\ngit diff\r\n\r\n" >> $CONFIG_FILE
+git diff >> $CONFIG_FILE
+printf "===============================================\r\n\r\nrcres ls -l\r\n\r\n" >> $CONFIG_FILE
+rcres ls -l >> $CONFIG_FILE
 
 echo "# Running with $CONCURRENT_OPS concurrent operations and " | tee -a "$LOG_DIR/console.log"
 echo "# a batch size of $RANGE objs/operation" | tee -a "$LOG_DIR/console.log"
