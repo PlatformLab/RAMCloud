@@ -260,8 +260,9 @@ zooTest: $(OBJDIR)/zooTest
 # does *not* use the normal compilation flags, since we only want installed
 # info to be available.
 testInstall: install
-	g++ --std=c++0x -g -DNDEBUG -Iinclude -I. src/TestClient.cc \
-            -o $(OBJDIR)/TestClient -Lbin -lramcloud -Wl,-rpath=bin
+	g++ --std=c++0x -g -DNDEBUG -Iinstall/include -I. src/TestClient.cc \
+            -o $(OBJDIR)/TestClient -Linstall/bin -lramcloud \
+            -Wl,-rpath=install/bin
 
 $(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
 	@mkdir -p $(@D)

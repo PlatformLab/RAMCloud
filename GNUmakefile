@@ -122,7 +122,7 @@ DOXYGEN ?= doxygen
 
 # Directory for installation: various subdirectories such as include and
 # bin will be created by "make install".
-INSTALL_DIR ?= .
+INSTALL_DIR ?= install
 
 # Check if OnLoad is installed on the system. OnLoad is required to build
 # SolarFlare driver code.
@@ -233,7 +233,7 @@ include bindings/python/Makefrag
 # test scripts, etc.) in the "private" subdirectory.
 include $(wildcard private/MakefragPrivate)
 
-clean: tests-clean docs-clean tags-clean
+clean: tests-clean docs-clean tags-clean install-clean java-clean
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
 
 check:
@@ -278,8 +278,10 @@ print-%:
 	@echo $* = $($*)
 
 # Rebuild the Java bindings
-java:
-	cd bindings/java; ./gradlew clean; ./gradlew build
+java: $(OBJDIR)/libramcloud.a
+	cd bindings/java; ./gradlew build
+java-clean:
+	cd bindings/java; ./gradlew clean
 
 INSTALL_BINS := \
     $(OBJDIR)/client \
@@ -349,18 +351,20 @@ INSTALL_INCLUDES := \
 INSTALLED_BINS := $(patsubst $(OBJDIR)/%, $(INSTALL_DIR)/bin/%, $(INSTALL_BINS))
 INSTALLED_LIBS := $(patsubst $(OBJDIR)/%, $(INSTALL_DIR)/lib/%, $(INSTALL_LIBS))
 	
-install: all
+install: all java
 	mkdir -p $(INSTALL_DIR)/bin
 	cp $(INSTALL_BINS) $(INSTALL_DIR)/bin
 	mkdir -p $(INSTALL_DIR)/include/ramcloud
 	cp $(INSTALL_INCLUDES) $(INSTALL_DIR)/include/ramcloud
-	mkdir -p $(INSTALL_DIR)/lib
-	cp $(INSTALL_LIBS) $(INSTALL_DIR)/lib
+	mkdir -p $(INSTALL_DIR)/lib/ramcloud
+	cp $(INSTALL_LIBS) $(INSTALL_DIR)/lib/ramcloud
+	rm -rf $(INSTALL_DIR)/bin/java
+	cp -r bindings/java/bin $(INSTALL_DIR)/bin/java
+	rm -rf $(INSTALL_DIR)/lib/ramcloud/java
+	cp -r bindings/java/lib $(INSTALL_DIR)/lib/ramcloud/java
 
 install-clean:
-	rm -f $(INSTALLED_BINS) $(INSTALLED_LIBS)
-	rm -rf $(INSTALL_DIR)/include/ramcloud
-	rm -rf lib include bin
+	rm -rf install
 
 logcabin:
 	cd logcabin; \
@@ -373,5 +377,5 @@ startZoo:
 stopZoo:
 	$(ZOOKEEPER_DIR)/bin/zkServer.sh stop
 
-.PHONY: all always clean check doc docs docs-clean tags tags-clean test tests \
-        logcabin startZoo stopZoo
+.PHONY: all always clean check doc docs docs-clean install tags tags-clean \
+	test tests logcabin startZoo stopZoo
