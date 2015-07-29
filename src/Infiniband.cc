@@ -33,6 +33,8 @@ Infiniband::Infiniband(const char* deviceName)
     , pd(device)
     , totalAddressHandleAllocCalls()
     , totalAddressHandleAllocTime()
+    , totalQpCreates(0)
+    , totalQpDeletes(0)
 {
 }
 
@@ -535,9 +537,11 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
 
     qp = ibv_create_qp(pd, &qpia);
     if (qp == NULL) {
-        LOG(ERROR, "ibv_create_qp failed");
+        LOG(ERROR, "ibv_create_qp failed (%d prior creates, %d deletes)",
+                infiniband.totalQpCreates, infiniband.totalQpDeletes);
         throw TransportException(HERE, "failed to create queue pair");
     }
+    infiniband.totalQpCreates++;
 
     // move from RESET to INIT state
     ibv_qp_attr qpa;
@@ -578,6 +582,7 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
 Infiniband::QueuePair::~QueuePair()
 {
     ibv_destroy_qp(qp);
+    infiniband.totalQpDeletes++;
 }
 
 /**

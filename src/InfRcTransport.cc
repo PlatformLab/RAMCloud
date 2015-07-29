@@ -585,10 +585,11 @@ InfRcTransport::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
             }
         }
 
-        socklen_t sinlen = sizeof(sin);
+        struct sockaddr_in recvSin;
+        socklen_t sinlen = sizeof(recvSin);
         ssize_t len = recvfrom(clientSetupSocket, incomingQpt,
             sizeof(*incomingQpt), 0,
-            reinterpret_cast<sockaddr *>(&sin), &sinlen);
+            reinterpret_cast<sockaddr *>(&recvSin), &sinlen);
         if (len == -1) {
             if (errno != EINTR && errno != EAGAIN) {
                 LOG(ERROR, "recvfrom returned error %d: %s",
@@ -598,15 +599,16 @@ InfRcTransport::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
         } else if (len != sizeof(*incomingQpt)) {
             LOG(ERROR, "recvfrom returned bad length (%Zd) while "
                 "receiving from ip: [%s] port: [%d]", len,
-                inet_ntoa(sin->sin_addr), HTONS(sin->sin_port));
+                inet_ntoa(recvSin.sin_addr), HTONS(recvSin.sin_port));
             throw TransportException(HERE, errno);
         } else {
             if (outgoingQpt->getNonce() == incomingQpt->getNonce())
                 return true;
 
-            LOG(WARNING,
-                "received nonce doesn't match (0x%016lx != 0x%016lx)",
-                outgoingQpt->getNonce(), incomingQpt->getNonce());
+            LOG(WARNING, "bad nonce from %s (expected 0x%016lx, "
+                "got 0x%016lx); ignoring",
+                inet_ntoa(sin->sin_addr), incomingQpt->getNonce(),
+                outgoingQpt->getNonce());
         }
 
         double timeLeft = usTimeout - Cycles::toSeconds(Cycles::rdtsc() -
@@ -649,11 +651,12 @@ InfRcTransport::clientTrySetupQueuePair(IpAddress& address)
                                                 commonTxCq, clientRxCq,
                                                 MAX_TX_QUEUE_DEPTH,
                                                 MAX_SHARED_RX_QUEUE_DEPTH);
+    uint64_t nonce = generateRandom();
 
     for (uint32_t i = 0; i < QP_EXCHANGE_MAX_TIMEOUTS; i++) {
         QueuePairTuple outgoingQpt(downCast<uint16_t>(lid),
                                    qp->getLocalQpNumber(),
-                                   qp->getInitialPsn(), generateRandom(),
+                                   qp->getInitialPsn(), nonce,
                                    name);
         QueuePairTuple incomingQpt;
         bool gotResponse;

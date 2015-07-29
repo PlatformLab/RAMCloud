@@ -501,6 +501,12 @@ class Infiniband {
     uint64_t totalAddressHandleAllocCalls;
     uint64_t totalAddressHandleAllocTime;
     static const uint32_t MAX_INLINE_DATA = 400;
+
+    // The following variables keep track of queue pair creations and
+    // deletions; this information is printed when queue pair creation fails,
+    // to help provide more information.
+    int totalQpCreates;
+    int totalQpDeletes;
 };
 
 } // namespace RAMCloud
