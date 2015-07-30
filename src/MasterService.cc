@@ -165,6 +165,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::LookupIndexKeys, MasterService,
                         &MasterService::lookupIndexKeys>(rpc);
             break;
+        case WireFormat::LookupIndexColocated::opcode:
+            callHandler<WireFormat::LookupIndexColocated, MasterService,
+                        &MasterService::indexLookupColocated>(rpc);
+            break;
         case WireFormat::MigrateTablet::opcode:
             callHandler<WireFormat::MigrateTablet, MasterService,
                         &MasterService::migrateTablet>(rpc);
@@ -703,7 +707,7 @@ MasterService::readHashes(
 
     objectManager.readHashes(reqHdr->tableId, reqHdr->numHashes,
             rpc->requestPayload, reqOffset,
-            maxResponseRpcLen - sizeof32(*respHdr),
+            maxResponseRpcLen - sizeof32(*respHdr), NULL,
             rpc->replyPayload, &respHdr->numHashes, &respHdr->numObjects);
 }
 
@@ -783,6 +787,61 @@ MasterService::lookupIndexKeys(
         Rpc* rpc)
 {
     indexletManager.lookupIndexKeys(reqHdr, respHdr, rpc);
+}
+
+/**
+ * #HashPartitionHack whereby LookupIndexKeys and readHashes are combined such
+ * that the client can query a secondary index range query and the server will
+ * return the associated KV blobs stored on that server.
+ *
+ * Note however, this was specifically created for testing the performance of
+ * hash partitioning vs. range partitioning, thus it will try to directly
+ * read from the local objectManager. Any pk's referencing a different server
+ * will NOT be returned.
+ *
+ * Note that this only does 1 round of rpcs, which means that it is
+ * inadvisable to ask for more than 1000 objects
+ */
+void
+MasterService::indexLookupColocated(
+        const WireFormat::LookupIndexColocated::Request* reqHdr,
+        WireFormat::LookupIndexColocated::Response* respHdr,
+        Rpc* rpc)
+{
+    Buffer gluePayload;
+    Rpc glueRpc(NULL, rpc->requestPayload, &gluePayload);
+
+    // Does the equivalent work of callHandler(glueRpc)
+    const WireFormat::LookupIndexKeys::Request *glueReqHdr =
+        reinterpret_cast<const WireFormat::LookupIndexKeys::Request*>(reqHdr);
+    WireFormat::LookupIndexKeys::Response *glueRespHdr =
+            gluePayload.emplaceAppend<WireFormat::LookupIndexKeys::Response>();
+    memset(glueRespHdr, 0, sizeof(*glueRespHdr));
+
+    // Server sided lookup
+    indexletManager.lookupIndexKeys(glueReqHdr, glueRespHdr, &glueRpc);
+    respHdr->nextKeyHash = glueRespHdr->nextKeyHash;
+    respHdr->nextKeyLength = glueRespHdr->nextKeyLength;
+    rpc->replyPayload->append(glueRpc.replyPayload,
+            glueRpc.replyPayload->size() - glueRespHdr->nextKeyLength,
+            glueRespHdr->nextKeyLength);
+
+    uint32_t keyOffsets = sizeof32(*glueReqHdr);
+    uint16_t firstKeyLength = reqHdr->firstKeyLength;
+    uint16_t lastKeyLength = reqHdr->lastKeyLength;
+    const void* firstKey =
+            rpc->requestPayload->getRange(keyOffsets, firstKeyLength);
+    keyOffsets += firstKeyLength;
+    const void* lastKey =
+            rpc->requestPayload->getRange(keyOffsets, lastKeyLength);
+    IndexKey::IndexKeyRange keyRange(reqHdr->indexId,
+            firstKey, firstKeyLength, lastKey, lastKeyLength);
+
+    uint32_t numHashes; // Useless for us, but required for readHashes
+    objectManager.readHashes(reqHdr->tableId, glueRespHdr->numHashes,
+        glueRpc.replyPayload, sizeof32(*glueRespHdr),
+        maxResponseRpcLen - sizeof32(*respHdr) - respHdr->nextKeyLength,
+        &keyRange, rpc->replyPayload, &numHashes, &respHdr->numObjects);
 }
 
 /**

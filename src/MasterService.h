@@ -204,6 +204,10 @@ class MasterService : public Service {
     void lookupIndexKeys(const WireFormat::LookupIndexKeys::Request* reqHdr,
                 WireFormat::LookupIndexKeys::Response* respHdr,
                 Rpc* rpc);
+    void indexLookupColocated(
+                const WireFormat::LookupIndexColocated::Request* reqHdr,
+                WireFormat::LookupIndexColocated::Response* respHdr,
+                Rpc* rpc);
     int migrateSingleIndexObject(
                 ServerId newOwnerMasterId, uint64_t tableId, uint8_t indexId,
                 uint64_t currentBackingTableId, uint64_t newBackingTableId,

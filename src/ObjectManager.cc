@@ -149,6 +149,9 @@ ObjectManager::initOnceEnlisted()
  *      Offset indicating location of first key hash in the pKHashes buffer.
  * \param maxLength
  *      Maximum length of response that can be put in the response buffer.
+ * \param keyRange
+ *      If not null, will check that the objects retrieved from reading pKHashes
+ *      are within the specified range before appending it to the response.
  *
  * \param[out] response
  *      Buffer of objects whose primary key hashes match those requested.
@@ -160,8 +163,8 @@ ObjectManager::initOnceEnlisted()
 void
 ObjectManager::readHashes(const uint64_t tableId, uint32_t reqNumHashes,
             Buffer* pKHashes, uint32_t initialPKHashesOffset,
-            uint32_t maxLength, Buffer* response, uint32_t* respNumHashes,
-            uint32_t* numObjects)
+            uint32_t maxLength, IndexKey::IndexKeyRange* keyRange,
+            Buffer* response, uint32_t* respNumHashes, uint32_t* numObjects)
 {
     // The current length of the response buffer in bytes. This is the
     // cumulative length of all the objects that have been appended to response
@@ -219,7 +222,9 @@ ObjectManager::readHashes(const uint64_t tableId, uint32_t reqNumHashes,
             Object object(candidateBuffer);
 
             // Candidate may have only partially matching primary key hash.
-            if (object.getPKHash() == pKHash) {
+            if (object.getPKHash() == pKHash &&
+                (keyRange == NULL || IndexKey::isKeyInRange(&object, keyRange)))
+            {
                 *numObjects += 1;
                 response->emplaceAppend<uint64_t>(object.getVersion());
                 response->emplaceAppend<uint32_t>(

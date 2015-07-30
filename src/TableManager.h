@@ -74,7 +74,7 @@ class TableManager {
             uint64_t tableId, uint8_t indexId,
             const void* splitKey, KeyLength splitKeyLength);
     void createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
-            uint8_t numIndexlets);
+            uint8_t numIndexlets, bool colocateWithFirstDataTablet = false);
     uint64_t createTable(const char* name, uint32_t serverSpan,
             ServerId serverId = ServerId());
     string debugString(bool shortForm = false);
@@ -104,7 +104,7 @@ class TableManager {
   PRIVATE:
     /**
      * The following structure holds information about a indexlet of an index.
-     * 
+     *
      * Each indexlet is stored by a backing RAMCloud table. The name of the
      * table is synthesized and has the format:
      * "__backingTable:tableId:indexId:i" where tableId and indexId

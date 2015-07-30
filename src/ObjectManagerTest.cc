@@ -489,8 +489,8 @@ TEST_F(ObjectManagerTest, readHashes) {
     Buffer responseBuffer;
     uint32_t numHashesResponse;
     uint32_t numObjectsResponse;
-    objectManager.readHashes(tableId, 2, &pKHashes, 0, 1000, &responseBuffer,
-            &numHashesResponse, &numObjectsResponse);
+    objectManager.readHashes(tableId, 2, &pKHashes, 0, 1000, NULL,
+                &responseBuffer, &numHashesResponse, &numObjectsResponse);
 
     EXPECT_EQ(2U, numHashesResponse);
     EXPECT_EQ(2U, numObjectsResponse);

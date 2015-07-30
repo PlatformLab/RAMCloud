@@ -326,12 +326,18 @@ DropTableRpc::DropTableRpc(RamCloud* ramcloud, const char* name)
  *      Number of indexlets to partition the index key space.
  *      This is only for performance testing and unit tests.
  *      Its value should always be 1 for real use.
+ *
+ * \param colocateWithFirstDataTablet
+ *      When set, the Indexlets will be co-located on the same server
+ *      as the first data tablet. This is a HACK for testing index scalability
+ *      with hash partitioning. #HashPartitionHack
  */
 void
 RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
-        uint8_t numIndexlets)
+        uint8_t numIndexlets, bool colocateWithFirstDataTablet)
 {
-    CreateIndexRpc rpc(this, tableId, indexId, indexType, numIndexlets);
+    CreateIndexRpc rpc(this, tableId, indexId, indexType,
+            numIndexlets, colocateWithFirstDataTablet);
     rpc.wait();
 }
 
@@ -355,9 +361,14 @@ RamCloud::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
  *      Number of indexlets to partition the index key space.
  *      This is only for performance testing, and value should always be 1 for
  *      real use.
+ * \param colocateWithFirstDataTablet
+ *      When set, the Indexlets will be co-located on the same server
+ *      as the first data tablet. This is a HACK for testing index scalability
+ *      with hash partitioning. #HashPartitionHack
  */
 CreateIndexRpc::CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId,
-        uint8_t indexId, uint8_t indexType, uint8_t numIndexlets)
+        uint8_t indexId, uint8_t indexType,
+        uint8_t numIndexlets, bool colocateWithFirstDataTablet)
     : CoordinatorRpcWrapper(ramcloud->clientContext,
             sizeof(WireFormat::CreateIndex::Response))
 {
@@ -367,6 +378,7 @@ CreateIndexRpc::CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->indexId = indexId;
     reqHdr->indexType = indexType;
     reqHdr->numIndexlets =  numIndexlets;
+    reqHdr->colocateAllIndexletsWithFirstTablet = colocateWithFirstDataTablet;
     send();
 }
 
@@ -1641,6 +1653,186 @@ LookupIndexKeysRpc::wait(uint32_t* numHashes, uint16_t* nextKeyLength,
     const WireFormat::LookupIndexKeys::Response* respHdr(
             getResponseHeader<WireFormat::LookupIndexKeys>());
     *numHashes = respHdr->numHashes;
+    *nextKeyLength = respHdr->nextKeyLength;
+    *nextKeyHash = respHdr->nextKeyHash;
+}
+
+/**
+ * #HashPartitionHack whereby LookupIndexKeys and readHashes are combined such
+ * that the client can query a secondary index range query and the server will
+ * return the associated KV blobs stored on that server.
+ *
+ * Note however, this was specifically created for testing the performance of
+ * hash partitioning vs. range partitioning, thus it will try to directly
+ * read from the local objectManager. Any pk's referencing a different server
+ * will NOT be returned.
+ *
+ *
+ * \param tableId
+ *      Id of the table in which lookup is to be done.
+ * \param indexId
+ *      Id of the index to use for lookup.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
+ * \param firstKey
+ *      Starting key for the key range in which keys are to be matched.
+ *      The key range includes the firstKey.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param firstKeyLength
+ *      Length in bytes of the firstKey.
+ * \param firstAllowedKeyHash
+ *      Smallest primary key hash value allowed for firstKey.
+ *      This is normally 0. It has a non-zero value in second and later requests
+ *      when multiple requests are needed to fetch data (primary key hashes)
+ *      for the same secondary key.
+ * \param lastKey
+ *      Ending key for the key range in which keys are to be matched.
+ *      The key range includes the lastKey.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param lastKeyLength
+ *      Length in byes of the lastKey.
+ * \param maxNumHashes
+ *      States the number of hashes the server side is allowed to lookup.
+ *      Typically this has a 1:1 correspondence with the number of objects
+ *      returned but it can be 1:many. If I had more time, I would fix this
+ *      parameter to be more simple (such as maxNumObjs), but since it's only
+ *      meant for #HashPartitionHack, this inconsistency and potential bug
+ *      will be left unfixed.
+ *
+ * \param[out] responseBuffer
+ *      Return buffer containing:
+ *      1. If all the objects within the range do not fit in one rpc, then
+ *         the next key of length nextKeyLength is here.
+ *      2. For every object returned (numObjs)
+ *          - uint64_t object version
+ *          - uint32_t object length
+ *          - objectLength bytes of the object
+ * \param[out] numObjs
+ *      Return the number of objects that are returned in responseBuffer
+ * \param[out] nextKeyLength
+ *      Length of nextKey in bytes.
+ * \param[out] nextKeyHash
+ *      Results starting at nextKey + nextKeyHash couldn't be returned.
+ *      Client can send another request according to this.
+ */
+void
+RamCloud::lookupIndexColocated(uint64_t tableId, uint8_t indexId,
+        const void* firstKey, uint16_t firstKeyLength,
+        uint64_t firstAllowedKeyHash,
+        const void* lastKey, uint16_t lastKeyLength,
+        uint32_t maxNumHashes,
+        Buffer* responseBuffer, uint32_t* numObjs,
+        uint16_t* nextKeyLength, uint64_t* nextKeyHash)
+{
+    LookupIndexColocatedRpc rpc(this, tableId, indexId,
+            firstKey, firstKeyLength, firstAllowedKeyHash,
+            lastKey, lastKeyLength, maxNumHashes, responseBuffer);
+    rpc.wait(numObjs, nextKeyLength, nextKeyHash);
+    responseBuffer->truncateFront(sizeof32(
+                                WireFormat::LookupIndexColocated::Response));
+}
+
+/**
+ * #HashPartitionHack rpc that combines the input of lookupIndexKeysRpc with
+ * the output of readHashesRpc.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param tableId
+ *      Id of the table to read from.
+ * \param indexId
+ *      Id of the index to use for lookup.
+ *      Must be greater than 0. Id 0 is reserved for "primary key".
+ *  \param firstKey
+ *      Starting key for the key range in which keys are to be matched.
+ *      The key range includes the firstKey.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param firstKeyLength
+ *      Length in bytes of the firstKey.
+ * \param firstAllowedKeyHash
+ *      Smallest primary key hash value allowed for firstKey.
+ *      This is normally 0. It has a non-zero value in second and later requests
+ *      when multiple requests are needed to fetch data (primary key hashes)
+ *      for the same secondary key.
+ * \param lastKey
+ *      Ending key for the key range in which keys are to be matched.
+ *      The key range includes the lastKey.
+ *      It does not necessarily have to be null terminated.  The caller must
+ *      ensure that the storage for this key is unchanged through the life of
+ *      the RPC.
+ * \param lastKeyLength
+ *      Length in byes of the lastKey.
+ * \param maxObjects
+ *      Number of objects allowed to be in the rpc
+ *
+ * \param[out] responseBuffer
+ *      Return all the objects matching the given primary key hashes
+ *      along with their versions, in the format specified by
+ *      WireFormat::ReadHashes::Response.
+ */
+LookupIndexColocatedRpc::LookupIndexColocatedRpc(
+        RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
+        const void* firstKey, uint16_t firstKeyLength,
+        uint64_t firstAllowedKeyHash,
+        const void* lastKey, uint16_t lastKeyLength,
+        uint32_t maxObjects, Buffer* responseBuffer)
+    : IndexRpcWrapper(ramcloud, tableId, indexId, firstKey, firstKeyLength,
+            sizeof(WireFormat::LookupIndexColocated::Response), responseBuffer)
+{
+    WireFormat::LookupIndexColocated::Request* reqHdr(
+            allocHeader<WireFormat::LookupIndexColocated>());
+    reqHdr->tableId = tableId;
+    reqHdr->indexId = indexId;
+    reqHdr->firstKeyLength = firstKeyLength;
+    reqHdr->firstAllowedKeyHash = firstAllowedKeyHash;
+    reqHdr->lastKeyLength = lastKeyLength;
+    reqHdr->maxNumHashes = maxObjects;
+    request.append(firstKey, firstKeyLength);
+    request.append(lastKey, lastKeyLength);
+    send();
+}
+
+/**
+ * Handle the case where the RPC cannot be completed as the containing the
+ * index key was not found.
+ */
+void
+LookupIndexColocatedRpc::indexNotFound()
+{
+    response->reset();
+    WireFormat::LookupIndexColocated::Response* respHdr =
+          response->emplaceAppend<WireFormat::LookupIndexColocated::Response>();
+    respHdr->common.status = STATUS_UNKNOWN_INDEX;
+    respHdr->numObjects = 0;
+}
+
+/**
+ * Wait for a lookupIndexColocated RPC to complete, and return the same
+ * results as #RamCloud::lookupIndexColocated.
+ *
+ * \param[out] numObjs
+ *      Return the number of objects that matched the lookup, for which
+ *      the objects are being returned
+ * \param[out] nextKeyLength
+ *      Length of nextKey in bytes.
+ * \param[out] nextKeyHash
+ *      Results starting at (nextKey, nextKeyHash) couldn't be returned.
+ *      Client can send another request according to this.
+ */
+void
+LookupIndexColocatedRpc::wait(uint32_t* numObjs,
+        uint16_t* nextKeyLength, uint64_t* nextKeyHash)
+{
+    simpleWait(context);
+
+    const WireFormat::LookupIndexColocated::Response* respHdr(
+            getResponseHeader<WireFormat::LookupIndexColocated>());
+    *numObjs = respHdr->numObjects;
     *nextKeyLength = respHdr->nextKeyLength;
     *nextKeyHash = respHdr->nextKeyHash;
 }

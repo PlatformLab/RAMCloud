@@ -109,7 +109,7 @@ TableManager::Index::~Index()
  *      \a splitKey belong to the other.
  * \param splitKeyLength
  *      Length of splitKey in bytes.
- * 
+ *
  * \throw NoSuchIndexlet
  *      If the indexlet being split, or the index for which the indexlet
  *      is being split doesn't exist anymore.
@@ -205,10 +205,15 @@ TableManager::coordSplitAndMigrateIndexlet(
  *      Number of indexlets to partition the index key space.
  *      This is only for performance testing, and value should always be 1 for
  *      real use.
+ *
+ * \param colocateWithFirstDataTablet
+ *      When set, the Indexlets will be co-located on the same server
+ *      as the first data tablet. This is a HACK for testing index scalability
+ *      with hash partitioning. #HashPartitionHack
  */
 void
 TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
-        uint8_t numIndexlets)
+        uint8_t numIndexlets, bool colocateWithFirstDataTablet)
 {
     if (indexId == 0) {
         RAMCLOUD_LOG(NOTICE, "Invalid index id %u. Secondary keys have "
@@ -244,15 +249,38 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
             string backingTableName;
             backingTableName.append(format("__backingTable:%lu:%d:%d",
                     tableId, indexId, index->nextIndexletIdSuffix));
+
+            // #HashPartition Hack to co-locate indexlets with the first tablet
+            // of the data table.
+            ServerId indexServer;
+            if (colocateWithFirstDataTablet) {
+                if (table->tablets.size() == 0)
+                    DIE("Attempted to co-locate/create an index with a "
+                            "table that has 0 tablets.");
+
+
+                LOG(NOTICE, "Co-locating index %u (indexlet %u) with first "
+                        "tablet of table %lu on server %s",
+                        indexId,
+                        index->nextIndexletIdSuffix,
+                        tableId,
+                        indexServer.toString().c_str());
+
+                indexServer = table->tablets.front()->serverId;
+            }
+
             // Create the backing table for indexlet.
             uint64_t backingTableId =
-                    createTable(lock, backingTableName.c_str(), 1);
+                    createTable(lock, backingTableName.c_str(), 1, indexServer);
 
             IdMap::iterator itd = idMap.find(backingTableId);
             assert(itd != idMap.end());
 
             // Use the backingTable serverId to assign the indexlet.
             Tablet* backingTablet = findTablet(lock, itd->second, 0UL);
+
+            assert(!colocateWithFirstDataTablet ||
+                    backingTablet->serverId == indexServer);
 
             if ((backingTablet->startKeyHash != 0UL)
                  || (backingTablet->endKeyHash != ~0UL)) {
@@ -377,7 +405,7 @@ TableManager::debugString(bool shortForm)
  * Delete the table with the given name. All existing data for the table will
  * be deleted, and the table's name will no longer exist in the directory
  * of tables.
- * 
+ *
  * \param name
  *      Name of the table that is to be dropped.
  */
@@ -1126,7 +1154,7 @@ TableManager::dropIndex(const Lock& lock, uint64_t tableId, uint8_t indexId)
  * Delete the table with the given name. All existing data for the table will
  * be deleted, and the table's name will no longer exist in the directory
  * of tables.
- * 
+ *
  * \param lock
  *      Ensures that the caller holds the monitor lock; not actually used.
  * \param name

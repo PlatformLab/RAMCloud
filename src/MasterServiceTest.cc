@@ -29,6 +29,7 @@
 #include "MultiRemove.h"
 #include "MultiWrite.h"
 #include "ObjectBuffer.h"
+#include "ObjectFinder.h"
 #include "RamCloud.h"
 #include "ShortMacros.h"
 #include "StringUtil.h"
@@ -433,7 +434,6 @@ TEST_F(MasterServiceTest, dropIndexletOwnership) {
     EXPECT_EQ("dropIndexletOwnership: Dropped ownership of (or did not own) "
             "indexlet in tableId 2, indexId 1", TestLog::get());
 }
-
 
 TEST_F(MasterServiceTest, takeIndexletOwnership) {
 
@@ -1368,6 +1368,198 @@ TEST_F(MasterServiceTest, readHashes) {
     respOffset += obj1Length;
     EXPECT_EQ("obj0value", string(reinterpret_cast<const char*>(o1.getValue()),
             o1.getValueLength()));
+}
+
+TEST_F(MasterServiceTest, indexLookupColocated) {
+    // Undo parts of the constructor that manipulate the table map.
+    context.objectFinder->reset();
+    service->tabletManager.deleteTablet(1, 0, ~0UL);
+    context.objectFinder = new ObjectFinder(&context);
+
+    // This will mimic the test done on the client side for #HashPartitionHack
+    Server* m1 = masterServer;
+
+    ServerConfig master2Config = masterConfig;
+    master2Config.master.numReplicas = 0;
+    master2Config.localLocator = "mock:host=master2";
+    Server* m2 = cluster.addServer(master2Config);
+
+    ServerConfig master3Config = masterConfig;
+    master3Config.master.numReplicas = 0;
+    master3Config.localLocator = "mock:host=master3";
+    Server* m3 = cluster.addServer(master3Config);
+
+    // Ensure placement of tables and indexes
+    EXPECT_EQ(0U, m1->master->tabletManager.getNumTablets());
+    EXPECT_EQ(0U, m2->master->tabletManager.getNumTablets());
+    EXPECT_EQ(0U, m3->master->tabletManager.getNumTablets());
+
+    uint64_t table1 = ramcloud->createTable("table1");
+    EXPECT_EQ(1U, m1->master->tabletManager.getNumTablets());
+
+    uint64_t table2 = ramcloud->createTable("table2");
+    EXPECT_EQ(1U, m2->master->tabletManager.getNumTablets());
+
+    uint64_t table3 = ramcloud->createTable("table3");
+    EXPECT_EQ(1U, m3->master->tabletManager.getNumTablets());
+
+    ramcloud->createIndex(table1, 1, 1, 1, true);
+    EXPECT_EQ(2U, m1->master->tabletManager.getNumTablets());
+    EXPECT_EQ(1U, m2->master->tabletManager.getNumTablets());
+    EXPECT_EQ(1U, m3->master->tabletManager.getNumTablets());
+
+    ramcloud->createIndex(table2, 1, 1, 1, true);
+    EXPECT_EQ(2U, m1->master->tabletManager.getNumTablets());
+    EXPECT_EQ(2U, m2->master->tabletManager.getNumTablets());
+    EXPECT_EQ(1U, m3->master->tabletManager.getNumTablets());
+
+    ramcloud->createIndex(table3, 1, 1, 1, true);
+    EXPECT_EQ(2U, m1->master->tabletManager.getNumTablets());
+    EXPECT_EQ(2U, m2->master->tabletManager.getNumTablets());
+    EXPECT_EQ(2U, m3->master->tabletManager.getNumTablets());
+
+    // Look up tests
+    Buffer buffer;
+    uint32_t numObjs = 0;
+    uint16_t nextKeyLength = 0;
+    uint64_t nextKeyHash = 0;
+
+    // Non-nonexistant
+    ramcloud->lookupIndexColocated(table1, 1, "lol", 3, 0U, "lol", 3, 100,
+                        &buffer, &numObjs, &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(0U, numObjs);
+    EXPECT_EQ(0U, nextKeyLength);
+    EXPECT_EQ(0U, nextKeyHash);
+
+    // Add and lookup
+    uint8_t numKeys = 2;
+    KeyInfo keyList[numKeys];
+    keyList[0].keyLength = 5;
+    keyList[0].key = "Ducky";
+    keyList[1].keyLength = 5;
+    keyList[1].key = "Lucky";
+    ramcloud->write(table1, numKeys, keyList, "Very Valuable1",
+                    NULL, NULL, false);
+    keyList[0].key = "Woody";
+    ramcloud->write(table1, numKeys, keyList, "Not Very Valuable1",
+                    NULL, NULL, false);
+
+    keyList[0].key = "Ducky";
+    keyList[1].key = "Ducky";
+    ramcloud->write(table2, numKeys, keyList, "Very Valuable2",
+                    NULL, NULL, false);
+
+    keyList[0].key = "Lucky";
+    keyList[1].key = "Ducky";
+    ramcloud->write(table3, numKeys, keyList, "Very Valuable3",
+                    NULL, NULL, false);
+
+    // Look it up in the 3 tables
+    buffer.reset();
+    ramcloud->lookupIndexColocated(table1, 1, "Lucky", 5, 0U, "Lucky", 5, 100,
+                        &buffer, &numObjs, &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(2U, numObjs);
+    EXPECT_EQ(0U, nextKeyLength);
+    EXPECT_EQ(0U, nextKeyHash);
+    // Try to read back the data for object 1
+    uint32_t respOffset = 0;
+    respOffset += sizeof32(uint64_t); // version
+    uint32_t obj1Length = *buffer.getOffset<uint32_t>(respOffset);
+    EXPECT_EQ(33U, obj1Length);
+    respOffset += sizeof32(uint32_t);
+    Object o1(1, 1, 0, buffer, respOffset, obj1Length);
+    respOffset += obj1Length;
+    EXPECT_STREQ("Woody", std::string(static_cast<const char*>(o1.getKey()),
+                                    o1.getKeyLength()).c_str());
+    EXPECT_STREQ("Lucky", std::string(static_cast<const char*>(o1.getKey(1)),
+                                    o1.getKeyLength(1)).c_str());
+    EXPECT_STREQ("Not Very Valuable1",
+        std::string(static_cast<const char*>(o1.getValue()),
+                                             o1.getValueLength()).c_str());
+
+    //object 2
+    respOffset += sizeof32(uint64_t); // version
+    uint32_t obj2Length = *buffer.getOffset<uint32_t>(respOffset);
+    EXPECT_EQ(29U, obj2Length);
+    respOffset += sizeof32(uint32_t);
+    Object o2(1, 1, 0, buffer, respOffset, obj2Length);
+    respOffset += obj2Length;
+    EXPECT_STREQ("Ducky", std::string(static_cast<const char*>(o2.getKey()),
+                                    o2.getKeyLength()).c_str());
+    EXPECT_STREQ("Lucky", std::string(static_cast<const char*>(o2.getKey(1)),
+                                    o2.getKeyLength(1)).c_str());
+    EXPECT_STREQ("Very Valuable1",
+        std::string(static_cast<const char*>(o2.getValue()),
+                                             o2.getValueLength()).c_str());
+
+
+    buffer.reset();
+    ramcloud->lookupIndexColocated(table2, 1, "Lucky", 5, 0U, "Lucky", 5, 100,
+                        &buffer, &numObjs, &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(0U, numObjs);
+    EXPECT_EQ(0U, nextKeyLength);
+    EXPECT_EQ(0U, nextKeyHash);
+    EXPECT_EQ(0U, buffer.size());
+
+    buffer.reset();
+    ramcloud->lookupIndexColocated(table3, 1, "Lucky", 5, 0U, "Lucky", 5, 100,
+                        &buffer, &numObjs, &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(0U, numObjs);
+    EXPECT_EQ(0U, nextKeyLength);
+    EXPECT_EQ(0U, nextKeyHash);
+    EXPECT_EQ(0UL, buffer.size());
+
+    // Finally, not necessary for the benchmark, but test split rpcs.
+    buffer.reset();
+    ramcloud->lookupIndexColocated(table1, 1, "Lucky", 5, 0U, "Lucky", 5, 1,
+                        &buffer, &numObjs, &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(1U, numObjs);
+    EXPECT_EQ(5U, nextKeyLength);
+    EXPECT_EQ(12246314234026723750UL, nextKeyHash);
+
+    // Check Return Data - Next Key
+    respOffset = 0;
+    const char *nextKey = buffer.getOffset<const char>(respOffset);
+    EXPECT_STREQ("Lucky", std::string(nextKey, nextKeyLength).c_str());
+    respOffset += nextKeyLength;
+
+    // Check Return Data - First Object
+    respOffset += sizeof32(uint64_t); // version
+    uint32_t objLength = *(buffer.getOffset<uint32_t>(respOffset));
+    EXPECT_EQ(33U, objLength);
+    respOffset += sizeof32(uint32_t);
+    Object o(1, 1, 0, buffer, respOffset, objLength);
+    respOffset += objLength;
+    EXPECT_STREQ("Woody", std::string(static_cast<const char*>(o.getKey()),
+                                    o.getKeyLength()).c_str());
+    EXPECT_STREQ("Lucky", std::string(static_cast<const char*>(o.getKey(1)),
+                                    o.getKeyLength(1)).c_str());
+    EXPECT_STREQ("Not Very Valuable1",
+        std::string(static_cast<const char*>(o.getValue()),
+                                             o.getValueLength()).c_str());
+
+    // Perform followup lookup
+    buffer.reset();
+    ramcloud->lookupIndexColocated(table1, 1, nextKey, 5, nextKeyHash, "Lucky",
+                        5, 1, &buffer, &numObjs, &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(1U, numObjs);
+    EXPECT_EQ(0U, nextKeyLength);
+    EXPECT_EQ(0UL, nextKeyHash);
+
+    respOffset = 0;
+    respOffset += sizeof32(uint64_t); // version
+    objLength = *(buffer.getOffset<uint32_t>(respOffset));
+    EXPECT_EQ(29U, objLength);
+    respOffset += sizeof32(uint32_t);
+    Object o3(1, 1, 0, buffer, respOffset, objLength);
+    respOffset += objLength;
+    EXPECT_STREQ("Ducky", std::string(static_cast<const char*>(o3.getKey()),
+                                    o3.getKeyLength()).c_str());
+    EXPECT_STREQ("Lucky", std::string(static_cast<const char*>(o3.getKey(1)),
+                                    o3.getKeyLength(1)).c_str());
+    EXPECT_STREQ("Very Valuable1",
+        std::string(static_cast<const char*>(o3.getValue()),
+                                             o3.getValueLength()).c_str());
 }
 
 TEST_F(MasterServiceTest, read_basics) {

@@ -123,6 +123,7 @@ opcodeSymbol(uint32_t opcode)
         case TX_PREPARE:                   return "TX_PREPARE";
         case TX_REQUEST_ABORT:             return "TX_REQUEST_ABORT";
         case TX_HINT_FAILED:               return "TX_HINT_FAILED";
+        case LOOKUP_INDEX_COLOCATED:       return "LOOKUP_INDEX_COLOCATED";
         case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
     }
 

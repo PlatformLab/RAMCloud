@@ -143,6 +143,33 @@ TEST_F(TableManagerTest, createIndex) {
     EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
 };
 
+TEST_F(TableManagerTest, createIndex_withColocate) {
+    MasterService* master1 = cluster.addServer(masterConfig)->master.get();
+    MasterService* master2 = cluster.addServer(masterConfig)->master.get();
+    updateManager->reset();
+
+    EXPECT_THROW(tableManager->createIndex(1, 1, 0, 0),
+                 TableManager::NoSuchTable);
+
+    EXPECT_EQ(1U, tableManager->createTable("foo", 1));
+
+    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1, true));
+    EXPECT_EQ(1U, master1->indexletManager.getNumIndexlets());
+    EXPECT_EQ(0U, master2->indexletManager.getNumIndexlets());
+
+    EXPECT_THROW(tableManager->createIndex(1, 0, 0, 1),
+                 InvalidParameterException);
+    EXPECT_EQ(1U, master1->indexletManager.getNumIndexlets());
+    EXPECT_EQ(0U, master2->indexletManager.getNumIndexlets());
+
+    EXPECT_NO_THROW(tableManager->createIndex(1, 2, 0, 1, true));
+    EXPECT_EQ(2U, master1->indexletManager.getNumIndexlets());
+    EXPECT_EQ(0U, master2->indexletManager.getNumIndexlets());
+
+    // duplicate index already exists
+    EXPECT_NO_THROW(tableManager->createIndex(1, 1, 0, 1));
+};
+
 TEST_F(TableManagerTest, dropIndex) {
     MasterService* master1 = cluster.addServer(masterConfig)->master.get();
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();

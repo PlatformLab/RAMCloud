@@ -129,7 +129,8 @@ enum Opcode {
     TX_PREPARE                  = 77,
     TX_REQUEST_ABORT            = 78,
     TX_HINT_FAILED              = 79,
-    ILLEGAL_RPC_TYPE            = 80, // 1 + the highest legitimate Opcode
+    LOOKUP_INDEX_COLOCATED      = 80,
+    ILLEGAL_RPC_TYPE            = 81, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -520,6 +521,11 @@ struct CreateIndex {
         uint8_t indexId;        // Id of secondary keys in the index.
         uint8_t numIndexlets;   // Number of indexlets to partition the index
                                 // key space.
+
+        // For #HashPartitionHack, when set to any non-zero value, all
+        // indexlets will reside on the server that contains the first tablet
+        // of tableId. Otherwise, the default partitioning scheme is used.
+        uint8_t colocateAllIndexletsWithFirstTablet;
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
@@ -1000,6 +1006,47 @@ struct LookupIndexKeys {
         // In buffer: Actual bytes for the next key for which
         // the client should send another lookup request (if any) goes here.
     } __attribute__((packed));
+};
+
+/**
+ * #HashPartitionHack whereby IndexLookupKeys and readHashes are combined such
+ * that the client can ask a secondary index range query and the server will
+ * return the associated KV blobs stored on that server.
+ */
+struct LookupIndexColocated {
+    static const Opcode opcode = LOOKUP_INDEX_COLOCATED;
+    static const ServiceType service = MASTER_SERVICE;
+
+    // This is a clone of LookupIndexKeys::Request
+    struct Request {
+        RequestCommon common;
+        uint64_t tableId;               // Id of the table for the lookup.
+        uint8_t indexId;                // Id of the index for the lookup.
+        uint16_t firstKeyLength;        // Length of first key in bytes.
+        uint64_t firstAllowedKeyHash;   // Smallest primary key hash value
+                                        // allowed for firstKey.
+        uint16_t lastKeyLength;         // Length of last key in bytes.
+        uint32_t maxNumHashes;          // Max number of primary key hashes
+                                        // to be returned.
+
+        // In buffer: The actual first key and last key go here.
+    }  __attribute__((packed));
+
+    // This is a clone of ReadHashes::Response with numHashes changed.
+    struct Response {
+        ResponseCommon common;
+        uint32_t numObjects;            // Number of objects being returned.
+
+        uint16_t nextKeyLength; // Length of next key to fetch.
+        uint64_t nextKeyHash;   // Minimum allowed hash corresponding to
+                                // next key to be fetched.
+
+        // In buffer: Next Key specified by keyLength and then
+        // For each object being returned,
+        // uint64_t version, uint32_t length and the actual object bytes
+        // (all the keys and value) go here. The actual object bytes is
+        // of variable length, indicated by the length.
+    }  __attribute__((packed));
 };
 
 struct MigrateTablet {

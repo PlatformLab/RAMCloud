@@ -289,7 +289,8 @@ CoordinatorService::createIndex(
         Rpc* rpc)
 {
     tableManager.createIndex(reqHdr->tableId, reqHdr->indexId,
-            reqHdr->indexType, reqHdr->numIndexlets);
+            reqHdr->indexType, reqHdr->numIndexlets,
+            reqHdr->colocateAllIndexletsWithFirstTablet);
 }
 
 /**

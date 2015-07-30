@@ -70,7 +70,7 @@ class RamCloud {
     uint64_t createTable(const char* name, uint32_t serverSpan = 1);
     void dropTable(const char* name);
     void createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
-            uint8_t numIndexlets = 1);
+            uint8_t numIndexlets = 1, bool colocateWithFirstDataTablet = false);
     void dropIndex(uint64_t tableId, uint8_t indexId);
     uint64_t enumerateTable(uint64_t tableId, bool keysOnly,
          uint64_t tabletFirstHash, Buffer& state, Buffer& objects);
@@ -108,6 +108,13 @@ class RamCloud {
             Buffer* responseBuffer,
             uint32_t* numHashes, uint16_t* nextKeyLength,
             uint64_t* nextKeyHash);
+    void lookupIndexColocated(uint64_t tableId, uint8_t indexId,
+            const void* firstKey, uint16_t firstKeyLength,
+            uint64_t firstAllowedKeyHash,
+            const void* lastKey, uint16_t lastKeyLength,
+            uint32_t maxNumHashes,
+            Buffer* responseBuffer, uint32_t* numObjs,
+            uint16_t* nextKeyLength, uint64_t* nextKeyHash);
     void migrateTablet(uint64_t tableId, uint64_t firstKeyHash,
             uint64_t lastKeyHash, ServerId newOwnerMasterId);
     void multiIncrement(MultiIncrementObject* requests[], uint32_t numRequests);
@@ -259,7 +266,8 @@ class DropTableRpc : public CoordinatorRpcWrapper {
 class CreateIndexRpc : public CoordinatorRpcWrapper {
   public:
     CreateIndexRpc(RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
-              uint8_t indexType, uint8_t numIndexlets = 1);
+              uint8_t indexType, uint8_t numIndexlets = 1,
+            bool colocateWithFirstDataTablet = false);
     ~CreateIndexRpc() {}
     void wait() {simpleWait(context);}
 
@@ -519,6 +527,28 @@ class LookupIndexKeysRpc : public IndexRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(LookupIndexKeysRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::lookupIndexColocated operation,
+ * allowing it to execute asynchronously. #HashPartitionHack
+ */
+class LookupIndexColocatedRpc : public IndexRpcWrapper {
+  public:
+    LookupIndexColocatedRpc(RamCloud* ramcloud,
+            uint64_t tableId, uint8_t indexId,
+            const void* firstKey, uint16_t firstKeyLength,
+        uint64_t firstAllowedKeyHash,
+            const void* lastKey, uint16_t lastKeyLength,
+            uint32_t maxNumHashes, Buffer* responseBuffer);
+    ~LookupIndexColocatedRpc() {}
+
+    void indexNotFound();
+    void wait(uint32_t* numObjs,
+                uint16_t* nextKeyLength, uint64_t* nextKeyHash);
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(LookupIndexColocatedRpc);
 };
 
 /**
