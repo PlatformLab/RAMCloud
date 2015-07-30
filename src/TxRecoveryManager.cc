@@ -198,7 +198,7 @@ TxRecoveryManager::RecoveryTask::RecoveryTask(
         uint32_t offset)
     : context(context)
     , leaseId(leaseId)
-    , state(State::REQEST_ABORT)
+    , state(State::REQUEST_ABORT)
     , decision(WireFormat::TxDecision::UNDECIDED)
     , participants()
     , nextParticipantEntry()
@@ -264,7 +264,7 @@ TxRecoveryManager::RecoveryTask::RecoveryTask(
 void
 TxRecoveryManager::RecoveryTask::performTask()
 {
-    if (state == State::REQEST_ABORT) {
+    if (state == State::REQUEST_ABORT) {
         processRequestAbortRpcs();
         sendRequestAbortRpc();
         if (nextParticipantEntry == participants.end()
@@ -324,6 +324,116 @@ TxRecoveryManager::RecoveryTask::wait()
 }
 
 /**
+ * Constructor for TxRecoveryRpcWrapper.
+ *
+ * \param context
+ *      Overall information about this server.
+ * \param session
+ *      Session on which this RPC will eventually be sent.
+ * \param task
+ *      Pointer to the task that issued this request.
+ * \param responseHeaderLength
+ *      The size of header expected in the response for this RPC;
+ *      incoming responses will be checked by this class to ensure that
+ *      they contain at least this much data, wrapper subclasses can
+ *      use the getResponseHeader method to access the response header
+ *      once isReady has returned true.
+ */
+TxRecoveryManager::RecoveryTask::TxRecoveryRpcWrapper::TxRecoveryRpcWrapper(
+        Context* context,
+        Transport::SessionRef session,
+        RecoveryTask* task,
+        uint32_t responseHeaderLength)
+    : RpcWrapper(responseHeaderLength)
+    , context(context)
+    , task(task)
+    , ops()
+    , participantCount(NULL)
+{
+    this->session = session;
+}
+
+// See RpcWrapper for documentation.
+void
+TxRecoveryManager::RecoveryTask::TxRecoveryRpcWrapper::send()
+{
+    state = IN_PROGRESS;
+    session->sendRequest(&request, response, this);
+}
+
+/**
+ * Append an operation to the end of this Transaction Recovery RPC.  This method
+ * provides a common implementation for both Decision and RequestAbort RPCs.
+ *
+ * \param opEntry
+ *      Handle to information about the operation to be appended.
+ * \param state
+ *      Participant::State the provided opEntry should entry signaling marking
+ *      the entry as having finished this stage.
+ * \return
+ *      True if the op was successfully appended; false otherwise.
+ */
+bool
+TxRecoveryManager::RecoveryTask::TxRecoveryRpcWrapper::appendOp(
+        ParticipantList::iterator opEntry,
+        Participant::State state)
+{
+    if (*participantCount >= RequestAbortRpc::MAX_OBJECTS_PER_RPC) {
+        return false;
+    }
+
+    Participant* entry = &(*opEntry);
+    request.emplaceAppend<WireFormat::TxParticipant>(
+            entry->tableId, entry->keyHash, entry->rpcId);
+
+    entry->state = state;
+    ops[*participantCount] = opEntry;
+    (*participantCount)++;
+    return true;
+}
+
+// See RpcWrapper for documentation.
+bool
+TxRecoveryManager::RecoveryTask::TxRecoveryRpcWrapper::checkStatus()
+{
+    if (responseHeader->status == STATUS_UNKNOWN_TABLET) {
+        markOpsForRetry();
+    }
+    return true;
+}
+
+// See RpcWrapper for documentation.
+bool
+TxRecoveryManager::RecoveryTask::TxRecoveryRpcWrapper::handleTransportError()
+{
+    // There was a transport-level failure. Flush cached state related
+    // to this session, and related to the object mappings.  The objects
+    // will all be retried when \c finish is called.
+    if (session.get() != NULL) {
+        context->transportManager->flushSession(session->getServiceLocator());
+        session = NULL;
+    }
+    markOpsForRetry();
+    return true;
+}
+
+/**
+ * Handle the case where the RPC may have been sent to the wrong server; resets
+ * the state of the included ops scheduling them to be resent.
+ */
+void
+TxRecoveryManager::RecoveryTask::TxRecoveryRpcWrapper::markOpsForRetry()
+{
+    for (uint32_t i = 0; i < *participantCount; i++) {
+        Participant* entry = &(*ops[i]);
+        context->objectFinder->flush(entry->tableId);
+        entry->state = Participant::PENDING;
+    }
+    task->nextParticipantEntry = task->participants.begin();
+    TEST_LOG("Retry marked.");
+}
+
+/**
  * Constructor for a decision rpc.
  *
  * \param context
@@ -336,49 +446,16 @@ TxRecoveryManager::RecoveryTask::wait()
 TxRecoveryManager::RecoveryTask::DecisionRpc::DecisionRpc(Context* context,
         Transport::SessionRef session,
         RecoveryTask* task)
-    : RpcWrapper(sizeof(WireFormat::TxDecision::Request))
-    , context(context)
-    , session(session)
-    , task(task)
-    , ops()
+    : TxRecoveryRpcWrapper(context,
+                           session,
+                           task,
+                           sizeof(WireFormat::TxDecision::Response))
     , reqHdr(allocHeader<WireFormat::TxDecision>())
 {
     reqHdr->decision = task->decision;
     reqHdr->leaseId = task->leaseId;
     reqHdr->participantCount = 0;
-}
-
-// See RpcWrapper for documentation.
-bool
-TxRecoveryManager::RecoveryTask::DecisionRpc::checkStatus()
-{
-    if (responseHeader->status == STATUS_UNKNOWN_TABLET) {
-        retryRequest();
-    }
-    return true;
-}
-
-// See RpcWrapper for documentation.
-bool
-TxRecoveryManager::RecoveryTask::DecisionRpc::handleTransportError()
-{
-    // There was a transport-level failure. Flush cached state related
-    // to this session, and related to the object mappings.  The objects
-    // will all be retried when \c finish is called.
-    if (session.get() != NULL) {
-        context->transportManager->flushSession(session->getServiceLocator());
-        session = NULL;
-    }
-    retryRequest();
-    return true;
-}
-
-// See RpcWrapper for documentation.
-void
-TxRecoveryManager::RecoveryTask::DecisionRpc::send()
-{
-    state = IN_PROGRESS;
-    session->sendRequest(&request, response, this);
+    participantCount = &reqHdr->participantCount;
 }
 
 /**
@@ -386,32 +463,40 @@ TxRecoveryManager::RecoveryTask::DecisionRpc::send()
  *
  * \param opEntry
  *      Handle to information about the operation to be appended.
+ * \return
+ *      True if the op was successfully appended; false otherwise.
  */
-void
+bool
 TxRecoveryManager::RecoveryTask::DecisionRpc::appendOp(
         ParticipantList::iterator opEntry)
 {
-    Participant* entry = &(*opEntry);
-    request.emplaceAppend<WireFormat::TxParticipant>(
-            entry->tableId, entry->keyHash, entry->rpcId);
-
-    entry->state = Participant::DECIDE;
-    ops[reqHdr->participantCount] = opEntry;
-    reqHdr->participantCount++;
+    return TxRecoveryRpcWrapper::appendOp(opEntry, Participant::DECIDE);
 }
 
 /**
- * Handle the case where the RPC may have been sent to the wrong server.
+ * Wait for the Decision RPC to be acknowledged.
+ *
+ * \throw ServerNotUpException
+ *      The intended server for this RPC is not part of the cluster; if it ever
+ *      existed, it has since crashed.  Operations have been marked for retry;
+ *      caller can and should discard this RPC.
+ * \throw UnknownTabletException
+ *      The target server is not the owner of one or more of the included
+ *      operations.  This could have occurred due to an out of date tablet map.
+ *      Operations have been marked for retry; caller can and should discard
+ *      this RPC.
  */
 void
-TxRecoveryManager::RecoveryTask::DecisionRpc::retryRequest()
+TxRecoveryManager::RecoveryTask::DecisionRpc::wait()
 {
-    for (uint32_t i = 0; i < reqHdr->participantCount; i++) {
-        Participant* entry = &(*ops[i]);
-        context->objectFinder->flush(entry->tableId);
-        entry->state = Participant::PENDING;
+    waitInternal(context->dispatch);
+
+    if (getState() == FAILED) {
+        // Target server was not reachable. Retry has already been arranged.
+        throw ServerNotUpException(HERE);
+    } else if (responseHeader->status != STATUS_OK) {
+        ClientException::throwException(HERE, responseHeader->status);
     }
-    task->nextParticipantEntry = task->participants.begin();
 }
 
 /**
@@ -430,17 +515,20 @@ TxRecoveryManager::RecoveryTask::processDecisionRpcs()
             continue;
         }
 
-        WireFormat::TxDecision::Response* respHdr =
-                rpc->response->getStart<WireFormat::TxDecision::Response>();
-        if (respHdr != NULL) {
-            if (respHdr->common.status == STATUS_OK ||
-                respHdr->common.status == STATUS_UNKNOWN_TABLET) {
-                // Nothing to do.
-            } else {
-                RAMCLOUD_CLOG(WARNING, "unexpected return status %s while"
-                              "trying to recover transaction for leaseId %lu",
-                              statusToSymbol(respHdr->common.status), leaseId);
-            }
+        try {
+            rpc->wait();
+            // At this point the decision must have been received successfully.
+            // Nothing left to do.
+            TEST_LOG("STATUS_OK");
+        } catch (UnknownTabletException& e) {
+            // Target server did not contain the requested tablet; the
+            // operations should have been already marked for retry. Nothing
+            // left to do.
+            TEST_LOG("STATUS_UNKNOWN_TABLET");
+        } catch (ServerNotUpException& e) {
+            // If the target server is not up; the operations should have been
+            // already marked for retry.  Nothing left to do.
+            TEST_LOG("STATUS_SERVER_NOT_UP");
         }
 
         // Destroy object.
@@ -461,34 +549,23 @@ TxRecoveryManager::RecoveryTask::sendDecisionRpc()
     for (; nextParticipantEntry != participants.end(); nextParticipantEntry++) {
         Participant* entry = &(*nextParticipantEntry);
 
-        if (entry->state == Participant::DECIDE ||
-            entry->state == Participant::FAILED) {
+        if (entry->state == Participant::DECIDE) {
             continue;
         }
 
-        try {
-            if (nextRpc == NULL) {
-                rpcSession = context->objectFinder->lookup(entry->tableId,
-                                                           entry->keyHash);
-                decisionRpcs.emplace_back(context, rpcSession, this);
-                nextRpc = &decisionRpcs.back();
-            }
+        if (nextRpc == NULL) {
+            rpcSession = context->objectFinder->lookup(entry->tableId,
+                                                       entry->keyHash);
+            decisionRpcs.emplace_back(context, rpcSession, this);
+            nextRpc = &decisionRpcs.back();
+        }
 
-            Transport::SessionRef session =
-                    context->objectFinder->lookup(entry->tableId,
-                                                  entry->keyHash);
-            if (session->getServiceLocator() == rpcSession->getServiceLocator()
-                && nextRpc->reqHdr->participantCount <
-                        DecisionRpc::MAX_OBJECTS_PER_RPC) {
-                nextRpc->appendOp(nextParticipantEntry);
-            } else {
-                break;
-            }
-        } catch (TableDoesntExistException&) {
-            entry->state = Participant::FAILED;
-            RAMCLOUD_CLOG(WARNING, "trying to recover transaction for leaseId"
-                    " %lu but table with id %lu does not exist.",
-                    leaseId, entry->tableId);
+        Transport::SessionRef session =
+                context->objectFinder->lookup(entry->tableId,
+                                              entry->keyHash);
+        if (session->getServiceLocator() != rpcSession->getServiceLocator()
+            || !nextRpc->appendOp(nextParticipantEntry)) {
+            break;
         }
     }
     if (nextRpc) {
@@ -510,48 +587,15 @@ TxRecoveryManager::RecoveryTask::RequestAbortRpc::RequestAbortRpc(
             Context* context,
             Transport::SessionRef session,
             RecoveryTask* task)
-    : RpcWrapper(sizeof(WireFormat::TxRequestAbort::Request))
-    , context(context)
-    , session(session)
-    , task(task)
-    , ops()
+    : TxRecoveryRpcWrapper(context,
+                           session,
+                           task,
+                           sizeof(WireFormat::TxRequestAbort::Response))
     , reqHdr(allocHeader<WireFormat::TxRequestAbort>())
 {
     reqHdr->leaseId = task->leaseId;
     reqHdr->participantCount = 0;
-}
-
-// See RpcWrapper for documentation.
-bool
-TxRecoveryManager::RecoveryTask::RequestAbortRpc::checkStatus()
-{
-    if (responseHeader->status == STATUS_UNKNOWN_TABLET) {
-        retryRequest();
-    }
-    return true;
-}
-
-// See RpcWrapper for documentation.
-bool
-TxRecoveryManager::RecoveryTask::RequestAbortRpc::handleTransportError()
-{
-    // There was a transport-level failure. Flush cached state related
-    // to this session, and related to the object mappings.  The objects
-    // will all be retried when \c finish is called.
-    if (session.get() != NULL) {
-        context->transportManager->flushSession(session->getServiceLocator());
-        session = NULL;
-    }
-    retryRequest();
-    return true;
-}
-
-// See RpcWrapper for documentation.
-void
-TxRecoveryManager::RecoveryTask::RequestAbortRpc::send()
-{
-    state = IN_PROGRESS;
-    session->sendRequest(&request, response, this);
+    participantCount = &reqHdr->participantCount;
 }
 
 /**
@@ -559,32 +603,49 @@ TxRecoveryManager::RecoveryTask::RequestAbortRpc::send()
  *
  * \param opEntry
  *      Handle to information about the operation to be appended.
+ * \return
+ *      True if the op was successfully appended; false otherwise.
  */
-void
+bool
 TxRecoveryManager::RecoveryTask::RequestAbortRpc::appendOp(
         ParticipantList::iterator opEntry)
 {
-    Participant* entry = &(*opEntry);
-    request.emplaceAppend<WireFormat::TxParticipant>(
-            entry->tableId, entry->keyHash, entry->rpcId);
-
-    entry->state = Participant::ABORT;
-    ops[reqHdr->participantCount] = opEntry;
-    reqHdr->participantCount++;
+        return TxRecoveryRpcWrapper::appendOp(opEntry, Participant::ABORT);
 }
 
 /**
- * Handle the case where the RPC may have been sent to the wrong server.
+ * Wait for the RequestAbort request to complete, and return participant servers
+ * vote to either abort or commit.
+ *
+ * \return
+ *      The participant server's response to the request to abort the
+ *      transaction.  See WireFormat::TxRequestAbort::Vote for documentation of
+ *      possible responses.
+ * \throw ServerNotUpException
+ *      The intended server for this RPC is not part of the cluster; if it ever
+ *      existed, it has since crashed.  Operation has been marked for retry;
+ *      caller can and should discard this RPC.
+ * \throw UnknownTabletException
+ *      The target server is not the owner of one or more of the included
+ *      operations.  This could have occurred due to an out of date tablet map.
+ *      Operation has been marked for retry; caller can and should discard
+ *      this RPC.
  */
-void
-TxRecoveryManager::RecoveryTask::RequestAbortRpc::retryRequest()
+WireFormat::TxRequestAbort::Vote
+TxRecoveryManager::RecoveryTask::RequestAbortRpc::wait()
 {
-    for (uint32_t i = 0; i < reqHdr->participantCount; i++) {
-        Participant* entry = &(*ops[i]);
-        context->objectFinder->flush(entry->tableId);
-        entry->state = Participant::PENDING;
+    waitInternal(context->dispatch);
+
+    if (getState() == FAILED) {
+        // Target server was not reachable. Retry has already been arranged.
+        throw ServerNotUpException(HERE);
+    } else if (responseHeader->status != STATUS_OK) {
+        ClientException::throwException(HERE, responseHeader->status);
     }
-    task->nextParticipantEntry = task->participants.begin();
+
+    WireFormat::TxRequestAbort::Response* respHdr =
+            response->getStart<WireFormat::TxRequestAbort::Response>();
+    return respHdr->vote;
 }
 
 /**
@@ -603,21 +664,19 @@ TxRecoveryManager::RecoveryTask::processRequestAbortRpcs()
             continue;
         }
 
-        WireFormat::TxRequestAbort::Response* respHdr =
-                rpc->response->getStart<WireFormat::TxRequestAbort::Response>();
-        if (respHdr != NULL) {
-            if (respHdr->common.status == STATUS_OK) {
-                if (respHdr->vote != WireFormat::TxRequestAbort::COMMIT) {
-                    decision = WireFormat::TxDecision::ABORT;
-                }
-            } else if (respHdr->common.status == STATUS_UNKNOWN_TABLET) {
-                // Nothing to do.
-            } else {
+        try {
+            if (rpc->wait() == WireFormat::TxRequestAbort::COMMIT) {
                 decision = WireFormat::TxDecision::ABORT;
-                RAMCLOUD_CLOG(WARNING, "unexpected return status %s while"
-                              "trying to recover transaction for leaseId %lu",
-                              statusToSymbol(respHdr->common.status), leaseId);
             }
+        } catch (UnknownTabletException& e) {
+            // Target server did not contain the requested tablet; the
+            // operations should have been already marked for retry. Nothing
+            // left to do.
+            TEST_LOG("STATUS_UNKNOWN_TABLET");
+        } catch (ServerNotUpException& e) {
+            // If the target server is not up; the operations should have been
+            // already marked for retry.  Nothing left to do.
+            TEST_LOG("STATUS_SERVER_NOT_UP");
         }
 
         // Destroy object.
@@ -638,36 +697,26 @@ TxRecoveryManager::RecoveryTask::sendRequestAbortRpc()
     for (; nextParticipantEntry != participants.end(); nextParticipantEntry++) {
         Participant* entry = &(*nextParticipantEntry);
 
-        if (entry->state == Participant::ABORT ||
-            entry->state == Participant::FAILED) {
+        if (entry->state == Participant::ABORT) {
             continue;
         }
 
-        try {
-            if (nextRpc == NULL) {
-                rpcSession = context->objectFinder->lookup(entry->tableId,
-                                                           entry->keyHash);
-                requestAbortRpcs.emplace_back(context, rpcSession, this);
-                nextRpc = &requestAbortRpcs.back();
-            }
+        if (nextRpc == NULL) {
+            rpcSession = context->objectFinder->lookup(entry->tableId,
+                                                       entry->keyHash);
+            requestAbortRpcs.emplace_back(context, rpcSession, this);
+            nextRpc = &requestAbortRpcs.back();
+        }
 
-            Transport::SessionRef session =
-                    context->objectFinder->lookup(entry->tableId,
-                                                  entry->keyHash);
-            if (session->getServiceLocator() == rpcSession->getServiceLocator()
-                && nextRpc->reqHdr->participantCount <
-                        RequestAbortRpc::MAX_OBJECTS_PER_RPC) {
-                nextRpc->appendOp(nextParticipantEntry);
-            } else {
-                break;
-            }
-        } catch (TableDoesntExistException&) {
-            entry->state = Participant::FAILED;
-            RAMCLOUD_CLOG(WARNING, "trying to recover transaction for leaseId"
-                    " %lu but table with id %lu does not exist.",
-                    leaseId, entry->tableId);
+        Transport::SessionRef session =
+                context->objectFinder->lookup(entry->tableId,
+                                              entry->keyHash);
+        if (session->getServiceLocator() != rpcSession->getServiceLocator()
+            || !nextRpc->appendOp(nextParticipantEntry)) {
+            break;
         }
     }
+
     if (nextRpc) {
         nextRpc->send();
     }
@@ -683,8 +732,8 @@ TxRecoveryManager::RecoveryTask::toString()
     string s;
     s.append(format("RecoveryTask :: lease{%lu}", leaseId));
     switch (state) {
-        case State::REQEST_ABORT:
-            s.append(" state{REQEST_ABORT}");
+        case State::REQUEST_ABORT:
+            s.append(" state{REQUEST_ABORT}");
             break;
         case State::DECIDE:
             s.append(" state{DECIDE}");

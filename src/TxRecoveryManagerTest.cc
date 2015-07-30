@@ -19,6 +19,24 @@
 
 namespace RAMCloud {
 
+class MockTxRecoveryRpcWrapper
+        : public TxRecoveryManager::RecoveryTask::TxRecoveryRpcWrapper {
+  public:
+    MockTxRecoveryRpcWrapper(Context* context,
+            Transport::SessionRef session,
+            TxRecoveryManager::RecoveryTask* task)
+        : TxRecoveryRpcWrapper(context,
+                               session,
+                               task,
+                               sizeof(WireFormat::ResponseCommon))
+        , actualParticipantCount(0)
+    {
+        participantCount = &actualParticipantCount;
+    }
+
+    uint32_t actualParticipantCount;
+};
+
 class TxRecoveryManagerTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
@@ -34,6 +52,7 @@ class TxRecoveryManagerTest : public ::testing::Test {
     BindTransport::BindSession* session3;
     TxRecoveryManager txRecoveryManager;
     Tub<TxRecoveryManager::RecoveryTask> task;
+    Tub<MockTxRecoveryRpcWrapper> txRecoveryRpc;
     Tub<TxRecoveryManager::RecoveryTask::DecisionRpc> decisionRpc;
     Tub<TxRecoveryManager::RecoveryTask::RequestAbortRpc> raRpc;
 
@@ -51,6 +70,7 @@ class TxRecoveryManagerTest : public ::testing::Test {
         , session3(NULL)
         , txRecoveryManager(&context)
         , task()
+        , txRecoveryRpc()
         , decisionRpc()
         , raRpc()
     {
@@ -96,6 +116,7 @@ class TxRecoveryManagerTest : public ::testing::Test {
 
         Buffer dummy;
         task.construct(&context, 42, dummy, 0);
+        txRecoveryRpc.construct(&context, session, task.get());
         decisionRpc.construct(&context, session, task.get());
         raRpc.construct(&context, session, task.get());
     }
@@ -313,8 +334,8 @@ TEST_F(TxRecoveryManagerTest, RecoveryTask_constructor_initial) {
 
     TxRecoveryManager::RecoveryTask task(&context, 21, participantBuffer, 3);
     EXPECT_TRUE(&context == task.context);
-    EXPECT_EQ("RecoveryTask :: lease{21} state{REQEST_ABORT} decision{INVALID} "
-              "participants[ {1, 2, 3} {4, 5, 6} {7, 8, 9} ]",
+    EXPECT_EQ("RecoveryTask :: lease{21} state{REQUEST_ABORT} "
+              "decision{INVALID} participants[ {1, 2, 3} {4, 5, 6} {7, 8, 9} ]",
               task.toString());
 }
 
@@ -334,6 +355,54 @@ TEST_F(TxRecoveryManagerTest, RecoveryTask_constructor_recovered) {
 // TODO(cstlee) : Unit test RecoveryTask::performTask()
 // TODO(cstlee) : Unit test RecoveryTask::wait()
 
+TEST_F(TxRecoveryManagerTest, TxRecoveryRpcWrapper_send) {
+    EXPECT_TRUE(RpcWrapper::NOT_STARTED == txRecoveryRpc->state);
+    EXPECT_THROW(txRecoveryRpc->send(), ServiceNotAvailableException);
+    EXPECT_TRUE(RpcWrapper::NOT_STARTED != txRecoveryRpc->state);
+}
+
+TEST_F(TxRecoveryManagerTest, TxRecoveryRpcWrapper_checkStatus) {
+    WireFormat::ResponseCommon resp;
+    resp.status = STATUS_TABLE_DOESNT_EXIST;
+    txRecoveryRpc->responseHeader = &resp;
+    TestLog::reset();
+    EXPECT_TRUE(txRecoveryRpc->checkStatus());
+    EXPECT_EQ("", TestLog::get());
+    resp.status = STATUS_UNKNOWN_TABLET;
+    EXPECT_TRUE(txRecoveryRpc->checkStatus());
+    EXPECT_EQ("markOpsForRetry: Retry marked.", TestLog::get());
+}
+
+TEST_F(TxRecoveryManagerTest, TxRecoveryRpcWrapper_handleTransportError) {
+    TestLog::reset();
+    EXPECT_TRUE(txRecoveryRpc->handleTransportError());
+    EXPECT_TRUE(txRecoveryRpc->session == NULL);
+    EXPECT_EQ("flushSession: flushing session for mock:host=master3 | "
+              "markOpsForRetry: Retry marked.",
+              TestLog::get());
+}
+
+TEST_F(TxRecoveryManagerTest, TxRecoveryRpcWrapper_markOpsForRetry) {
+    fillPList();
+    TxRecoveryManager::ParticipantList::iterator it =
+            task->participants.begin();
+    while (it != task->participants.end()) {
+        txRecoveryRpc->appendOp(it, TxRecoveryManager::Participant::DECIDE);
+        EXPECT_EQ(TxRecoveryManager::Participant::DECIDE, it->state);
+        it++;
+    }
+
+    task->nextParticipantEntry = task->participants.end();
+    txRecoveryRpc->markOpsForRetry();
+    EXPECT_EQ(task->participants.begin(), task->nextParticipantEntry);
+
+    it = task->participants.begin();
+    while (it != task->participants.end()) {
+        EXPECT_EQ(TxRecoveryManager::Participant::PENDING, it->state);
+        it++;
+    }
+}
+
 TEST_F(TxRecoveryManagerTest, DecisionRpc_constructor) {
     Transport::SessionRef session =
                 ramcloud->clientContext->transportManager->getSession(
@@ -346,36 +415,6 @@ TEST_F(TxRecoveryManagerTest, DecisionRpc_constructor) {
     EXPECT_EQ(task->decision, rpc.reqHdr->decision);
     EXPECT_EQ(task->leaseId, rpc.reqHdr->leaseId);
     EXPECT_EQ(0U, rpc.reqHdr->participantCount);
-}
-
-TEST_F(TxRecoveryManagerTest, DecisionRpc_checkStatus) {
-    fillPList();
-    task->nextParticipantEntry = task->participants.end();
-    WireFormat::TxDecision::Response resp;
-    resp.common.status = STATUS_TABLE_DOESNT_EXIST;
-    decisionRpc->responseHeader = &resp.common;
-    decisionRpc->checkStatus();
-    EXPECT_EQ(task->participants.end(), task->nextParticipantEntry);
-    resp.common.status = STATUS_UNKNOWN_TABLET;
-    decisionRpc->checkStatus();
-    EXPECT_EQ(task->participants.begin(), task->nextParticipantEntry);
-}
-
-TEST_F(TxRecoveryManagerTest, DecisionRpc_handleTransportError) {
-    fillPList();
-    task->nextParticipantEntry = task->participants.end();
-    TestLog::reset();
-    decisionRpc->handleTransportError();
-    EXPECT_TRUE(decisionRpc->session == NULL);
-    EXPECT_EQ(task->participants.begin(), task->nextParticipantEntry);
-    EXPECT_EQ("flushSession: flushing session for mock:host=master3",
-              TestLog::get());
-}
-
-TEST_F(TxRecoveryManagerTest, DecisionRpc_send) {
-    EXPECT_TRUE(RpcWrapper::NOT_STARTED == decisionRpc->state);
-    decisionRpc->send();
-    EXPECT_TRUE(RpcWrapper::NOT_STARTED != decisionRpc->state);
 }
 
 TEST_F(TxRecoveryManagerTest, DecisionRpc_appendOp) {
@@ -391,23 +430,20 @@ TEST_F(TxRecoveryManagerTest, DecisionRpc_appendOp) {
               rpcToString(decisionRpc.get()));
 }
 
-TEST_F(TxRecoveryManagerTest, DecisionRpc_retryRequest) {
-    fillPList();
-    TxRecoveryManager::ParticipantList::iterator it =
-            task->participants.begin();
-    while (it != task->participants.end()) {
-        decisionRpc->appendOp(it);
-        EXPECT_EQ(TxRecoveryManager::Participant::DECIDE, it->state);
-        it++;
-    }
+TEST_F(TxRecoveryManagerTest, DecisionRpc_wait) {
+    Buffer respBuf;
+    WireFormat::TxDecision::Response* respHdr =
+            respBuf.emplaceAppend<WireFormat::TxDecision::Response>();
+    decisionRpc->state = RpcWrapper::FAILED;
+    EXPECT_THROW(decisionRpc->wait(), ServerNotUpException);
 
-    decisionRpc->retryRequest();
+    decisionRpc->response = &respBuf;
+    respHdr->common.status = STATUS_UNKNOWN_TABLET;
+    decisionRpc->state = RpcWrapper::FINISHED;
+    EXPECT_THROW(decisionRpc->wait(), UnknownTabletException);
 
-    it = task->participants.begin();
-    while (it != task->participants.end()) {
-        EXPECT_EQ(TxRecoveryManager::Participant::PENDING, it->state);
-        it++;
-    }
+    respHdr->common.status = STATUS_OK;
+    decisionRpc->wait();
 }
 
 // TODO(cstlee) : Unit test RecoveryTask::processDecisionRpcs()
@@ -474,23 +510,6 @@ TEST_F(TxRecoveryManagerTest, sendDecisionRpc_basic) {
     EXPECT_EQ(4U, task->decisionRpcs.size());
 }
 
-TEST_F(TxRecoveryManagerTest, sendDecisionRpc_TableDoesntExist) {
-    task->participants.emplace_back(0, 1, 2);
-    task->nextParticipantEntry = task->participants.begin();
-
-    EXPECT_EQ(0U, task->decisionRpcs.size());
-    EXPECT_EQ(TxRecoveryManager::Participant::PENDING,
-              task->participants.begin()->state);
-    TestLog::reset();
-    task->sendDecisionRpc();
-    EXPECT_EQ(0U, task->decisionRpcs.size());
-    EXPECT_EQ(TxRecoveryManager::Participant::FAILED,
-              task->participants.begin()->state);
-    EXPECT_EQ("sendDecisionRpc: trying to recover transaction for leaseId "
-              "42 but table with id 0 does not exist.",
-              TestLog::get());
-}
-
 TEST_F(TxRecoveryManagerTest, RequestAbortRpc_constructor) {
     Transport::SessionRef session =
                 ramcloud->clientContext->transportManager->getSession(
@@ -501,36 +520,6 @@ TEST_F(TxRecoveryManagerTest, RequestAbortRpc_constructor) {
             rpc(&context, session, task.get());
     EXPECT_EQ(task->leaseId, rpc.reqHdr->leaseId);
     EXPECT_EQ(0U, rpc.reqHdr->participantCount);
-}
-
-TEST_F(TxRecoveryManagerTest, RequestAbortRpc_checkStatus) {
-    fillPList();
-    task->nextParticipantEntry = task->participants.end();
-    WireFormat::TxRequestAbort::Response resp;
-    resp.common.status = STATUS_TABLE_DOESNT_EXIST;
-    raRpc->responseHeader = &resp.common;
-    raRpc->checkStatus();
-    EXPECT_EQ(task->participants.end(), task->nextParticipantEntry);
-    resp.common.status = STATUS_UNKNOWN_TABLET;
-    raRpc->checkStatus();
-    EXPECT_EQ(task->participants.begin(), task->nextParticipantEntry);
-}
-
-TEST_F(TxRecoveryManagerTest, RequestAbortRpc_handleTransportError) {
-    fillPList();
-    task->nextParticipantEntry = task->participants.end();
-    TestLog::reset();
-    raRpc->handleTransportError();
-    EXPECT_TRUE(raRpc->session == NULL);
-    EXPECT_EQ(task->participants.begin(), task->nextParticipantEntry);
-    EXPECT_EQ("flushSession: flushing session for mock:host=master3",
-              TestLog::get());
-}
-
-TEST_F(TxRecoveryManagerTest, RequestAbortRpc_send) {
-    EXPECT_TRUE(RpcWrapper::NOT_STARTED == raRpc->state);
-    raRpc->send();
-    EXPECT_TRUE(RpcWrapper::NOT_STARTED != raRpc->state);
 }
 
 TEST_F(TxRecoveryManagerTest, RequestAbortRpc_appendOp) {
@@ -546,23 +535,21 @@ TEST_F(TxRecoveryManagerTest, RequestAbortRpc_appendOp) {
               rpcToString(raRpc.get()));
 }
 
-TEST_F(TxRecoveryManagerTest, RequestAbortRpc_retryRequest) {
-    fillPList();
-    TxRecoveryManager::ParticipantList::iterator it =
-            task->participants.begin();
-    while (it != task->participants.end()) {
-        raRpc->appendOp(it);
-        EXPECT_EQ(TxRecoveryManager::Participant::ABORT, it->state);
-        it++;
-    }
+TEST_F(TxRecoveryManagerTest, RequestAbortRpc_wait) {
+    Buffer respBuf;
+    WireFormat::TxRequestAbort::Response* respHdr =
+            respBuf.emplaceAppend<WireFormat::TxRequestAbort::Response>();
+    raRpc->state = RpcWrapper::FAILED;
+    EXPECT_THROW(raRpc->wait(), ServerNotUpException);
 
-    raRpc->retryRequest();
+    raRpc->response = &respBuf;
+    respHdr->common.status = STATUS_UNKNOWN_TABLET;
+    raRpc->state = RpcWrapper::FINISHED;
+    EXPECT_THROW(raRpc->wait(), UnknownTabletException);
 
-    it = task->participants.begin();
-    while (it != task->participants.end()) {
-        EXPECT_EQ(TxRecoveryManager::Participant::PENDING, it->state);
-        it++;
-    }
+    respHdr->common.status = STATUS_OK;
+    respHdr->vote = WireFormat::TxRequestAbort::ABORT;
+    EXPECT_EQ(WireFormat::TxRequestAbort::ABORT, raRpc->wait());
 }
 
 // TODO(cstlee) : Unit test RecoveryTask::processRequestAbortRpcs()
@@ -627,23 +614,6 @@ TEST_F(TxRecoveryManagerTest, sendRequestAbortRpc_basic) {
     // Should issue do nothing.
     task->sendRequestAbortRpc();
     EXPECT_EQ(4U, task->requestAbortRpcs.size());
-}
-
-TEST_F(TxRecoveryManagerTest, sendRequestAbortRpc_TableDoesntExist) {
-    task->participants.emplace_back(0, 1, 2);
-    task->nextParticipantEntry = task->participants.begin();
-
-    EXPECT_EQ(0U, task->requestAbortRpcs.size());
-    EXPECT_EQ(TxRecoveryManager::Participant::PENDING,
-              task->participants.begin()->state);
-    TestLog::reset();
-    task->sendRequestAbortRpc();
-    EXPECT_EQ(0U, task->requestAbortRpcs.size());
-    EXPECT_EQ(TxRecoveryManager::Participant::FAILED,
-              task->participants.begin()->state);
-    EXPECT_EQ("sendRequestAbortRpc: trying to recover transaction for leaseId "
-              "42 but table with id 0 does not exist.",
-              TestLog::get());
 }
 
 }  // namespace RAMCloud

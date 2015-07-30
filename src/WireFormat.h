@@ -1810,7 +1810,7 @@ struct TxRequestAbort {
     static const Opcode opcode = Opcode::TX_REQUEST_ABORT;
     static const ServiceType service = MASTER_SERVICE;
 
-    enum Vote { COMMIT, ABORT, INVALID };
+    enum Vote { COMMIT, ABORT };
 
     struct Request {
         RequestCommon common;
