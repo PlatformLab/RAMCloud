@@ -134,7 +134,7 @@ def getHosts():
   rcresFailed = re.match(".*command not found.*", rcresOutput)
 
   # If hosts overridden in localconfig.py, check that all servers are locked
-  if hosts:
+  if 'hosts' in globals():
     requstedUnlockedHosts = []
     for host in hosts:
       if str("%02d" % host[2]) not in rcresOutput.split():
