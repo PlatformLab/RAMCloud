@@ -258,15 +258,13 @@ TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
                     DIE("Attempted to co-locate/create an index with a "
                             "table that has 0 tablets.");
 
-
+                indexServer = table->tablets.front()->serverId;
                 LOG(NOTICE, "Co-locating index %u (indexlet %u) with first "
                         "tablet of table %lu on server %s",
                         indexId,
                         index->nextIndexletIdSuffix,
                         tableId,
                         indexServer.toString().c_str());
-
-                indexServer = table->tablets.front()->serverId;
             }
 
             // Create the backing table for indexlet.

@@ -272,6 +272,31 @@ def indexBasic(name, options, cluster_args, client_args):
             (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
+def indexPartitionComparison(name, options, cluster_args, client_args):
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '--masterServiceThreads 2 --totalMasterMemory 1500'
+
+#TODO(syang0) Change this number to the number of tables we're doing *200
+    if cluster_args['timeout'] < 2000:
+        cluster_args['timeout'] = 2000
+
+    if options.num_servers == None:
+        cluster_args['num_servers'] = len(getHosts())
+
+    if '--numObjects' not in client_args:
+        client_args['--numObjects'] = 100000
+    if '--warmup' not in client_args:
+        client_args['--warmup'] = 100
+    if '--count' not in client_args:
+        client_args['--count'] = 10000
+    if '--numTables' not in client_args:
+        # -2 for coordinator and client.
+        client_args['--numTables'] = len(getHosts()) - 2;
+
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
+    print(get_client_log(), end='')
+
 def indexRange(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '--masterServiceThreads 1 --totalMasterMemory 1500'
@@ -627,6 +652,7 @@ simple_tests = [
 
 graph_tests = [
     Test("indexBasic", indexBasic),
+    Test("indexPartitionComparison", indexPartitionComparison),
     Test("indexRange", indexRange),
     Test("indexMultiple", indexMultiple),
     Test("indexScalability", indexScalability),

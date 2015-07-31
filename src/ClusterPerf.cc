@@ -55,6 +55,7 @@ namespace po = boost::program_options;
 #include "Util.h"
 #include "TimeTrace.h"
 #include "Transaction.h"
+#include "Dispatch.h"
 
 using namespace RAMCloud;
 
@@ -2847,6 +2848,345 @@ indexReadDist()
     fflush(stdout);
 
     cluster->dropIndex(dataTable, indexId);
+}
+
+void
+indexPartitionComparison()
+{
+    /**
+     * This test uses the following global variables
+     *    - numTables -> How many max servers to split data on
+     *    - numObjects -> how many objects to place on the servers
+     *    - count -> how many samples to take
+     *    - warmupCount -> How many lookups to do before timing
+     *    - objectSize -> Size of object value
+     */
+    const uint16_t keyLength = 30;
+    const int maxPartitions = numTables;
+    const int lookupRanges[3] = {1, 10, 100};
+    const uint32_t MAX_ALLOWED_HASHES = 1000;
+    objectSize = (objectSize <= 0) ? 100 : objectSize;
+
+    const int numRanges =
+            downCast<uint32_t>(sizeof(lookupRanges)/sizeof(*lookupRanges));
+    const int seperatorSpacing = 3, numberSpacing = 7;
+    const int subColSize = seperatorSpacing + 3*(numberSpacing+1);
+    printf("# RAMCloud index lookup performance test comparing the\n"
+            "# latency cost between range partitioning and hash\n"
+            "# partitioning schemes. Range partitioning uses the standard\n"
+            "# RAMCloud indexing solution (i.e. allocating a table and \n"
+            "# index with a certain serverSpan n). Hash partitioning is\n"
+            "# approximated by creating 1 table and 1 co-located index per\n"
+            "# server and having the client partition the data on the last\n"
+            "# character of the primary key. Upon lookup, the client uses\n"
+            "# a special API to query all servers in the cluster and has\n"
+            "# each master only return local data. This test varies the \n"
+            "# lookup ranges and the # of servers. All latency measurements\n"
+            "# are printed as 10th 50th 90th 99th percentiles.\n"
+            "#\n"
+            "# This run uses the following parameters:\n"
+            "#   * Max # of entries per B+ tree Node = %u\n"
+            "#   * Number of Objects = %d\n"
+            "#   * Key, Value Lengths = %d, %d\n"
+            "#   * Samples taken per data point = %d\n"
+            "#   * Number of warmup lookups = %d\n"
+            "#\n",
+            IndexBtree::innerslotmax, numObjects, keyLength,
+            objectSize, count, warmupCount);
+
+    printf("#  n%*sRangeP Read %3d(us)%*sHashP Read %3d(us)%*sDifference(us)",
+            2*seperatorSpacing + 4, "", lookupRanges[0],
+            subColSize-14, "", lookupRanges[0],
+            subColSize-14, "");
+
+    for (int i = 1; i < numRanges; i++) {
+        printf("%*sRangeP Read %3d(us)%*sHashP Read %3d(us)%*sDifference(us)",
+                5*seperatorSpacing, "", lookupRanges[i],
+                subColSize-14, "", lookupRanges[i],
+                subColSize-13, "");
+    }
+    printf("\r\n");
+    fflush(stdout);
+
+    char pk[keyLength], sk[keyLength], value[objectSize];
+    char tableName[100], firstKey[keyLength], lastKey[keyLength];
+    std::vector<std::vector<double>>
+                hashPLookups(numRanges, std::vector<double>(count)),
+                rangePLookups(numRanges, std::vector<double>(count));
+
+    // Do Normal SLIK Range Partitioning benchmark whereby we create 1 table
+    // with n tablets with 1 index of n indexlets.
+    for (int serverSpan = 1; serverSpan <= maxPartitions; ++serverSpan) {
+        snprintf(tableName, sizeof(tableName), "tableWithSpan%d", serverSpan);
+
+        uint64_t tableId = cluster->createTable(tableName, serverSpan);
+        cluster->createIndex(tableId, 1, 0, downCast<uint8_t>(serverSpan));
+
+        // Fill table/Index
+        uint32_t div = numObjects/serverSpan + 1;
+        vector<uint32_t> randomized = generateRandListFrom0UpTo(numObjects);
+        for (int i = 0; i < numObjects; i++) {
+            uint32_t intKey = randomized[i];
+
+            // This tripped me up, apparently our indexes are partitioned
+            // based on the first char being different starting from 'a'...
+            char indexPartitionChar = static_cast<char>('a'+ (intKey/div));
+            snprintf(pk, keyLength, "%c:%dp%0*d", indexPartitionChar,
+                    intKey, keyLength, 0);
+            snprintf(sk, keyLength, "%c:s%0*d", indexPartitionChar,
+                    keyLength-4, intKey);
+
+            KeyInfo keyList[2];
+            keyList[0].keyLength = keyList[1].keyLength = keyLength;
+            keyList[0].key = pk;
+            keyList[1].key = sk;
+
+            cluster->write(tableId, 2, keyList, value, objectSize);
+
+            // Verify that data was written correctly..
+            if (DEBUG_BUILD) {
+                Buffer readBuff;
+                cluster->read(tableId, keyList[0].key, keyLength, &readBuff);
+                assert(readBuff.size() > 0);
+
+                IndexKey::IndexKeyRange keyRange(1,
+                        keyList[1].key, keyList[1].keyLength,
+                        keyList[1].key, keyList[1].keyLength);
+                IndexLookup rangeLookup(cluster, tableId, keyRange);
+
+                int totalNumObjects = 0;
+                while (rangeLookup.getNext())
+                    totalNumObjects++;
+                assert(totalNumObjects == 1);
+            }
+        }
+
+        // Benchmark
+        for (int rangeIndex = 0; rangeIndex < numRanges; ++rangeIndex) {
+            int lookupRange = lookupRanges[rangeIndex];
+            for (int j = -warmupCount; j < count; j++) {
+                uint32_t randLookupIndex = (lookupRange == numObjects) ?
+                        0 : randomNumberGenerator(numObjects - lookupRange);
+
+                uint32_t intFirstKey = randLookupIndex;
+                uint32_t intLastKey = randLookupIndex + lookupRange - 1;
+
+                char indexPartitionChar =
+                        static_cast<char>('a'+ (intFirstKey/div));
+                snprintf(firstKey, keyLength, "%c:s%0*d", indexPartitionChar,
+                        keyLength-4, intFirstKey);
+                indexPartitionChar = static_cast<char>('a'+ (intLastKey/div));
+                snprintf(lastKey, keyLength, "%c:s%0*d", indexPartitionChar,
+                        keyLength-4, intLastKey);
+                IndexKey::IndexKeyRange keyRange(1, firstKey, keyLength,
+                                                 lastKey, keyLength);
+                fflush(stdout);
+
+                uint64_t start = Cycles::rdtsc();
+                IndexLookup rangeLookup(cluster, tableId, keyRange);
+
+                int totalNumObjects = 0;
+                while (rangeLookup.getNext()) {
+                    totalNumObjects++;
+                }
+
+                if (j >= 0) {
+                    rangePLookups.at(rangeIndex).at(j) =
+                            Cycles::toSeconds(Cycles::rdtsc() - start);
+                }
+
+                assert(lookupRange == totalNumObjects);
+            }
+        }
+
+        // Drop tables and sleep for a bit
+        cluster->dropIndex(tableId, 1);
+        cluster->dropTable(tableName);
+        uint64_t start = Cycles::rdtsc();
+        while (Cycles::toSeconds(Cycles::rdtsc() - start) < 1.0)
+            cluster->clientContext->dispatch->poll();
+
+        // Hash Partitioning Benchmark
+        std::vector<uint64_t> tableIds;
+        for (int i = 0; i < serverSpan; ++i) {
+            snprintf(tableName, sizeof(tableName), "tableNumber%d", i);
+            uint64_t tableId = cluster->createTable(tableName, 1);
+            cluster->createIndex(tableId, 1, 0, 1, true);
+            tableIds.push_back(tableId);
+        }
+
+        // Fill table/Index
+        for (int i = 0; i < numObjects; i++) {
+            uint32_t intKey = randomized[i];
+            snprintf(pk, keyLength, "%c:%dp%0*d", 'a', intKey, keyLength, 0);
+            snprintf(sk, keyLength, "%c:s%0*d", 'a', keyLength-4, intKey);
+
+            KeyInfo keyList[2];
+            keyList[0].keyLength = keyList[1].keyLength = keyLength;
+            keyList[0].key = pk;
+            keyList[1].key = sk;
+
+            // Mimic a hash partition by using the modulo of the primary
+            // key to figure out where the data goes.
+            uint64_t tableId = tableIds.at(intKey % tableIds.size());
+            cluster->write(tableId, 2, keyList, value, objectSize);
+
+            // Verify that data was written correctly...
+            if (DEBUG_BUILD) {
+                Buffer readBuff;
+                cluster->read(tableId, keyList[0].key, keyLength, &readBuff);
+                assert(readBuff.size() > 0);
+
+                IndexKey::IndexKeyRange keyRange(1,
+                        keyList[1].key, keyList[1].keyLength,
+                        keyList[1].key, keyList[1].keyLength);
+                IndexLookup rangeLookup(cluster, tableId, keyRange);
+
+                int totalNumObjects = 0;
+                while (rangeLookup.getNext())
+                    totalNumObjects++;
+                assert(totalNumObjects == 1);
+            }
+        }
+
+        struct LookupRpcPackage {
+            Tub<LookupIndexColocatedRpc> rpc;
+            Buffer respBuffer;
+            uint32_t numObjs;
+            uint16_t nextKeyLength;
+            uint64_t nextKeyHash;
+            bool finished;
+
+            LookupRpcPackage()
+                : rpc(), respBuffer(), numObjs(0),
+                  nextKeyLength(0), nextKeyHash(0), finished(false) {};
+        };
+
+        LookupRpcPackage lookups[maxPartitions];
+
+        for (int rangeIndex = 0; rangeIndex < numRanges; ++rangeIndex) {
+            int lookupRange = lookupRanges[rangeIndex];
+            for (int j = -warmupCount; j < count; j++) {
+                uint32_t randLookupIndex = (lookupRange == numObjects) ?
+                        0 : randomNumberGenerator(numObjects - lookupRange);
+                uint32_t intFirstKey = randLookupIndex;
+                uint32_t intLastKey = randLookupIndex + lookupRange - 1;
+
+                snprintf(firstKey, keyLength, "%c:s%0*d", 'a',
+                                                    keyLength-4, intFirstKey);
+                snprintf(lastKey, keyLength, "%c:s%0*d", 'a',
+                                                    keyLength-4, intLastKey);
+
+                for (int i = 0; i < serverSpan; i++) {
+                    lookups[i].respBuffer.reset();
+                    lookups[i].finished = false;
+                }
+                uint64_t start = Cycles::rdtsc();
+                for (int i = 0; i < serverSpan; i++) {
+                    lookups[i].rpc.construct(cluster, tableIds.at(i),
+                                                downCast<uint8_t>(1),
+                                                firstKey, keyLength, 0UL,
+                                                lastKey, keyLength,
+                                                MAX_ALLOWED_HASHES,
+                                                &lookups[i].respBuffer);
+                }
+
+                bool allFinished = false;
+                while (!allFinished) {
+                    allFinished = true;
+                    cluster->clientContext->dispatch->poll();
+
+                    for (int i = 0; i < serverSpan; i++) {
+                        if (!lookups[i].finished) {
+                            allFinished = false;
+
+                            if (lookups[i].rpc->isReady()) {
+                                lookups[i].finished = true;
+                                lookups[i].rpc->wait(&lookups[i].numObjs,
+                                                     &lookups[i].nextKeyLength,
+                                                     &lookups[i].nextKeyHash);
+                            }
+                        }
+                    }
+                }
+
+                if (j >= 0) {
+                    hashPLookups.at(rangeIndex).at(j) =
+                            Cycles::toSeconds(Cycles::rdtsc() - start);
+                }
+
+                for (int i = 0; i < serverSpan; i++) {
+                    lookups[i].rpc.destroy();
+                }
+
+                // For sanity, not required.
+                int numObjs = 0;
+                for (int i = 0; i < serverSpan; i++)
+                    numObjs += lookups[i].numObjs;
+                assert(numObjs == lookupRange);
+            }
+        }
+
+        // Drop everything on the floor and sleep for a bit.
+        for (int i = 0; i < serverSpan; i++) {
+            char tableName[100];
+            snprintf(tableName, sizeof(tableName), "tableNumber%d", i);
+            uint64_t tableId = cluster->getTableId(tableName);
+            cluster->dropIndex(tableId, 1);
+            cluster->dropTable(tableName);
+        }
+
+        start = Cycles::rdtsc();
+        while (Cycles::toSeconds(Cycles::rdtsc() - start) < 1.0)
+            cluster->clientContext->dispatch->poll();
+
+        // Output Time!
+        printf("%4d", serverSpan);
+        for (int i = 0; i < numRanges; ++i) {
+            const size_t tenthSample = count / 10;
+            const size_t medianSample = count / 2;
+            const size_t ninetiethSample = count * 9 / 10;
+            const size_t nintyninetiethSample = count * 99 / 100;
+
+            std::sort(hashPLookups.at(i).begin(), hashPLookups.at(i).end());
+            std::sort(rangePLookups.at(i).begin(), rangePLookups.at(i).end());
+
+            printf("%*.1f%*.1f%*.1f%*.1f"
+                    "%*.1f%*.1f%*.1f%*.1f"
+                    "%*.1f%*.1f%*.1f%*.1f",
+                    numberSpacing + seperatorSpacing,
+                    rangePLookups.at(i).at(tenthSample)*1e6,
+                    numberSpacing,
+                    rangePLookups.at(i).at(medianSample)*1e6,
+                    numberSpacing,
+                    rangePLookups.at(i).at(ninetiethSample)*1e6,
+                    numberSpacing,
+                    rangePLookups.at(i).at(nintyninetiethSample)*1e6,
+                    numberSpacing + seperatorSpacing,
+                    hashPLookups.at(i).at(tenthSample)*1e6,
+                    numberSpacing,
+                    hashPLookups.at(i).at(medianSample)*1e6,
+                    numberSpacing,
+                    hashPLookups.at(i).at(ninetiethSample)*1e6,
+                    numberSpacing,
+                    hashPLookups.at(i).at(nintyninetiethSample)*1e6,
+                    numberSpacing + seperatorSpacing,
+                    (hashPLookups.at(i).at(tenthSample) -
+                            rangePLookups.at(i).at(tenthSample))*1e6,
+                    numberSpacing,
+                    (hashPLookups.at(i).at(medianSample) -
+                            rangePLookups.at(i).at(medianSample))*1e6,
+                    numberSpacing,
+                    (hashPLookups.at(i).at(ninetiethSample) -
+                            rangePLookups.at(i).at(ninetiethSample))*1e6,
+                    numberSpacing,
+                    (hashPLookups.at(i).at(nintyninetiethSample) -
+                            rangePLookups.at(i).at(nintyninetiethSample))*1e6);
+
+        }
+        printf("\r\n");
+        fflush(stdout);
+    }
 }
 
 void
@@ -6083,6 +6423,7 @@ TestInfo tests[] = {
     {"basic", basic},
     {"broadcast", broadcast},
     {"indexBasic", indexBasic},
+    {"indexPartitionComparison", indexPartitionComparison},
     {"indexRange", indexRange},
     {"indexMultiple", indexMultiple},
     {"indexScalability", indexScalability},

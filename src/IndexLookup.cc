@@ -328,6 +328,17 @@ IndexLookup::isReady()
     // The next PKHash to be returned must be in a SENT readRpc.
     // Return false to getNext() so that it has to wait until this readRpc
     // returns.
+
+    // Rule Hack
+    // For some reason, there appears to be a bug in IndexLookup whereby all
+    // the objects would be returned already, but we'd still go through this
+    // loop ending up here, expecting the status to be SENT. It's true that
+    // numRemoved and numAdded don't match, but after the return, they will..
+    // numRemoved is incremented in the getNext() logic.
+    if (readRpcs[readRpcId].status == FREE) {
+        return true;
+    }
+
     assert(readRpcs[readRpcId].status == SENT);
     return false;
 }
