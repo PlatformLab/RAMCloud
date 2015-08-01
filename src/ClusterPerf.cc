@@ -3059,7 +3059,8 @@ indexPartitionComparison()
 
             LookupRpcPackage()
                 : rpc(), respBuffer(), numObjs(0),
-                  nextKeyLength(0), nextKeyHash(0), finished(false) {};
+                  nextKeyLength(0), nextKeyHash(0),
+                  finished(false) {};
         };
 
         LookupRpcPackage lookups[maxPartitions];
@@ -3603,7 +3604,7 @@ indexMultiple()
  *      Number indexlets of an index available for the scalability test.
  * \param numObjectsPerIndxlet
  *      The total number of objects contained in each indexlet
- * \param range
+ * \param lookupRange
  *      How many hashes/objects should the IndexLookupKeys an IndexLookup
  *      operations request for
  * \param concurrent
@@ -3611,16 +3612,24 @@ indexMultiple()
  * \param docString
  *      Information provided by the master about this run; used
  *      in log messages.
+ * \param doHashPartitioning
+ *      If set to true, the test will use #HashPartitionHack to load up
+ *      the servers such that each server has its own table and index.
+ *      Then a client sprays the data according to the modulo of the last
+ *      primary key character and does lookups by contacting all the servers.
+ *      If set to false, the default SLIK infrastructure is used whereby
+ *      client creates 1 table and 1 index with a span of servers.
  */
 void
-indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
-        int range, int concurrent, char *docString)
+indexScalabilityCommonLookup(const uint8_t numIndexlets,
+        int numObjectsPerIndxlet, int lookupRange, int concurrent,
+        char *docString, bool doHashPartitioning)
 {
-    double ms = 1000;
+    double ms = 2000;
     uint64_t runCycles = Cycles::fromSeconds(ms/1e03);
-    uint8_t indexId = (uint8_t)1;
-    uint32_t maxHashes = 1000;
-    uint16_t keyLength = 30;
+    const uint8_t indexId = (uint8_t)1;
+    const uint32_t maxHashes = 1000;
+    const uint16_t keyLength = 30;
 
     // Do Read Hashes
     uint64_t lookupStart, lookupEnd;
@@ -3628,163 +3637,290 @@ indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
     int totalHashes = 0;
     int opCount = 0;
 
-
-    uint64_t lookupTable = cluster->getTableId("indexScalability");
-    while (true) {
-        int numRequests = concurrent;
-//        int numRequests = numIndexlets;
-        Buffer lookupResp[numRequests];
-        uint32_t numHashes[numRequests];
-        uint16_t nextKeyLength[numRequests];
-        uint64_t nextKeyHash[numRequests];
-        char primaryKey[numRequests][30];
-        char firstKey[numRequests][30];
-        char lastKey[numRequests][30];
-
-        Tub<LookupIndexKeysRpc> rpcs[numRequests];
-
-        for (int i =0; i < numRequests; i++) {
-            char indexIdent = static_cast<char>(('a') +
-                    static_cast<int>(generateRandom() % numIndexlets));
-            int intKey = (numObjectsPerIndxlet == range) ? 0 :
-                    static_cast<int>
-                        (randomNumberGenerator(numObjectsPerIndxlet - range));
-
-            snprintf(primaryKey[i], sizeof(primaryKey[i]), "%c:%dp%0*d",
-                    indexIdent, intKey, keyLength, 0);
-            snprintf(firstKey[i], sizeof(firstKey[i]), "%c:s%0*d",
-                    indexIdent, keyLength-4, intKey);
-            snprintf(lastKey[i], sizeof(lastKey[i]), "%c:s%0*d",
-                    indexIdent, keyLength-4, intKey + range - 1);
+    if (doHashPartitioning) {
+        int totalNumObjects = numObjectsPerIndxlet*numIndexlets;
+        std::vector<uint64_t> tableIds;
+        for (int j = 0; j < numIndexlets; j++) {
+            char tableName[100];
+            snprintf(tableName, sizeof(tableName), "tableNumber%d", j);
+            tableIds.push_back(cluster->getTableId(tableName));
         }
 
-        // Send async requests and receive responses to numRequests lookup
-        // requests and measure time.
-        lookupStart = Cycles::rdtsc();
-        for (int i =0; i < numRequests; i++) {
-            rpcs[i].construct(cluster, lookupTable, indexId,
-                    firstKey[i], keyLength, (uint16_t)0,
-                    lastKey[i], keyLength, maxHashes,
-                    &lookupResp[i]);
+        struct LookupRpcPackage {
+            Tub<LookupIndexColocatedRpc> rpc;
+            Buffer respBuffer;
+            uint32_t numObjs;
+            uint16_t nextKeyLength;
+            uint64_t nextKeyHash;
+            bool finished;
+
+            LookupRpcPackage()
+                : rpc(), respBuffer(), numObjs(0),
+                  nextKeyLength(0), nextKeyHash(0),
+                  finished(false) {};
+        };
+
+        LookupRpcPackage lookups[concurrent][numIndexlets];
+        char firstKeys [concurrent][keyLength];
+        char lastKeys [concurrent][keyLength];
+        uint64_t startTimes[concurrent];
+
+        uint64_t totalRpcLatency = 0;
+        uint32_t totalObjectsRead = 0, totalRequestsFinished = 0;
+        uint64_t globalStart = Cycles::rdtsc();
+
+        // Start all Rpcs
+        for (int c = 0; c < concurrent; c++) {
+            uint32_t randLookupIndex = (lookupRange == totalNumObjects) ?
+                    0 : randomNumberGenerator(totalNumObjects - lookupRange);
+            uint32_t intFirstKey = randLookupIndex;
+            uint32_t intLastKey = randLookupIndex + lookupRange - 1;
+
+            snprintf(firstKeys[c], keyLength, "%c:s%0*d", 'a',
+                                            keyLength-4, intFirstKey);
+            snprintf(lastKeys[c], keyLength, "%c:s%0*d", 'a',
+                                            keyLength-4, intLastKey);
+
+            for (int i = 0; i < numIndexlets; i++) {
+                lookups[c][i].respBuffer.reset();
+                lookups[c][i].finished = false;
+                startTimes[c] = Cycles::rdtsc();
+                lookups[c][i].rpc.construct(cluster, tableIds.at(i),
+                                            downCast<uint8_t>(1),
+                                            firstKeys[c], keyLength, 0UL,
+                                            lastKeys[c], keyLength,
+                                            maxHashes,
+                                            &lookups[c][i].respBuffer);
+            }
         }
 
-        for (int i = 0; i < numRequests; i++) {
-            if (rpcs[i])
-              rpcs[i]->wait(&numHashes[i], &nextKeyLength[i], &nextKeyHash[i]);
-        }
-        lookupEnd = Cycles::rdtsc();
+        while (Cycles::rdtsc() - globalStart < runCycles) {
+            while (cluster->clientContext->dispatch->poll() == 0) { }
 
-        // Verify data.
-        for (int i =0; i < numRequests; i++) {
-            Key pk(lookupTable, primaryKey[i], 30);
-            uint32_t lookupOffset;
-            lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
-            totalHashes += numHashes[i];
-            assert(numHashes[i] == uint32_t(range));
-            assert(pk.getHash()==
-                    *lookupResp[i].getOffset<uint64_t>(lookupOffset));
-        }
+            for (int c = 0; c < concurrent; c++) {
+                bool allFinished = false;
+                for (int i = 0; i < numIndexlets; ++i) {
+                    if (!lookups[c][i].finished) {
+                        allFinished = false;
 
-        uint64_t latency = lookupEnd - lookupStart;
-        opCount = opCount + numRequests;
-        elapsed += latency;
-        if (elapsed >= runCycles)
-            break;
-    }
-    double readHashThroughput = totalHashes/Cycles::toSeconds(elapsed);
-
-    // Do IndexLookup
-    int totalObjects = 0;
-    elapsed = 0;
-    uint64_t sumRpcLatencies = 0;
-    uint64_t numRpcs = 0;
-
-    while (true) {
-        int numRequests = concurrent;
-        char primaryKey[numRequests][30];
-        char firstKey[numRequests][30];
-        char lastKey[numRequests][30];
-
-        uint64_t startTimes[numRequests];
-        uint64_t stopTimes[numRequests];
-        Tub<IndexKey::IndexKeyRange> keyRanges[numRequests];
-        Tub<IndexLookup> rpcs[numRequests];
-        uint32_t readNumObjects[numRequests];
-
-        for (int i =0; i < numRequests; i++) {
-            char indexIdent = static_cast<char>(('a') +
-                    static_cast<int>(generateRandom() % numIndexlets));
-            int intKey = (numObjectsPerIndxlet == range) ? 0 :
-                    static_cast<int>
-                        (randomNumberGenerator(numObjectsPerIndxlet - range));
-
-            snprintf(primaryKey[i], sizeof(primaryKey[i]), "%c:%dp%0*d",
-                    indexIdent, intKey, keyLength, 0);
-            snprintf(firstKey[i], sizeof(firstKey[i]), "%c:s%0*d",
-                    indexIdent, keyLength-4, intKey);
-            snprintf(lastKey[i], sizeof(lastKey[i]), "%c:s%0*d",
-                    indexIdent, keyLength-4, intKey + range - 1);
-        }
-
-        // Send async requests and receive responses to numRequests lookup
-        // requests then indexed read requests and measure time.
-        lookupStart = Cycles::rdtsc();
-        for (int i = 0; i < numRequests; i++) {
-            readNumObjects[i] = 0;
-            startTimes[i] = Cycles::rdtsc();
-
-            keyRanges[i].construct(indexId, firstKey[i], keyLength,
-                    lastKey[i], keyLength);
-
-            rpcs[i].construct(cluster, lookupTable, *keyRanges[i]);
-            numRpcs++;
-        }
-
-        bool allDone;
-        do {
-            allDone = true;
-            cluster->poll();
-            for (int i = 0; i < numRequests; i++) {
-                if (!rpcs[i]->isReady()) {
-                    allDone = false;
-                    continue;
+                        if (lookups[c][i].rpc->isReady()) {
+                            lookups[c][i].finished = true;
+                            lookups[c][i].rpc->wait(&lookups[c][i].numObjs,
+                                                &lookups[c][i].nextKeyLength,
+                                                &lookups[c][i].nextKeyHash);
+                        }
+                    }
                 }
-                while (rpcs[i]->isReady() && rpcs[i]->getNext()) {
-                    readNumObjects[i]++;
-                    totalObjects++;
-                    allDone = false;
 
-                    // Tricky: You need this here to track when
-                    // the last object was read.
-                    stopTimes[i] = Cycles::rdtsc();
+                if (allFinished) {
+                    int objCount = 0;
+                    for (int i = 0; i < numIndexlets; i++)
+                        objCount += lookups[c][i].numObjs;
+                    assert(objCount == lookupRange);
+
+                    totalRpcLatency += Cycles::rdtsc() - startTimes[c];
+                    totalObjectsRead += objCount;
+                    totalRequestsFinished++;
+
+                    uint32_t randLookupIndex = (lookupRange == totalNumObjects)?
+                        0 :randomNumberGenerator(totalNumObjects - lookupRange);
+                    uint32_t intFirstKey = randLookupIndex;
+                    uint32_t intLastKey = randLookupIndex + lookupRange - 1;
+
+                    snprintf(firstKeys[c], keyLength, "%c:s%0*d", 'a',
+                                                    keyLength-4, intFirstKey);
+                    snprintf(lastKeys[c], keyLength, "%c:s%0*d", 'a',
+                                                    keyLength-4, intLastKey);
+
+                    for (int i = 0; i < numIndexlets; i++) {
+                        lookups[c][i].respBuffer.reset();
+                        lookups[c][i].finished = false;
+                        lookups[c][i].rpc.construct(cluster, tableIds.at(i),
+                                                downCast<uint8_t>(1),
+                                                firstKeys[c], keyLength, 0UL,
+                                                lastKeys[c], keyLength,
+                                                maxHashes,
+                                                &lookups[c][i].respBuffer);
+                    }
                 }
             }
-        } while (!allDone);
-        lookupEnd = Cycles::rdtsc();
+        }
+        uint64_t totalElapsed = Cycles::rdtsc() - globalStart;
 
-        // Verify-ish
-        for (int i = 0; i < numRequests; i++)
-            assert(readNumObjects[i] == uint32_t(range));
+        double lookupThroughput =
+                    totalObjectsRead/Cycles::toSeconds(totalElapsed);
+        double avgLookupLatency =
+                    Cycles::toSeconds(totalRpcLatency/totalRequestsFinished);
 
-        for (int i = 0; i < numRequests; i++)
-            sumRpcLatencies += (stopTimes[i] - startTimes[i]);
+        sendMetrics(lookupThroughput, avgLookupLatency);
+        if (clientIndex != 0) {
+            RAMCLOUD_LOG(NOTICE, "Client:%d %s: Hash Partitioning Lookup "
+                    "throughput: %.1f lookups/sec with an average "
+                    "rpc latency of %.2lfus",
+                    clientIndex, docString, lookupThroughput,
+                    avgLookupLatency*1e6);
+        }
+    } else {
+        uint64_t lookupTable = cluster->getTableId("indexScalability");
+        while (true) {
+            int numRequests = concurrent;
+            Buffer lookupResp[numRequests];
+            uint32_t numHashes[numRequests];
+            uint16_t nextKeyLength[numRequests];
+            uint64_t nextKeyHash[numRequests];
+            char primaryKey[numRequests][30];
+            char firstKey[numRequests][30];
+            char lastKey[numRequests][30];
 
-        uint64_t latency = lookupEnd - lookupStart;
-        elapsed += latency;
-        if (elapsed >= runCycles)
-            break;
-    }
+            Tub<LookupIndexKeysRpc> rpcs[numRequests];
 
-    double lookupLatency = Cycles::toSeconds(sumRpcLatencies/numRpcs);
-    double lookupThroughput = totalObjects/Cycles::toSeconds(elapsed);
+            for (int i =0; i < numRequests; i++) {
+                char indexIdent = static_cast<char>(('a') +
+                        static_cast<int>(generateRandom() % numIndexlets));
+                int intKey = (numObjectsPerIndxlet == lookupRange) ? 0 :
+                        static_cast<int>(randomNumberGenerator(
+                                        numObjectsPerIndxlet - lookupRange));
 
-    sendMetrics(readHashThroughput, lookupThroughput, lookupLatency);
-    if (clientIndex != 0) {
-        RAMCLOUD_LOG(NOTICE, "Client:%d %s: hash throughput: %.1f hashes/sec, "
-                "Lookup throughput: %.1f lookups/sec with an average rpc "
-                "latency of %.2lfus",
-                clientIndex, docString, readHashThroughput, lookupThroughput,
-                lookupLatency*1e6);
+                snprintf(primaryKey[i], sizeof(primaryKey[i]), "%c:%dp%0*d",
+                        indexIdent, intKey, keyLength, 0);
+                snprintf(firstKey[i], sizeof(firstKey[i]), "%c:s%0*d",
+                        indexIdent, keyLength-4, intKey);
+                snprintf(lastKey[i], sizeof(lastKey[i]), "%c:s%0*d",
+                        indexIdent, keyLength-4, intKey + lookupRange - 1);
+            }
+
+            // Send async requests and receive responses to numRequests lookup
+            // requests and measure time.
+            lookupStart = Cycles::rdtsc();
+            for (int i =0; i < numRequests; i++) {
+                rpcs[i].construct(cluster, lookupTable, indexId,
+                        firstKey[i], keyLength, (uint16_t)0,
+                        lastKey[i], keyLength, maxHashes,
+                        &lookupResp[i]);
+            }
+
+            for (int i = 0; i < numRequests; i++) {
+                if (rpcs[i]) {
+                    rpcs[i]->wait(&numHashes[i],
+                                    &nextKeyLength[i],
+                                    &nextKeyHash[i]);
+                }
+            }
+            lookupEnd = Cycles::rdtsc();
+
+            // Verify data.
+            for (int i =0; i < numRequests; i++) {
+                Key pk(lookupTable, primaryKey[i], 30);
+                uint32_t lookupOffset;
+                lookupOffset = sizeof32(WireFormat::LookupIndexKeys::Response);
+                totalHashes += numHashes[i];
+                assert(numHashes[i] == uint32_t(lookupRange));
+                assert(pk.getHash()==
+                        *lookupResp[i].getOffset<uint64_t>(lookupOffset));
+            }
+
+            uint64_t latency = lookupEnd - lookupStart;
+            opCount = opCount + numRequests;
+            elapsed += latency;
+            if (elapsed >= runCycles)
+                break;
+        }
+        double readHashThroughput = totalHashes/Cycles::toSeconds(elapsed);
+
+        // Do IndexLookup
+        elapsed = 0;
+        int totalObjects = 0;
+        uint64_t sumRpcLatencies = 0;
+        uint64_t numRpcs = 0;
+
+        while (true) {
+            int numRequests = concurrent;
+            char primaryKey[numRequests][30];
+            char firstKey[numRequests][30];
+            char lastKey[numRequests][30];
+
+            uint64_t startTimes[numRequests];
+            uint64_t stopTimes[numRequests];
+            Tub<IndexKey::IndexKeyRange> keyRanges[numRequests];
+            Tub<IndexLookup> rpcs[numRequests];
+            uint32_t readNumObjects[numRequests];
+
+            for (int i =0; i < numRequests; i++) {
+                char indexIdent = static_cast<char>(('a') +
+                        static_cast<int>(generateRandom() % numIndexlets));
+                int intKey = (numObjectsPerIndxlet == lookupRange) ? 0 :
+                    static_cast<int>(randomNumberGenerator(
+                                        numObjectsPerIndxlet - lookupRange));
+
+                snprintf(primaryKey[i], sizeof(primaryKey[i]), "%c:%dp%0*d",
+                        indexIdent, intKey, keyLength, 0);
+                snprintf(firstKey[i], sizeof(firstKey[i]), "%c:s%0*d",
+                        indexIdent, keyLength-4, intKey);
+                snprintf(lastKey[i], sizeof(lastKey[i]), "%c:s%0*d",
+                        indexIdent, keyLength-4, intKey + lookupRange - 1);
+            }
+
+            // Send async requests and receive responses to numRequests lookup
+            // requests then indexed read requests and measure time.
+            lookupStart = Cycles::rdtsc();
+            for (int i = 0; i < numRequests; i++) {
+                readNumObjects[i] = 0;
+                startTimes[i] = Cycles::rdtsc();
+
+                keyRanges[i].construct(indexId, firstKey[i], keyLength,
+                        lastKey[i], keyLength);
+
+                rpcs[i].construct(cluster, lookupTable, *keyRanges[i]);
+                numRpcs++;
+            }
+
+            bool allDone;
+            do {
+                allDone = true;
+                cluster->poll();
+                for (int i = 0; i < numRequests; i++) {
+                    if (!rpcs[i]->isReady()) {
+                        allDone = false;
+                        continue;
+                    }
+                    while (rpcs[i]->isReady() && rpcs[i]->getNext()) {
+                        readNumObjects[i]++;
+                        totalObjects++;
+                        allDone = false;
+
+                        // Tricky: You need this here to track when
+                        // the last object was read.
+                        stopTimes[i] = Cycles::rdtsc();
+                    }
+                }
+            } while (!allDone);
+            lookupEnd = Cycles::rdtsc();
+
+            // Verify-ish
+            for (int i = 0; i < numRequests; i++)
+                assert(readNumObjects[i] == uint32_t(lookupRange));
+
+            for (int i = 0; i < numRequests; i++)
+                sumRpcLatencies += (stopTimes[i] - startTimes[i]);
+
+            uint64_t latency = lookupEnd - lookupStart;
+            elapsed += latency;
+            if (elapsed >= runCycles)
+                break;
+        }
+
+        double lookupLatency = Cycles::toSeconds(sumRpcLatencies/numRpcs);
+        double lookupThroughput = totalObjects/Cycles::toSeconds(elapsed);
+
+        sendMetrics(readHashThroughput, lookupThroughput, lookupLatency);
+        if (clientIndex != 0) {
+            RAMCLOUD_LOG(NOTICE, "Client:%d %s: Range Partition "
+                    "hash throughput: %.1f "
+                    "hashes/sec, Lookup throughput: %.1f lookups/sec with an "
+                    "average rpc latency of %.2lfus",
+                    clientIndex, docString, readHashThroughput,
+                    lookupThroughput, lookupLatency*1e6);
+        }
     }
 }
 
@@ -3792,7 +3928,7 @@ indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
 // from a collection of indexlets on a single table.  For each lookup/read a
 // client chooses an indexlet at random.
 void
-indexScalability()
+indexScalability(bool doHashPartitioning = false)
 {
     uint8_t numIndexlets = (uint8_t)numIndexlet;
     int range = numObjects;
@@ -3813,7 +3949,8 @@ indexScalability()
                         doc, sizeof(doc));
                 setSlaveState("running");
                 indexScalabilityCommonLookup(numIndexlets,
-                        numObjectsPerIndexlet, range, concurrent, doc);
+                        numObjectsPerIndexlet, range, concurrent, doc,
+                        doHashPartitioning);
                 setSlaveState("idle");
             } else if (strcmp(command, "done") == 0) {
                 setSlaveState("done");
@@ -3825,11 +3962,12 @@ indexScalability()
         }
     }
 
-    // Write data to be looked up / read later.
+    uint32_t size = objectSize;
+
+    // Write data to be looked up / read later. Note that these are immutable.
     uint8_t indexId = 1;
     uint8_t numKeys = 2;
     uint64_t firstAllowedKeyHash = 0;
-    int size = 100;
 
     // Declare variables that will be used in the loop.
     Buffer lookupResp;
@@ -3840,49 +3978,109 @@ indexScalability()
     uint32_t lookupOffset =
             sizeof32(WireFormat::LookupIndexKeys::Response);
 
-    std::vector<uint32_t> randomized =
-            generateRandListFrom0UpTo(numObjectsPerIndexlet);
+    std::vector<uint64_t> tableIds;
+    if (doHashPartitioning) {
+        uint16_t keyLength = 30;
+        int totalNumObjects = numObjectsPerIndexlet*numIndexlets;
 
-    cluster->createTable("indexScalability", numIndexlets);
-    uint64_t lookupTable = cluster->getTableId("indexScalability");
-    cluster->createIndex(lookupTable, indexId, 0, numIndexlets);
-    for (int j = 0; j < numIndexlets; j++) {
-        char firstKey = static_cast<char>('a'+j);
-        for (int i = 0; i < numObjectsPerIndexlet; i++) {
-            int intKey = randomized[i];
+        tableIds.clear();
+        for (int j = 0; j < numIndexlets; j++) {
+            char tableName[100];
+            snprintf(tableName, sizeof(tableName), "tableNumber%d", j);
+            uint64_t tableId = cluster->createTable(tableName, 1);
+            cluster->createIndex(tableId, 1, 0, 1, true);
+            tableIds.push_back(tableId);
+        }
 
-            char primaryKey[30];
-            snprintf(primaryKey, sizeof(primaryKey), "%c:%dp%0*d",
-                    firstKey, intKey, 30, 0);
-            char secondaryKey[30];
-            snprintf(secondaryKey, sizeof(secondaryKey), "%c:s%0*d",
-                    firstKey, 30-4, intKey);
+        std::vector<uint32_t> randomized =
+                generateRandListFrom0UpTo(totalNumObjects);
+
+        char pk[keyLength], sk[keyLength], value[objectSize];
+        for (int j = 0; j < totalNumObjects; j++) {
+            uint32_t intKey = randomized[j];
+            snprintf(pk, keyLength, "%c:%dp%0*d", 'a', intKey, keyLength, 0);
+            snprintf(sk, keyLength, "%c:s%0*d", 'a', keyLength-4, intKey);
 
             KeyInfo keyList[2];
-            keyList[0].keyLength = 30;
-            keyList[0].key = primaryKey;
-            keyList[1].keyLength = 30;
-            keyList[1].key = secondaryKey;
+            keyList[0].keyLength = keyList[1].keyLength = keyLength;
+            keyList[0].key = pk;
+            keyList[1].key = sk;
 
-            Buffer value;
-            fillBuffer(value, size, lookupTable,
-                    keyList[0].key, keyList[0].keyLength);
+            // Mimic a hash partition by using the modulo of the primary
+            // key to figure out where the data goes.
+            uint64_t tableId = tableIds.at(intKey % tableIds.size());
+            cluster->write(tableId, 2, keyList, value, objectSize);
 
-            cluster->write(lookupTable, numKeys, keyList,
-                    value.getRange(0, size), size);
+            // Verify that data was written correctly...
+            if (DEBUG_BUILD) {
+                Buffer readBuff;
+                cluster->read(tableId, keyList[0].key, keyLength, &readBuff);
+                assert(readBuff.size() > 0);
 
-            // Verify that data was written correctly.
-            Key pk(lookupTable, keyList[0].key, keyList[0].keyLength);
-            lookupResp.reset();
-            cluster->lookupIndexKeys(lookupTable, indexId, keyList[1].key,
-                    keyList[1].keyLength, firstAllowedKeyHash, keyList[1].key,
-                    keyList[1].keyLength, maxNumHashes,
-                    &lookupResp, &numHashes, &nextKeyLength,
-                    &nextKeyHash);
+                IndexKey::IndexKeyRange keyRange(1,
+                        keyList[1].key, keyList[1].keyLength,
+                        keyList[1].key, keyList[1].keyLength);
+                IndexLookup rangeLookup(cluster, tableId, keyRange);
 
-            assert(numHashes == 1);
-            assert(pk.getHash() ==
-                    *lookupResp.getOffset<uint64_t>(lookupOffset));
+                int totalNumObjects = 0;
+                while (rangeLookup.getNext()) {
+                    totalNumObjects++;
+
+                    assert(rangeLookup.currentObject()->keysAndValueLength ==
+                            numKeys*keyLength + size);
+                }
+                assert(totalNumObjects == 1);
+            }
+        }
+    } else {
+        std::vector<uint32_t> randomized =
+            generateRandListFrom0UpTo(numObjectsPerIndexlet);
+
+        cluster->createTable("indexScalability", numIndexlets);
+        uint64_t lookupTable = cluster->getTableId("indexScalability");
+        cluster->createIndex(lookupTable, indexId, 0, numIndexlets);
+        tableIds.push_back(lookupTable);
+        for (int j = 0; j < numIndexlets; j++) {
+            char firstKey = static_cast<char>('a'+j);
+            for (int i = 0; i < numObjectsPerIndexlet; i++) {
+                int intKey = randomized[i];
+
+                char primaryKey[30];
+                snprintf(primaryKey, sizeof(primaryKey), "%c:%dp%0*d",
+                        firstKey, intKey, 30, 0);
+                char secondaryKey[30];
+                snprintf(secondaryKey, sizeof(secondaryKey), "%c:s%0*d",
+                        firstKey, 30-4, intKey);
+
+                KeyInfo keyList[2];
+                keyList[0].keyLength = 30;
+                keyList[0].key = primaryKey;
+                keyList[1].keyLength = 30;
+                keyList[1].key = secondaryKey;
+
+                Buffer value;
+                fillBuffer(value, size, lookupTable,
+                        keyList[0].key, keyList[0].keyLength);
+
+                cluster->write(lookupTable, numKeys, keyList,
+                        value.getRange(0, size), size);
+
+                // Verify that data was written correctly.
+                if (!DEBUG_BUILD)
+                    continue;
+
+                Key pk(lookupTable, keyList[0].key, keyList[0].keyLength);
+                lookupResp.reset();
+                cluster->lookupIndexKeys(lookupTable, indexId,
+                        keyList[1].key, keyList[1].keyLength,
+                        firstAllowedKeyHash,
+                        keyList[1].key, keyList[1].keyLength, maxNumHashes,
+                        &lookupResp, &numHashes, &nextKeyLength,  &nextKeyHash);
+
+                assert(numHashes == 1);
+                assert(pk.getHash() ==
+                        *lookupResp.getOffset<uint64_t>(lookupOffset));
+            }
         }
     }
 
@@ -3894,8 +4092,13 @@ indexScalability()
            size, numIndexlets, numObjectsPerIndexlet, concurrent, range);
     printf("# Generated by 'clusterperf.py indexScalability'\n");
     printf("#\n");
+    if (doHashPartitioning) {
+        printf("# numClients  throughput(kreads/sec)"
+            "     Avg.IndexLookup Rpc Latency(us)\n");
+    } else {
     printf("# numClients  throughput(khash/sec)  throughput(kreads/sec)"
             "     Avg.IndexLookup Rpc Latency(us)\n");
+    }
     printf("#-------------------------------------\n");
     fflush(stdout);
     for (int numActive = 1; numActive <= numClients; numActive++) {
@@ -3906,20 +4109,42 @@ indexScalability()
                 downCast<uint16_t>(key.length()), doc);
         sendCommand("run", "running", 1, numActive-1);
         indexScalabilityCommonLookup(numIndexlets,
-                numObjectsPerIndexlet, range, concurrent, doc);
+                numObjectsPerIndexlet, range, concurrent, doc,
+                doHashPartitioning);
         sendCommand(NULL, "idle", 1, numActive-1);
         ClientMetrics metrics;
         getMetrics(metrics, numActive);
-        double hashThroughput = sum(metrics[0])/1e03;
-        double readThroughput = sum(metrics[1])/1e03;
-        double averageRpcLatency = sum(metrics[2])/numActive;
-        printf("%3d               %6.0f               %6.0f"
-                "               %6.2f\n", numActive, hashThroughput,
-                readThroughput, averageRpcLatency*1e6);
+        if (doHashPartitioning) {
+            double readThroughput = sum(metrics[0])/1e03;
+            double averageRpcLatency = sum(metrics[1])/numActive;
+            printf("%3d               %6.0f               %6.2f\n",
+                    numActive, readThroughput, averageRpcLatency*1e6);
+        } else {
+            double hashThroughput = sum(metrics[0])/1e03;
+            double readThroughput = sum(metrics[1])/1e03;
+            double averageRpcLatency = sum(metrics[2])/numActive;
+            printf("%3d               %6.0f               %6.0f"
+                    "               %6.2f\n", numActive, hashThroughput,
+                    readThroughput, averageRpcLatency*1e6);
+        }
         fflush(stdout);
     }
     sendCommand("done", "done", 1, numClients-1);
-    cluster->dropIndex(lookupTable, indexId);
+    for (size_t j = 0; j < tableIds.size() ; j++) {
+        cluster->dropIndex(tableIds.at(j), indexId);
+    }
+}
+
+void
+indexScalabilityHashP()
+{
+    indexScalability(true);
+}
+
+void
+indexScalabilityRangeP()
+{
+    indexScalability(false);
 }
 
 // This benchmark measures the multiread times for objects distributed across
@@ -6426,7 +6651,8 @@ TestInfo tests[] = {
     {"indexPartitionComparison", indexPartitionComparison},
     {"indexRange", indexRange},
     {"indexMultiple", indexMultiple},
-    {"indexScalability", indexScalability},
+    {"indexScalabilityRangeP", indexScalabilityRangeP},
+    {"indexScalabilityHashP", indexScalabilityHashP},
     {"indexWriteDist", indexWriteDist},
     {"indexReadDist", indexReadDist},
     {"transaction_oneMaster", transaction_oneMaster},

@@ -344,7 +344,30 @@ def indexMultiple(name, options, cluster_args, client_args):
                (obj_path, flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
-def indexScalability(name, options, cluster_args, client_args):
+def indexScalabilityRangeP(name, options, cluster_args, client_args):
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '--masterServiceThreads 2'
+    if cluster_args['timeout'] < 360:
+        cluster_args['timeout'] = 360
+    cluster_args['backups_per_server'] = 0
+    cluster_args['replicas'] = 0
+    # Number of concurrent rpcs to do per indexlet
+    if '--count' not in client_args:
+        client_args['--count'] = 20
+    # Number of objects per read request
+    if '--numObjects' not in client_args:
+        client_args['--numObjects'] = 1
+
+    # Ensure at least 15 hosts for optimal performance
+    if options.num_servers == None:
+        cluster_args['num_servers'] = len(getHosts())
+    if 'num_clients' not in cluster_args:
+        cluster_args['num_clients'] = 10
+    cluster.run(client='%s/ClusterPerf %s %s' %
+            (obj_path, flatten_args(client_args), name), **cluster_args)
+    print(get_client_log(), end='')
+
+def indexScalabilityHashP(hname, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '--masterServiceThreads 2'
     if cluster_args['timeout'] < 360:
@@ -655,7 +678,8 @@ graph_tests = [
     Test("indexPartitionComparison", indexPartitionComparison),
     Test("indexRange", indexRange),
     Test("indexMultiple", indexMultiple),
-    Test("indexScalability", indexScalability),
+    Test("indexScalabilityRangeP", indexScalabilityRangeP),
+    Test("indexScalabilityHashP", indexScalabilityHashP),
     Test("indexReadDist", indexReadDist),
     Test("indexWriteDist", indexWriteDist),
     Test("multiRead_general", multiOp),
