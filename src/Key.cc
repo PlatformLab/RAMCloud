@@ -17,6 +17,7 @@
 #include "Key.h"
 #include "MurmurHash3.h"
 #include "Object.h"
+#include "RpcResult.h"
 #include "StringUtil.h"
 
 namespace RAMCloud {
@@ -54,6 +55,12 @@ Key::Key(LogEntryType type, Buffer& buffer)
         tableId = tomb.getTableId();
         keyLength = tomb.getKeyLength();
         key = tomb.getKey();
+
+    } else if (type == LOG_ENTRY_TYPE_RPCRESULT) {
+        RpcResult rpcResult(buffer);
+        tableId = rpcResult.getTableId();
+        keyLength = rpcResult.getIndexKeyLength();
+        key = rpcResult.getIndexKey();
 
     } else {
         throw FatalError(HERE, "unknown Log::Entry type");

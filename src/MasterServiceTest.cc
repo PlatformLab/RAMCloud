@@ -1959,6 +1959,65 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_moveData) {
                     TestLog::get());
 }
 
+TEST_F(MasterServiceTest, splitAndMigrateIndexlet_rpcResult) {
+    uint64_t dataTableId = ramcloud->createTable("dataTable");
+    uint64_t backingTableId = ramcloud->createTable("backingTable");
+
+    uint8_t indexId = 1;
+    string firstKey = "abc";
+    string splitKey = "pqr";
+    string firstNotOwnedKey = "xyz";
+
+    service->indexletManager.addIndexlet(dataTableId, indexId, backingTableId,
+            firstKey.c_str(), (uint16_t)firstKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    Log& log = service->objectManager.log;
+    Buffer respBuffer;
+    Buffer dataBuffer;
+    RpcResult objectResult(backingTableId, 0UL, 1UL, 1UL, 2UL, respBuffer);
+    RpcResult indexResult(backingTableId, 3UL, splitKey.c_str(), 1UL, 1UL, 2UL,
+                          respBuffer);
+    objectResult.assembleForLog(dataBuffer);
+    log.append(LOG_ENTRY_TYPE_RPCRESULT, dataBuffer);
+    log.sync();
+    dataBuffer.reset();
+    indexResult.assembleForLog(dataBuffer);
+    log.append(LOG_ENTRY_TYPE_RPCRESULT, dataBuffer);
+    log.sync();
+
+    // Add new server after creating the data table and the backing table for
+    // the indexlet, so that those tables get forced on masterServer.
+    ServerConfig master2Config = masterConfig;
+    master2Config.master.numReplicas = 0;
+    master2Config.localLocator = "mock:host=master2";
+    Server* master2 = cluster.addServer(master2Config);
+    Log* master2Log = &master2->master->objectManager.log;
+    master2Log->sync();
+
+    uint64_t newBackingTableId = ramcloud->createTable("newBackingTable");
+    MasterClient::prepForIndexletMigration(
+            &context, master2->serverId, dataTableId, indexId,
+            newBackingTableId,
+            splitKey.c_str(), (uint16_t)splitKey.length(),
+            firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
+
+    TestLog::Enable _("splitAndMigrateIndexlet");
+    EXPECT_NO_THROW(MasterClient::splitAndMigrateIndexlet(
+            &context, masterServer->serverId, master2->serverId,
+            dataTableId, indexId,
+            backingTableId, newBackingTableId,
+            splitKey.c_str(), (uint16_t)splitKey.length()));
+    EXPECT_EQ("splitAndMigrateIndexlet: Migrating a partition of an indexlet "
+            "in indexId 1 in tableId 1 "
+            "from server 2.0 at mock:host=master "
+            "(this server) to server 3.0 at mock:host=master2. | "
+            "splitAndMigrateIndexlet: Sending last migration segment | "
+            "splitAndMigrateIndexlet: Sent 0 total objects, "
+            "0 total tombstones, 50 total bytes.",
+                    TestLog::get());
+}
+
 TEST_F(MasterServiceTest, splitMasterTablet) {
 
     MasterClient::splitMasterTablet(&context, masterServer->serverId, 1,

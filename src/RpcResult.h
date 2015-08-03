@@ -65,6 +65,8 @@ class RpcResult {
     void appendRespToBuffer(Buffer& buffer);
     void appendIndexKeyToBuffer(Buffer& buffer);
 
+    void changeTableId(uint64_t newTableId);
+
     RecordType getType();
     uint64_t getTableId();
     KeyHash getKeyHash();

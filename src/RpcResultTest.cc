@@ -407,6 +407,14 @@ TEST_F(RpcResultTest, appendIndexKeyToBuffer) {
     }
 }
 
+TEST_F(RpcResultTest, changeTableId) {
+    RpcResult& rpcResult = *indexRecords[0];
+    rpcResult.changeTableId(899U);
+
+    EXPECT_EQ(899U, rpcResult.header.tableId);
+    EXPECT_TRUE(rpcResult.checkIntegrity());
+}
+
 TEST_F(RpcResultTest, getType) {
     for (uint32_t i = 0; i < arrayLength(objectRecords); i++)
         EXPECT_EQ(RpcResult::RecordType::OBJECT,

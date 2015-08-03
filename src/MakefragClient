@@ -74,6 +74,7 @@ CLIENT_SRCFILES := \
 		   src/PortAlarm.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
+		   src/RpcResult.cc \
 		   src/RpcTracker.cc \
 		   src/SegletAllocator.cc \
 		   src/Seglet.cc \

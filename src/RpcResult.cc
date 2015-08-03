@@ -384,6 +384,20 @@ RpcResult::appendIndexKeyToBuffer(Buffer& buffer)
 }
 
 /**
+ * Change the tableId for the RpcResult, and correspondingly, recompute
+ * the checksum.
+ *
+ * \param newTableId
+ *      The tableId that this RpcResult should refer to.
+ */
+void
+RpcResult::changeTableId(uint64_t newTableId)
+{
+    header.tableId = newTableId;
+    header.checksum = computeChecksum();
+}
+
+/**
  * Obtain the type of RPC this record refers to - either OBJECT or INDEX.
  */
 RpcResult::RecordType

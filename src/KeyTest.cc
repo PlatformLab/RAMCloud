@@ -17,6 +17,7 @@
 
 #include "Key.h"
 #include "Object.h"
+#include "RpcResult.h"
 
 namespace RAMCloud {
 
@@ -55,9 +56,19 @@ TEST_F(KeyTest, constructor_fromLog)
     EXPECT_STREQ("blah", reinterpret_cast<const char*>(key3.getStringKey()));
     EXPECT_EQ(5U, key3.getStringKeyLength());
 
+    RpcResult rpcResult(key.getTableId(), 5, key.getStringKey(), 1U, 2U, 3U,
+                        dataBuffer, 0U);
+    buffer.reset();
+    rpcResult.assembleForLog(buffer);
+    Key key4(LOG_ENTRY_TYPE_RPCRESULT, buffer);
+    EXPECT_EQ(12U, key4.getTableId());
+    EXPECT_STREQ("blah", reinterpret_cast<const char*>(key4.getStringKey()));
+    EXPECT_EQ(5U, key4.getStringKeyLength());
+
     EXPECT_FALSE(key.hash);
     EXPECT_FALSE(key2.hash);
     EXPECT_FALSE(key3.hash);
+    EXPECT_FALSE(key4.hash);
 
     EXPECT_THROW(Key(LOG_ENTRY_TYPE_SEGHEADER, buffer), FatalError);
 }

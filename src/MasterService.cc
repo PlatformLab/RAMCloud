@@ -1934,7 +1934,8 @@ MasterService::migrateSingleIndexObject(
         WireFormat::SplitAndMigrateIndexlet::Response* respHdr)
 {
     LogEntryType type = it.getType();
-    if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB) {
+    if (type != LOG_ENTRY_TYPE_OBJ && type != LOG_ENTRY_TYPE_OBJTOMB
+        && type != LOG_ENTRY_TYPE_RPCRESULT) {
         // We aren't interested in any other types.
         return 0;
     }
@@ -1950,11 +1951,26 @@ MasterService::migrateSingleIndexObject(
         return 0;
     }
 
-    if (!indexletManager.isGreaterOrEqual(indexNodeKey, tableId, indexId,
-            splitKey, splitKeyLength)) {
-        LOG(DEBUG, "Found entry that doesn't belong to "
+    // Do key comparison manually if object is an RpcResult
+    if (type == LOG_ENTRY_TYPE_RPCRESULT) {
+        if (indexNodeKey.getStringKey() == NULL) { // Is an object RpcResult.
+            return 0;
+        }
+
+        if (IndexKey::keyCompare(indexNodeKey.getStringKey(),
+                                 indexNodeKey.getStringKeyLength(),
+                                 splitKey, splitKeyLength) < 0) {
+            LOG(DEBUG, "Found entry that doesn't belong to "
                 "the partition being migrated. Continuing to the next.");
-        return 0;
+            return 0;
+        }
+    } else {
+        if (!indexletManager.isGreaterOrEqual(indexNodeKey, tableId, indexId,
+                                              splitKey, splitKeyLength)) {
+            LOG(DEBUG, "Found entry that doesn't belong to "
+                "the partition being migrated. Continuing to the next.");
+            return 0;
+        }
     }
 
     // TODO(ankitak): See if I can get away with only logEntryBuffer.
@@ -1974,7 +1990,7 @@ MasterService::migrateSingleIndexObject(
         object.changeTableId(newBackingTableId);
         object.assembleForLog(dataBufferToTransfer);
 
-    } else {
+    } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         // We must always send tombstones, since an object we may have sent
         // could have been deleted more recently. We could be smarter and
         // more selective here, but that'd require keeping extra state to
@@ -1991,6 +2007,16 @@ MasterService::migrateSingleIndexObject(
         tombstone.changeTableId(newBackingTableId);
         tombstone.assembleForLog(dataBufferToTransfer);
 
+    } else { // type == LOG_ENTRY_TYPE_RPCRESULT
+        // Migrate all RpcResults at this point, as object RpcResults have
+        // already been filtered out.
+
+        // A totalRpcResults variable doesn't exist, since the other counts
+        // seem to only be used for debugging and don't actually do anything.
+
+        RpcResult rpcResult(logEntryBuffer);
+        rpcResult.changeTableId(newBackingTableId);
+        rpcResult.assembleForLog(dataBufferToTransfer);
     }
 
     totalBytes += dataBufferToTransfer.size();
