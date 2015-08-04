@@ -286,6 +286,10 @@ class MasterService : public Service {
                 const WireFormat::TxDecision::Request* reqHdr,
                 WireFormat::TxDecision::Response* respHdr,
                 Rpc* rpc);
+    void txRequestAbort(
+                const WireFormat::TxRequestAbort::Request* reqHdr,
+                WireFormat::TxRequestAbort::Response* respHdr,
+                Rpc* rpc);
     void txHintFailed(
                 const WireFormat::TxHintFailed::Request* reqHdr,
                 WireFormat::TxHintFailed::Response* respHdr,

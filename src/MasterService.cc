@@ -225,6 +225,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::TxDecision, MasterService,
                         &MasterService::txDecision>(rpc);
             break;
+        case WireFormat::TxRequestAbort::opcode:
+            callHandler<WireFormat::TxRequestAbort, MasterService,
+                        &MasterService::txRequestAbort>(rpc);
+            break;
         case WireFormat::TxHintFailed::opcode:
             callHandler<WireFormat::TxHintFailed, MasterService,
                         &MasterService::txHintFailed>(rpc);
@@ -2386,7 +2390,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
             }
 
             uint64_t opPtr = preparedOps.peekOp(reqHdr->leaseId,
-                                                   participants[i].rpcId);
+                                                participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed
             // or never prepared (abort-vote in prepare stage).
@@ -2402,7 +2406,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
             objectManager.commitRead(op, opRef);
 
             preparedOps.popOp(reqHdr->leaseId,
-                                 participants[i].rpcId);
+                              participants[i].rpcId);
         }
     } else {
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
@@ -2418,11 +2422,106 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
 
     respHdr->common.status = STATUS_OK;
 
-    // Respond to the client RPC now. Removing old index entries can be
-    // done asynchronously while maintaining strong consistency.
+    // Respond to the client RPC now.
     rpc->sendReply();
 }
 
+/**
+ * Top-level server method to handle the TX_REQUEST_ABORT request.
+ *
+ * \param reqHdr
+ *      Header from the incoming RPC request.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ * \param rpc
+ *      Complete information about the remote procedure call.
+ */
+void
+MasterService::txRequestAbort(
+        const WireFormat::TxRequestAbort::Request* reqHdr,
+        WireFormat::TxRequestAbort::Response* respHdr,
+        Rpc* rpc)
+{
+    uint32_t reqOffset = sizeof32(*reqHdr);
+
+    // 1. Process participant list.
+    uint32_t participantCount = reqHdr->participantCount;
+    WireFormat::TxParticipant *participants =
+        (WireFormat::TxParticipant*)rpc->requestPayload->getRange(reqOffset,
+                sizeof32(WireFormat::TxParticipant) * participantCount);
+
+    if (participants == NULL) {
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        rpc->sendReply();
+        return;
+    }
+
+    // log should be synced with backup before destruction of handles.
+    std::vector<UnackedRpcHandle> rpcHandles;
+    rpcHandles.reserve(participantCount);
+
+    respHdr->common.status = STATUS_OK;
+    respHdr->vote = WireFormat::TxPrepare::PREPARED;
+
+    // Ensure that at-lease one abort-vote is durably saved in log or
+    // all participants have prepared-votes in durable log.
+    for (uint32_t i = 0; i < participantCount; i++) {
+        uint64_t tableId = participants[i].tableId;
+        uint64_t rpcId = participants[i].rpcId;
+        uint64_t keyHash = participants[i].keyHash;
+
+        rpcHandles.emplace_back(&unackedRpcResults,
+                                reqHdr->leaseId,
+                                rpcId,
+                                0 /* No info about AckId */,
+                                0 /* No info about leaseTerm */);
+        //TODO(seojin): what is best for the temporary leaseTerm?
+        UnackedRpcHandle* rh = &rpcHandles.back();
+        if (rh->isDuplicate()) {
+            respHdr->vote = parsePrepRpcResult(rh->resultLoc());
+            if (respHdr->vote == WireFormat::TxPrepare::PREPARED) {
+                continue;
+            } else if (respHdr->vote == WireFormat::TxPrepare::ABORT) {
+                break;
+            } else {
+                assert(false);
+            }
+        }
+
+        uint64_t rpcResultPtr;
+        WireFormat::TxPrepare::Vote vote = WireFormat::TxPrepare::ABORT;
+        RpcResult rpcResult(
+                tableId,
+                keyHash,
+                reqHdr->leaseId, rpcId, 0,
+                &vote, sizeof(vote));
+
+        try {
+            objectManager.writePrepareFail(&rpcResult, &rpcResultPtr);
+        } catch (RetryException& e) {
+            objectManager.syncChanges();
+            throw;
+        }
+
+        respHdr->vote = WireFormat::TxPrepare::ABORT;
+        rh->recordCompletion(rpcResultPtr);
+        break;
+    }
+
+    // By design, our response will be shorter than the request. This ensures
+    // that the response can go back in a single RPC.
+    assert(rpc->replyPayload->size() <= Transport::MAX_RPC_LEN);
+
+    // All of the individual writes were done asynchronously. Sync the objects
+    // now to propagate them in bulk to backups.
+    objectManager.syncChanges();
+
+    // Respond to the client RPC now.
+    rpc->sendReply();
+}
 
 /**
  * Top-level server method to handle the TX_HINT_FAILED request.

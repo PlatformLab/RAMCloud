@@ -1290,6 +1290,17 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     return STATUS_OK;
 }
 
+/**
+ * Write the RpcResult log-entry indicating that transaction prepare has failed
+ * and transition should be aborted.
+ * This function is used in txPrepare or handler of TxRequestAbort.
+ * \param rpcResult
+ *      This method appends rpcResult to the log atomically with
+ *      the other record(s) for the write. The extra record is used to ensure
+ *      linearizability.
+ * \param[out] rpcResultPtr
+ *      The pointer to the RpcResult in log is returned.
+ */
 void
 ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
 {
@@ -1332,16 +1343,16 @@ ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
  * \param[out] newOpPtr
  *      The pointer to the PreparedOp in log is returned.
  * \param[out] isCommitVote
- *      VoMate result after prepare is returned.
+ *      Vote result after prepare is returned.
  * \param rpcResult
  *      This method appends rpcResult to the log atomically with
- *      the Maother record(s) for the write. The extra record is used to ensure
+ *      the other record(s) for the write. The extra record is used to ensure
  *      linearizability.
  * \param[out] rpcResultPtr
- *      The poMainter to the RpcResult in log is returned.
+ *      The pointer to the RpcResult in log is returned.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
- *      STATUS_UMaKNOWN_TABLE may be returned.
+ *      STATUS_UNKNOWN_TABLE may be returned.
  */
 Status
 ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,

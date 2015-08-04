@@ -284,13 +284,12 @@ TxRecoveryManager::RecoveryTask::performTask()
                     leaseId,
                     decision,
                     WallTime::secondsTimestamp());
-            while (it != participants.end()) {
+            for (; it != participants.end(); it++) {
                 participant = &(*it);
                 record.addParticipant(
                         participant->tableId,
                         participant->keyHash,
                         participant->rpcId);
-
             }
             context->masterService->objectManager.writeTxDecisionRecord(record);
             context->masterService->objectManager.syncChanges();
@@ -631,7 +630,7 @@ TxRecoveryManager::RecoveryTask::RequestAbortRpc::appendOp(
  *      Operation has been marked for retry; caller can and should discard
  *      this RPC.
  */
-WireFormat::TxRequestAbort::Vote
+WireFormat::TxPrepare::Vote
 TxRecoveryManager::RecoveryTask::RequestAbortRpc::wait()
 {
     waitInternal(context->dispatch);
@@ -665,7 +664,7 @@ TxRecoveryManager::RecoveryTask::processRequestAbortRpcs()
         }
 
         try {
-            if (rpc->wait() == WireFormat::TxRequestAbort::COMMIT) {
+            if (rpc->wait() == WireFormat::TxPrepare::PREPARED) {
                 decision = WireFormat::TxDecision::ABORT;
             }
         } catch (UnknownTabletException& e) {

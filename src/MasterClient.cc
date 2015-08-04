@@ -405,7 +405,7 @@ IsReplicaNeededRpc::wait()
  *      in the index order but not part of this indexlet.
  * \param firstNotOwnedKeyLength
  *      Length of firstNotOwnedKey.
- * 
+ *
  */
 void
 MasterClient::prepForIndexletMigration(Context* context, ServerId serverId,
@@ -445,7 +445,7 @@ MasterClient::prepForIndexletMigration(Context* context, ServerId serverId,
  *      in the index order but not part of this indexlet.
  * \param firstNotOwnedKeyLength
  *      Length of firstNotOwnedKey.
- * 
+ *
  */
 PrepForIndexletMigrationRpc::PrepForIndexletMigrationRpc(
         Context* context, ServerId serverId,
@@ -789,7 +789,7 @@ RemoveIndexEntryRpc::indexNotFound()
  *      Key blob marking the split point in the indexlet.
  * \param splitKeyLength
  *      Number of bytes in splitKey.
- * 
+ *
  */
 void
 MasterClient::splitAndMigrateIndexlet(Context* context,
@@ -1043,6 +1043,71 @@ TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
     reqHdr->firstNotOwnedKeyLength = firstNotOwnedKeyLength;
     request.append(firstKey, firstKeyLength);
     request.append(firstNotOwnedKey, firstNotOwnedKeyLength);
+    send();
+}
+
+/**
+ * Notify the transaction recovery coordinator about the possibility of
+ * the client failure. This RPC should be invoked if transaction lock is held
+ * longer than the timeout.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param tableId
+ *      Identifier for the table containing the first object in the transaction.
+ *      Served as a locator for transaction recovery coordinator.
+ * \param keyHash
+ *      Hash for the primary key of the first object of in the transaction.
+ *      Served as a locator for transaction recovery coordinator.
+ * \param leaseId
+ *      identification for client lease used for transaction.
+ * \param participantCount
+ *      Number of objects participating in transaction.
+ * \param participants
+ *      Information about all transaction participants.
+ */
+void
+MasterClient::txHintFailed(Context* context, uint64_t tableId,
+            uint64_t keyHash, uint64_t leaseId, uint32_t participantCount,
+            WireFormat::TxParticipant *participants)
+{
+    TxHintFailedRpc rpc(context, tableId, keyHash, leaseId,
+                        participantCount, participants);
+    rpc.wait();
+}
+
+/**
+ * Constructor for TxHintFailedRpc: initiates an RPC in the same way as
+ * #MasterClient::txHintFailedRpc, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param tableId
+ *      Identifier for the table containing the first object in the transaction.
+ *      Served as a locator for transaction recovery coordinator.
+ * \param keyHash
+ *      Hash for the primary key of the first object of in the transaction.
+ *      Served as a locator for transaction recovery coordinator.
+ * \param leaseId
+ *      identification for client lease used for transaction.
+ * \param participantCount
+ *      Number of objects participating in transaction.
+ * \param participants
+ *      Information about all transaction participants.
+ */
+TxHintFailedRpc::TxHintFailedRpc(
+        Context* context, uint64_t tableId, uint64_t keyHash, uint64_t leaseId,
+        uint32_t participantCount, WireFormat::TxParticipant *participants)
+    : ObjectRpcWrapper(context, tableId, keyHash,
+        sizeof(WireFormat::TxHintFailed::Response))
+{
+    WireFormat::TxHintFailed::Request* reqHdr(
+            allocHeader<WireFormat::TxHintFailed>());
+    reqHdr->leaseId = leaseId;
+    reqHdr->participantCount = participantCount;
+    request.append(participants, sizeof32(WireFormat::TxParticipant)
+                                 * participantCount);
     send();
 }
 

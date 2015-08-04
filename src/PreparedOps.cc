@@ -16,6 +16,7 @@
 #include "PreparedOps.h"
 #include "UnackedRpcResults.h"
 #include "LeaseCommon.h"
+#include "MasterClient.h"
 #include "MasterService.h"
 #include "ObjectManager.h"
 
@@ -319,7 +320,6 @@ PreparedOps::~PreparedOps()
     std::map<std::pair<uint64_t, uint64_t>,
         PreparedItem*>::iterator it;
 
-
     for (it = items.begin(); it != items.end(); ++it) {
         PreparedItem* item = it->second;
         delete item;
@@ -453,7 +453,21 @@ PreparedOps::updatePtr(uint64_t leaseId,
 void
 PreparedOps::PreparedItem::handleTimerEvent()
 {
-    //TODO(seojin): invoke recovery initiate rpc.
+    Buffer opBuffer;
+    Log::Reference opRef(newOpPtr);
+    context->masterService->objectManager.getLog()->getEntry(opRef, opBuffer);
+    PreparedOp op(opBuffer, 0, opBuffer.size());
+
+    TEST_LOG("TxHintFailed RPC is sent to owner of tableId %lu and "
+             "keyHash %lu.", op.participants[0].tableId,
+             op.participants[0].keyHash);
+
+    //TODO(seojin): RAM-767. op.participants can be stale while log cleaning.
+    //              It is possible to cause invalid memory access.
+    assert(op.header.participantCount >= 1);
+    MasterClient::txHintFailed(context, op.participants[0].tableId,
+            op.participants[0].keyHash, op.header.clientId,
+            op.header.participantCount, op.participants);
 
     this->start(Cycles::rdtsc() + Cycles::fromMicroseconds(TX_TIMEOUT_US));
 }

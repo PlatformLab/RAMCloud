@@ -548,8 +548,8 @@ TEST_F(TxRecoveryManagerTest, RequestAbortRpc_wait) {
     EXPECT_THROW(raRpc->wait(), UnknownTabletException);
 
     respHdr->common.status = STATUS_OK;
-    respHdr->vote = WireFormat::TxRequestAbort::ABORT;
-    EXPECT_EQ(WireFormat::TxRequestAbort::ABORT, raRpc->wait());
+    respHdr->vote = WireFormat::TxPrepare::ABORT;
+    EXPECT_EQ(WireFormat::TxPrepare::ABORT, raRpc->wait());
 }
 
 // TODO(cstlee) : Unit test RecoveryTask::processRequestAbortRpcs()

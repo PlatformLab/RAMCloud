@@ -15,9 +15,13 @@
 
 #include "TestUtil.h"
 
-#include "PreparedOps.h"
+#include "AbstractLog.h"
 #include "Context.h"
+#include "MasterService.h"
+#include "MockCluster.h"
+#include "PreparedOps.h"
 #include "RamCloud.h"
+#include "StringUtil.h"
 
 namespace RAMCloud {
 
@@ -432,13 +436,16 @@ TEST_F(PreparedOpTombstoneTest, checkIntegrity) {
     }
 }
 
-class PreparedWritesTest : public ::testing::Test {
+/**
+ * Unit tests for PreparedOps.
+ */
+class PreparedOpsTest : public ::testing::Test {
   public:
     Context context;
 
     PreparedOps writes;
 
-    PreparedWritesTest()
+    PreparedOpsTest()
         : context()
         , writes(&context)
     {
@@ -446,12 +453,12 @@ class PreparedWritesTest : public ::testing::Test {
         writes.bufferOp(1, 10, 1011);
     }
 
-    ~PreparedWritesTest() {}
+    ~PreparedOpsTest() {}
 
-    DISALLOW_COPY_AND_ASSIGN(PreparedWritesTest);
+    DISALLOW_COPY_AND_ASSIGN(PreparedOpsTest);
 };
 
-TEST_F(PreparedWritesTest, bufferWrite) {
+TEST_F(PreparedOpsTest, bufferWrite) {
     writes.bufferOp(2, 8, 1028);
     PreparedOps::PreparedItem* item = writes.items[std::make_pair(2UL, 8UL)];
     EXPECT_EQ(1028UL, item->newOpPtr);
@@ -464,14 +471,14 @@ TEST_F(PreparedWritesTest, bufferWrite) {
     EXPECT_FALSE(item->isRunning());
 }
 
-TEST_F(PreparedWritesTest, popOp) {
+TEST_F(PreparedOpsTest, popOp) {
     EXPECT_EQ(1011UL, writes.popOp(1, 10));
     EXPECT_EQ(0UL, writes.popOp(1, 10));
     EXPECT_EQ(0UL, writes.popOp(1, 11));
     EXPECT_EQ(0UL, writes.popOp(2, 10));
 }
 
-TEST_F(PreparedWritesTest, peekOp) {
+TEST_F(PreparedOpsTest, peekOp) {
     EXPECT_EQ(1011UL, writes.peekOp(1, 10));
     EXPECT_EQ(1011UL, writes.peekOp(1, 10));
     EXPECT_EQ(1011UL, writes.popOp(1, 10));
@@ -480,7 +487,7 @@ TEST_F(PreparedWritesTest, peekOp) {
     EXPECT_EQ(0UL, writes.peekOp(2, 10));
 }
 
-TEST_F(PreparedWritesTest, markDeletedAndIsDeleted) {
+TEST_F(PreparedOpsTest, markDeletedAndIsDeleted) {
     EXPECT_FALSE(writes.isDeleted(1, 11));
     writes.markDeleted(1, 11);
     EXPECT_TRUE(writes.isDeleted(1, 11));
@@ -489,6 +496,148 @@ TEST_F(PreparedWritesTest, markDeletedAndIsDeleted) {
     writes.bufferOp(2, 9, 1029, true);
     EXPECT_EQ(1029UL, writes.peekOp(2, 9));
     EXPECT_FALSE(writes.isDeleted(2, 9));
+}
+
+/**
+ * Unit tests for PreparedItem.
+ */
+class PreparedItemTest : public ::testing::Test {
+  public:
+    TestLog::Enable logEnabler;
+    Context context;
+    MockCluster cluster;
+    Tub<RamCloud> ramcloud;
+    Server* server1;
+    Server* server2;
+    Server* server3;
+    MasterService* service1;
+    MasterService* service2;
+    MasterService* service3;
+    uint64_t tableId1;
+    uint64_t tableId2;
+    uint64_t tableId3;
+
+    PreparedItemTest()
+        : logEnabler()
+        , context()
+        , cluster(&context)
+        , ramcloud()
+        , server1()
+        , server2()
+        , server3()
+        , service1()
+        , service2()
+        , service3()
+        , tableId1(-1)
+        , tableId2(-2)
+        , tableId3(-3)
+    {
+        Cycles::mockTscValue = 100;
+        WallTime::mockWallTimeValue = 10;
+
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+
+        ServerConfig config = ServerConfig::forTesting();
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::PING_SERVICE};
+        config.localLocator = "mock:host=master1";
+        config.maxObjectKeySize = 512;
+        config.maxObjectDataSize = 1024;
+        config.segmentSize = 128*1024;
+        config.segletSize = 128*1024;
+        server1 = cluster.addServer(config);
+        service1 = server1->master.get();
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::PING_SERVICE};
+        config.localLocator = "mock:host=master2";
+        server2 = cluster.addServer(config);
+        service2 = server2->master.get();
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::PING_SERVICE};
+        config.localLocator = "mock:host=master3";
+        server3 = cluster.addServer(config);
+        service3 = server3->master.get();
+        ramcloud.construct(&context, "mock:host=coordinator");
+
+        // Make some tables.
+        tableId1 = ramcloud->createTable("table1");
+        tableId2 = ramcloud->createTable("table2");
+        tableId3 = ramcloud->createTable("table3");
+    }
+
+    ~PreparedItemTest()
+    {
+        Cycles::mockTscValue = 0;
+        WallTime::baseTime = 0;
+        WallTime::baseTsc = 0;
+        WallTime::mockWallTimeValue = 0;
+    }
+
+    void waitForTxRecoveryDone()
+    {
+        // See "Timing-Dependent Tests" in designNotes.
+        for (int i = 0; i < 1000; i++) {
+            if (service1->preparedOps.items.size() == 0 &&
+                    service2->preparedOps.items.size() == 0 &&
+                    service3->preparedOps.items.size() == 0 &&
+                    service1->txRecoveryManager.recoveries.size() == 0 &&
+                    service2->txRecoveryManager.recoveries.size() == 0 &&
+                    service3->txRecoveryManager.recoveries.size() == 0) {
+                return;
+            }
+            usleep(1000);
+        }
+        ASSERT_TRUE(service1->preparedOps.items.size() == 0 &&
+                    service2->preparedOps.items.size() == 0 &&
+                    service3->preparedOps.items.size() == 0 &&
+                    service1->txRecoveryManager.recoveries.size() == 0 &&
+                    service2->txRecoveryManager.recoveries.size() == 0 &&
+                    service3->txRecoveryManager.recoveries.size() == 0);
+    }
+
+    DISALLOW_COPY_AND_ASSIGN(PreparedItemTest);
+};
+
+TEST_F(PreparedItemTest, handleTimerEvent_basic) {
+    ASSERT_EQ(service1, service1->context->masterService);
+
+    Key key1(tableId3, "key1", 4);
+    Key key2(tableId2, "key2", 4);
+    Key key3(tableId1, "key3", 4);
+    WireFormat::TxParticipant participants[3];
+    participants[0] = {tableId3, key1.getHash(), 11};
+    participants[1] = {tableId2, key2.getHash(), 12};
+    participants[2] = {tableId1, key3.getHash(), 13};
+
+    Buffer keyAndValBuffer;
+
+    Object::appendKeysAndValueToBuffer(key3, "val", 3, &keyAndValBuffer);
+
+    PreparedOp op(WireFormat::TxPrepare::OpType::READ, 1, 13, 3, participants,
+                  tableId1, 0, 0, keyAndValBuffer);
+    Buffer buf;
+    op.assembleForLog(buf);
+    Segment::Reference opRef;
+    service1->objectManager.getLog()->append(LOG_ENTRY_TYPE_PREP, buf, &opRef);
+
+    TestLog::Enable _;
+
+    Cycles::mockTscValue = 100;
+    service1->preparedOps.bufferOp(1, 13, opRef.toInteger());
+    EXPECT_EQ(opRef.toInteger(), service1->preparedOps.peekOp(1, 13));
+    PreparedOps::PreparedItem* item = service1->preparedOps.items[
+            std::make_pair<uint64_t, uint64_t>(1, 13)];
+    EXPECT_TRUE(item != NULL && item->isRunning());
+    service1->context->dispatch->poll();
+    EXPECT_EQ("", TestLog::get());
+
+    Cycles::mockTscValue += Cycles::fromMicroseconds(
+            PreparedOps::PreparedItem::TX_TIMEOUT_US * 1.5);
+    service1->context->dispatch->poll();
+    waitForTxRecoveryDone();
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+        "handleTimerEvent: TxHintFailed RPC is sent to owner of tableId 3 "
+        "and keyHash 8205713012933148717."));
 }
 
 } // namespace RAMCloud

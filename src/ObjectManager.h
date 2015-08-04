@@ -84,6 +84,7 @@ class ObjectManager : public LogEntryHandlers {
                 uint64_t* outVersion, Buffer* removedObjBuffer = NULL,
                 RpcResult* rpcResult = NULL, uint64_t* rpcResultPtr = NULL);
     bool keyPointsAtReference(Key& k, AbstractLog::Reference oldReference);
+    void writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr);
     Status prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                 uint64_t* newOpPtr, bool* isCommitVote,
                 RpcResult* rpcResult, uint64_t* rpcResultPtr);
@@ -285,7 +286,6 @@ class ObjectManager : public LogEntryHandlers {
     void relocateTxDecisionRecord(
             Buffer& oldBuffer, LogEntryRelocator& relocator);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
-    void writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr);
 
     /**
      * Shared RAMCloud information.

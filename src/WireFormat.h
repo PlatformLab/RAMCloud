@@ -1810,8 +1810,6 @@ struct TxRequestAbort {
     static const Opcode opcode = Opcode::TX_REQUEST_ABORT;
     static const ServiceType service = MASTER_SERVICE;
 
-    enum Vote { COMMIT, ABORT };
-
     struct Request {
         RequestCommon common;
         uint64_t leaseId; //Recovery coordinator may not know about leaseTerm.
@@ -1825,7 +1823,7 @@ struct TxRequestAbort {
 
     struct Response {
         ResponseCommon common;
-        Vote vote;
+        TxPrepare::Vote vote;
     } __attribute__((packed));
 };
 

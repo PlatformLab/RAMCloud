@@ -181,7 +181,7 @@ class TxRecoveryManager : public WorkerTimer {
                     RecoveryTask* task);
             ~RequestAbortRpc() {}
             bool appendOp(ParticipantList::iterator opEntry);
-            WireFormat::TxRequestAbort::Vote wait();
+            WireFormat::TxPrepare::Vote wait();
 
           PROTECTED:
             /// Header for the RPC (used to update count as objects are added).

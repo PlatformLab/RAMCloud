@@ -106,7 +106,7 @@ class PreparedOp {
     /// Pointer to the array of #WireFormat::TxParticipant which contains
     /// all information of objects participating transaction.
     /// The actual data reside in RPC payload or in log. This pointer should not
-    /// be passed around.
+    /// be passed around outside the lifetime of a single RPC handler.
     WireFormat::TxParticipant* participants;
 
     /// Object to be written during COMMIT phase.
@@ -240,6 +240,7 @@ class PreparedOps {
          */
         PreparedItem(Context* context, uint64_t newOpPtr)
             : WorkerTimer(context->dispatch)
+            , context(context)
             , newOpPtr(newOpPtr) {}
 
         /**
@@ -253,6 +254,9 @@ class PreparedOps {
         //TODO(seojin): handler may not protected from destruction.
         //              Resolve this later.
         virtual void handleTimerEvent();
+
+        /// Shared RAMCloud information.
+        Context* context;
 
         /// Log reference to PreparedOp in the log.
         uint64_t newOpPtr;
