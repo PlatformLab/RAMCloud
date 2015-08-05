@@ -15,6 +15,7 @@
 
 #include "Cycles.h"
 #include "IndexletManager.h"
+#include "Object.h"
 #include "StringUtil.h"
 #include "Util.h"
 #include "TimeTrace.h"
@@ -59,10 +60,10 @@ IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
  *      The lowest node id that the next node allocated for this indexlet
  *      is allowed to have. This is used to ensure that we don't
  *      reuse existing node ids after crash recovery.
- * 
+ *
  * \return
  *      True if indexlet was added, false if it already existed.
- * 
+ *
  * \throw InternalError
  *      If indexlet cannot be added because the range overlaps with one or more
  *      existing indexlets.
@@ -137,10 +138,10 @@ IndexletManager::addIndexlet(
  *      and changeState() calls.
  * \param newState
  *      The state to transition the indexlet to.
- * 
+ *
  * \return
  *      Returns true if the state was updated, otherwise false.
- * 
+ *
  * \throw InternalError
  *      If indexlet was not found because the range overlaps
  *      with one or more existing indexlets.
@@ -187,7 +188,7 @@ IndexletManager::changeState(uint64_t tableId, uint8_t indexId,
  *      in the index order but not part of this indexlet.
  * \param firstNotOwnedKeyLength
  *      Length of firstNotOwnedKey.
- * 
+ *
  * \throw InternalError
  *      If indexlet was not found because the range overlaps
  *      with one or more existing indexlets.
@@ -225,7 +226,7 @@ IndexletManager::deleteIndexlet(
  *      The secondary index key used to find a particular indexlet.
  * \param keyLength
  *      Length of key.
- * 
+ *
  * \return
  *      An Indexlet pointer to the indexlet for index indexId for table tableId
  *      that contains key, or NULL if no such indexlet could be found.
@@ -270,7 +271,7 @@ IndexletManager::getNumIndexlets()
  *      The secondary index key used to find a particular indexlet.
  * \param keyLength
  *      Length of key blob.
- * 
+ *
  * \return
  *      True if a indexlet was found, otherwise false.
  */
@@ -292,7 +293,7 @@ IndexletManager::hasIndexlet(uint64_t tableId, uint8_t indexId,
  * Given a RAMCloud key for an object encapsulating an indexlet tree node,
  * check if it contains (or points to nodes containing) any entries whose
  * key is greater than or equal to compareKey.
- * 
+ *
  * \param treeNodeKey
  *      RAMCloud key for the object encapsulating an indexlet tree node.
  * \param tableId
@@ -304,7 +305,7 @@ IndexletManager::hasIndexlet(uint64_t tableId, uint8_t indexId,
  *      to compare against.
  * \param compareKeyLength
  *      Length of compareKey.
- * 
+ *
  * \return
  *      True if treeNodeKey contains (or points to nodes containing)
  *      any entries whose key is greater than or equal to compareKey;
@@ -500,11 +501,11 @@ IndexletManager::findIndexlet(uint64_t tableId, uint8_t indexId,
  *      Length of firstNotOwnedKey.
  * \param indexletMapLock
  *      This ensures that the caller holds this lock.
- * 
+ *
  * \return
  *      An iterator to the indexlet if the specified indexlet was found,
  *      indexletMap.end() if no such indexlet could be found.
- * 
+ *
  * \throw InternalError
  *      If indexlet was not found because the range overlaps
  *      with one or more existing indexlets.
@@ -616,7 +617,7 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
 
 /**
  * Handle LOOKUP_INDEX_KEYS request.
- * 
+ *
  * \copydetails Service::ping
  */
 void
@@ -730,7 +731,7 @@ IndexletManager::lookupIndexKeys(
  *      Length of key.
  * \param pKHash
  *      Hash of the primary key of the object.
- * 
+ *
  * \return
  *      Returns STATUS_OK if the remove succeeded or if the entry did not
  *      exist.
@@ -761,6 +762,162 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
     // since it is also a part of the key that gets compared in the tree
     // module.
     indexlet->bt->erase(BtreeEntry {key, keyLength, pKHash});
+
+    return STATUS_OK;
+}
+
+/**
+ * Transaction commit for a prepared insert index entry operation.
+ *
+ * \param op
+ *      Prepared insert index entry operation to commit.
+ * \param refToPreparedOp
+ *      Reference to the preparedOp entry in log.
+ *
+ * \return
+ *      STATUS_OK if the index entry was inserted. Otherwise, for example,
+ *      STATUS_UKNOWN_TABLE may be returned.
+ */
+Status
+IndexletManager::commitInsertEntry(PreparedOp& op,
+                                   Log::Reference& refToPreparedOp)
+{
+    uint16_t indexKeyLength = 0;
+    const void *indexKeyString = op.object.getKey(0, &indexKeyLength);
+    uint64_t backingTableId = op.object.getTableId();
+
+    // Read index entry data out of object value.
+    const TxIndexEntry* entryData = reinterpret_cast<const TxIndexEntry*>(
+            op.object.getValue());
+    Key indexKey(backingTableId, indexKeyString, indexKeyLength);
+
+    Lock indexletMapLock(mutex);
+
+    RAMCLOUD_LOG(DEBUG,
+                 "Committing Insert Entry: tableId %lu, indexId %u,\n"
+                 "hash %lu, key: %s", entryData->tableId, entryData->indexId,
+                 entryData->primaryKeyHash,
+                 Util::hexDump(indexKeyString, indexKeyLength).c_str());
+
+    IndexletMap::iterator it =
+            findIndexlet(entryData->tableId, entryData->indexId, indexKeyString,
+                         indexKeyLength, indexletMapLock);
+    if (it == indexletMap.end())
+        return STATUS_UNKNOWN_INDEXLET;
+
+    Indexlet* indexlet = &it->second;
+
+    Lock indexletLock(indexlet->indexletMutex);
+    indexletMapLock.unlock();
+
+    // We don't need to keep track of bytes/entries since indexlet tables are not
+    // split during recovery.
+
+    Buffer appendBuffer;
+    BtreeEntry entry = BtreeEntry(indexKeyString, indexKeyLength,
+                                  entryData->primaryKeyHash);
+    indexlet->bt->insert(entry, &appendBuffer);
+
+    PreparedOpTombstone prepOpTombstone(
+            op,
+            objectManager->getLog()->getSegmentId(refToPreparedOp));
+    Segment::appendLogHeader(LOG_ENTRY_TYPE_PREPTOMB,
+                             sizeof32(prepOpTombstone.header),
+                             &appendBuffer);
+    prepOpTombstone.assembleForLog(appendBuffer);
+
+    indexlet->bt->flush(&appendBuffer, 1);
+
+    // Release the lock now that the transaction is committed to log.
+    if (!objectManager->getLockTable()->
+        releaseLock(indexKey, refToPreparedOp)) {
+        // If we were not able to release the lock there is a bug somewhere.
+        RAMCLOUD_LOG(ERROR,
+                     "While committing transaction, lock already released "
+                     "when it should not be. Key: %.*s PrepareRef: %lu",
+                     indexKeyLength,
+                     reinterpret_cast<const char*>(indexKeyString),
+                     refToPreparedOp.toInteger());
+    }
+    objectManager->getLog()->free(refToPreparedOp);
+
+    return STATUS_OK;
+}
+
+/**
+ * Transaction commit for a prepared remove index entry operation.
+ *
+ * \param op
+ *      Prepared remove index entry operation to commit.
+ * \param refToPreparedOp
+ *      Reference to the preparedOp entry in log.
+ *
+ * \return
+ *      STATUS_OK if the index entry was removed. Otherwise, for example,
+ *      STATUS_UKNOWN_TABLE may be returned.
+ */
+Status
+IndexletManager::commitRemoveEntry(PreparedOp& op,
+                                   Log::Reference& refToPreparedOp)
+{
+    uint16_t indexKeyLength = 0;
+    const void *indexKeyString = op.object.getKey(0, &indexKeyLength);
+    uint64_t backingTableId = op.object.getTableId();
+
+    // Read index entry data out of object value.
+    const TxIndexEntry* entryData = reinterpret_cast<const TxIndexEntry*>(
+            op.object.getValue());
+    Key indexKey(backingTableId, indexKeyString, indexKeyLength);
+
+    Lock indexletMapLock(mutex);
+
+    RAMCLOUD_LOG(DEBUG,
+                 "Committing Remove Entry: tableId %lu, indexId %u,\n"
+                 "hash %lu, key: %s", entryData->tableId, entryData->indexId,
+                 entryData->primaryKeyHash,
+                 Util::hexDump(indexKeyString, indexKeyLength).c_str());
+
+    IndexletMap::iterator it =
+            findIndexlet(entryData->tableId, entryData->indexId, indexKeyString,
+                         indexKeyLength, indexletMapLock);
+    if (it == indexletMap.end())
+        return STATUS_UNKNOWN_INDEXLET;
+
+    Indexlet* indexlet = &it->second;
+
+    Lock indexletLock(indexlet->indexletMutex);
+    indexletMapLock.unlock();
+
+    // We don't need to keep track of bytes/entries since indexlet tables are not
+    // split during recovery.
+
+    Buffer appendBuffer;
+    BtreeEntry entry = BtreeEntry(indexKeyString, indexKeyLength,
+                                  entryData->primaryKeyHash);
+    indexlet->bt->erase(entry, &appendBuffer);
+
+    PreparedOpTombstone prepOpTombstone(
+            op,
+            objectManager->getLog()->getSegmentId(refToPreparedOp));
+    Segment::appendLogHeader(LOG_ENTRY_TYPE_PREPTOMB,
+                             sizeof32(prepOpTombstone.header),
+                             &appendBuffer);
+    prepOpTombstone.assembleForLog(appendBuffer);
+
+    indexlet->bt->flush(&appendBuffer, 1);
+
+    // Release the lock now that the transaction is committed to log.
+    if (!objectManager->getLockTable()->
+        releaseLock(indexKey, refToPreparedOp)) {
+        // If we were not able to release the lock there is a bug somewhere.
+        RAMCLOUD_LOG(ERROR,
+                     "While committing transaction, lock already released "
+                     "when it should not be. Key: %.*s PrepareRef: %lu",
+                     indexKeyLength,
+                     reinterpret_cast<const char*>(indexKeyString),
+                     refToPreparedOp.toInteger());
+    }
+    objectManager->getLog()->free(refToPreparedOp);
 
     return STATUS_OK;
 }

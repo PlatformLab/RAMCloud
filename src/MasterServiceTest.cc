@@ -2525,7 +2525,7 @@ TEST_F(MasterServiceTest, txPrepare_indexBasics) {
                                          oldKey.getStringKey(),
                                          oldKey.getStringKeyLength(),
                                          pKeyHash);
-    service->objectManager.log.sync();
+    // service->objectManager.log.sync();
 
     using WireFormat::TxParticipant;
     using WireFormat::TxPrepare;

@@ -156,6 +156,11 @@ class IndexletManager {
             const void* key, KeyLength keyLength,
             uint64_t pKHash);
 
+    Status commitInsertEntry(PreparedOp& op,
+                                  Log::Reference& refToPreparedOp);
+    Status commitRemoveEntry(PreparedOp& op,
+                                  Log::Reference& refToPreparedOp);
+
     explicit IndexletManager(Context* context, ObjectManager* objectManager);
 
   PROTECTED:

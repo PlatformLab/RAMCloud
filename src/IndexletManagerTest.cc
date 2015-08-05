@@ -979,4 +979,136 @@ TEST_F(IndexletManagerTest, removeEntry_keyNotFound) {
     EXPECT_EQ(STATUS_OK, removeStatus);
 }
 
+TEST_F(IndexletManagerTest, commitInsertEntry) {
+    uint8_t indexId = 1;
+    uint64_t pKeyHash = 12345UL;
+
+    ramcloud->createIndex(dataTableId, indexId, 0);
+    IndexletManager::Indexlet* indexlet = im->findIndexlet(
+            dataTableId, 1, "abc", 3);
+    uint64_t backingTableId = indexlet->bt->treeTableId;
+
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    Key key(backingTableId, "def", 3);
+    Buffer buffer;
+    Buffer value;
+    bool isCommit;
+    uint64_t newOpPtr;
+
+    WireFormat::TxParticipant participants[1];
+    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
+
+    buffer.emplaceAppend<KeyCount>((unsigned char) 1);
+    buffer.emplaceAppend<CumulativeKeyLength>(key.getStringKeyLength());
+    buffer.append(key.getStringKey(), key.getStringKeyLength());
+    buffer.emplaceAppend<TxIndexEntry>(dataTableId,
+                                       indexId,
+                                       pKeyHash);
+    PreparedOp op(TxPrepare::INSERT_INDEX_ENTRY, 1, 10,
+                  1, participants,
+                  backingTableId, 0, 0, buffer);
+
+    WireFormat::TxPrepare::Vote vote;
+    RpcResult rpcResult(key.getTableId(), key.getHash(),
+                        1, 10, 9, &vote, sizeof(vote));
+    uint64_t rpcResultPtr;
+
+    ObjectManager& objectManager =
+            *(&cluster.contexts[0]->masterService->objectManager);
+
+    EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
+                       op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
+    EXPECT_TRUE(isCommit);
+
+    // Check object is locked.
+    EXPECT_TRUE(objectManager.lockTable.isLockAcquired(key));
+
+    // Check entry doesn't exist
+    ramcloud->lookupIndexKeys(dataTableId, indexId, "abc", 3, 0, "xyz", 3, 100,
+                              &responseBuffer, &numHashes,
+                              &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(0U, numHashes);
+
+    // Commit insert operation.
+    Log::Reference newOpRef(newOpPtr);
+    EXPECT_EQ(STATUS_OK, im->commitInsertEntry(op, newOpRef));
+
+    // Check the entry
+    EXPECT_FALSE(objectManager.lockTable.isLockAcquired(key));
+    ramcloud->lookupIndexKeys(dataTableId, indexId, "abc", 3, 0, "xyz", 3, 100,
+                              &responseBuffer, &numHashes,
+                              &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(1U, numHashes);
+    EXPECT_EQ(12345UL, *responseBuffer.getOffset<uint64_t>(lookupOffset));
+}
+
+TEST_F(IndexletManagerTest, commitRemoveEntry) {
+    uint8_t indexId = 1;
+    uint64_t pKeyHash = 12345UL;
+
+    ramcloud->createIndex(dataTableId, indexId, 0);
+    IndexletManager::Indexlet* indexlet = im->findIndexlet(
+            dataTableId, 1, "abc", 3);
+    uint64_t backingTableId = indexlet->bt->treeTableId;
+
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    Key key(backingTableId, "def", 3);
+    Buffer buffer;
+    Buffer value;
+    bool isCommit;
+    uint64_t newOpPtr;
+
+    // Insert entry to delete.
+    im->insertEntry(dataTableId, indexId, key.getStringKey(),
+                    key.getStringKeyLength(), pKeyHash);
+
+    WireFormat::TxParticipant participants[1];
+    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
+
+    buffer.emplaceAppend<KeyCount>((unsigned char) 1);
+    buffer.emplaceAppend<CumulativeKeyLength>(key.getStringKeyLength());
+    buffer.append(key.getStringKey(), key.getStringKeyLength());
+    buffer.emplaceAppend<TxIndexEntry>(dataTableId,
+                                       indexId,
+                                       pKeyHash);
+    PreparedOp op(TxPrepare::REMOVE_INDEX_ENTRY, 1, 10,
+                  1, participants,
+                  backingTableId, 0, 0, buffer);
+
+    WireFormat::TxPrepare::Vote vote;
+    RpcResult rpcResult(key.getTableId(), key.getHash(),
+                        1, 10, 9, &vote, sizeof(vote));
+    uint64_t rpcResultPtr;
+
+    ObjectManager& objectManager =
+            *(&cluster.contexts[0]->masterService->objectManager);
+
+    EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
+                       op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
+    EXPECT_TRUE(isCommit);
+
+    // Check object is locked.
+    EXPECT_TRUE(objectManager.lockTable.isLockAcquired(key));
+
+    // Check entry exists
+    ramcloud->lookupIndexKeys(dataTableId, indexId, "abc", 3, 0, "xyz", 3, 100,
+                              &responseBuffer, &numHashes,
+                              &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(1U, numHashes);
+    EXPECT_EQ(12345UL, *responseBuffer.getOffset<uint64_t>(lookupOffset));
+
+    // Commit remove operation.
+    Log::Reference newOpRef(newOpPtr);
+    EXPECT_EQ(STATUS_OK, im->commitRemoveEntry(op, newOpRef));
+
+    // Check entry deleted
+    EXPECT_FALSE(objectManager.lockTable.isLockAcquired(key));
+    ramcloud->lookupIndexKeys(dataTableId, indexId, "abc", 3, 0, "xyz", 3, 100,
+                              &responseBuffer, &numHashes,
+                              &nextKeyLength, &nextKeyHash);
+    EXPECT_EQ(0U, numHashes);
+}
+
 }  // namespace RAMCloud

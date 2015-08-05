@@ -2404,6 +2404,12 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 objectManager.commitRemove(op, opRef);
             } else if (op.header.type == WireFormat::TxPrepare::WRITE) {
                 objectManager.commitWrite(op, opRef);
+            } else if (op.header.type ==
+                       WireFormat::TxPrepare::INSERT_INDEX_ENTRY) {
+                indexletManager.commitInsertEntry(op, opRef);
+            } else if (op.header.type ==
+                       WireFormat::TxPrepare::REMOVE_INDEX_ENTRY) {
+                indexletManager.commitRemoveEntry(op, opRef);
             }
 
             preparedOps.popOp(reqHdr->leaseId,
@@ -2741,9 +2747,9 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.emplaceAppend<CumulativeKeyLength>(indexKeyLength);
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   indexKeyLength);
-            buffer.emplaceAppend<uint64_t>(currentReq->tableId);
-            buffer.emplaceAppend<uint8_t>(currentReq->indexId);
-            buffer.emplaceAppend<uint64_t>(currentReq->primaryKeyHash);
+            buffer.emplaceAppend<TxIndexEntry>(currentReq->tableId,
+                                               currentReq->indexId,
+                                               currentReq->primaryKeyHash);
 
             op.construct(*type, reqHdr->lease.leaseId, rpcId, participantCount,
                          participants, tableId, 0, 0, buffer);
@@ -2874,6 +2880,12 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                 status = objectManager.commitRemove(op, opRef);
             } else if (op.header.type == WireFormat::TxPrepare::WRITE) {
                 status = objectManager.commitWrite(op, opRef);
+            } else if (op.header.type ==
+                       WireFormat::TxPrepare::INSERT_INDEX_ENTRY) {
+                indexletManager.commitInsertEntry(op, opRef);
+            } else if (op.header.type ==
+                       WireFormat::TxPrepare::REMOVE_INDEX_ENTRY) {
+                indexletManager.commitRemoveEntry(op, opRef);
             }
 
             // When an error happens in preemptive commit, we just respond

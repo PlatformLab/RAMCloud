@@ -1634,6 +1634,72 @@ TEST_F(BtreeTest, insert) {
   EXPECT_EQ(bt.end(), it);
 }
 
+TEST_F(BtreeTest, insert_externBuffer) {
+  BtreeEntry result;
+  Buffer dataBuffer;
+  uint64_t rootId = ROOT_ID;
+  uint16_t slots = IndexBtree::innerslotmax + 1;
+
+  std::vector<std::string> entryKeys;
+  std::vector<BtreeEntry> entries;
+  generateKeysInRange(0, slots, entryKeys, entries, 30);
+
+  // Insert 1
+  IndexBtree bt(tableId, &objectManager);
+  bt.insert(entries[0], &dataBuffer);
+  EXPECT_GT(dataBuffer.size(), 0U);
+  bt.flush(&dataBuffer);
+  EXPECT_EQ(0U, dataBuffer.size());
+  EXPECT_EQ(1U, bt.size());
+  EXPECT_EQ(1U, bt.m_stats.leaves);
+  EXPECT_EQ(0U, bt.m_stats.innernodes);
+  EXPECT_EQ(rootId + 1, bt.nextNodeId);
+
+  IndexBtree::iterator it = bt.find(entries[0]);
+  result = *it;
+  EXPECT_EQ(entries[0].keyLength, result.keyLength);
+  EXPECT_EQ(entries[0].pKHash, result.pKHash);
+  EXPECT_STREQ((const char*)entries[0].key,
+                string((const char*) result.key, result.keyLength).c_str());
+  EXPECT_EQ(bt.end(), ++it);
+  EXPECT_EQ("", bt.verify());
+
+  // Insert 1 less from max
+  for (int i = 1; i < slots - 1; i++) {
+      bt.insert(entries[i], &dataBuffer);
+      EXPECT_GT(dataBuffer.size(), 0U);
+      bt.flush(&dataBuffer);
+      EXPECT_EQ(0U, dataBuffer.size());
+  }
+  EXPECT_EQ("", bt.verify());
+
+  EXPECT_EQ((uint32_t)(slots - 1), bt.size());
+  EXPECT_EQ(1U, bt.m_stats.leaves);
+  EXPECT_EQ(0U, bt.m_stats.innernodes);
+
+  // Insert the last one, should observe a split
+  bt.insert(entries[slots - 1], &dataBuffer);
+  EXPECT_GT(dataBuffer.size(), 0U);
+  bt.flush(&dataBuffer);
+  EXPECT_EQ(0U, dataBuffer.size());
+  EXPECT_EQ((uint32_t) slots, bt.size());
+  EXPECT_EQ(2U, bt.m_stats.leaves);
+  EXPECT_EQ(1U, bt.m_stats.innernodes);
+  EXPECT_EQ("", bt.verify());
+
+  // Get a tree iterator and check that everything is okay
+  it = bt.begin();
+  for (int i = 0; i < slots; i++) {
+    EXPECT_EQ(entries[i].pKHash, it->pKHash);
+    EXPECT_EQ(entries[i].keyLength, it->keyLength);
+    EXPECT_STREQ((const char*)entries[i].key,
+            string((const char*)it->key, it->keyLength).c_str());
+    ++it;
+  }
+
+  EXPECT_EQ(bt.end(), it);
+}
+
 TEST_F(BtreeTest, insert_superLargeKeys) {
     uint16_t slots = IndexBtree::innerslotmax;
     uint32_t numEntries = static_cast<uint32_t>(slots);
@@ -2007,7 +2073,7 @@ TEST_F(BtreeTest, merge_leafPointers) {
     bt.writeNode(farRight, farRightId);
     bt.flush();
 
-    bt.merge(mid, right, {});
+    bt.merge(mid, right, {}, NULL);
     bt.flush();
 
     Buffer out;
@@ -2079,7 +2145,7 @@ TEST_F(BtreeTest, handleUnderflowAndWrite_root) {
     EXPECT_FALSE(NULL == bt.readNode(rootId, &buff));
 
     IndexBtree::EraseUpdateInfo emptyLeaf;
-    bt.handleUnderflowAndWrite(leaf, rootId, NULL, 0, &emptyLeaf);
+    bt.handleUnderflowAndWrite(leaf, rootId, NULL, 0, NULL, &emptyLeaf);
     bt.flush();
     EXPECT_TRUE(NULL == bt.readNode(rootId, &buff));
 
@@ -2094,7 +2160,7 @@ TEST_F(BtreeTest, handleUnderflowAndWrite_root) {
     bt.flush();
 
     IndexBtree::EraseUpdateInfo emptyInner;
-    bt.handleUnderflowAndWrite(inner, rootId, NULL, 0, &emptyInner);
+    bt.handleUnderflowAndWrite(inner, rootId, NULL, 0, NULL, &emptyInner);
     bt.flush();
     EXPECT_TRUE(NULL == bt.readNode(2000U, &buff));
     IndexBtree::LeafNode *newLeaf =
@@ -2120,14 +2186,14 @@ TEST_F(BtreeTest, handleUnderflowAndWrite) {
     info.clearOp();
     handleUnderflowAndWrite_Helper(bt, buff, &few, &fewId, &many, &manyId, &most, &mostId, &curr, &currId, parentReset);
     parent->insertAt(0, fakeEntry, currId, fewId);
-    bt.handleUnderflowAndWrite(curr, currId, parent, 0, &info);
+    bt.handleUnderflowAndWrite(curr, currId, parent, 0, NULL, &info);
     EXPECT_EQ(IndexBtree::EraseUpdateInfo::delCurr, info.op);
 
     // Left doesn't exist and right has many
     info.clearOp();
     handleUnderflowAndWrite_Helper(bt, buff, &few, &fewId, &many, &manyId, &most, &mostId, &curr, &currId, parentReset);
     parent->insertAt(0, fakeEntry, currId, manyId);
-    bt.handleUnderflowAndWrite(curr, currId, parent, 0, &info);
+    bt.handleUnderflowAndWrite(curr, currId, parent, 0, NULL, &info);
     EXPECT_EQ(IndexBtree::EraseUpdateInfo::setCurr, info.op);
 
     ///////// Case 2 ////////
@@ -2135,14 +2201,14 @@ TEST_F(BtreeTest, handleUnderflowAndWrite) {
     info.clearOp();
     handleUnderflowAndWrite_Helper(bt, buff, &few, &fewId, &many, &manyId, &most, &mostId, &curr, &currId, parentReset);
     parent->insertAt(0, fakeEntry, fewId, currId);
-    bt.handleUnderflowAndWrite(curr, currId, parent, 1, &info);
+    bt.handleUnderflowAndWrite(curr, currId, parent, 1, NULL, &info);
     EXPECT_EQ(IndexBtree::EraseUpdateInfo::delLeft, info.op);
 
     // Right doesn't exist and left is many
     info.clearOp();
     handleUnderflowAndWrite_Helper(bt, buff, &few, &fewId, &many, &manyId, &most, &mostId, &curr, &currId, parentReset);
     parent->insertAt(0, fakeEntry, manyId, currId);
-    bt.handleUnderflowAndWrite(curr, currId, parent, 1, &info);
+    bt.handleUnderflowAndWrite(curr, currId, parent, 1, NULL, &info);
     EXPECT_EQ(IndexBtree::EraseUpdateInfo::setLeft, info.op);
 
     ///////// Case 3 ////////
@@ -2151,7 +2217,7 @@ TEST_F(BtreeTest, handleUnderflowAndWrite) {
     handleUnderflowAndWrite_Helper(bt, buff, &few, &fewId, &many, &manyId, &most, &mostId, &curr, &currId, parentReset);
     parent->insertAt(0, fakeEntry, fewId, currId);
     parent->insertAt(1, fakeEntry, currId, manyId);
-    bt.handleUnderflowAndWrite(curr, currId, parent, 1, &info);
+    bt.handleUnderflowAndWrite(curr, currId, parent, 1, NULL, &info);
     EXPECT_EQ(IndexBtree::EraseUpdateInfo::delLeft, info.op);
 
     // Left has many and right has few
@@ -2159,7 +2225,7 @@ TEST_F(BtreeTest, handleUnderflowAndWrite) {
     handleUnderflowAndWrite_Helper(bt, buff, &few, &fewId, &many, &manyId, &most, &mostId, &curr, &currId, parentReset);
     parent->insertAt(0, fakeEntry, manyId, currId);
     parent->insertAt(1, fakeEntry, currId, fewId);
-    bt.handleUnderflowAndWrite(curr, currId, parent, 1, &info);
+    bt.handleUnderflowAndWrite(curr, currId, parent, 1, NULL, &info);
     EXPECT_EQ(IndexBtree::EraseUpdateInfo::delCurr, info.op);
 
     // Left has many, but right has more.
@@ -2167,7 +2233,7 @@ TEST_F(BtreeTest, handleUnderflowAndWrite) {
     handleUnderflowAndWrite_Helper(bt, buff, &few, &fewId, &many, &manyId, &most, &mostId, &curr, &currId, parentReset);
     parent->insertAt(0, fakeEntry, manyId, currId);
     parent->insertAt(1, fakeEntry, currId, mostId);
-    bt.handleUnderflowAndWrite(curr, currId, parent, 1, &info);
+    bt.handleUnderflowAndWrite(curr, currId, parent, 1, NULL, &info);
     EXPECT_EQ(IndexBtree::EraseUpdateInfo::setCurr, info.op);
 
     // Left has most and right has many
@@ -2175,7 +2241,7 @@ TEST_F(BtreeTest, handleUnderflowAndWrite) {
     handleUnderflowAndWrite_Helper(bt, buff, &few, &fewId, &many, &manyId, &most, &mostId, &curr, &currId, parentReset);
     parent->insertAt(0, fakeEntry, mostId, currId);
     parent->insertAt(1, fakeEntry, currId, manyId);
-    bt.handleUnderflowAndWrite(curr, currId, parent, 1, &info);
+    bt.handleUnderflowAndWrite(curr, currId, parent, 1, NULL, &info);
     EXPECT_EQ(IndexBtree::EraseUpdateInfo::setLeft, info.op);
 }
 

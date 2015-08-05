@@ -44,6 +44,22 @@ struct KeyOffsets
                                              // length values.
 } __attribute__((packed));
 
+// Holds tableId, indexId, and primaryKeyHash for an index entry transaction.
+// Stored in the value of the object inside a PreparedOp.
+struct TxIndexEntry
+{
+    uint64_t tableId;        // Table ID of the index entry.
+    uint8_t indexId;         // Index ID of the index entry.
+    uint64_t primaryKeyHash; // Primary key hash of the index entry.
+
+    TxIndexEntry(uint64_t tableId, uint8_t indexId, uint64_t primaryKeyHash)
+        : tableId(tableId)
+        , indexId(indexId)
+        , primaryKeyHash(primaryKeyHash)
+    {
+    }
+} __attribute__((packed));
+
 /**
  * This class defines the format of an object stored in the log and provides
  * methods to easily construct new ones to be appended and interpret ones that

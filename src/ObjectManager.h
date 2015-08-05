@@ -125,6 +125,7 @@ class ObjectManager : public LogEntryHandlers {
     Log* getLog() { return &log; }
     ReplicaManager* getReplicaManager() { return &replicaManager; }
     HashTable* getObjectMap() { return &objectMap; }
+    LockTable* getLockTable() { return &lockTable; }
 
   PRIVATE:
     /**

@@ -265,7 +265,8 @@ PRIVATE:
     Buffer logBuffer;
 
     /// Number of log entries in the logBuffer. This is useful when atomically
-    /// flushing the buffer to the log.
+    /// flushing the buffer to the log. This is reset by flushEntriesToLog in
+    /// ObjectManager.
     uint32_t numEntries;
 
     /// Map between nodeId and offset in #logBuffer. This is useful when the
@@ -1902,19 +1903,23 @@ PUBLIC:
      *
      * \param entry
      *      Entry to insert into the B+tree
+     * \param externalLogBuffer (optional)
+     *      A buffer to append all the log changes to. If NULL, an internal
+     *      buffer will be used and flushed to the log. If non-NULL, the buffer
+     *      WILL NOT be flushed to the log.
      */
     void
-    insert(const BtreeEntry entry) {
+    insert(const BtreeEntry entry, Buffer* externalLogBuffer = NULL) {
         if (nextNodeId == ROOT_ID) {
             Buffer rootBuffer;
             LeafNode *root = rootBuffer.emplaceAppend<LeafNode>(&rootBuffer);
             root->insertAt(0, entry);
-            writeNode(root, ROOT_ID);
+            writeNode(root, ROOT_ID, externalLogBuffer);
             nextNodeId = ROOT_ID + 1;
             m_stats.leaves = 1;
         } else {
             ChildUpdateInfo info;
-            insertDescend(ROOT_ID, entry, &info);
+            insertDescend(ROOT_ID, entry, &info, externalLogBuffer);
 
             // Root node was split
             if (info.childSplit) {
@@ -1926,12 +1931,14 @@ PUBLIC:
                         info.newChild,
                         info.newChildId,
                         info.rightSiblingId);
-                writeNode(newRoot, ROOT_ID);
+                writeNode(newRoot, ROOT_ID, externalLogBuffer);
                 m_stats.innernodes++;
             }
         }
 
-        flush();
+        if (!externalLogBuffer) {
+            flush();
+        }
         m_stats.itemcount++;
     }
 
@@ -1940,12 +1947,16 @@ PUBLIC:
      *
      * \param entry
      *      Entry to erase
+     * \param externalLogBuffer (optional)
+     *      A buffer to append all the log changes to. If NULL, an internal
+     *      buffer will be used and flushed to the log. If non-NULL, the buffer
+     *      WILL NOT be flushed to the log.
      *
      * \return
      *      true if the entry was found and erased.
      */
     bool
-    erase(BtreeEntry entry) {
+    erase(BtreeEntry entry, Buffer *externalLogBuffer = NULL) {
         if (selfverify) verify();
 
         // The tree is empty; do nothing.
@@ -1953,9 +1964,12 @@ PUBLIC:
             return false;
 
         EraseUpdateInfo info;
-        bool success = eraseOneDescend(entry, m_rootId, NULL, 0, &info);
+        bool success = eraseOneDescend(entry, m_rootId, NULL, 0,
+                                       externalLogBuffer, &info);
 
-        flush();
+        if (!externalLogBuffer) {
+            flush();
+        }
         if (selfverify) verify();
         return success;
     }
@@ -2108,13 +2122,18 @@ PRIVATE:
      *
      * \param nodeId
      *      The id of the node to be deleted from the backing table.
+     * \param externalLogBuffer (optional)
+     *      A buffer to append all the log changes to. If NULL, an internal
+     *      buffer will be used.
      *
      */
     inline void
-    freeNode(NodeId nodeId)
+    freeNode(NodeId nodeId, Buffer *externalLogBuffer = NULL)
     {
         Key key(treeTableId, &nodeId, sizeof(NodeId));
-        Status status = objMgr->writeTombstone(key, &logBuffer);
+        Status status = objMgr->writeTombstone(key,
+                                               (externalLogBuffer) ?
+                                               externalLogBuffer : &logBuffer);
         assert(status == STATUS_OK);
         numEntries++;
         if (nodeId == m_rootId)
@@ -2183,12 +2202,16 @@ PRIVATE:
      *      written out in this function. If not provided, the primary key
      *      for this object will be chosen as nextNodeId which is global to
      *      the tree.
+     * \param externalLogBuffer (optional)
+     *      A buffer to append all the log changes to. If NULL, an internal
+     *      buffer will be used.
      *
      * \return
      *      The nodeId (primary key) used for this object.
      */
     inline NodeId
-    writeNode(const Node *node, NodeId nodeId = INVALID_NODEID) {
+    writeNode(const Node *node, NodeId nodeId = INVALID_NODEID,
+              Buffer *externalLogBuffer = NULL) {
       if (nodeId == INVALID_NODEID)
         nodeId = nextNodeId++;
 
@@ -2205,8 +2228,10 @@ PRIVATE:
       // will construct an object around this.
       bool tombstoneAdded = false;
       uint32_t nodeOffset = 0;
-      Status status = objMgr->prepareForLog(object, &logBuffer,
-                                         &nodeOffset, &tombstoneAdded);
+      Status status = objMgr->prepareForLog(
+              object,
+              (externalLogBuffer) ? externalLogBuffer : &logBuffer,
+              &nodeOffset, &tombstoneAdded);
 
       cache[nodeId] = nodeOffset;
 
@@ -2242,12 +2267,24 @@ PRIVATE:
         freeNode(nodeId);
     }
 
+PUBLIC:
+
     /**
      * Flushes Node writes and tombstones to log atomically.
+     *
+     * \param externalLogBuffer (optional)
+     *      The buffer to flush to log. If NULL, the internal buffer will be
+     *      used.
+     * \param additionalEntryCount (optional)
+     *      If an external log buffer is used, this should be the number of
+     *      additinal entries in the external buffer.
      */
     inline void
-    flush() {
-        bool status = objMgr->flushEntriesToLog(&logBuffer, numEntries);
+    flush(Buffer *externalLogBuffer = NULL, uint32_t additionalEntryCount = 0) {
+        numEntries += additionalEntryCount;
+        bool status = objMgr->flushEntriesToLog(
+                (externalLogBuffer) ? externalLogBuffer : &logBuffer,
+                numEntries);
         assert(status == true);
         cache.clear();
     }
@@ -2459,10 +2496,14 @@ PRIVATE:
      * \param updateInfo
      *      Tracks changes made during the insert that need to be reflected
      *      in parent node.
+     * \param externalLogBuffer
+     *      A buffer to append all the log changes to. If NULL, an internal
+     *      buffer will be used and flushed to the log. If non-NULL, the buffer
+     *      WILL NOT be flushed to the log.
      */
     void
     insertDescend(NodeId currentId, BtreeEntry entry,
-                       ChildUpdateInfo *updateInfo) {
+                  ChildUpdateInfo *updateInfo, Buffer *externalLogBuffer) {
       Buffer buffer;
       Node *n = readNode(currentId, &buffer);
 
@@ -2483,7 +2524,8 @@ PRIVATE:
         InnerNode* inner = (InnerNode*) n;
 
         updateInfo->clear();
-        insertDescend(inner->getChildAt(insertIndex), entry, updateInfo);
+        insertDescend(inner->getChildAt(insertIndex), entry, updateInfo,
+                      externalLogBuffer);
 
         // The right most leaf key has been updated on our descent.
         // Integrate it if it's larger than our current entry for that slot
@@ -2509,7 +2551,7 @@ PRIVATE:
         // No split, so we're done;
         if (!updateInfo->childSplit) {
             if (rightMostKeyUpdated)
-                writeNode(inner, currentId);
+                writeNode(inner, currentId, externalLogBuffer);
 
             return;
         }
@@ -2519,7 +2561,7 @@ PRIVATE:
                   updateInfo->newChild,
                   updateInfo->newChildId,
                   updateInfo->rightSiblingId);
-          writeNode(inner, currentId);
+          writeNode(inner, currentId, externalLogBuffer);
           updateInfo->clear();
           return;
         }
@@ -2548,8 +2590,8 @@ PRIVATE:
             updateInfo->setLastKeyUpdated(
                                         newRightSibling->getRightMostLeafKey());
 
-        writeNode(inner, leftId);
-        writeNode(newRightSibling, rightId);
+        writeNode(inner, leftId, externalLogBuffer);
+        writeNode(newRightSibling, rightId, externalLogBuffer);
       } else {
         LeafNode *leaf = static_cast<LeafNode*>(n);
 
@@ -2558,7 +2600,7 @@ PRIVATE:
 
         if (!leaf->isfull()) {
           leaf->insertAt(insertIndex, entry);
-          writeNode(leaf, currentId);
+          writeNode(leaf, currentId, externalLogBuffer);
           updateInfo->clear();
 
           return;
@@ -2592,15 +2634,15 @@ PRIVATE:
         assert(leftId == m_rootId || !leaf->isunderflow());
         assert(rightId == m_rootId || !newRightSibling->isunderflow());
 
-        writeNode(leaf, leftId);
-        writeNode(newRightSibling, rightId);
+        writeNode(leaf, leftId, externalLogBuffer);
+        writeNode(newRightSibling, rightId, externalLogBuffer);
 
         // Update the left sibling
         if (leaf->prevleaf != INVALID_NODEID) {
           LeafNode *prevLeaf =
                   static_cast<LeafNode*>(readNode(leaf->prevleaf, &buffer));
           prevLeaf->nextleaf = leftId;
-          writeNode(prevLeaf, leaf->prevleaf);
+          writeNode(prevLeaf, leaf->prevleaf, externalLogBuffer);
         }
       }
     }
@@ -2624,6 +2666,11 @@ PRIVATE:
      *      The current node's index within the parent. Not used if the
      *      current node is the root
      *
+     * \param externalLogBuffer
+     *      A buffer to append all the log changes to. If NULL, an internal
+     *      buffer will be used and flushed to the log. If non-NULL, the buffer
+     *      WILL NOT be flushed to the log.
+     *
      * \param[out] info
      *      Stores information on how to update the parent node if
      *      the subtree has changed.
@@ -2632,8 +2679,9 @@ PRIVATE:
      */
     bool
     eraseOneDescend(BtreeEntry key, NodeId currentId,
-                             const InnerNode *parent, uint16_t parentSlot,
-                             EraseUpdateInfo *info)
+                    const InnerNode *parent, uint16_t parentSlot,
+                    Buffer *externalLogBuffer,
+                    EraseUpdateInfo *info)
     {
         Buffer currentBuffer;
         Node *node = readNode(currentId, &currentBuffer);
@@ -2661,7 +2709,8 @@ PRIVATE:
             NodeId childId = inner->getChildAt(slot);
 
             info->clearOp();
-            bool success = eraseOneDescend(key, childId, inner, slot, info);
+            bool success = eraseOneDescend(key, childId, inner, slot,
+                                           externalLogBuffer, info);
             if (!success)
                 return false;
 
@@ -2707,9 +2756,10 @@ PRIVATE:
         }
 
         if (node->isunderflow() && !(currentId == m_rootId && node->slotuse >= 1)) {
-            handleUnderflowAndWrite(node, currentId, parent, parentSlot, info);
+            handleUnderflowAndWrite(node, currentId, parent, parentSlot,
+                                    externalLogBuffer, info);
         } else if (dirty) {
-            writeNode(node, currentId);
+            writeNode(node, currentId, externalLogBuffer);
         }
 
         return true;
@@ -2734,21 +2784,27 @@ PRIVATE:
      * \param parentSlot
      *      The index location of where the offending node is in its parent.
      *
+     * \param externalLogBuffer
+     *      A buffer to append all the log changes to. If NULL, an internal
+     *      buffer will be used and flushed to the log. If non-NULL, the buffer
+     *      WILL NOT be flushed to the log.
+     *
      * \param[out] info
      *      If the parent node needs to be modified because of this call,
      *      the info needed to do so will be stored here.
      */
     inline void
     handleUnderflowAndWrite(Node *curr, NodeId currId,
-                         const InnerNode *parent, uint16_t parentSlot,
-                         EraseUpdateInfo *info)
+                            const InnerNode *parent, uint16_t parentSlot,
+                            Buffer *externalLogBuffer,
+                            EraseUpdateInfo *info)
     {
         Buffer buffer;
 
         // Special case: root, which is allowed to underflow, has depleted
         if (currId == m_rootId && curr->slotuse == 0) {
             if (curr->isLeaf()) {
-                freeNode(m_rootId);
+                freeNode(m_rootId, externalLogBuffer);
                 m_stats.leaves--;
                 return;
             }
@@ -2763,14 +2819,18 @@ PRIVATE:
                 newRoot = readNode(childId, &buffer);
             } else {
                 newRoot = static_cast<Node*>(
-                                logBuffer.getRange(it->second, sizeof(Node)));
+                        (externalLogBuffer) ?
+                        externalLogBuffer->getRange(it->second, sizeof(Node)) :
+                        logBuffer.getRange(it->second, sizeof(Node)));
 
                 // Readjust buffer
-                newRoot->reinitFromRead(&logBuffer, it->second);
+                newRoot->reinitFromRead(
+                        (externalLogBuffer) ? externalLogBuffer : &logBuffer,
+                        it->second);
             }
 
-            writeNode(newRoot, m_rootId);
-            freeNode(childId);
+            writeNode(newRoot, m_rootId, externalLogBuffer);
+            freeNode(childId, externalLogBuffer);
             m_stats.innernodes--;
             return;
         }
@@ -2791,16 +2851,16 @@ PRIVATE:
                     ? info->lastEntry : parent->getAt(parentSlot);
 
             if (right->isfew()) {
-                merge(curr, right, currParentKey);
+                merge(curr, right, currParentKey, externalLogBuffer);
                 info->op = info->delCurr;
-                writeNode(right, rightId);
-                freeNode(currId);
+                writeNode(right, rightId, externalLogBuffer);
+                freeNode(currId, externalLogBuffer);
             } else {
                 BtreeEntry newLastKey = balance(curr, right, currParentKey);
                 info->op = info->setCurr;
                 info->setSetEntry(newLastKey);
-                writeNode(curr, currId);
-                writeNode(right, rightId);
+                writeNode(curr, currId, externalLogBuffer);
+                writeNode(right, rightId, externalLogBuffer);
             }
         }
         // Case 2: There is only left sibling to merge/balance with.
@@ -2810,16 +2870,16 @@ PRIVATE:
             BtreeEntry leftParentKey = parent->getAt(leftSlot);
 
             if (left->isfew()) {
-                merge(left, curr, leftParentKey);
+                merge(left, curr, leftParentKey, externalLogBuffer);
                 info->op = info->delLeft;
-                writeNode(curr, currId);
-                freeNode(leftId);
+                writeNode(curr, currId, externalLogBuffer);
+                freeNode(leftId, externalLogBuffer);
             } else {
                 BtreeEntry newLastKey = balance(left, curr, leftParentKey);
                 info->op = info->setLeft;
                 info->setSetEntry(newLastKey);
-                writeNode(left, leftId);
-                writeNode(curr, currId);
+                writeNode(left, leftId, externalLogBuffer);
+                writeNode(curr, currId, externalLogBuffer);
             }
         }
         // Case 3: Both siblings exist
@@ -2836,17 +2896,17 @@ PRIVATE:
 
             // Case 3a: Right is about to underflow so merge with it.
             if (right->isfew()) {
-                merge(curr, right, currParentKey);
+                merge(curr, right, currParentKey, externalLogBuffer);
                 info->op = info->delCurr;
-                writeNode(right, rightId);
-                freeNode(currId);
+                writeNode(right, rightId, externalLogBuffer);
+                freeNode(currId, externalLogBuffer);
             }
             // Case 3b: Left is about to underflow so merge with it
             else if(left->isfew()) {
-                merge(left, curr, leftParentKey);
+                merge(left, curr, leftParentKey, externalLogBuffer);
                 info->op = info->delLeft;
-                writeNode(curr, currId);
-                freeNode(leftId);
+                writeNode(curr, currId, externalLogBuffer);
+                freeNode(leftId, externalLogBuffer);
             }
             // Case 3c: Both left and right has extras, so balance with the
             // one with more extras.
@@ -2854,14 +2914,14 @@ PRIVATE:
                 BtreeEntry newLastKey = balance(left, curr, leftParentKey);
                 info->op = info->setLeft;
                 info->setSetEntry(newLastKey);
-                writeNode(left, leftId);
-                writeNode(curr, currId);
+                writeNode(left, leftId, externalLogBuffer);
+                writeNode(curr, currId, externalLogBuffer);
             } else {
                 BtreeEntry newLastKey = balance(curr, right, currParentKey);
                 info->op = info->setCurr;
                 info->setSetEntry(newLastKey);
-                writeNode(right, rightId);
-                writeNode(curr, currId);
+                writeNode(right, rightId, externalLogBuffer);
+                writeNode(curr, currId, externalLogBuffer);
             }
         }
 
@@ -2927,9 +2987,14 @@ PRIVATE:
      *
      * \param leftParentEntry
      *      The entry stored in the parent indexing the left node.
+     *
+     * \param externalLogBuffer
+     *      A buffer to append all the log changes to. If NULL, an internal
+     *      buffer will be used.
      */
     inline void
-    merge(Node *left, Node *right, BtreeEntry leftParentEntry)
+    merge(Node *left, Node *right, BtreeEntry leftParentEntry,
+          Buffer *externalLogBuffer)
     {
 
         // If these are leaf nodes, we need to adjust pointers
@@ -2944,7 +3009,7 @@ PRIVATE:
                 LeafNode *prev = static_cast<LeafNode*>(
                           readNode(leftLeaf->prevleaf, &buffer));
                 prev->nextleaf = leftLeaf->nextleaf;
-                writeNode(prev, leftLeaf->prevleaf);
+                writeNode(prev, leftLeaf->prevleaf, externalLogBuffer);
             }
         } else {
             InnerNode *leftInner = static_cast<InnerNode*>(left);
