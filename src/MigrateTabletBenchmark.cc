@@ -158,13 +158,14 @@ class MigrateTabletBenchmark {
                static_cast<double>(totalObjectBytes) / seconds / 1024. / 1024.;
         printf("Migrate object throughput: %.2f MB/s\n", objectThroughput);
 
-        double logThroughput = static_cast<double>(totalSegmentBytes) / seconds / 1024. / 1024.;
+        double logThroughput = static_cast<double>(totalSegmentBytes) /
+                seconds / 1024. / 1024.;
         printf("Migrate log throughput: %.2f MB/s\n", logThroughput);
 
         printf("\n> %d %d %d %lu %lu %lu %lu %.2f %.2f\n\n",
                 numSegments, Segment::DEFAULT_SEGMENT_SIZE, dataLen,
-                sizeof(nextKeyVal), numObjects, totalObjectBytes, totalSegmentBytes,
-                objectThroughput, logThroughput);
+                sizeof(nextKeyVal), numObjects, totalObjectBytes,
+                totalSegmentBytes, objectThroughput, logThroughput);
 
 #define DUMP_TEMP_TICKS(i)  \
 if (metrics->temp.ticks##i.load()) { \
