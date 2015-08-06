@@ -533,7 +533,6 @@ class PreparedItemTest : public ::testing::Test {
         , tableId3(-3)
     {
         Cycles::mockTscValue = 100;
-        WallTime::mockWallTimeValue = 10;
 
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -568,9 +567,6 @@ class PreparedItemTest : public ::testing::Test {
     ~PreparedItemTest()
     {
         Cycles::mockTscValue = 0;
-        WallTime::baseTime = 0;
-        WallTime::baseTsc = 0;
-        WallTime::mockWallTimeValue = 0;
     }
 
     void waitForTxRecoveryDone()
@@ -599,8 +595,6 @@ class PreparedItemTest : public ::testing::Test {
 };
 
 TEST_F(PreparedItemTest, handleTimerEvent_basic) {
-    ASSERT_EQ(service1, service1->context->masterService);
-
     Key key1(tableId3, "key1", 4);
     Key key2(tableId2, "key2", 4);
     Key key3(tableId1, "key3", 4);

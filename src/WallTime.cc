@@ -43,6 +43,12 @@ WallTime::secondsTimestamp()
 #if TESTING
     if (mockWallTimeValue)
         return mockWallTimeValue;
+
+    // In testing, it is possible that some other Unit test sets mockTscValue
+    // which can cause Cycles::rdtsc() to return very different value from
+    // baseTsc. This can cause assertion failure from downCast<uint32_t> below.
+    baseTime = 0;
+    baseTsc = 0;
 #endif
 
     if (baseTime == 0) {
@@ -74,7 +80,7 @@ WallTime::secondsTimestamp()
  * value, with the appropriate offset from the Unix epoch.
  *
  * \param[in] timestamp
- *      A RAMCloud epoch timestamp, as returned via #secondsTimestamp. 
+ *      A RAMCloud epoch timestamp, as returned via #secondsTimestamp.
  */
 time_t
 WallTime::secondsTimestampToUnix(uint32_t timestamp)
