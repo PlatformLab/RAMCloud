@@ -31,12 +31,13 @@
 #include "ProtoBuf.h"
 #include "RawMetrics.h"
 #include "Segment.h"
+#include "ServerRpcPool.h"
 #include "ServiceManager.h"
 #include "ShortMacros.h"
+#include "TimeTrace.h"
 #include "Transport.h"
 #include "Tub.h"
 #include "WallTime.h"
-#include "ServerRpcPool.h"
 
 namespace RAMCloud {
 
@@ -1393,9 +1394,14 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 
         // Write the object.
         RejectRules rejectRules = currentReq->rejectRules;
-        currentResp->status = objectManager.writeObject(
-                object, &rejectRules, &currentResp->version,
-                &oldObjectBuffers[i]);
+        try {
+            currentResp->status = objectManager.writeObject(
+                    object, &rejectRules, &currentResp->version,
+                    &oldObjectBuffers[i]);
+        }
+        catch (RetryException& e) {
+            currentResp->status = STATUS_RETRY;
+        }
         reqOffset += currentReq->length;
     }
 
