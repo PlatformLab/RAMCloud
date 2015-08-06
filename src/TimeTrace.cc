@@ -122,6 +122,11 @@ void TimeTrace::reset()
  */
 void TimeTrace::printInternal(string* s)
 {
+    if (readerActive) {
+        RAMCLOUD_LOG(WARNING,
+                "printInternal already active; skipping this call");
+        return;
+    }
     readerActive = true;
 
     // Find the oldest event that we still have (either events[nextIndex],
