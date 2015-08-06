@@ -84,6 +84,7 @@ os.environ['LD_LIBRARY_PATH'] = ':'.join(ld_library_path)
 
 # Host on which old master is run for running recoveries.
 # Need not be a member of hosts
+hosts = None
 old_master_host = ('rcmaster', '192.168.1.1', 81)
 
 # Full path to the directory containing RAMCloud executables.
