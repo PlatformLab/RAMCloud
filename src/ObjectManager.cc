@@ -1109,25 +1109,6 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer,
                 RpcResult* rpcResult, uint64_t* rpcResultPtr)
 {
-    if (!anyWrites) {
-        // This is the first write; use this as a trigger to update the
-        // cluster configuration information and open a session with each
-        // backup, so it won't slow down recovery benchmarks.  This is a
-        // temporary hack, and needs to be replaced with a more robust
-        // approach to updating cluster configuration information.
-        anyWrites = true;
-
-        // Empty coordinator locator means we're in test mode, so skip this.
-        if (!context->coordinatorSession->getLocation().empty()) {
-            ProtoBuf::ServerList backups;
-            CoordinatorClient::getBackupList(context, &backups);
-            TransportManager& transportManager =
-                *context->transportManager;
-            foreach(auto& backup, backups.server())
-                transportManager.getSession(backup.service_locator());
-        }
-    }
-
     uint16_t keyLength = 0;
     const void *keyString = newObject.getKey(0, &keyLength);
     Key key(newObject.getTableId(), keyString, keyLength);
@@ -1148,6 +1129,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
 
     // If key is locked due to an in-progress transaction, we must wait.
     if (lockTable.isLockAcquired(key)) {
+        RAMCLOUD_CLOG(NOTICE, "Retrying because of transaction lock");
         return STATUS_RETRY;
     }
 
@@ -1217,6 +1199,8 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     newObject.assembleForLog(appends[0].buffer);
     appends[0].type = LOG_ENTRY_TYPE_OBJ;
 
+    // Note: only check for enough space for the object (tombstones
+    // don't get included in the limit, since they can be cleaned).
     if (!log.hasSpaceFor(appends[0].buffer.size())) {
         // We must bound the amount of live data to ensure deletes are possible
         RAMCLOUD_CLOG(NOTICE, "Log is out of space, rejecting object write!");
@@ -1241,7 +1225,8 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
         // off of this server.
-        return STATUS_RETRY;
+        RAMCLOUD_CLOG(NOTICE, "Retrying write to wait for cleaner");
+        throw RetryException(HERE, 1000, 2000, "Must wait for cleaner");
     }
 
     if (tombstone) {
