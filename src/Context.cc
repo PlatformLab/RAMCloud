@@ -77,6 +77,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , coordinatorSession(NULL)
     , timeTrace(NULL)
     , cacheTrace(NULL)
+    , objectFinder(NULL)
     , externalStorage(NULL)
     , masterService(NULL)
     , backupService(NULL)
@@ -85,7 +86,6 @@ Context::Context(bool hasDedicatedDispatchThread)
     , coordinatorServerList(NULL)
     , tableManager(NULL)
     , recoveryManager(NULL)
-    , objectFinder(NULL)
 {
     try {
 #if TESTING
@@ -93,6 +93,7 @@ Context::Context(bool hasDedicatedDispatchThread)
 #endif
         timeTrace = new TimeTrace();
         cacheTrace = new CacheTrace();
+        objectFinder = new ObjectFinder(this);
         dispatch = new Dispatch(hasDedicatedDispatchThread);
 #if TESTING
         mockContextMember2 = new MockContextMember(2);
@@ -108,8 +109,6 @@ Context::Context(bool hasDedicatedDispatchThread)
         // portAlarmTimer = new PortAlarmTimer(this);
 
         coordinatorSession = new CoordinatorSession(this);
-
-        objectFinder = new ObjectFinder(this);
     } catch (...) {
         destroy();
         throw;
@@ -135,10 +134,6 @@ Context::destroy()
     // The pointers are set to NULL here after they're deleted to make it
     // easier to catch bugs in which outer members try to access inner members.
 
-    // Make sure to delete the members in the opposite order from their
-    // construction.
-
-    // TODO(seojin): why no such protection in MasterService code?
     // Force ObjectManager to drop all of its cached sessions; otherwise
     // they won't get destroyed until after their transports have been deleted.
     if (objectFinder)

@@ -90,6 +90,8 @@ class Context {
     CoordinatorSession* coordinatorSession;
     TimeTrace* timeTrace;
     CacheTrace* cacheTrace;
+    ObjectFinder* objectFinder; // On Client and Master, this locator tells
+                                // which master is the owner of an object.
 
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.
@@ -133,10 +135,6 @@ class Context {
     // NULL except on coordinators. Owned elsewhere;
     // not freed by this class.
     MasterRecoveryManager* recoveryManager;
-
-    // On Client and Master, this locator tells which master is the owner of
-    // an object.
-    ObjectFinder* objectFinder;
 
   PRIVATE:
     void destroy();
