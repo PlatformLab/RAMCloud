@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -88,7 +88,7 @@ TEST_F(AbstractLogTest, append_basic) {
     LogSegment* oldHead = l.head;
 
     int appends = 0;
-    uint64_t original = l.totalBytesRemaining;
+    uint64_t original = l.totalLiveBytes;
     while (l.append(LOG_ENTRY_TYPE_OBJ, data, dataLen)) {
         if (appends++ == 0)
             EXPECT_EQ(oldHead, l.head);
@@ -98,7 +98,7 @@ TEST_F(AbstractLogTest, append_basic) {
     }
     // This depends on ServerConfig's number of bytes allocated to the log.
     EXPECT_EQ(303, appends);
-    EXPECT_EQ(19858923U, original - l.totalBytesRemaining);
+    EXPECT_EQ(19858923U, l.totalLiveBytes - original);
 
     // getEntry()'s test ensures actual data gets there.
 
@@ -190,9 +190,9 @@ TEST_F(AbstractLogTest, free) {
     sourceBuffer.appendExternal(&data, sizeof(data));
     Log::Reference ref;
     l.append(LOG_ENTRY_TYPE_OBJ, sourceBuffer, &ref);
-    uint64_t original = l.totalBytesRemaining;
+    uint64_t original = l.totalLiveBytes;
     l.free(ref);
-    EXPECT_EQ(10U, l.totalBytesRemaining - original);
+    EXPECT_EQ(10U, original - l.totalLiveBytes);
 }
 
 TEST_F(AbstractLogTest, getEntry) {
@@ -234,7 +234,7 @@ TEST_F(AbstractLogTest, getSegmentId) {
 }
 
 TEST_F(AbstractLogTest, hasSpaceFor) {
-    uint64_t original = l.totalBytesRemaining;
+    uint64_t original = l.maxLiveBytes - l.totalLiveBytes;
     EXPECT_TRUE(l.hasSpaceFor(original));
     EXPECT_FALSE(l.hasSpaceFor(original + 1));
 }
@@ -304,6 +304,7 @@ TEST_F(AbstractLogTest, allocNewWritableHead) {
     EXPECT_EQ(&ml.segment, ml.head);
     EXPECT_FALSE(ml.metrics.noSpaceTimer);
     EXPECT_NE(0U, ml.metrics.totalNoSpaceTicks);
+    EXPECT_EQ(37729075lu, ml.maxLiveBytes);
 
     *const_cast<bool*>(&ml.head->isEmergencyHead) = true;
     EXPECT_FALSE(ml.allocNewWritableHead());

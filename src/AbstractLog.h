@@ -233,9 +233,14 @@ class AbstractLog {
     /// segment in the presence of multiple appending threads.
     SpinLock appendLock;
 
-    // Track the total amount of bytes we have available for live data before
-    // we must reject future appends to avoid constipation
-    uint64_t totalBytesRemaining;
+    // Total amount of log space occupied by long-term data such as
+    // objects. Excludes data that can eventually be cleaned, such
+    // as tombstones.
+    uint64_t totalLiveBytes;
+
+    // Largest value of totalLiveBytes that is "safe" (i.e. the cleaner
+    // can always make progress).
+    uint64_t maxLiveBytes;
 
     /// Various event counters and performance measurements taken during log
     /// operation.

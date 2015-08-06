@@ -1525,10 +1525,11 @@ TEST_F(ObjectManagerTest, writeObject) {
     EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
 
     // Verify RetryException  when overwriting with no space
-    uint64_t original = objectManager.getLog()->totalBytesRemaining;
-    objectManager.getLog()->totalBytesRemaining = 0;
+    uint64_t original = objectManager.getLog()->totalLiveBytes;
+    objectManager.getLog()->totalLiveBytes =
+            objectManager.getLog()->maxLiveBytes;
     EXPECT_THROW(objectManager.writeObject(obj, 0, 0), RetryException);
-    objectManager.getLog()->totalBytesRemaining = original;
+    objectManager.getLog()->totalLiveBytes = original;
 }
 
 TEST_F(ObjectManagerTest, writeObject_returnRemovedObj) {
@@ -1632,12 +1633,13 @@ TEST_F(ObjectManagerTest, prepareOp) {
 
     // Verify RetryException  when overwriting with no space
     // Abort cannot be written and retryException is fired.
-    uint64_t original = objectManager.getLog()->totalBytesRemaining;
-    objectManager.getLog()->totalBytesRemaining = 0;
+    uint64_t original = objectManager.getLog()->totalLiveBytes;
+    objectManager.getLog()->totalLiveBytes =
+            objectManager.getLog()->maxLiveBytes;
     EXPECT_THROW(objectManager.prepareOp(op, 0, 0, &isCommit,
                                          &rpcResult, &rpcResultPtr),
                  RetryException);
-    objectManager.getLog()->totalBytesRemaining = original;
+    objectManager.getLog()->totalLiveBytes = original;
 }
 
 TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
@@ -1930,10 +1932,11 @@ TEST_F(ObjectManagerTest, flushEntriesToLog) {
     TestLog::Enable _(antiGetEntryFilter);
 
     // Verify that the flush is rejected when the log's remaining size is small
-    uint64_t original = objectManager.getLog()->totalBytesRemaining;
-    objectManager.getLog()->totalBytesRemaining = 0;
+    uint64_t original = objectManager.getLog()->totalLiveBytes;
+    objectManager.getLog()->totalLiveBytes =
+            objectManager.getLog()->maxLiveBytes;
     EXPECT_FALSE(objectManager.flushEntriesToLog(&logBuffer, numEntries));
-    objectManager.getLog()->totalBytesRemaining = original;
+    objectManager.getLog()->totalLiveBytes = original;
 
     // flush all the entries in logBuffer to the log atomically
     EXPECT_TRUE(objectManager.flushEntriesToLog(&logBuffer, numEntries));

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -49,16 +49,13 @@ AbstractLog::AbstractLog(LogEntryHandlers* entryHandlers,
       segmentSize(segmentSize),
       head(NULL),
       appendLock("AbstractLog::appendLock"),
-      totalBytesRemaining(0),
+      totalLiveBytes(0),
+      maxLiveBytes(0),
       metrics()
 {
-    // Steve Rumble suggests that the correct percentage of memory we allow to
-    // be used for live data is 98%, but we are being more conservative because
-    // we expect performance to degrade at even lower utlizations.
-    SegletAllocator& alloc = segmentManager->getAllocator();
-    totalBytesRemaining = static_cast<uint64_t>(alloc.getSegletSize() *
-            static_cast<double>(alloc.getFreeCount(SegletAllocator::DEFAULT)) *
-            0.95);
+    // This is a placeholder value; the real value will get computed
+    // shortly by allocNewWritableHead.
+    maxLiveBytes = 10000000;
 }
 
 /**
@@ -199,7 +196,7 @@ AbstractLog::free(Reference reference)
                                            &lengthWithMetadata);
     segment->trackDeadEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ)
-        totalBytesRemaining += lengthWithMetadata;
+        totalLiveBytes -= lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.
 }
 
@@ -272,7 +269,7 @@ AbstractLog::getSegmentId(Reference reference)
  */
 bool
 AbstractLog::hasSpaceFor(uint64_t objectSize) {
-    return objectSize <= totalBytesRemaining;
+    return (totalLiveBytes + objectSize) <= maxLiveBytes;
 }
 /**
  * Check if a segment is still in the system. This method can be used to
@@ -380,7 +377,7 @@ AbstractLog::append(Lock& appendLock,
     // when trying to reclaim memory.
     head->trackNewEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ)
-        totalBytesRemaining -= lengthWithMetadata;
+        totalLiveBytes += lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.
 
     metrics.totalBytesAppended += length;
@@ -468,7 +465,8 @@ AbstractLog::append(Lock& appendLock,
     // when trying to reclaim memory.
     head->trackNewEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ)
-        totalBytesRemaining -= lengthWithMetadata;
+        totalLiveBytes += lengthWithMetadata;
+    //TODO(seojin): handle RpcResult and PreparedOp.
 
     metrics.totalBytesAppended += entryDataLength;
     metrics.totalMetadataBytesAppended +=
@@ -548,6 +546,17 @@ AbstractLog::allocNewWritableHead()
 
     if (metrics.noSpaceTimer)
         metrics.noSpaceTimer.destroy();
+
+    // Recompute maxLiveBytes. We do this here because the value can
+    // change over time due to seglets being removed from the default
+    // pool for other uses. Steve Rumble suggests that the correct
+    // percentage of memory we allow to be used for live data is 98%,
+    // but this code is more conservative because we expect performance
+    // to degrade at even lower utilizations.
+
+    SegletAllocator& alloc = segmentManager->getAllocator();
+    maxLiveBytes = static_cast<uint64_t>(0.95 * alloc.getSegletSize() *
+            static_cast<double>(alloc.getTotalCount(SegletAllocator::DEFAULT)));
 
     return true;
 }
