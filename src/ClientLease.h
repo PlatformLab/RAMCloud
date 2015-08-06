@@ -18,8 +18,8 @@
 
 #include "Common.h"
 #include "CoordinatorClient.h"
-#include "Dispatch.h"
 #include "WireFormat.h"
+#include "WorkerTimer.h"
 
 namespace RAMCloud {
 
@@ -31,15 +31,20 @@ class RamCloud;
  * client state stored on servers (e.g. linearizability data) can be garbage
  * collected when clients fail or become inactive.
  *
- * This class is not thread-safe.
+ * This class is thread-safe (if only to allow lease renewal to happen on a
+ * background worker thread).
  */
-class ClientLease : public Dispatch::Timer {
+class ClientLease : public WorkerTimer {
   public:
     explicit ClientLease(RamCloud* ramcloud);
     WireFormat::ClientLease getLease();
     virtual void handleTimerEvent();
 
   PRIVATE:
+    /// Monitor-style lock
+    SpinLock mutex;
+    typedef std::lock_guard<SpinLock> Lock;
+
     /// Overall client state information.
     RamCloud* ramcloud;
 

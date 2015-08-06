@@ -62,7 +62,7 @@ TEST_F(ClientLeaseTest, getLease_basic) {
     EXPECT_EQ(1U, lease.lease.leaseId);
 }
 
-TEST_F(ClientLeaseTest, getLease_shouldAsyncRenew) {
+TEST_F(ClientLeaseTest, getLease_nonblocking) {
     lease.lastRenewalTimeCycles = 0;
     uint64_t leaseExpiration = 300*1e6;
     uint64_t currentTimeUs = leaseExpiration - RENEW_THRESHOLD_US + 1;
@@ -71,16 +71,19 @@ TEST_F(ClientLeaseTest, getLease_shouldAsyncRenew) {
     Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeUs * 1000);
     WireFormat::ClientLease l = {0, leaseExpiration, 0};
     lease.lease = l;
+    TestLog::setPredicate("getLease");
+    TestLog::reset();
     EXPECT_EQ(0U, l.leaseId);
     EXPECT_EQ(0U, lease.lease.leaseId);
     EXPECT_FALSE(lease.isRunning());
     l = lease.getLease();
     EXPECT_EQ(0U, l.leaseId);
     EXPECT_EQ(0U, lease.lease.leaseId);
-    EXPECT_TRUE(lease.isRunning());
+    EXPECT_EQ("", TestLog::get());
+    EXPECT_FALSE(lease.isRunning());
 }
 
-TEST_F(ClientLeaseTest, getLease_shouldSyncRenew) {
+TEST_F(ClientLeaseTest, getLease_blocking) {
     lease.lastRenewalTimeCycles = 0;
     uint64_t leaseExpiration = 300*1e6;
     uint64_t currentTimeUs = leaseExpiration - DANGER_THRESHOLD_US + 1;
@@ -89,43 +92,47 @@ TEST_F(ClientLeaseTest, getLease_shouldSyncRenew) {
     Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeUs * 1000);
     WireFormat::ClientLease l = {0, leaseExpiration, 0};
     lease.lease = l;
+    TestLog::setPredicate("getLease");
+    TestLog::reset();
     EXPECT_EQ(0U, l.leaseId);
     EXPECT_EQ(0U, lease.lease.leaseId);
     EXPECT_FALSE(lease.isRunning());
     l = lease.getLease();
     EXPECT_EQ(1U, l.leaseId);
     EXPECT_EQ(1U, lease.lease.leaseId);
-    EXPECT_FALSE(lease.isRunning());
+    EXPECT_NE("", TestLog::get());
+    EXPECT_TRUE(lease.isRunning());
 }
 
 TEST_F(ClientLeaseTest, handleTimerEvent) {
-    lease.ramcloud->rpcTracker->nextRpcId = 2;
-    lease.lastRenewalTimeCycles = 0;
-    Cycles::mockTscValue = Cycles::fromNanoseconds(5000);
     EXPECT_EQ(0U, lease.lease.leaseId);
     EXPECT_FALSE(lease.renewLeaseRpc);
+    EXPECT_EQ(0U, lease.triggerTime);
     EXPECT_FALSE(lease.isRunning());
+
     lease.handleTimerEvent();
+
     EXPECT_EQ(0U, lease.lease.leaseId);
     EXPECT_TRUE(lease.renewLeaseRpc);
-    EXPECT_EQ(Cycles::fromNanoseconds(5000), lease.lastRenewalTimeCycles);
-    Cycles::mockTscValue = Cycles::fromNanoseconds(15000);
+    EXPECT_EQ(0U, lease.triggerTime);
     EXPECT_TRUE(lease.isRunning());
     lease.stop();
+    lease.renewLeaseRpc->state = RpcWrapper::RETRY;
+
     lease.handleTimerEvent();
-    EXPECT_EQ(1U, lease.lease.leaseId);
-    EXPECT_FALSE(lease.renewLeaseRpc);
-    EXPECT_EQ(Cycles::fromNanoseconds(5000), lease.lastRenewalTimeCycles);
-    EXPECT_TRUE(lease.isRunning());
-    lease.stop();
-    lease.ramcloud->rpcTracker->firstMissing = 2;
-    lease.handleTimerEvent();
+
+    EXPECT_EQ(0U, lease.lease.leaseId);
     EXPECT_TRUE(lease.renewLeaseRpc);
+    EXPECT_EQ(0U, lease.triggerTime);
     EXPECT_TRUE(lease.isRunning());
     lease.stop();
+
     lease.handleTimerEvent();
+
+    EXPECT_EQ(2U, lease.lease.leaseId);
     EXPECT_FALSE(lease.renewLeaseRpc);
-    EXPECT_FALSE(lease.isRunning());
+    EXPECT_NE(0U, lease.triggerTime);
+    EXPECT_TRUE(lease.isRunning());
 }
 
 } // namespace RAMCloud
