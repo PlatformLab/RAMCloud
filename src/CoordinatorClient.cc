@@ -658,7 +658,7 @@ RecoveryMasterFinishedRpc::wait()
  *      a new lease will be returned.
  */
 WireFormat::ClientLease
-renewLease(Context* context, uint64_t leaseId)
+CoordinatorClient::renewLease(Context* context, uint64_t leaseId)
 {
     RenewLeaseRpc rpc(context, leaseId);
     return rpc.wait();
