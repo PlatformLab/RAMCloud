@@ -4226,11 +4226,6 @@ doWorkload(OpType type)
         }
     }
 
-    // Dump cache traces. This amounts to almost a no-op if there are no
-    // traces, and we do not currently expect traces in production code.
-    cluster->objectServerControl(dataTable, key, keyLen,
-            WireFormat::LOG_TIME_TRACE);
-
     cluster->objectServerControl(dataTable, key, keyLen,
             WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
             &statsBuffer);
@@ -5891,8 +5886,6 @@ workloadThroughput()
             printf("%5d         %8.0f        %8.3f\n", numSlaves, rate/1e03,
                     utilization);
         }
-        cluster->objectServerControl(dataTable, "abc", 3,
-                WireFormat::ControlOp::LOG_TIME_TRACE);
         cluster->dropTable("data");
         sendCommand("done", "done", 1, numClients-1);
     } else {
@@ -6227,8 +6220,10 @@ try
         }
     }
 
-    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
-    cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
+    if (clientIndex == 0) {
+        cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
+        cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
+    }
     cluster->clientContext->timeTrace->printToLog();
 }
 catch (std::exception& e) {
