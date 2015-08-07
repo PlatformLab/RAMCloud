@@ -16,9 +16,9 @@
 #ifndef RAMCLOUD_MOCKEXTERNALSTORAGE_H
 #define RAMCLOUD_MOCKEXTERNALSTORAGE_H
 
+#include <thread>
 #include <string>
 #include <queue>
-#include <thread>
 #include "ExternalStorage.h"
 
 namespace RAMCloud {
