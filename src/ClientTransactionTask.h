@@ -103,6 +103,9 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     };
 
     explicit ClientTransactionTask(RamCloud* ramcloud);
+    ~ClientTransactionTask() {
+        RAMCLOUD_TEST_LOG("Destructor called.");
+    }
 
     CacheEntry* findCacheEntry(Key& key);
     /// Return the transaction commit decision if a decision has been reached.
@@ -193,6 +196,9 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
       PUBLIC:
         explicit Poller(Dispatch* dispatch,
                         std::shared_ptr<ClientTransactionTask>& taskPtr);
+        ~Poller() {
+            RAMCLOUD_TEST_LOG("Destructor called.");
+        }
         virtual int poll();
 
       PRIVATE:
@@ -205,7 +211,11 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         DISALLOW_COPY_AND_ASSIGN(Poller);
     };
     /// Used to delay execution of the task until commit time.
-    Tub<Poller> poller;
+    /// This structure is similar to a Tub but its destructor is not called
+    /// automatically when when the ClientTransactionTask is destructed.  This
+    /// is necessary to avoid a circular call the the poller's destructor.
+    Poller poller[0];
+    char pollerRawMemory[sizeof(Poller)];
 
     void initTask();
     int processDecisionRpcResults();

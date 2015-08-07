@@ -561,16 +561,19 @@ TEST_F(ClientTransactionTaskTest, start) {
     std::shared_ptr<ClientTransactionTask>
             taskPtr(new ClientTransactionTask(ramcloud.get()));
     ClientTransactionTask* task = taskPtr.get();
-    EXPECT_FALSE(task->poller);
+    TestLog::reset();
     ClientTransactionTask::start(taskPtr);
-    EXPECT_TRUE(task->poller);
-    task->poller.destroy();
+    EXPECT_EQ("Poller: Constructor called.", TestLog::get());
+    TestLog::reset();
+    task->poller->~Poller();
+    EXPECT_EQ("~Poller: Destructor called.", TestLog::get());
 }
 
 TEST_F(ClientTransactionTaskTest, Poller_poll) {
-    std::shared_ptr<ClientTransactionTask>
-            taskPtr(new ClientTransactionTask(ramcloud.get()));
-    ClientTransactionTask* task = taskPtr.get();
+    Tub<std::shared_ptr<ClientTransactionTask>>
+            taskPtr;
+    taskPtr.construct(new ClientTransactionTask(ramcloud.get()));
+    ClientTransactionTask* task = taskPtr.get()->get();
     // Give it something to do.
     ClientTransactionTask::CacheEntry* entry;
     Key key1(tableId1, "test1", 5);
@@ -580,19 +583,26 @@ TEST_F(ClientTransactionTaskTest, Poller_poll) {
     entry = task->insertCacheEntry(key2, "hello", 5);
     entry->type = ClientTransactionTask::CacheEntry::WRITE;
 
+    TestLog::Enable _("ClientTransactionTask",
+                      "~ClientTransactionTask",
+                      "Poller",
+                      "~Poller");
+
     EXPECT_FALSE(task->isReady());
     EXPECT_EQ(ClientTransactionTask::INIT, task->state);
-    EXPECT_FALSE(task->poller);
-    ClientTransactionTask::start(taskPtr);
-    EXPECT_TRUE(task->poller);
+    TestLog::reset();
+    ClientTransactionTask::start(*taskPtr.get());
     task->poller->running = true;
+    EXPECT_EQ("Poller: Constructor called.", TestLog::get());
+
+    // Simulate the destruction of the Transaction object before completion.
+    taskPtr.destroy();
 
     // Nothing should happen.
     EXPECT_EQ(0, task->poller->poll());
 
     EXPECT_FALSE(task->isReady());
     EXPECT_EQ(ClientTransactionTask::INIT, task->state);
-    EXPECT_TRUE(task->poller);
     task->poller->running = false;
 
     // Should move to PREPARE
@@ -600,21 +610,23 @@ TEST_F(ClientTransactionTaskTest, Poller_poll) {
 
     EXPECT_FALSE(task->isReady());
     EXPECT_EQ(ClientTransactionTask::PREPARE, task->state);
-    EXPECT_TRUE(task->poller);
 
     // Should move to DECISION
     EXPECT_EQ(1, task->poller->poll());
 
     EXPECT_FALSE(task->isReady());
     EXPECT_EQ(ClientTransactionTask::DECISION, task->state);
-    EXPECT_TRUE(task->poller);
+
+    TestLog::reset();
 
     // Should move to DONE
     EXPECT_EQ(1, task->poller->poll());
 
     EXPECT_TRUE(task->isReady());
     EXPECT_EQ(ClientTransactionTask::DONE, task->state);
-    EXPECT_FALSE(task->poller);
+    EXPECT_EQ("~Poller: Destructor called. | "
+              "~ClientTransactionTask: Destructor called.",
+              TestLog::get());
 }
 
 TEST_F(ClientTransactionTaskTest, initTask) {

@@ -42,7 +42,10 @@ ClientTransactionTask::ClientTransactionTask(RamCloud* ramcloud)
     , commitCache()
     , nextCacheEntry()
     , poller()
+    , pollerRawMemory()
 {
+    memset(poller, 0, sizeof(Poller));
+    RAMCLOUD_TEST_LOG("Constructor called.");
 }
 
 /**
@@ -203,6 +206,9 @@ ClientTransactionTask::performTask()
 /**
  * Schedule a ClientTransactionTask to start executing the commit protocol.
  *
+ * This method should only be called once per ClientTransactionTask object; it
+ * is not safe to call this method more than once on the same object.
+ *
  * \param taskPtr
  *      Shared pointer to the ClientTransactionTask to be run.
  */
@@ -211,10 +217,7 @@ ClientTransactionTask::start(std::shared_ptr<ClientTransactionTask>& taskPtr)
 {
     assert(taskPtr);
     ClientTransactionTask* task = taskPtr.get();
-    if (!task->poller) {
-        task->poller.construct(task->ramcloud->clientContext->dispatch,
-                               taskPtr);
-    }
+    new(task->poller) Poller(task->ramcloud->clientContext->dispatch, taskPtr);
 }
 
 /**
@@ -230,7 +233,9 @@ ClientTransactionTask::Poller::Poller(Dispatch* dispatch,
     : Dispatch::Poller(dispatch, "ClientTransactionTask::Poller")
     , running(false)
     , taskPtr(taskPtr)
-{}
+{
+    RAMCLOUD_TEST_LOG("Constructor called.");
+}
 
 /**
  * Drives the execution of the ClientTransactionTask's rules engine.
@@ -249,7 +254,8 @@ ClientTransactionTask::Poller::poll()
 
         // Destroy poller (self) if task is complete; must be last action.
         if (task->isReady()) {
-            task->poller.destroy();
+            assert(task->poller == this);
+            task->poller->~Poller();
         }
     }
     return foundWork;
