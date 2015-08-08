@@ -329,16 +329,6 @@ IndexLookup::isReady()
     // Return false to getNext() so that it has to wait until this readRpc
     // returns.
 
-    // Rule Hack
-    // For some reason, there appears to be a bug in IndexLookup whereby all
-    // the objects would be returned already, but we'd still go through this
-    // loop ending up here, expecting the status to be SENT. It's true that
-    // numRemoved and numAdded don't match, but after the return, they will..
-    // numRemoved is incremented in the getNext() logic.
-    if (readRpcs[readRpcId].status == FREE) {
-        return true;
-    }
-
     assert(readRpcs[readRpcId].status == SENT);
     return false;
 }
@@ -389,6 +379,7 @@ IndexLookup::getNext()
 
         Buffer& curBuff = readRpcs[curIdx].resp;
         uint32_t& curOffset = readRpcs[curIdx].offset;
+        uint32_t origOffset = curOffset;
 
         uint64_t version = *curBuff.getOffset<uint64_t>(curOffset);
         curOffset += sizeof32(uint64_t);
@@ -400,11 +391,28 @@ IndexLookup::getNext()
         curOffset += length;
 
         if (curObj->getPKHash() != activeHashes[numRemoved & ARRAY_MASK]) {
-            numRemoved++;
+            // If the PKHash does not match, then that should mean that
+            // this output is meant for a later pKHash. Here, we "assert" that
+            if (DEBUG_BUILD) {
+                bool found = false;
+                size_t end = (numAssigned & ARRAY_MASK);
+                for (size_t i = numRemoved; (i & ARRAY_MASK) != end; ++i) {
+                    if (activeHashes[i] == curObj->getPKHash()) {
+                        found = true;
+                        break;
+                    }
+                }
+
+                assert(found);
+            }
+
+            haveObjectToReturn = false;
+            curOffset = origOffset; // Rollback for future consumption.
+        } else {
+           haveObjectToReturn = IndexKey::isKeyInRange(curObj.get(), &keyRange);
         }
 
-        haveObjectToReturn = IndexKey::isKeyInRange(curObj.get(), &keyRange);
-
+        numRemoved++;
     } while (!haveObjectToReturn);
 
     return true;
