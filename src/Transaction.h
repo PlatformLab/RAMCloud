@@ -71,6 +71,7 @@ class Transaction {
       public:
         ReadOp(Transaction* transaction, uint64_t tableId, const void* key,
                 uint16_t keyLength, Buffer* value);
+        bool isReady();
         void wait();
 
       PRIVATE:

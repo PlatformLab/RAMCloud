@@ -246,6 +246,21 @@ Transaction::ReadOp::ReadOp(Transaction* transaction, uint64_t tableId,
 }
 
 /**
+ * Indicates whether a response has been received for this ReadOp and thus
+ * whether #wait will not block.  Used for asynchronous processing of RPCs.
+ * Checking that an ReadOp isReady does not include the operation in the
+ * transaction (see #wait).
+ *
+ * \return
+ *      True if ReadOp #wait will not block; false otherwise.
+ */
+bool
+Transaction::ReadOp::isReady()
+{
+    return (!rpc || rpc->isReady());
+}
+
+/**
  * Wait for the operation to complete.  The operation is not part of the
  * transaction until wait is called (e.g. if commit is called before wait,
  * this operation will not be included).  Behavior when calling wait more than

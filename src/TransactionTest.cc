@@ -405,6 +405,27 @@ TEST_F(TransactionTest, ReadOp_constructor_cached) {
     EXPECT_FALSE(readOp.rpc);
 }
 
+TEST_F(TransactionTest, ReadOp_isReady) {
+    Key key(tableId1, "0", 1);
+
+    Buffer value;
+    Transaction::ReadOp readOp(transaction.get(), tableId1, "0", 1, &value);
+    EXPECT_TRUE(readOp.rpc);
+    EXPECT_TRUE(readOp.rpc->isReady());
+    EXPECT_TRUE(readOp.isReady());
+
+    readOp.rpc->state = RpcWrapper::IN_PROGRESS;
+
+    EXPECT_TRUE(readOp.rpc);
+    EXPECT_FALSE(readOp.rpc->isReady());
+    EXPECT_FALSE(readOp.isReady());
+
+    readOp.rpc.destroy();
+
+    EXPECT_FALSE(readOp.rpc);
+    EXPECT_TRUE(readOp.isReady());
+}
+
 TEST_F(TransactionTest, ReadOp_wait_async) {
     uint32_t dataLength = 0;
     const char* str;
