@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,21 +30,21 @@ class ThreadIdTest : public ::testing::Test {
 
 // Helper function that runs in a separate thread.  It reads its id and
 // saves it in the variable pointed to by its argument.
-static void readThreadId(uint64_t* p) {
+static void readThreadId(int* p) {
     *p = ThreadId::get();
 }
 
 TEST_F(ThreadIdTest, basics) {
-    uint64_t value;
-    EXPECT_EQ(1U, ThreadId::get());
-    EXPECT_EQ(1U, ThreadId::get());
-    EXPECT_EQ(1U, ThreadId::assign());
+    int value;
+    EXPECT_EQ(1, ThreadId::get());
+    EXPECT_EQ(1, ThreadId::get());
+    EXPECT_EQ(1, ThreadId::assign());
     std::thread thread1(readThreadId, &value);
     thread1.join();
-    EXPECT_EQ(2U, value);
+    EXPECT_EQ(2, value);
     std::thread thread2(readThreadId, &value);
     thread2.join();
-    EXPECT_EQ(3U, value);
+    EXPECT_EQ(3, value);
 }
 
 } // namespace RAMCloud

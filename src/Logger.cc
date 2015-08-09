@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -387,7 +387,7 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
     // Compute the body of the log message except for the initial timestamp
     // (i.e. process the original format string, and add location/process/thread
     // info).
-    message = format("%s:%d in %s %s %s[%d:%lu]: ",
+    message = format("%s:%d in %s %s %s[%d:%d]: ",
             where.relativeFile().c_str(), where.line,
             where.qualifiedFunction().c_str(), logModuleNames[module],
             logLevelNames[level], pid, ThreadId::get());
@@ -453,7 +453,7 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
     if (elapsedMs > 10) {
         struct timespec now;
         clock_gettime(CLOCK_REALTIME, &now);
-        printMessage(now, format("%s:%d in %s default ERROR[%d:%lu]: "
+        printMessage(now, format("%s:%d in %s default ERROR[%d:%d]: "
                 "Logger got stuck for %.1f ms, which could hang server\n",
                 HERE.relativeFile().c_str(), HERE.line,
                 HERE.qualifiedFunction().c_str(), getpid(), ThreadId::get(),
@@ -586,7 +586,7 @@ Logger::assertionError(const char *assertion, const char *file,
     // Compute the body of the log message except for the initial timestamp
     char buffer[strlen(assertion) + 500];
     snprintf(buffer, sizeof(buffer),
-            "%s:%d in %s %s %s[%d:%lu]: Assertion `%s' failed.\n",
+            "%s:%d in %s %s %s[%d:%d]: Assertion `%s' failed.\n",
             file, line, function,
             logModuleNames[RAMCLOUD_CURRENT_LOG_MODULE],
             logLevelNames[ERROR], getpid(), ThreadId::get(), assertion);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -295,7 +295,7 @@ class Dispatch {
 
     // Unique identifier (as returned by ThreadId::get) for the thread that
     // created this object.
-    uint64_t ownerId;
+    int ownerId;
 
     // Used to make sure that only one thread at a time attempts to lock
     // the dispatcher.

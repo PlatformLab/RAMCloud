@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,13 +35,13 @@ namespace RAMCloud {
  */
 class ThreadId {
   public:
-    static uint64_t get();
+    static int get();
 
   PRIVATE:
     explicit ThreadId();
-    static uint64_t assign();
-    static __thread uint64_t id;
-    static uint64_t highestId;
+    static int assign();
+    static __thread int id;
+    static int highestId;
     static std::mutex mutex;
 
     DISALLOW_COPY_AND_ASSIGN(ThreadId);
