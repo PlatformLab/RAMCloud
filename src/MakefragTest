@@ -155,6 +155,7 @@ TESTS_SRCFILES := \
 		  src/TestUtilTest.cc \
 		  src/ThreadIdTest.cc \
 		  src/TimeTraceTest.cc \
+		  src/TimeTraceUtilTest.cc \
 		  src/TransactionTest.cc \
 		  src/TransportManagerTest.cc \
 		  src/TransportTest.cc \
