@@ -500,6 +500,8 @@ def readDist(name, options, cluster_args, client_args):
     print_cdf_from_log()
 
 def readDistRandom(name, options, cluster_args, client_args):
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '-t 1000'
     cluster.run(client='%s/ClusterPerf %s %s' %
             (obj_path,  flatten_args(client_args), name),
             **cluster_args)
@@ -677,7 +679,8 @@ if __name__ == '__main__':
             help='Number of times to perform the operation')
     parser.add_option('--disjunct', action='store_true', default=False,
             metavar='True/False',
-            help='Disjunct (not colocate) entities on a server')
+            help='Do not colocate clients on a node (servers are never '
+                  'colocated, regardless of this option)')
     parser.add_option('--debug', action='store_true', default=False,
             help='Pause after starting servers but before running '
                  'clients to enable debugging setup')
@@ -772,7 +775,8 @@ if __name__ == '__main__':
     finally:
         logInfo = log.scan("%s/latest" % (options.log_dir),
                 ["WARNING", "ERROR"],
-                ["starting new cluster from scratch",
+                ["Long gap in dispatcher",
+                 "starting new cluster from scratch",
                  "Ping timeout to server"])
         if len(logInfo) > 0:
             print(logInfo, file=sys.stderr)
