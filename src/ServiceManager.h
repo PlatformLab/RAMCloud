@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -22,6 +22,9 @@
 #include "Service.h"
 #include "Transport.h"
 #include "WireFormat.h"
+#include "ThreadId.h"
+#include "TimeTrace.h"
+#include "PerfStats.h"
 
 namespace RAMCloud {
 
@@ -131,6 +134,9 @@ class Worker {
                                        /// executed by this worker.
     Tub<std::thread> thread;           /// Thread that executes this worker.
   public:
+    int threadId;                      /// Identifier for this thread, assigned
+                                       /// by the ThreadId class.
+    WireFormat::Opcode opcode;         /// Opcode value from most recent RPC.
     Transport::ServerRpc* rpc;         /// RPC being serviced by this worker.
                                        /// NULL means the last RPC given to
                                        /// the worker has been finished and a
@@ -178,9 +184,16 @@ class Worker {
                                        /// running.
 
     explicit Worker(Context* context)
-        : context(context), serviceInfo(NULL), thread(), rpc(NULL),
-          busyIndex(-1), state(POLLING), exited(false),
-          threadWork(&ReadThreadingCost_MetricSet::threadWork, false)
+            : context(context)
+            , serviceInfo(NULL)
+            , thread()
+            , threadId(ThreadId::get())
+            , opcode(WireFormat::Opcode::ILLEGAL_RPC_TYPE)
+            , rpc(NULL)
+            , busyIndex(-1)
+            , state(POLLING)
+            , exited(false),
+            threadWork(&ReadThreadingCost_MetricSet::threadWork, false)
         {}
     void exit();
     void handoff(Transport::ServerRpc* rpc);

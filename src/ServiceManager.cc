@@ -25,6 +25,7 @@
 #include "ServerRpcPool.h"
 #include "ServiceManager.h"
 #include "TimeTrace.h"
+#include "TimeTraceUtil.h"
 #include "WireFormat.h"
 #include "PerfCounter.h"
 
@@ -35,6 +36,10 @@
 // gaps that prevent servers from responding to pings quickly enough to prevent
 // eviction from the cluster.
 // #define LOG_RPCS 1
+
+// Uncomment following line (or specifying -D SMTT on the make command line)
+// to enable a bunch of time tracing in this module.
+// #define SMTT 1
 
 namespace RAMCloud {
 
@@ -177,6 +182,11 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     // See if we have exceeded the concurrency limit for the service.
     if (serviceInfo->requestsRunning >= serviceInfo->maxThreads) {
         serviceInfo->waitingRpcs.push(rpc);
+#ifdef SMTT
+        context->timeTrace->record(TimeTraceUtil::queueLengthMsg(
+                WireFormat::ServiceType(header->service),
+                serviceInfo->waitingRpcs.size()));
+#endif
         return;
     }
     // Temporary code to test how much faster things would be without threads.
@@ -197,6 +207,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
     Worker* worker = idleThreads.back();
     idleThreads.pop_back();
     worker->serviceInfo = serviceInfo;
+    worker->opcode = WireFormat::Opcode(header->opcode);
     worker->handoff(rpc);
     worker->busyIndex = downCast<int>(busyThreads.size());
     busyThreads.push_back(worker);
@@ -256,11 +267,17 @@ ServiceManager::poll()
         if (rpc != NULL) {
 #ifdef LOG_RPCS
             LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
-                    WireFormat::opcodeSymbol(&worker->rpc->requestPayload),
-                    reinterpret_cast<uint64_t>(worker->rpc),
-                    worker->rpc->replyPayload.size());
+                    WireFormat::opcodeSymbol(&rpc->requestPayload),
+                    reinterpret_cast<uint64_t>(rpc),
+                    rpc->replyPayload.size());
 #endif
             rpc->sendReply();
+#ifdef SMTT
+            context->timeTrace->record(
+                    TimeTraceUtil::statusMsg(worker->threadId,
+                    worker->opcode, TimeTraceUtil::RequestStatus::REPLY_SENT));
+#endif
+
         }
 
         // If the worker is idle, remove it from busyThreads (fill its
@@ -335,6 +352,13 @@ ServiceManager::workerMain(Worker* worker)
             // Wait for ServiceManager to supply us with some work to do.
             while (worker->state.load() != Worker::WORKING) {
                 if (lastIdle >= stopPollingTime) {
+#ifdef SMTT
+                    worker->context->timeTrace->record(
+                            TimeTraceUtil::statusMsg(worker->threadId,
+                            worker->opcode,
+                            TimeTraceUtil::RequestStatus::WORKER_SLEEP));
+#endif
+
                     // It's been a long time since we've had any work to do; go
                     // to sleep so we don't waste any more CPU cycles.  Tricky
                     // race condition: the dispatch thread could change the
@@ -364,12 +388,25 @@ ServiceManager::workerMain(Worker* worker)
             if (worker->rpc == WORKER_EXIT)
                 break;
 
+#ifdef SMTT
+            worker->context->timeTrace->record(
+                    TimeTraceUtil::statusMsg(worker->threadId,
+                    worker->opcode,
+                    TimeTraceUtil::RequestStatus::WORKER_START));
+#endif
+
             Service::Rpc rpc(worker, &worker->rpc->requestPayload,
                     &worker->rpc->replyPayload);
             worker->serviceInfo->service.handleRpc(&rpc);
 
             // Pass the RPC back to ServiceManager for completion.
             Fence::leave();
+#ifdef SMTT
+            worker->context->timeTrace->record(
+                    TimeTraceUtil::statusMsg(worker->threadId,
+                    worker->opcode,
+                    TimeTraceUtil::RequestStatus::WORKER_DONE));
+#endif
             worker->state.store(Worker::POLLING);
 
             // Update performance statistics.
@@ -425,7 +462,8 @@ Worker::exit()
  *
  * \param newRpc
  *      RPC object containing a fully-formed request that is ready for
- *      service.
+ *      service. May have special distinguished value WORKER_EXIT, which
+ *      indicates that the worker thread should exit.
  */
 void
 Worker::handoff(Transport::ServerRpc* newRpc)
@@ -433,6 +471,13 @@ Worker::handoff(Transport::ServerRpc* newRpc)
     assert(rpc == NULL);
     rpc = newRpc;
     Fence::leave();
+#ifdef SMTT
+    if (rpc != WORKER_EXIT) {
+        context->timeTrace->record(
+                TimeTraceUtil::statusMsg(threadId,
+                opcode, TimeTraceUtil::RequestStatus::HANDOFF));
+    }
+#endif
     int prevState = state.exchange(WORKING);
     if (prevState == SLEEPING) {
         // The worker got tired of polling and went to sleep, so we
@@ -459,6 +504,11 @@ Worker::sendReply()
 {
     Fence::leave();
     state.store(POSTPROCESSING);
+#ifdef SMTTXX
+    context->timeTrace->record(
+            TimeTraceUtil::statusMsg(threadId,
+            opcode, TimeTraceUtil::RequestStatus::POST_PROCESSING));
+#endif
 }
 
 } // namespace RAMCloud
