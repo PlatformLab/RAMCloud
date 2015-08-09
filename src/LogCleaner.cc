@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -705,10 +705,16 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
     }
 
     // Ensure that the survivors have been synced to backups before proceeding.
+    double survivorMb = static_cast<double>(totalEntryBytesAppended);
+    survivorMb /= 1e06;
+    uint64_t start = Cycles::rdtsc();
     foreach (survivor, outSurvivors) {
         CycleCounter<uint64_t> __(&localMetrics->survivorSyncTicks);
         survivor->replicatedSegment->sync(survivor->getAppendedLength());
     }
+    double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
+    LOG(NOTICE, "Cleaner finished syncing survivor segments: %.1f ms, "
+            "%.1f MB/sec", elapsed*1e03, survivorMb/elapsed);
 
     return totalEntryBytesAppended;
 }
