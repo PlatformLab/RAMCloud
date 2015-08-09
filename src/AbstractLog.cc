@@ -260,16 +260,25 @@ AbstractLog::getSegmentId(Reference reference)
 }
 
 /**
- * Given a size of a new live object, check whether we have enough space to put
- * it into the log without risking being unable to clean.
-
+ * Given the size of a new live object, check whether we have enough
+ * space to put it into the log without risking being unable to clean.
+ * A false reply means some existing objects must be deleted before
+ * any new objects can be created (i.e., the current problem can't be
+ * fixed by the cleaner). If false is returned, a log message is
+ * generated.
+ *
  * \param objectSize
  *       The total amount of log space that will be consumed by the object and
  *       its metadata
  */
 bool
 AbstractLog::hasSpaceFor(uint64_t objectSize) {
-    return (totalLiveBytes + objectSize) <= maxLiveBytes;
+    if ((totalLiveBytes + objectSize) <= maxLiveBytes) {
+        return true;
+    }
+    RAMCLOUD_CLOG(WARNING, "Memory capacity exceeded; must delete objects "
+            "before any more new objects can be created");
+    return false;
 }
 /**
  * Check if a segment is still in the system. This method can be used to
@@ -541,6 +550,8 @@ AbstractLog::allocNewWritableHead()
     if (newHead == NULL || head->isEmergencyHead) {
         if (!metrics.noSpaceTimer)
             metrics.noSpaceTimer.construct(&metrics.totalNoSpaceTicks);
+        RAMCLOUD_CLOG(NOTICE, "No clean segments available; deferring "
+                "operations until cleaner runs");
         return false;
     }
 

@@ -234,9 +234,13 @@ TEST_F(AbstractLogTest, getSegmentId) {
 }
 
 TEST_F(AbstractLogTest, hasSpaceFor) {
+    TestLog::Enable _;
     uint64_t original = l.maxLiveBytes - l.totalLiveBytes;
     EXPECT_TRUE(l.hasSpaceFor(original));
     EXPECT_FALSE(l.hasSpaceFor(original + 1));
+    EXPECT_EQ("hasSpaceFor: Memory capacity exceeded; must delete objects "
+            "before any more new objects can be created",
+            TestLog::get());
 }
 
 TEST_F(AbstractLogTest, segmentExists) {
@@ -291,6 +295,7 @@ class MockLog : public AbstractLog {
 };
 
 TEST_F(AbstractLogTest, allocNewWritableHead) {
+    TestLog::Enable _;
     MockLog ml(&l);
 
     ml.head = reinterpret_cast<LogSegment*>(0xdeadbeef);
@@ -298,6 +303,8 @@ TEST_F(AbstractLogTest, allocNewWritableHead) {
     EXPECT_FALSE(ml.allocNewWritableHead());
     EXPECT_EQ(reinterpret_cast<LogSegment*>(0xdeadbeef), ml.head);
     EXPECT_TRUE(ml.metrics.noSpaceTimer);
+    EXPECT_EQ("allocNewWritableHead: No clean segments available; deferring "
+            "operations until cleaner runs", TestLog::get());
 
     ml.returnSegment = true;
     EXPECT_TRUE(ml.allocNewWritableHead());
@@ -310,9 +317,6 @@ TEST_F(AbstractLogTest, allocNewWritableHead) {
     EXPECT_FALSE(ml.allocNewWritableHead());
     EXPECT_EQ(&ml.segment, ml.head);
     EXPECT_TRUE(ml.metrics.noSpaceTimer);
-
-    // Ensure mustNotFail was false in allocNextSegment()
-    EXPECT_EQ("", TestLog::get());
 }
 
 } // namespace RAMCloud

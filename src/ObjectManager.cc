@@ -426,8 +426,7 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
     // number, and remove from the hash table.
     if (!log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer)) {
         // The log is out of space. Tell the client to retry and hope
-        // that either the cleaner makes space soon or we shift load
-        // off of this server.
+        // that the cleaner makes space soon.
         return STATUS_RETRY;
     }
 
@@ -1202,9 +1201,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     // Note: only check for enough space for the object (tombstones
     // don't get included in the limit, since they can be cleaned).
     if (!log.hasSpaceFor(appends[0].buffer.size())) {
-        // We must bound the amount of live data to ensure deletes are possible
-        RAMCLOUD_CLOG(NOTICE, "Log is out of space, rejecting object write!");
-        throw RetryException(HERE, 1000, 2000, "Log is out of space!");
+        throw RetryException(HERE, 1000, 2000, "Memory capacity exceeded");
     }
 
     if (tombstone) {
@@ -1223,9 +1220,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
 
     if (!log.append(appends, (tombstone ? 2 : 1) + (rpcResult ? 1 : 0))) {
         // The log is out of space. Tell the client to retry and hope
-        // that either the cleaner makes space soon or we shift load
-        // off of this server.
-        RAMCLOUD_CLOG(NOTICE, "Retrying write to wait for cleaner");
+        // that the cleaner makes space soon.
         throw RetryException(HERE, 1000, 2000, "Must wait for cleaner");
     }
 
@@ -1296,8 +1291,6 @@ ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
     av.type = LOG_ENTRY_TYPE_RPCRESULT;
 
     if (!log.hasSpaceFor(av.buffer.size()) || !log.append(&av, 1)) {
-        RAMCLOUD_CLOG(NOTICE,
-                "Log is out of space for TX ABORT-VOTE. Asking for retry.");
         throw RetryException(HERE, 1000, 2000,
                 "Log is out of space! Transaction abort-vote wasn't logged.");
         //TODO(seojin): Possible safety violation. Abort-vote is not written.
@@ -1380,7 +1373,8 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
 
     // If the key is already locked, abort.
     if (lockTable.isLockAcquired(key)) {
-        RAMCLOUD_LOG(DEBUG, "TxPrepare fail. Key: %.*s, object is already lock",
+        RAMCLOUD_LOG(DEBUG,
+                "TxPrepare fail. Key: %.*s, object is already locked",
                 keyLength, reinterpret_cast<const char*>(keyString));
         writePrepareFail(rpcResult, rpcResultPtr);
         return STATUS_OK;
@@ -1442,9 +1436,6 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     if (!log.hasSpaceFor(appends[0].buffer.size() + appends[1].buffer.size())) {
         // We must bound the amount of live data to ensure deletes are possible
         writePrepareFail(rpcResult, rpcResultPtr);
-
-        RAMCLOUD_CLOG(NOTICE, "Log is out of space, aborting transaction!");
-        //throw RetryException(HERE, 1000, 2000, "Log is out of space!");
         return STATUS_OK;
     }
 
@@ -1554,9 +1545,6 @@ ObjectManager::writeTxDecisionRecord(TxDecisionRecord& record)
     record.assembleForLog(recordBuffer);
 
     if (!log.append(LOG_ENTRY_TYPE_TXDECISION, recordBuffer)) {
-        RAMCLOUD_CLOG(NOTICE,
-                      "Log is out of space, "
-                      "rejecting write of transaction decision record!");
         return STATUS_RETRY;
     }
 
@@ -1813,8 +1801,6 @@ ObjectManager::commitWrite(PreparedOp& op,
 
     if (!log.hasSpaceFor(appends[1].buffer.size())) {
         // We must bound the amount of live data to ensure deletes are possible
-        RAMCLOUD_CLOG(NOTICE, "Log is out of space, rejecting committing"
-                              " prepared write during transaction!");
         throw RetryException(HERE, 1000, 2000, "Log is out of space!");
     }
 
