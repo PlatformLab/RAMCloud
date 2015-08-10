@@ -17,6 +17,7 @@
 #include "ClientTransactionTask.h"
 #include "MockCluster.h"
 #include "Transaction.h"
+#include "MultiOp.h"
 
 namespace RAMCloud {
 
@@ -389,9 +390,22 @@ TEST_F(TransactionTest, ReadOp_constructor_noCache) {
     Key key(tableId1, "0", 1);
     EXPECT_TRUE(task->findCacheEntry(key) == NULL);
 
-    Buffer value;
-    Transaction::ReadOp readOp(transaction.get(), tableId1, "0", 1, &value);
-    EXPECT_TRUE(readOp.rpc);
+    {   // Single Op
+        Buffer value;
+        Transaction::ReadOp readOp(transaction.get(), tableId1, "0", 1, &value);
+        EXPECT_TRUE(readOp.singleRequest->readRpc);
+        EXPECT_FALSE(readOp.batchedRequest);
+    }
+
+    {   // Batched Op
+        Buffer value;
+        Transaction::ReadOp
+                readOp(transaction.get(), tableId1, "0", 1, &value, true);
+        EXPECT_FALSE(readOp.singleRequest);
+        EXPECT_TRUE(readOp.batchedRequest->readBatchPtr);
+        EXPECT_EQ(1U,
+                  readOp.batchedRequest->readBatchPtr->requests.size());
+    }
 }
 
 TEST_F(TransactionTest, ReadOp_constructor_cached) {
@@ -400,30 +414,84 @@ TEST_F(TransactionTest, ReadOp_constructor_cached) {
 
     transaction->write(1, "test", 4, "hello", 5);
 
-    Buffer value;
-    Transaction::ReadOp readOp(transaction.get(), 1, "test", 4, &value);
-    EXPECT_FALSE(readOp.rpc);
+    {   // Single Op
+        Buffer value;
+        Transaction::ReadOp readOp(transaction.get(), 1, "test", 4, &value);
+        EXPECT_FALSE(readOp.singleRequest->readRpc);
+        EXPECT_FALSE(readOp.batchedRequest);
+    }
+
+    {   // Batched Op
+        Buffer value;
+        Transaction::ReadOp
+                readOp(transaction.get(), 1, "test", 4, &value, true);
+        EXPECT_FALSE(readOp.singleRequest);
+        EXPECT_FALSE(readOp.batchedRequest->readBatchPtr);
+    }
 }
 
-TEST_F(TransactionTest, ReadOp_isReady) {
-    Key key(tableId1, "0", 1);
-
+TEST_F(TransactionTest, ReadOp_isReady_single) {
     Buffer value;
     Transaction::ReadOp readOp(transaction.get(), tableId1, "0", 1, &value);
-    EXPECT_TRUE(readOp.rpc);
-    EXPECT_TRUE(readOp.rpc->isReady());
+    EXPECT_TRUE(readOp.singleRequest->readRpc);
+    EXPECT_TRUE(readOp.singleRequest->readRpc->isReady());
     EXPECT_TRUE(readOp.isReady());
 
-    readOp.rpc->state = RpcWrapper::IN_PROGRESS;
+    readOp.singleRequest->readRpc->state = RpcWrapper::IN_PROGRESS;
 
-    EXPECT_TRUE(readOp.rpc);
-    EXPECT_FALSE(readOp.rpc->isReady());
+    EXPECT_TRUE(readOp.singleRequest->readRpc);
+    EXPECT_FALSE(readOp.singleRequest->readRpc->isReady());
     EXPECT_FALSE(readOp.isReady());
 
-    readOp.rpc.destroy();
+    readOp.singleRequest->readRpc.destroy();
 
-    EXPECT_FALSE(readOp.rpc);
+    EXPECT_FALSE(readOp.singleRequest->readRpc);
     EXPECT_TRUE(readOp.isReady());
+}
+
+TEST_F(TransactionTest, ReadOp_isReady_batched) {
+    Buffer value;
+    Transaction::ReadOp
+            readOp(transaction.get(), tableId1, "0", 1, &value, true);
+
+    // Filler requests to delay progress.
+    Transaction::ReadOp
+            temp1(transaction.get(), tableId2, "0", 1, &value, true);
+    Transaction::ReadOp
+            temp2(transaction.get(), tableId3, "0", 1, &value, true);
+    Transaction::ReadOp
+            temp3(transaction.get(), tableId3, "0", 1, &value, true);
+    Transaction::ReadOp
+            temp4(transaction.get(), tableId3, "0", 1, &value, true);
+    Transaction::ReadOp
+            temp5(transaction.get(), tableId3, "0", 1, &value, true);
+    Transaction::ReadOp
+            temp6(transaction.get(), tableId3, "0", 1, &value, true);
+    Transaction::ReadOp
+            temp7(transaction.get(), tableId3, "0", 1, &value, true);
+    Transaction::ReadOp
+            temp8(transaction.get(), tableId3, "0", 1, &value, true);
+
+    EXPECT_TRUE(transaction->nextReadBatchPtr);
+    EXPECT_TRUE(readOp.batchedRequest->readBatchPtr
+                == transaction->nextReadBatchPtr);
+    EXPECT_FALSE(readOp.batchedRequest->readBatchPtr->rpc);
+    EXPECT_EQ(9U,
+              readOp.batchedRequest->readBatchPtr->requests.size());
+
+    EXPECT_FALSE(readOp.isReady());     // rpc has not been issued.
+
+    EXPECT_TRUE(readOp.batchedRequest->readBatchPtr->rpc);
+    EXPECT_FALSE(transaction->nextReadBatchPtr);
+
+    EXPECT_FALSE(readOp.isReady());     // rpc should be in progress
+
+    EXPECT_TRUE(readOp.isReady());      // rpc is complete
+
+    readOp.batchedRequest->readBatchPtr.reset();
+    EXPECT_FALSE(readOp.batchedRequest->readBatchPtr);
+
+    EXPECT_TRUE(readOp.isReady());      // Mock no rpc sent implies cached.
 }
 
 TEST_F(TransactionTest, ReadOp_wait_async) {
@@ -438,7 +506,7 @@ TEST_F(TransactionTest, ReadOp_wait_async) {
 
     Buffer value;
     Transaction::ReadOp readOp(transaction.get(), tableId1, "0", 1, &value);
-    EXPECT_TRUE(readOp.rpc);
+    EXPECT_TRUE(readOp.singleRequest->readRpc);
 
     transaction->write(tableId1, "0", 1, "hello", 5);
 
@@ -457,6 +525,65 @@ TEST_F(TransactionTest, ReadOp_wait_async) {
     EXPECT_EQ("hello", string(str, dataLength));
 }
 
+TEST_F(TransactionTest, ReadOp_wait_batch_basic) {
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    Key key(tableId1, "0", 1);
+    EXPECT_TRUE(task->findCacheEntry(key) == NULL);
+
+    Buffer value;
+    Transaction::ReadOp
+            readOp(transaction.get(), tableId1, "0", 1, &value, true);
+    readOp.wait();
+
+    EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
+                        value.getRange(0, value.size())),
+                        value.size()));
+
+    ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(key);
+    EXPECT_TRUE(entry != NULL);
+    uint32_t dataLength = 0;
+    const char* str;
+    str = reinterpret_cast<const char*>(
+            entry->objectBuf->getValue(&dataLength));
+    EXPECT_EQ("abcdef", string(str, dataLength));
+    EXPECT_EQ(ClientTransactionTask::CacheEntry::READ, entry->type);
+    EXPECT_EQ(3U, entry->rejectRules.givenVersion);
+}
+
+TEST_F(TransactionTest, ReadOp_wait_batch_noObject) {
+    Key key(tableId1, "0", 1);
+    EXPECT_TRUE(task->findCacheEntry(key) == NULL);
+
+    Buffer value;
+    Transaction::ReadOp
+            readOp(transaction.get(), tableId1, "0", 1, &value, true);
+    EXPECT_THROW(readOp.wait(),
+                 ObjectDoesntExistException);
+
+    ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(key);
+    EXPECT_TRUE(entry != NULL);
+    uint32_t dataLength = 0;
+    entry->objectBuf->getValue(&dataLength);
+    EXPECT_EQ(0U, dataLength);
+    EXPECT_EQ(ClientTransactionTask::CacheEntry::READ, entry->type);
+    EXPECT_TRUE(entry->rejectRules.exists);
+
+    EXPECT_THROW(transaction->read(tableId1, "0", 1, &value),
+                 ObjectDoesntExistException);
+}
+
+TEST_F(TransactionTest, ReadOp_wait_batch_unexpectedStatus) {
+    Buffer value;
+    Transaction::ReadOp
+            readOp(transaction.get(), tableId1, "0", 1, &value, true);
+    EXPECT_TRUE(readOp.isReady());
+    readOp.batchedRequest->request.status = STATUS_INTERNAL_ERROR;
+    EXPECT_THROW(readOp.wait(), InternalError);
+}
+
 TEST_F(TransactionTest, ReadOp_wait_afterCommit) {
     // Makes sure that the point of the read is when wait is called.
     ramcloud->write(tableId1, "0", 1, "abcdef", 6);
@@ -466,7 +593,7 @@ TEST_F(TransactionTest, ReadOp_wait_afterCommit) {
 
     Buffer value;
     Transaction::ReadOp readOp(transaction.get(), tableId1, "0", 1, &value);
-    EXPECT_TRUE(readOp.rpc);
+    EXPECT_TRUE(readOp.singleRequest->readRpc);
 
     transaction->commit();
 
