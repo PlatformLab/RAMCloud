@@ -47,13 +47,14 @@ WallTime::secondsTimestamp()
     // In testing, it is possible that some other Unit test sets mockTscValue
     // which can cause Cycles::rdtsc() to return very different value from
     // baseTsc. This can cause assertion failure from downCast<uint32_t> below.
-    baseTime = 0;
-    baseTsc = 0;
+    uint64_t cycle = Cycles::rdtsc_ignoreMockTsc();
+#else
+    uint64_t cycle = Cycles::rdtsc();
 #endif
 
     if (baseTime == 0) {
         baseTime = time(NULL);
-        baseTsc = Cycles::rdtsc();
+        baseTsc = cycle;
 
         if (baseTime == -1) {
             fprintf(stderr, "ERROR: The time(3) syscall failed!!");
@@ -69,7 +70,7 @@ WallTime::secondsTimestamp()
 
     // calculate seconds offset. be careful to round up.
     uint32_t tscSecondsOffset = downCast<uint32_t>(Cycles::toNanoseconds(
-        Cycles::rdtsc() - baseTsc + 500000000) / 1000000000U);
+        cycle - baseTsc + 500000000) / 1000000000U);
 
     return downCast<uint32_t>(baseTime) - RAMCLOUD_UNIX_OFFSET +
         tscSecondsOffset;

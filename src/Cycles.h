@@ -46,6 +46,21 @@ class Cycles {
         return (((uint64_t)hi << 32) | lo);
     }
 
+#if TESTING
+    /**
+     * Return the current value of the fine-grain CPU cycle counter.
+     * This function ignores mockTscValue set by test code.
+     */
+    static __inline __attribute__((always_inline))
+    uint64_t
+    rdtsc_ignoreMockTsc()
+    {
+        uint32_t lo, hi;
+        __asm__ __volatile__("rdtsc" : "=a" (lo), "=d" (hi));
+        return (((uint64_t)hi << 32) | lo);
+    }
+#endif
+
     static double perSecond();
     static double toSeconds(uint64_t cycles, double cyclesPerSec = 0);
     static uint64_t fromSeconds(double seconds, double cyclesPerSec = 0);
