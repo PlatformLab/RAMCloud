@@ -111,6 +111,49 @@ ClientTransactionTask::insertCacheEntry(Key& key, const void* buf,
 }
 
 /**
+ * Inserts a new cache entry with the provided keys and value.  Other members
+ * of the cache entry are left to their default values.  This method must not
+ * be called once the transaction has started committing.
+ *
+ * \param pKey
+ *      Key of the object to inserted into the cache.
+ * \param numKeys
+ *      Number of keys in the object.  If is not >= 1, then behavior
+ *      is undefined. A value of 1 indicates the presence of only the
+ *      primary key
+ * \param keyList
+ *      List of keys and corresponding key lengths. The first entry should
+ *      correspond to the primary key and its length. If this argument is
+ *      NULL, then behavior is undefined. RamCloud currently uses a dense
+ *      representation of key lengths. If a client does not want to write
+ *      key_i in an object, keyList[i]->key should be NULL. The library also
+ *      expects that if keyList[j]->key is NOT NULL and keyList[j]->keyLength
+ *      is 0, then key string is NULL terminated and the length is computed.
+ * \param buf
+ *      Address of the first byte of the new contents for the object;
+ *      must contain at least length bytes.
+ * \param length
+ *      Size in bytes of the new contents for the object.
+ * \return
+ *      Returns a pointer to the inserted cache entry.  Pointer is invalid
+ *      once the commitCache is modified.
+ */
+ClientTransactionTask::CacheEntry*
+ClientTransactionTask::insertCacheEntry(Key& pKey, uint8_t numKeys,
+                                        KeyInfo* keyList, const void* buf,
+                                        uint32_t length)
+{
+    CacheKey cacheKey = {pKey.getTableId(), pKey.getHash()};
+    CommitCacheMap::iterator it = commitCache.insert(
+            std::make_pair(cacheKey, CacheEntry()));
+    it->second.objectBuf = new ObjectBuffer();
+    Object::appendKeysAndValueToBuffer(
+            pKey.getTableId(), numKeys, keyList, buf, length,
+            it->second.objectBuf);
+    return &it->second;
+}
+
+/**
  * Make incremental progress toward committing the transaction.  This method
  * is called during the poll loop when this task needs to make progress (i.e.
  * if the transaction is in the process of committing).
@@ -737,6 +780,8 @@ ClientTransactionTask::PrepareRpc::appendOp(CommitCacheMap::iterator opEntry)
     const CacheKey* key = &opEntry->first;
     CacheEntry* entry = &opEntry->second;
 
+    // Needed to get the index entry op data from the object buffer.
+    const TxIndexEntry* indexEntry;
     switch (entry->type) {
         case CacheEntry::READ:
             request.emplaceAppend<WireFormat::TxPrepare::Request::ReadOp>(
@@ -757,6 +802,26 @@ ClientTransactionTask::PrepareRpc::appendOp(CommitCacheMap::iterator opEntry)
                     key->tableId, entry->rpcId,
                     entry->objectBuf->size(), entry->rejectRules);
             request.appendExternal(entry->objectBuf);
+            break;
+        case CacheEntry::INSERT_INDEX_ENTRY:
+            indexEntry = entry->objectBuf->get<TxIndexEntry>();
+            request.emplaceAppend<
+                WireFormat::TxPrepare::Request::InsertIndexEntryOp>(
+                        entry->rpcId, key->tableId, indexEntry->tableId,
+                        indexEntry->indexId, entry->objectBuf->getKeyLength(),
+                        indexEntry->primaryKeyHash);
+            request.append(entry->objectBuf->getKey(0),
+                           entry->objectBuf->getKeyLength());
+            break;
+        case CacheEntry::REMOVE_INDEX_ENTRY:
+            indexEntry = entry->objectBuf->get<TxIndexEntry>();
+            request.emplaceAppend<
+                WireFormat::TxPrepare::Request::RemoveIndexEntryOp>(
+                        entry->rpcId, key->tableId, indexEntry->tableId,
+                        indexEntry->indexId, entry->objectBuf->getKeyLength(),
+                        indexEntry->primaryKeyHash);
+            request.append(entry->objectBuf->getKey(0),
+                           entry->objectBuf->getKeyLength());
             break;
         default:
             RAMCLOUD_LOG(ERROR, "Unknown transaction op type.");

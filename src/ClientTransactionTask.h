@@ -38,7 +38,8 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
      * Structure to define the contents of the CommitCache.
      */
     struct CacheEntry {
-        enum Type { READ, REMOVE, WRITE, INVALID };
+        enum Type { READ, REMOVE, WRITE, INSERT_INDEX_ENTRY,
+                    REMOVE_INDEX_ENTRY, INVALID };
         /// Type of the cached object entry.  Used to specify what kind of
         /// transaction operation needs to be performed during commit.
         Type type;
@@ -112,6 +113,9 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// Otherwise, INVALID will be returned.
     WireFormat::TxDecision::Decision getDecision() { return decision; }
     CacheEntry* insertCacheEntry(Key& key, const void* buf, uint32_t length);
+    CacheEntry* insertCacheEntry(Key& pKey, uint8_t numKeys,
+                                 KeyInfo* keyList, const void* buf,
+                                 uint32_t length);
     /// Check if the task has completed the commit protocol.
     bool isReady() { return (state == DONE); }
     /// Check if all decisions have been sent.

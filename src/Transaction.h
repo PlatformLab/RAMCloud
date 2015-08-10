@@ -67,6 +67,17 @@ class Transaction {
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const void* buf, uint32_t length);
 
+    void write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
+               const void* buf, uint32_t length);
+
+    void insertIndexEntry(uint64_t tableId, uint8_t indexId,
+                          const void* indexKey, uint16_t indexKeyLength,
+                          uint64_t pKeyHash);
+
+    void removeIndexEntry(uint64_t tableId, uint8_t indexId,
+                          const void* indexKey, uint16_t indexKeyLength,
+                          uint64_t pKeyHash);
+
     /**
      * Encapsulates the state of a Transaction::read operation,
      * allowing it to execute asynchronously.

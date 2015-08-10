@@ -14,6 +14,7 @@
  */
 
 #include "ClientTransactionTask.h"
+#include "ObjectFinder.h"
 #include "Transaction.h"
 
 namespace RAMCloud {
@@ -199,6 +200,148 @@ Transaction::write(uint64_t tableId, const void* key, uint16_t keyLength,
     }
 
     entry->type = ClientTransactionTask::CacheEntry::WRITE;
+}
+
+/**
+ * Replace the value and keys of a given object, or create a new object if none
+ * previously existed as part of this transaction.
+ *
+ * \param tableId
+ *      The table containing the desired object (return value from
+ *      a previous call to getTableId).
+ * \param numKeys
+ *      Number of keys in the object.  If is not >= 1, then behavior
+ *      is undefined. A value of 1 indicates the presence of only the
+ *      primary key
+ * \param keyList
+ *      List of keys and corresponding key lengths. The first entry should
+ *      correspond to the primary key and its length. If this argument is
+ *      NULL, then behavior is undefined. RamCloud currently uses a dense
+ *      representation of key lengths. If a client does not want to write
+ *      key_i in an object, keyList[i]->key should be NULL. The library also
+ *      expects that if keyList[j]->key is NOT NULL and keyList[j]->keyLength
+ *      is 0, then key string is NULL terminated and the length is computed.
+ * \param buf
+ *      Address of the first byte of the new contents for the object;
+ *      must contain at least length bytes.
+ * \param length
+ *      Size in bytes of the new contents for the object.
+ */
+void
+Transaction::write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
+                   const void* buf, uint32_t length)
+{
+    if (expect_false(commitStarted)) {
+        throw TxOpAfterCommit(HERE);
+    }
+
+    ClientTransactionTask* task = taskPtr.get();
+
+    Key keyObj(tableId, keyList[0].key, keyList[0].keyLength);
+    ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
+
+    if (entry == NULL) {
+        entry = task->insertCacheEntry(keyObj, numKeys, keyList, buf, length);
+    } else {
+        entry->objectBuf->reset();
+        Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
+                                           buf, length, entry->objectBuf);
+    }
+
+    entry->type = ClientTransactionTask::CacheEntry::WRITE;
+}
+
+/**
+ * Insert an index entry for an object for a given index id.
+ *
+ * \param tableId
+ *      Id for table the object is contained in.
+ * \param indexId
+ *      Id for the secondary index associated with tableId.
+ * \param indexKey
+ *      Key blob for the index entry.
+ * \param indexKeyLength
+ *      Length of the index key.
+ * \param pKeyHash
+ *      Hash of the primary key of the object.
+ */
+void
+Transaction::insertIndexEntry(uint64_t tableId, uint8_t indexId,
+                              const void* indexKey, uint16_t indexKeyLength,
+                              uint64_t pKeyHash)
+{
+    if (expect_false(commitStarted)) {
+        throw TxOpAfterCommit(HERE);
+    }
+
+    ClientTransactionTask* task = taskPtr.get();
+    ObjectFinder::Indexlet* indexlet = ramcloud->clientContext->objectFinder->
+            lookupIndexlet(tableId, indexId, indexKey, indexKeyLength);
+
+    if (indexlet == NULL) {
+        // Non-existent index
+        return;
+    }
+
+    Key keyObj(indexlet->backingTableId, indexKey, indexKeyLength);
+    ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
+
+    // Used to hold the index entry information.
+    TxIndexEntry indexData(tableId, indexId, pKeyHash);
+
+    if (entry == NULL) {
+        entry = task->insertCacheEntry(keyObj, &indexData,
+                                       sizeof32(TxIndexEntry));
+    } else {
+        // This is currently unsupported.
+        assert(false);
+    }
+
+    entry->type = ClientTransactionTask::CacheEntry::INSERT_INDEX_ENTRY;
+}
+
+/**
+ * Remove an index entry for an object for a given index id.
+ *
+ * \param tableId
+ *      Id for table the object is contained in.
+ * \param indexId
+ *      Id for the secondary index associated with tableId.
+ * \param indexKey
+ *      Key blob for the index entry.
+ * \param indexKeyLength
+ *      Length of the index key.
+ * \param pKeyHash
+ *      Hash of the primary key of the object.
+ */
+void
+Transaction::removeIndexEntry(uint64_t tableId, uint8_t indexId,
+                              const void* indexKey, uint16_t indexKeyLength,
+                              uint64_t pKeyHash)
+{
+    if (expect_false(commitStarted)) {
+        throw TxOpAfterCommit(HERE);
+    }
+
+    ClientTransactionTask* task = taskPtr.get();
+    ObjectFinder::Indexlet* indexlet = ramcloud->clientContext->objectFinder->
+            lookupIndexlet(tableId, indexId, indexKey, indexKeyLength);
+
+    Key keyObj(indexlet->backingTableId, indexKey, indexKeyLength);
+    ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
+
+    // Used to hold the index entry information.
+    TxIndexEntry indexData(tableId, indexId, pKeyHash);
+
+    if (entry == NULL) {
+        entry = task->insertCacheEntry(keyObj, &indexData,
+                                       sizeof32(TxIndexEntry));
+    } else {
+        // This is currently unsupported.
+        assert(false);
+    }
+
+    entry->type = ClientTransactionTask::CacheEntry::REMOVE_INDEX_ENTRY;
 }
 
 /**

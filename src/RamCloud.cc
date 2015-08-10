@@ -31,6 +31,7 @@
 #include "RpcTracker.h"
 #include "ShortMacros.h"
 #include "TimeTrace.h"
+#include "Transaction.h"
 
 namespace RAMCloud {
 
@@ -2766,9 +2767,19 @@ RamCloud::write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
         const void* buf, uint32_t length, const RejectRules* rejectRules,
         uint64_t* version, bool async, bool linearizable)
 {
-    WriteRpc rpc(this, tableId, numKeys, keyList, buf, length, rejectRules,
-            async, linearizable);
-    rpc.wait(version);
+    Transaction tx(this);
+    tx.write(tableId, numKeys, keyList, buf, length);
+    if (numKeys > 1) {
+        Key key(tableId, keyList[0].key, keyList[0].keyLength);
+        uint64_t pKeyHash = key.getHash();
+        for (uint8_t i = 1; i < numKeys; i++) {
+            if (keyList[i].key != NULL && keyList[i].keyLength > 0) {
+                tx.insertIndexEntry(tableId, i, keyList[i].key,
+                                    keyList[i].keyLength, pKeyHash);
+            }
+        }
+    }
+    tx.commit();
 }
 
 /**
@@ -2818,10 +2829,21 @@ RamCloud::write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
         bool async, bool linearizable)
 {
     uint32_t valueLength =
-            (value == NULL) ? 0 : downCast<uint32_t>(strlen(value));
-    WriteRpc rpc(this, tableId, numKeys, keyList, value,
-            valueLength, rejectRules, async, linearizable);
-    rpc.wait(version);
+           (value == NULL) ? 0 : downCast<uint32_t>(strlen(value));
+
+    Transaction tx(this);
+    tx.write(tableId, numKeys, keyList, value, valueLength);
+    if (numKeys > 1) {
+        Key key(tableId, keyList[0].key, keyList[0].keyLength);
+        uint64_t pKeyHash = key.getHash();
+        for (uint8_t i = 1; i < numKeys; i++) {
+            if (keyList[i].key != NULL && keyList[i].keyLength > 0) {
+                tx.insertIndexEntry(tableId, i, keyList[i].key,
+                                    keyList[i].keyLength, pKeyHash);
+            }
+        }
+    }
+    tx.commit();
 }
 
 /**

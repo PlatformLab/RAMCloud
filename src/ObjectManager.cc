@@ -1773,7 +1773,7 @@ ObjectManager::commitWrite(PreparedOp& op,
         oldObject.construct(buffer);
         // Return a pointer to the buffer in log for the object being removed.
         if (removedObjBuffer != NULL) {
-            removedObjBuffer->appendExternal(&buffer);
+            removedObjBuffer->append(&buffer);
         }
     }
 
@@ -1842,6 +1842,7 @@ ObjectManager::commitWrite(PreparedOp& op,
     } else {
         objectMap.insert(key.getHash(), appends[1].reference.toInteger());
     }
+
     return STATUS_OK;
 }
 

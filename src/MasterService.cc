@@ -2373,6 +2373,9 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
         return;
     }
 
+    // Needed to remove old index entries.
+    Buffer oldObjectBuf;
+
     if (reqHdr->decision == WireFormat::TxDecision::COMMIT) {
         for (uint32_t i = 0; i < participantCount; ++i) {
             TabletManager::Tablet tablet;
@@ -2401,9 +2404,9 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
             if (op.header.type == WireFormat::TxPrepare::READ) {
                 objectManager.commitRead(op, opRef);
             } else if (op.header.type == WireFormat::TxPrepare::REMOVE) {
-                objectManager.commitRemove(op, opRef);
+                objectManager.commitRemove(op, opRef, &oldObjectBuf);
             } else if (op.header.type == WireFormat::TxPrepare::WRITE) {
-                objectManager.commitWrite(op, opRef);
+                objectManager.commitWrite(op, opRef, &oldObjectBuf);
             } else if (op.header.type ==
                        WireFormat::TxPrepare::INSERT_INDEX_ENTRY) {
                 indexletManager.commitInsertEntry(op, opRef);
@@ -2462,6 +2465,13 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
 
     // Respond to the client RPC now.
     rpc->sendReply();
+
+    if (oldObjectBuf.size() > 0) {
+        Object oldObject(oldObjectBuf);
+        if (oldObject.getKeyCount() > 1) {
+            requestRemoveIndexEntries(oldObject);
+        }
+    }
 }
 
 /**
