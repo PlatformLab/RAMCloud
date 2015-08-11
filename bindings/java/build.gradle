@@ -8,6 +8,7 @@
 def sourceDir = 'src/main'
 def buildDir = 'bin'
 def libDir = 'lib'
+def includes = []
 def testSourceDir = 'src/test'
 def ramcloudPath = '../..'
 
@@ -29,7 +30,7 @@ class CompilationError extends GradleException {
 class JavaBuildTask extends DefaultTask {
     def File inputDir
     def depPaths
-    
+
     @InputFiles
     def FileCollection inputs
 
@@ -59,14 +60,16 @@ class JavaBuildTask extends DefaultTask {
 class CppBuildTask extends DefaultTask {
     def File inputDir
     def File ramcloudDir
+    def includeDirs
     def branch
+    def libraries
 
     @InputFiles
     def FileCollection inputs
 
     @OutputDirectory
     def File outputDir
-    
+
     @TaskAction
     void execute(IncrementalTaskInputs inputs) {
         inputs.outOfDate { change ->
@@ -78,22 +81,21 @@ class CppBuildTask extends DefaultTask {
             def objPath = ramcloudDir.path + '/obj.' + branch
             def command = ["g++",
                            "--std=c++0x",
-                           "-shared",           
+                           "-shared",
                            "-fPIC",
                            "-L${objPath}",
                            "-L${outputDir.path}",
                            "-I${objPath}",
                            "-I${ramcloudDir.path + '/src'}",
                            "-I${ramcloudDir.path + '/gtest/include'}",
-                           "-I${outputDir.path}",
-                           "-Iinclude",
-                           "-Wl,-rpath=${objPath}:${outputDir.path}",
-                           "-lramcloud",
-//                           "-lramcloudtest",
-                           "-g",
-                           "${change.file.path}",
-                           "-o",
-                           "${outputDir.path + '/lib' + change.file.name.minus('.cc') + '.so'}"]
+                           "-I${outputDir.path}"] +
+                    includeDirs.collect{ it -> "-I" + it } +
+                    ["-Wl,-rpath=${objPath}:${outputDir.path}",
+                     "-g",
+                     "${change.file.path}",
+                     "-o",
+                     "${outputDir.path + '/lib' + change.file.name.minus('.cc') + '.so'}"
+                    ] + libraries;
             def proc = command.execute();
             proc.waitFor();
             if (proc.exitValue() != 0) {
@@ -115,7 +117,7 @@ configurations {
 
 // TestNG dependency. Gradle will automatically download it.
 dependencies {
-    build 'org.testng:testng:6.8.8', 'com.google.guava:guava:17.0'
+    build 'org.testng:testng:6.8.8'
 }
 
 // Initialize some variables, ensure output directories exist.
@@ -133,9 +135,24 @@ task directories << {
         }
         dependencyPaths += target.path + ':'
     }
-    def proc = "git rev-parse --abbrev-ref HEAD".execute(); 
-    proc.waitFor();
-    currentBranch = proc.in.text.trim();
+    def proc = "git rev-parse --abbrev-ref HEAD".execute()
+    proc.waitFor()
+    currentBranch = proc.in.text.trim()
+    // Get Java include directory
+    proc = "which javac".execute()
+    proc.waitFor()
+    def javacPath = proc.in.text
+    if (javacPath.isEmpty()) {
+        throw new CompilationError("javac must be on your path.\n")
+    }
+    proc = "readlink -f ${javacPath}".execute()
+    proc.waitFor()
+    def javac = file(proc.in.text)
+    def include = file(javac.parentFile.parent + "/include")
+    includes = [include.path]
+    include.eachDir() { dir ->
+        includes += dir.path
+    }
 }
 
 task headerCopy << {
@@ -154,8 +171,10 @@ task build(type: CppBuildTask, dependsOn: ['javabuild', 'headerCopy']) {
     ramcloudDir = file(ramcloudPath)
     inputs = fileTree(sourceDir).include('**/*.cc')
     outputDir = file(libDir)
+    libraries = ["-lramcloud"]
     doFirst {
         branch = currentBranch
+        includeDirs = includes
     }
 }
 
@@ -179,17 +198,19 @@ task testjavabuild(type: JavaBuildTask, dependsOn: 'build') {
     }
 }
 
-// C++ build for unit tests
-task testbuild(type: CppBuildTask, dependsOn: ['testjavabuild']) {
+// C++ build for unit tests (test files)
+task testbuild(type: CppBuildTask, dependsOn: ['testjavabuild', 'headerCopy']) {
     inputDir = file(buildDir)
     ramcloudDir = file(ramcloudPath)
     inputs = fileTree(testSourceDir).include('**/*.cc')
     outputDir = file(libDir)
+    libraries = ["-lramcloudtest"]
     doFirst {
         if (!file(libDir + '/libramcloudtest.so').exists()) {
             thrown new CompilationError("Please run buildtest.sh first.\n")
         }
         branch = currentBranch
+        includeDirs = includes
     }
 }
 

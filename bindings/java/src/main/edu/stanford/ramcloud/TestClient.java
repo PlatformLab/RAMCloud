@@ -54,16 +54,14 @@ public class TestClient {
 
         // Run whatever here
         // enumerationTest();
-        // basicSpeedTest();
+        basicSpeedTest();
         // multiReadTest();
-        for (int i = 0; i < 100; i++) {
-            multiWriteTest();
-        }
+        // multiWriteTest();
         // multiRemoveTest();
         // test();
 
         ramcloud.dropTable("hi");
-        
+
         ramcloud.disconnect();
     }
 
@@ -107,7 +105,7 @@ public class TestClient {
         long start = System.nanoTime();
         ramcloud.write(writes);
         long time = System.nanoTime() - start;
-        
+
         //System.out.printf("%d,%f\n", limit, ((double) time / numTimes / 1000.0));
         System.out.println("Average multiwrite time per object: " + ((double) time / numTimes / 1000.0));
     }
@@ -133,7 +131,7 @@ public class TestClient {
         System.out.println("Average multiremove time per object: " + ((double) time / numTimes / 1000.0));
     }
 
-    private void test(){ 
+    private void test(){
         int numTimes = 100;
         long before, elapsed;
         before = System.nanoTime();
@@ -146,7 +144,7 @@ public class TestClient {
     private void basicSpeedTest() {
         int numTimes = 100000;
         long before, elapsed;
-          
+
         // Read tests
         byte[] key = new byte[30];
         byte[] value = new byte[100];
@@ -161,10 +159,10 @@ public class TestClient {
             // System.out.printf("%d,%f\n", i, times[i]);
         }
         Arrays.sort(times);
-        // System.out.printf("Median Java read time: %.3f\n", times[numTimes / 2]);
-          
+        System.out.printf("Median Java read time: %.3f\n", times[numTimes / 2]);
+
         ramcloud.remove(tableId, key);
-          
+
         // Write tests
         before = System.nanoTime();
         for (int i = 0; i < numTimes; i++) {
@@ -176,7 +174,7 @@ public class TestClient {
             ramcloud.remove(tableId, key);
         }
         Arrays.sort(times);
-        // System.out.printf("Median Java write time: %.3f\n", times[numTimes / 2]);
+        System.out.printf("Median Java write time: %.3f\n", times[numTimes / 2]);
     }
 
     private void basicTest() {
