@@ -180,7 +180,7 @@ ClientException::toSymbol() const
 string
 ClientException::str() const
 {
-    return format("%s thrown at %s", toString(), where.str().c_str());
+    return format("%s, thrown at %s", toString(), where.str().c_str());
 }
 
 const char*
