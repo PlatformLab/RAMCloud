@@ -147,5 +147,31 @@ std::vector<std::string> split(const std::string &s, char delim) {
     return elems;
 }
 
+/**
+ * Convenience method for converting strings to integers.
+ * \param s
+ *      String consisting of whitespace following by a positive or
+ *      negative number.
+ * \param error
+ *      Set to true if s did not contain a syntactically valid number,
+ *      the number was out of range for a long int, or there was extra
+ *      information in s after the number.
+ * \return
+ *      The number corresponding to s, or 0 in the case of an error.
+ */
+int64_t
+stringToInt(const char* s, bool* error)
+{
+    char* end;
+    int64_t result = strtol(s, &end, 0);
+    if ((end == s) || (*end != 0) || (result == LONG_MAX)
+            || (result == LONG_MIN)) {
+        *error = true;
+        return 0;
+    }
+    *error = false;
+    return result;
+}
+
 } // namespace StringUtil
 } // namespace RAMCloud
