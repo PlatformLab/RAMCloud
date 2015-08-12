@@ -71,6 +71,15 @@ TEST(UtilTest, setCpuAffinity) {
     EXPECT_TRUE(CPU_EQUAL(&oldSet, &newSet));
 }
 
+TEST(UtilTest, clearCpuAffinity) {
+    Util::clearCpuAffinity();
+    cpu_set_t set = Util::getCpuAffinity();
+    for (int i = 0; i < CPU_COUNT(&set); i++) {
+        if (!CPU_ISSET(i, &set)) {
+            ADD_FAILURE() << format("CPU_ISSET returned false for CPU %d", i);
+        }
+    }
+}
 
 TEST(UtilTest, serialReadPmc) {
     Util::mockPmcValue = 1;
