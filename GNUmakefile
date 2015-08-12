@@ -364,6 +364,7 @@ java-install: java
 	rm -rf $(INSTALL_DIR)/bin/java
 	cp -r bindings/java/bin $(INSTALL_DIR)/bin/java
 	rm -rf $(INSTALL_DIR)/lib/ramcloud/java
+	mkdir -p $(INSTALL_DIR)/lib/ramcloud/java
 	cp -r bindings/java/lib $(INSTALL_DIR)/lib/ramcloud/java
 
 install-clean:
