@@ -29,7 +29,7 @@ public class TestClient {
 
     static {
         // Load C++ shared library for JNI
-        System.loadLibrary("edu_stanford_ramcloud_TestClient");
+        Util.loadLibrary("ramcloud_java");
     }
 
     /**

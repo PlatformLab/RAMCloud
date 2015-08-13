@@ -35,8 +35,7 @@ import java.nio.*;
  */
 public class RAMCloud {
     static {
-        // Load C++ shared library for JNI
-        System.loadLibrary("edu_stanford_ramcloud_RAMCloud");
+        Util.loadLibrary("ramcloud_java");
     }
 
     private static final int bufferCapacity = 1024 * 1024 * 2;
@@ -54,7 +53,7 @@ public class RAMCloud {
         if (rules == null) {
             return defaultRejectRules;
         }
-        
+
         // 8 bytes for verison number, 1 byte for each condition
         byte[] out = new byte[12];
         long version = rules.getGivenVersion();
@@ -67,20 +66,20 @@ public class RAMCloud {
         out[11] = (byte) (rules.rejectIfVersionNeGiven() ? 1 : 0);
         return out;
     }
-    
+
     /**
      * Pointer to the underlying C++ RAMCloud object associated with this
      * object.
      */
     private long ramcloudClusterHandle;
-    
+
     /**
      * A native ByteBuffer that acts as a shared memory region between Java and
      * C++. This enables fast passing of arguments and return values for native
      * calls.
      */
     private ByteBuffer byteBuffer;
-    
+
     /**
      * Pointer to the memory location that byteBuffer wraps.
      */
@@ -469,7 +468,7 @@ public class RAMCloud {
     }
 
     // Multi-ops
-    
+
     /**
      * Reads a large number of objects at once. Will result in worse performance
      * than a single read if used with very large objects (1 MB).
@@ -486,7 +485,7 @@ public class RAMCloud {
         }
         multiReadHandler.handle(request);
     }
-    
+
     /**
      * Writes a large number of objects at once.
      *
@@ -503,7 +502,7 @@ public class RAMCloud {
         }
         multiWriteHandler.handle(data);
     }
-    
+
     /**
      * Deletes a large number of objects at once.
      *
@@ -523,7 +522,7 @@ public class RAMCloud {
 
     // Declarations for native methods in c++ file
     private static native long cppGetByteBufferPointer(ByteBuffer byteBuffer);
-    
+
     private static native void cppConnect(long byteBufferPointer);
 
     private static native void cppDisconnect(long byteBufferPointer);

@@ -12,35 +12,35 @@ import java.nio.*;
 public class TableIterator implements Iterator<RAMCloudObject> {
     static {
         // Load JNI library
-        System.loadLibrary("edu_stanford_ramcloud_TableIterator");
+        Util.loadLibrary("ramcloud_java");
     }
 
     /**
      * Keep a pointer to the C++ TableEnumerator object.
      */
     private long tableEnumeratorPointer;
-    
+
     /**
      * Table ID that this object is enumerating.
      */
     private long tableId;
-    
+
     /**
      * RAMCloud object that this object was created from.
      */
     private RAMCloud ramcloud;
-    
+
     /**
      * A blob of bytes returned from the C++ enumerate RPC. Each blob should
      * contain a set of objects read from a RAMCloud table.
      */
     private ByteBuffer objectBlob;
-    
+
     /**
      * The last object that was returned from a call to next().
      */
     private RAMCloudObject last;
-    
+
     /**
      * Whether or not the enumerator is done with the table.
      */
@@ -94,7 +94,7 @@ public class TableIterator implements Iterator<RAMCloudObject> {
     public long getTableId() {
         return tableId;
     }
-    
+
     /**
      * Test if any objects remain to be enumerated from the table.
      *
@@ -105,7 +105,7 @@ public class TableIterator implements Iterator<RAMCloudObject> {
     public boolean hasNext() {
         return retrieveBatch();
     }
-    
+
     /**
      * Return the next object in the table.  Note: each object that existed
      * throughout the entire lifetime of the enumeration is guaranteed to
@@ -151,7 +151,7 @@ public class TableIterator implements Iterator<RAMCloudObject> {
         ramcloud.remove(tableId, last.getKeyBytes());
         last = null;
     }
-    
+
     /**
      * This method is called when this object is being garbage collected. If the
      * iterator never iterated through the entire table, then clean up the C++
