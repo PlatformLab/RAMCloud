@@ -118,7 +118,7 @@ run {
 mainClassName = "edu.stanford.ramcloud.TestClient"
 defaultTasks 'make'
 
-run.dependsOn(make)
+run.dependsOn('make')
 
 // Alias make to task jar
 task make(dependsOn: installDist) {
