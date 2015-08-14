@@ -58,11 +58,15 @@ ClientLease::getLease()
     // unless the worker timer is stuck).
     while (Cycles::rdtsc() > leaseTermElapseCycles) {
         // Request renewal immediately as something is running slow.
-        start(0);
+//        start(0);
         RAMCLOUD_CLOG(WARNING, "Blocked waiting for lease to renew.");
 
         // Release lock so handler can execute.
         Unlock<SpinLock> _(mutex);
+
+        // Run manually for now.
+        handleTimerEvent();
+
         ramcloud->poll();
     }
 
@@ -100,11 +104,11 @@ ClientLease::handleTimerEvent()
     if (!renewLeaseRpc) {
         lastRenewalTimeCycles = Cycles::rdtsc();
         renewLeaseRpc.construct(ramcloud->clientContext, lease.leaseId);
-        start(0);
+//        start(0);
     } else {
         if (!renewLeaseRpc->isReady()) {
             // Wait for rpc to become ready.
-            start(0);
+//            start(0);
         } else {
             lease = renewLeaseRpc->wait();
             renewLeaseRpc.destroy();
@@ -125,7 +129,7 @@ ClientLease::handleTimerEvent()
                 renewCycleTime = Cycles::fromMicroseconds(
                         leaseTermLenUs - LeaseCommon::RENEW_THRESHOLD_US);
             }
-            start(lastRenewalTimeCycles + renewCycleTime);
+//            start(lastRenewalTimeCycles + renewCycleTime);
         }
     }
 }
