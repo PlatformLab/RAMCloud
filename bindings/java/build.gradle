@@ -29,6 +29,14 @@ model {
                             "$ramcloudDir/$ramcloudBin/libramcloud.so")
                 }
             }
+            ramcloudtest {
+                headers.srcDirs("$ramcloudDir/$ramcloudSrc",
+                                "$ramcloudDir/$ramcloudBin")
+                binaries.withType(SharedLibraryBinary) {
+                    sharedLibraryFile = file(
+                            "$ramcloudDir/$ramcloudBin/libramcloudtest.so")
+                }
+            }
             bindings {
                 headers.srcDir(bindingsDir)
             }
@@ -39,7 +47,7 @@ model {
             baseName "ramcloud_java"
             binaries.all {
                 builtBy(javah)
-                cppCompiler.args "--std=c++0x"
+                cppCompiler.args "--std=c++0x", "-g"
             }
             binaries.withType(StaticLibraryBinarySpec) {
                 buildable = false
@@ -63,6 +71,7 @@ model {
                 cpp.lib library: 'jni', linkage: 'api'
                 cpp.lib library: 'gtest', linkage: 'api'
                 cpp.lib library: 'ramcloud', linkage: 'shared'
+                cpp.lib library: 'ramcloudtest', linkage: 'shared'
                 cpp.lib library: 'bindings', linkage: 'api'
             }
         }
@@ -79,6 +88,16 @@ tasks.whenTaskAdded { task ->
         jar.dependsOn(copyLibs)
         copyLibs.dependsOn(mainSharedLibrary)
     }
+    if (task.name == "testSharedLibrary") {
+        project.task([type: Copy], 'copyLibsTest') {
+            from binaries.testSharedLibrary.sharedLibraryFile
+            into sourceSets.test.output.resourcesDir.path + "/libs"
+        }
+        jar.dependsOn(copyLibsTest)
+        copyLibsTest.dependsOn(testSharedLibrary)
+        compileTestJava.dependsOn(copyLibs)
+        test.dependsOn(copyLibsTest)
+    }
 }
 
 distributions {
@@ -93,13 +112,14 @@ repositories {
 
 // TestNG dependency. Gradle will automatically download it.
 dependencies {
-    testCompile 'org.testng:testng:6.8.8'
+    testCompile 'org.testng:testng:6.9.4'
 }
 
-// TODO(willsheu): Implement unit tests build
 test {
     // enable TestNG support (default is JUnit)
-    // useTestNG()
+    useTestNG() {
+        // threadCount = 1
+    }
 
     // show standard out and standard error of the test JVM(s) on the console
     testLogging.showStandardStreams = true

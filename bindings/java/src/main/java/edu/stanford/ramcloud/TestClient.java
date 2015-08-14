@@ -54,8 +54,8 @@ public class TestClient {
 
         // Run whatever here
         // enumerationTest();
-        basicSpeedTest();
-        // multiReadTest();
+        // basicSpeedTest();
+        multiReadTest();
         // multiWriteTest();
         // multiRemoveTest();
         // test();

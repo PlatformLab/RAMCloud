@@ -239,6 +239,7 @@ test: $(OBJDIR)/test \
       $(OBJDIR)/Perf \
       $(OBJDIR)/RecoverSegmentBenchmark \
       $(OBJDIR)/MigrateTabletBenchmark \
+      $(OBJDIR)/libramcloudtest.so \
       testInstall
 	$(OBJDIR)/test
 
@@ -316,6 +317,21 @@ $(OBJDIR)/ObjectManagerBenchmark: $(OBJDIR)/ObjectManagerBenchmark.o $(SHARED_OB
 $(OBJDIR)/StringKeys: $(OBJDIR)/StringKeys.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) -o $@ $^ $(LIBS)
+
+TESTS_ONLY_OBJFILES := $(TESTS_SRCFILES)
+TESTS_ONLY_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(TESTS_ONLY_OBJFILES))
+TESTS_ONLY_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(TESTS_ONLY_OBJFILES))
+TESTS_ONLY_OBJFILES := $(sort \
+               $(SERVER_OBJFILES) \
+               $(COORDINATOR_OBJFILES) \
+               $(TESTS_ONLY_OBJFILES) \
+               $(SHARED_OBJFILES))
+TESTS_ONLY_OBJFILES := $(filter-out %Test.o, $(TESTS_ONLY_OBJFILES))
+TESTS_ONLY_OBJFILES := $(filter-out %TestRunner.o, $(TESTS_ONLY_OBJFILES))
+
+$(OBJDIR)/libramcloudtest.so: $(TESTS_ONLY_OBJFILES)
+	@mkdir -p $(@D)
+	$(CXX) -shared -lpthread -o $@ $^ $(TESTS_LIB)
 
 # Do not remove.
 tests-clean:

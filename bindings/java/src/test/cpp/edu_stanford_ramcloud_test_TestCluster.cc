@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <TestUtil.h>
 #include <RamCloud.h>
 #include <MockCluster.h>
 #include "edu_stanford_ramcloud_test_TestCluster.h"
@@ -34,7 +35,7 @@ JNIEXPORT void JNICALL Java_edu_stanford_ramcloud_test_TestCluster_createMockClu
 (JNIEnv *env, jclass clazz, jlongArray pointers) {
     // Disable the verbose C++ log messages
     Logger::get().setLogLevels(1);
-    
+
     Context* context = new Context();
     MockCluster* cluster = new MockCluster(context);
     ServerConfig config = ServerConfig::forTesting();
@@ -69,5 +70,9 @@ JNIEXPORT void JNICALL Java_edu_stanford_ramcloud_test_TestCluster_destroy
     uint64_t* pointerPointer = static_cast<uint64_t*>(env->GetPrimitiveArrayCritical(pointers, 0));
     RamCloud* ramcloud = reinterpret_cast<RamCloud*>(pointerPointer[1]);
     delete ramcloud;
+    /**
+    MockCluster* cluster = reinterpret_cast<MockCluster*>(pointerPointer[0]);
+    delete cluster;
+    */
     env->ReleasePrimitiveArrayCritical(pointers, reinterpret_cast<void*>(pointerPointer), JNI_ABORT);
 }

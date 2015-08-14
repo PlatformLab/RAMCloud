@@ -31,7 +31,7 @@ import static org.testng.Reporter.*;
  */
 public class TableIteratorTest {
     private long tableId;
-    
+
     @BeforeClass
     public void TableIteratorTestSetup() {
         tableId = ramcloud.createTable("tableIteratorTest");
@@ -89,7 +89,7 @@ public class TableIteratorTest {
             ramcloud.write(tableId, key, "value:" + i);
             keys.add(key);
         }
-        
+
         TableIterator iterator = ramcloud.getTableIterator(tableId);
         RAMCloudObject current = null;
         while ((current = iterator.next()) != null) {

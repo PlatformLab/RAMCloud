@@ -31,7 +31,7 @@ public class MultiReadHandler extends MultiOpHandler<MultiReadObject> {
         super(byteBuffer, byteBufferPointer, ramcloudClusterHandle);
         setBatchLimit(200);
     }
-    
+
     @Override
     protected boolean writeRequest(ByteBuffer buffer, MultiReadObject request) {
         byte[] key = request.getKeyBytes();

@@ -91,19 +91,19 @@ JNICALL Java_edu_stanford_ramcloud_multiop_MultiOpHandler_cppMultiRead(
         jlong byteBufferPointer) {
     ByteBuffer buffer(byteBufferPointer);
     RamCloud* ramcloud = buffer.readPointer<RamCloud>();
-    
+
     uint32_t currentIndex = buffer.read<uint32_t>();
     uint32_t numObjects = buffer.read<uint32_t>();
-    
+
     // ObjectBuffers that the object values will be read into.
     Tub<ObjectBuffer> values[numObjects];
-    
+
     // MultiReadObjects that specify information for the multi-read to use.
     MultiReadObject objects[numObjects];
-    
+
     // Pointers to the objects in the above array.
     MultiReadObject* objectPointers[numObjects];
-    
+
     for (int i = 0; i < numObjects; i++) {
         uint64_t tableId = buffer.read<uint64_t>();
         uint16_t keyLength = buffer.read<uint16_t>();
@@ -120,8 +120,7 @@ JNICALL Java_edu_stanford_ramcloud_multiop_MultiOpHandler_cppMultiRead(
 #if TIME_CPP
     uint64_t start = Cycles::rdtsc();
 #endif
-    MultiRead request(ramcloud, objectPointers, numObjects);
-    request.wait();
+    ramcloud->multiRead(objectPointers, numObjects);
 #if TIME_CPP
     start = Cycles::rdtsc() - start;
     printf("C++ MultiRead Time: %f\n", Cycles::toSeconds(start) * 1000000 / numObjects);
@@ -136,7 +135,7 @@ JNICALL Java_edu_stanford_ramcloud_multiop_MultiOpHandler_cppMultiRead(
             flushBuffer(env, multiOpHandler, buffer, i - lastFlush, currentIndex);
             lastFlush = i;
         }
-        uint32_t status = static_cast<uint32_t>(objects[i].status);                               
+        uint32_t status = static_cast<uint32_t>(objects[i].status);
         buffer.write(status);
         if (status == 0) {
             uint32_t valueLength;
@@ -194,13 +193,13 @@ JNICALL Java_edu_stanford_ramcloud_multiop_MultiOpHandler_cppMultiWrite(
         jlong byteBufferPointer) {
     ByteBuffer buffer(byteBufferPointer);
     RamCloud* ramcloud = buffer.readPointer<RamCloud>();
-    
+
     uint32_t currentIndex = buffer.read<uint32_t>();
     uint32_t numObjects = buffer.read<uint32_t>();
 
     Tub<MultiWriteObject> objects[numObjects];
     MultiWriteObject* objectPointers[numObjects];
-    
+
     for (int i = 0; i < numObjects; i++) {
         uint64_t tableId = buffer.read<uint64_t>();
         uint16_t keyLength = buffer.read<uint16_t>();
@@ -221,8 +220,7 @@ JNICALL Java_edu_stanford_ramcloud_multiop_MultiOpHandler_cppMultiWrite(
 #if TIME_CPP
     uint64_t start = Cycles::rdtsc();
 #endif
-    MultiWrite request(ramcloud, objectPointers, numObjects);
-    request.wait();
+    ramcloud->multiWrite(objectPointers, numObjects);
 #if TIME_CPP
     start = Cycles::rdtsc() - start;
     printf("C++ MultiWrite Time: %f\n", Cycles::toSeconds(start) * 1000000 / numObjects);
@@ -288,13 +286,13 @@ JNICALL Java_edu_stanford_ramcloud_multiop_MultiOpHandler_cppMultiRemove(
 #endif
     ByteBuffer buffer(byteBufferPointer);
     RamCloud* ramcloud = buffer.readPointer<RamCloud>();
-    
+
     uint32_t currentIndex = buffer.read<uint32_t>();
     uint32_t numObjects = buffer.read<uint32_t>();
 
     Tub<MultiRemoveObject> objects[numObjects];
     MultiRemoveObject* objectPointers[numObjects];
-    
+
     for (int i = 0; i < numObjects; i++) {
         uint64_t tableId = buffer.read<uint64_t>();
         uint16_t keyLength = buffer.read<uint16_t>();
@@ -308,8 +306,7 @@ JNICALL Java_edu_stanford_ramcloud_multiop_MultiOpHandler_cppMultiRemove(
         objectPointers[i] = objects[i].get();
     }
 
-    MultiRemove request(ramcloud, objectPointers, numObjects);
-    request.wait();
+    ramcloud->multiRemove(objectPointers, numObjects);
 #if TIME_CPP
     start = Cycles::rdtsc() - start;
     printf("C++ MultiRemove Time: %f\n", Cycles::toSeconds(start) * 1000000 / numObjects);

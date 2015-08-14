@@ -1,9 +1,11 @@
 package edu.stanford.ramcloud.test;
 
+import edu.stanford.ramcloud.Util;
+
 public class TestCluster {
     static {
         // Load native library
-        System.loadLibrary("edu_stanford_ramcloud_test_TestCluster");
+        Util.loadLibrary("ramcloud_java_test");
     }
 
     // Keep pointers to the C++ RAMCloud and MockCluster objects.

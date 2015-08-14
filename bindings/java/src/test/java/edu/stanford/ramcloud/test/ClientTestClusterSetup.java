@@ -27,11 +27,12 @@ import org.testng.annotations.*;
 public class ClientTestClusterSetup {
     public static RAMCloud ramcloud;
     public static TestCluster cluster;
-    
+
     @BeforeSuite
     public void setupClient() {
         cluster = new TestCluster();
-        ClientTestClusterSetup.ramcloud = new RAMCloud(cluster.getRamcloudClientPointer());
+        ClientTestClusterSetup.ramcloud =
+                new RAMCloud(cluster.getRamcloudClientPointer());
     }
 
     @AfterSuite
