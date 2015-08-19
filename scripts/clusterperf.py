@@ -775,8 +775,7 @@ if __name__ == '__main__':
     finally:
         logInfo = log.scan("%s/latest" % (options.log_dir),
                 ["WARNING", "ERROR"],
-                ["Long gap in dispatcher",
-                 "starting new cluster from scratch",
+                ["starting new cluster from scratch",
                  "Ping timeout to server"])
         if len(logInfo) > 0:
             print(logInfo, file=sys.stderr)

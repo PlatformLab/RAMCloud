@@ -61,7 +61,7 @@ Syscall* Dispatch::sys = &defaultSyscall;
  *      themselves.
  */
 Dispatch::Dispatch(bool hasDedicatedThread)
-    : currentTime(Cycles::rdtsc())
+    : currentTime(0)
     , pollers()
     , files()
     , epollFd(-1)
@@ -149,7 +149,8 @@ Dispatch::poll()
         pollingTimes[nextInd] = currentTime - previous;
         nextInd = (nextInd + 1) % totalElements;
     }
-    if (((currentTime - previous) > slowPollerCycles) && hasDedicatedThread) {
+    if (((currentTime - previous) > slowPollerCycles) && (previous != 0)
+            && hasDedicatedThread) {
         LOG(WARNING, "Long gap in dispatcher: %.1f ms",
                 Cycles::toSeconds(currentTime - previous)*1e03);
     }
