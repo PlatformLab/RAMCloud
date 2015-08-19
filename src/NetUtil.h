@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,8 +22,8 @@
 /**
  * \file 
  *      This header file contains data structure and function definitions that
- *      could be potetially shared between all of the layer 2 and layer 3
- *      network drivers.  The scope of this file is limitted to NetUtil because
+ *      could potentially be shared between all of the layer 2 and layer 3
+ *      network drivers.  The scope of this file is limited to NetUtil because
  *      member structs should only be used inside driver software specific to
  *      Ethernet, IP, UDP, etc.
  */
@@ -34,7 +34,10 @@ namespace NetUtil {
 // This enum define various ethernet payload types as it must be specified
 // in EthernetHeader field `etherType'.
 enum EthPayloadType {
-    IP_V4 = 0x0800 // Standard ethernet type when the payload is an ip packet.
+    IP_V4 = 0x0800, // Standard ethernet type when the payload is an ip packet.
+#ifdef DPDK
+    FAST  = 0x88b5  // FAST+DPDK
+#endif
 };
 
 // Standard size of an Ethernet frame (not including Ethernet header).

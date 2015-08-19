@@ -47,7 +47,6 @@ ZOOKEEPER_LIB :=
 ZOOKEEPER_DIR :=
 endif
 
-
 ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
 OPTFLAG	 :=
@@ -146,6 +145,21 @@ COMFLAGS += -DINFINIBAND
 LIBS += -libverbs
 endif
 
+# Determines whether or not to build RAMCloud with DPDK support, such as
+# a DPDK driver for FastTransport. Note: DPDK must be present at "./dpdk"
+# (either directly or via a symbolic link). If you run the script
+# scripts/dpdkBuild.sh, it will install DPDK in an appropriate way.
+DPDK ?= no
+ifeq ($(DPDK),yes)
+INCLUDES += -Idpdk/build/include
+# Note: --whole-archive is necessary to make sure that all of the facilities
+# of the library are available for dynamic linking later.
+LIBS += -Wl,--whole-archive dpdk/build/lib/libintel_dpdk.a -Wl,--no-whole-archive -ldl
+# Note: __STDC_LIMIT_MACROS definition below is needed to avoid
+# compilation errors in DPDK header files.
+COMFLAGS += -DDPDK -Dtypeof=__typeof__
+endif
+
 ifeq ($(YIELD),yes)
 COMFLAGS += -DYIELD=1
 endif
@@ -153,11 +167,13 @@ endif
 CFLAGS_BASE := $(COMFLAGS) -std=gnu0x $(INCLUDES)
 CFLAGS_SILENT := $(CFLAGS_BASE)
 CFLAGS_NOWERROR := $(CFLAGS_BASE) $(CWARNS)
+# CFLAGS := $(CFLAGS_BASE) $(CWARNS)
 CFLAGS := $(CFLAGS_BASE) -Werror $(CWARNS)
 
 CXXFLAGS_BASE := $(COMFLAGS) -std=c++0x $(INCLUDES)
 CXXFLAGS_SILENT := $(CXXFLAGS_BASE) $(EXTRACXXFLAGS)
 CXXFLAGS_NOWERROR := $(CXXFLAGS_BASE) $(CXXWARNS) $(EXTRACXXFLAGS)
+# CXXFLAGS := $(CXXFLAGS_BASE) $(CXXWARNS) $(EXTRACXXFLAGS) $(PERF)
 CXXFLAGS := $(CXXFLAGS_BASE) -Werror $(CXXWARNS) $(EXTRACXXFLAGS) $(PERF)
 
 ifeq ($(COMPILER),intel)

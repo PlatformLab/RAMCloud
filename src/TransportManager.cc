@@ -35,6 +35,10 @@
 #include "SolarFlareDriver.h"
 #endif
 
+#ifdef DPDK
+#include "DpdkDriver.h"
+#endif
+
 namespace RAMCloud {
 
 static struct TcpTransportFactory : public TransportFactory {
@@ -99,6 +103,20 @@ static struct InfRcTransportFactory : public TransportFactory {
 } infRcTransportFactory;
 #endif
 
+#ifdef DPDK
+static struct FastDpdkTransportFactory : public TransportFactory {
+    FastDpdkTransportFactory()
+        : TransportFactory("fast+dpdk", "fast+dpdk") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        LOG(NOTICE, "Trying to createTransport");
+        return new FastTransport(context,
+                new DpdkDriver(context, localServiceLocator));
+        LOG(NOTICE, "Transport Created");
+    }
+} fastDpdkTransportFactory;
+#endif
+
 TransportManager::TransportManager(Context* context)
     : context(context)
     , isServer(false)
@@ -121,6 +139,9 @@ TransportManager::TransportManager(Context* context)
     transportFactories.push_back(&fastInfUdTransportFactory);
     transportFactories.push_back(&fastInfEthTransportFactory);
     transportFactories.push_back(&infRcTransportFactory);
+#endif
+#ifdef DPDK
+    transportFactories.push_back(&fastDpdkTransportFactory);
 #endif
     transports.resize(transportFactories.size(), NULL);
 }
@@ -453,15 +474,27 @@ void
 TransportManager::dumpTransportFactories()
 {
     Dispatch::Lock lock(context->dispatch);
-    LOG(NOTICE, "The following transport factories are known:");
-    uint32_t i = 0;
+    string list;
+    string separator = "";
     foreach (auto factory, transportFactories) {
-        LOG(NOTICE,
-            "Transport factory %u supports the following protocols:", i);
-        foreach (const char* protocol, factory->getProtocols())
-          LOG(NOTICE, "  %s", protocol);
-        ++i;
+        int count = 0;
+        foreach (const char* protocol, factory->getProtocols()) {
+            if (count == 0) {
+                list.append(separator);
+            } else if (count == 1) {
+                list.append(" (");
+            } else {
+                list.append(", ");
+            }
+            list.append(protocol);
+            count++;
+        }
+        if (count > 1) {
+            list.append(")");
+        }
+        separator = ", ";
     }
+    LOG(NOTICE, "Known transports: %s", list.c_str());
 }
 
 } // namespace RAMCloud

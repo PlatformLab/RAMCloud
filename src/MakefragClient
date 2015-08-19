@@ -16,6 +16,14 @@ else
 SOLARFLARE_SRC :=
 endif
 
+ifeq ($(DPDK),yes)
+DPDK_SRC := \
+        src/DpdkDriver.cc \
+        $(NULL)
+else
+DPDK_SRC :=
+endif
+
 CLIENT_SRCFILES := \
 		   src/AbstractServerList.cc \
 		   src/ArpCache.cc \
@@ -108,6 +116,7 @@ CLIENT_SRCFILES := \
 		   src/ZooStorage.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(SOLARFLARE_SRC) \
+		   $(DPDK_SRC) \
 		   $(OBJDIR)/Histogram.pb.cc \
 		   $(OBJDIR)/LogMetrics.pb.cc \
 		   $(OBJDIR)/MasterRecoveryInfo.pb.cc \

@@ -11,11 +11,19 @@ INFINIBAND_SRCFILES :=
 endif
 
 ifeq ($(ONLOAD),yes)
-SOLARFLARE_SRC := \
+SOLARFLARE_SRCFILES := \
 	src/SolarFlareDriverTest.cc \
 	$(NULL)
 else
-SOLARFLARE_SRC :=
+SOLARFLARE_SRCFILES :=
+endif
+
+ifeq ($(DPDK),yes)
+DPDK_SRCFILES := \
+        src/DpdkDriverTest.cc \
+        $(NULL)
+else
+DPDK_SRCFILES :=
 endif
 
 TESTS_SRCFILES := \
@@ -174,7 +182,8 @@ TESTS_SRCFILES := \
 		  src/WorkerTimerTest.cc \
 		  src/RamCloudTest.cc \
 		  $(INFINIBAND_SRCFILES) \
-		  $(SOLARFLARE_SRC) \
+		  $(SOLARFLARE_SRCFILES) \
+		  $(DPDK_SRCFILES) \
 		  $(OBJDIR)/ProtoBufTest.pb.cc
 
 TESTS_OBJFILES := $(TESTS_SRCFILES)

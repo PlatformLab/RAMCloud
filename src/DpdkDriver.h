@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2015 Stanford University
  * Copyright (c) 2014-2015 Huawei Technologies Co. Ltd.
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -17,13 +17,6 @@
 #ifndef RAMCLOUD_DPDKDRIVER_H
 #define RAMCLOUD_DPDKDRIVER_H
 
-#include <rte_config.h>
-#include <rte_common.h>
-#include <rte_memcpy.h>
-#include <rte_ethdev.h>
-#include <rte_mbuf.h>
-#include <rte_ring.h>
-
 #include <vector>
 
 #include "FastTransport.h"
@@ -40,6 +33,10 @@
 // per-element size for the packet buffer memory pool
 #define MBUF_SIZE (2048 + sizeof(struct rte_mbuf) + RTE_PKTMBUF_HEADROOM)
 
+//Forward declarations, so we don't have to include DPDK headers here.
+struct rte_mempool;
+struct rte_ring;
+
 namespace RAMCloud
 {
 
@@ -48,15 +45,15 @@ namespace RAMCloud
  * style interface. See Driver.h for more detail.
  */
 
-class DPDKDriver : public Driver
+class DpdkDriver : public Driver
 {
   public:
     static const uint32_t MAX_PAYLOAD_SIZE = 1400;
     friend class Poller;
 
-    explicit DPDKDriver(Context* context,
+    explicit DpdkDriver(Context* context,
                         const ServiceLocator* localServiceLocator = NULL);
-    virtual ~DPDKDriver();
+    virtual ~DpdkDriver();
     void close();
     virtual void connect(IncomingPacketHandler* incomingPacketHandler);
     virtual void disconnect();
@@ -96,15 +93,15 @@ class DPDKDriver : public Driver
 
     class Poller : public Dispatch::Poller {
       public:
-        explicit Poller(Context* context, DPDKDriver* driver)
-            : Dispatch::Poller(context->dispatch, "DPDKDriver::Poller"),
+        explicit Poller(Context* context, DpdkDriver* driver)
+            : Dispatch::Poller(context->dispatch, "DpdkDriver::Poller"),
             driver(driver) {}
 
         virtual int poll();
       private:
 
         // Driver on whose behalf this poller operates.
-        DPDKDriver* driver;
+        DpdkDriver* driver;
         DISALLOW_COPY_AND_ASSIGN(Poller);
     };
     Tub<Poller> poller;
@@ -128,17 +125,17 @@ class DPDKDriver : public Driver
     Tub<MacAddress> localMac;
 
     /// Stores the NIC's physical port id addressed by the instantiated driver.
-    uint8_t portid;
+    uint8_t portId;
 
     /// Holds packet buffers that are dequeued from the NIC's HW queues
     /// via DPDK.
-    struct rte_mempool *pktmbuf_pool;
+    struct rte_mempool *packetPool;
 
     /// Holds packets that are addressed to localhost instead of going through
     /// the HW queues.
-    struct rte_ring *loopback_ring;
+    struct rte_ring *loopbackRing;
 
-    DISALLOW_COPY_AND_ASSIGN(DPDKDriver);
+    DISALLOW_COPY_AND_ASSIGN(DpdkDriver);
 };
 
 } // end RAMCloud
