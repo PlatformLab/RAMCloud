@@ -215,6 +215,8 @@ def run_test(
         client_args['--numIndexlet'] = options.numIndexlet
     if options.numIndexes != None:
         client_args['--numIndexes'] = options.numIndexes
+    if options.numVClients != None:
+        client_args['--numVClients'] = options.numVClients
     test.function(test.name, options, cluster_args, client_args)
 
 #-------------------------------------------------------------------
@@ -733,6 +735,10 @@ if __name__ == '__main__':
             help='Number of indexlets for measuring index scalability ')
     parser.add_option('-k', '--numIndexes', type=int,
             help='Number of secondary keys/object to measure index operations')
+    parser.add_option('--numVClients', type=int,
+            metavar='N', dest='numVClients',
+            help='Number of virtual clients each client instance should '
+                 'simulate')
     parser.add_option('--rcdf', action='store_true', default=False,
             dest='rcdf',
             help='Output reverse CDF data instead.')
