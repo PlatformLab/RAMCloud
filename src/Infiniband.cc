@@ -628,7 +628,7 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
     qpa.ah_attr.dlid = qpt->getLid();
     qpa.ah_attr.sl = 0;
     qpa.ah_attr.src_path_bits = 0;
-    qpa.ah_attr.port_num = 1;
+    qpa.ah_attr.port_num = downCast<uint8_t>(ibPhysicalPort);
 
     r = ibv_modify_qp(qp, &qpa, IBV_QP_STATE |
                                 IBV_QP_AV |
