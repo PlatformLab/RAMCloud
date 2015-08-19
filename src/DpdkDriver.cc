@@ -123,9 +123,10 @@ DpdkDriver::DpdkDriver(Context* context,
     // ensure that DPDK was able to detect a compatible and available NIC
     numPorts = rte_eth_dev_count();
 
-    if (numPorts == 0) {
-        throw DriverException(HERE,
-                "Failed to discover any Ethernet ports");
+    if (numPorts <= portId) {
+        throw DriverException(HERE, format(
+                "Ethernet port %u doesn't exist (%u ports available)",
+                portId, numPorts));
     }
 
     // if the locator string specified an all-zeroes MAC address,
@@ -134,7 +135,8 @@ DpdkDriver::DpdkDriver(Context* context,
     if (!localMac || localMac->isNull()) {
         rte_eth_macaddr_get(portId, &mac);
         localMac.construct(mac.addr_bytes);
-        locatorString = "fast+dpdk:mac=" + localMac->toString() +",devport=0";
+        locatorString = format("fast+dpdk:mac=%s,devport=%d",
+                localMac->toString().c_str(), portId);
     }
 
     // configure some default NIC port parameters
@@ -287,10 +289,9 @@ DpdkDriver::sendPacket(const Address *addr,
     char *p = data;
 
     if (NULL == data) {
-        string msg =
-            "Failed to append data to a packet buffer for DPDK Driver.";
-        LOG(WARNING, "%s", msg.c_str());
-        throw DriverException(HERE, msg.c_str(), errno);
+        const char* msg = "rte_pktmbuf_append call failed";
+        LOG(WARNING, "%s", msg);
+        throw DriverException(HERE, msg);
     }
 
     NetUtil::EthernetHeader* ethHdr = reinterpret_cast<
@@ -342,8 +343,8 @@ DpdkDriver::Poller::poll()
         return 0;
 
     if (totalPktRx > MAX_MBUFS_ON_STACK) {
-        string msg =
-            "Number of packets exceed the available DPDK Driver.";
+        string msg = format("Too many packets received (got %u, limit %u)",
+                totalPktRx, MAX_MBUFS_ON_STACK);
         LOG(WARNING, "%s", msg.c_str());
         throw DriverException(HERE, msg.c_str(), errno);
     }
