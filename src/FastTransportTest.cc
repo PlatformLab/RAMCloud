@@ -29,6 +29,7 @@ class MockReceived : public Driver::Received {
                    const char* msg,
                    uint32_t len)
     {
+        sender = &address;
         payload = new char[len];
         memcpy(getContents(), msg, len - sizeof(FastTransport::Header));
         FastTransport::Header *header = new(payload) FastTransport::Header;
@@ -42,6 +43,7 @@ class MockReceived : public Driver::Received {
                  uint32_t len)
         : Received()
         , stealCount(0)
+        , address(0x01020304, 99)
     {
         this->len = len + sizeof32(FastTransport::Header);
         construct(fragNumber, totalFrags,
@@ -53,6 +55,7 @@ class MockReceived : public Driver::Received {
                  const char* msg)
         : Received()
         , stealCount(0)
+        , address(0x01020304, 99)
     {
         len = downCast<uint32_t>(strlen(msg) + sizeof(FastTransport::Header));
         construct(fragNumber, totalFrags, msg, len);
@@ -78,6 +81,7 @@ class MockReceived : public Driver::Received {
         payload = NULL;
     }
     int stealCount;
+    IpAddress address;
     DISALLOW_COPY_AND_ASSIGN(MockReceived);
 };
 
@@ -340,9 +344,9 @@ TEST_F(FastTransportTest, handleIncomingPacket_c2sGoodHintBadToken) {
 
     transport->handleIncomingPacket(&recvd);
     EXPECT_EQ(
-        "handleIncomingPacket: "
-        "bad session token (0xcccccccccccccccc in session 0, "
-        "0xcccccccccccccccd in packet)", TestLog::get());
+        "handleIncomingPacket: bad session token from 1.2.3.4:99 "
+        "(session 0, expected 0xcccccccccccccccc, got 0xcccccccccccccccd)",
+        TestLog::get());
     EXPECT_EQ(
         "{ sessionToken:cccccccccccccccd rpcId:0 clientSessionHint:0 "
             "serverSessionHint:0 0/0 frags channel:0 dir:1 reqACK:0 "
@@ -380,9 +384,9 @@ TEST_F(FastTransportTest, handleIncomingPacket_s2cGoodHintBadToken) {
     EXPECT_EQ(
         "handleIncomingPacket: "
         "client session processing packet | "
-        "handleIncomingPacket: "
-        "bad fragment token (0xcccccccccccccccc in session 0, "
-        "0x0 in packet), client dropping", TestLog::get());
+        "handleIncomingPacket: bad session token from 1.2.3.4:99 "
+        "(session 0, expected 0xcccccccccccccccc, got 0x0)",
+        TestLog::get());
 }
 
 TEST_F(FastTransportTest, handleIncomingPacket_s2cBadHint) {

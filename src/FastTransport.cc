@@ -214,9 +214,11 @@ void FastTransport::handleIncomingPacket(Driver::Received* received)
             session->processInboundPacket(received);
             return;
         } else {
-            LOG(WARNING, "bad session token (0x%lx in session %d, "
-                "0x%lx in packet)", session->getToken(),
-                header->serverSessionHint, header->sessionToken);
+            LOG(WARNING, "bad session token from %s (session %d, "
+                    "expected 0x%lx, got 0x%lx)",
+                    received->sender->toString().c_str(),
+                    header->clientSessionHint, session->getToken(),
+                    header->sessionToken);
             sendBadSessionError(header, received->sender);
             return;
         }
@@ -230,9 +232,11 @@ void FastTransport::handleIncomingPacket(Driver::Received* received)
                 header->getPayloadType() == Header::SESSION_OPEN) {
                 session->processInboundPacket(received);
             } else {
-                LOG(WARNING, "bad fragment token (0x%lx in session %d, "
-                    "0x%lx in packet), client dropping", session->getToken(),
-                    header->clientSessionHint, header->sessionToken);
+                LOG(WARNING, "bad session token from %s (session %d, "
+                    "expected 0x%lx, got 0x%lx)",
+                    received->sender->toString().c_str(),
+                    header->clientSessionHint, session->getToken(),
+                    header->sessionToken);
             }
         } else {
             LOG(WARNING, "bad client session hint %d",
@@ -451,8 +455,7 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
     this->totalFrags = totalFrags;
     this->dataBuffer = dataBuffer;
     if (useTimer) {
-        timer->start(transport->context->dispatch->currentTime +
-                session->timeoutCycles);
+        timer->start(Cycles::rdtsc() + session->timeoutCycles);
     }
 }
 
@@ -589,8 +592,7 @@ FastTransport::InboundMessage::Timer::handleTimerEvent()
         if (inboundMsg->silentIntervals > 1) {
             inboundMsg->sendAck();
         }
-        start(inboundMsg->transport->context->dispatch->currentTime +
-              inboundMsg->session->timeoutCycles);
+        start(Cycles::rdtsc() + inboundMsg->session->timeoutCycles);
     }
 }
 
@@ -769,20 +771,7 @@ FastTransport::OutboundMessage::send()
             sendOneData(totalFrags-1, true);
         }
 
-        // Find the oldest unacknowledged fragment, and schedule the timer
-        // based on that.
-        uint64_t oldestSentTime = now;
-        for (uint32_t fragNumber = firstMissingFrag; fragNumber < stop;
-                fragNumber++) {
-            uint64_t sentTime = sentTimes[fragNumber];
-            // if we reach a not-sent, the rest must be not-sent
-            if (!sentTime)
-                break;
-            if (sentTime != ACKED && sentTime > 0)
-                if (sentTime < oldestSentTime)
-                    oldestSentTime = sentTime;
-        }
-        timer->start(oldestSentTime + session->timeoutCycles);
+        timer->start(now + session->timeoutCycles);
     }
 }
 
