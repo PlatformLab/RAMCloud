@@ -563,9 +563,6 @@ TEST_F(RamCloudTest, objectServerControl) {
                             WireFormat::STOP_DISPATCH_PROFILER,
                             " ", 1, &output);
     ASSERT_FALSE(targetServer->context->dispatch->profilerFlag);
-    ramcloud->objectServerControl(tableId1, "0", 1,
-                            WireFormat::DUMP_DISPATCH_PROFILE,
-                            "pollingTimes.txt", 17, &output);
 }
 
 TEST_F(RamCloudTest, serverControlAll) {
