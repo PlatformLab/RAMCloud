@@ -155,10 +155,12 @@ AbstractServerList::getSession(ServerId id)
     // the server uses the same locator, but has a different server id).
     // See RAM-571 for more on this.
     if (!skipServerIdCheck) {
-        if (!PingClient::verifyServerId(context, session, id)) {
-            RAMCLOUD_LOG(NOTICE, "couldn't verify server id %s for "
-                    "locator %s; discarding session",
-                    id.toString().c_str(), locator.c_str());
+        ServerId actualId = PingClient::getServerId(context, session);
+        if (actualId != id) {
+            RAMCLOUD_LOG(NOTICE, "server for locator %s has incorrect id "
+                    "(expected %s, got %s); discarding session",
+                    locator.c_str(), id.toString().c_str(),
+                    actualId.toString().c_str());
             return FailSession::get();
         }
     }

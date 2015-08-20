@@ -350,8 +350,8 @@ PingClient::logMessage(Context* context, ServerId serverId,
 }
 
 /**
- * Verify that a particular session connects to a server with a particular
- * id. This method is used primarily by AbstractServerList when opening a
+ * Retrieves the id of the server at the other end of a given session.
+ * This method is used primarily by AbstractServerList when opening a
  * connection to a particular server id; it is intended to detect situations
  * where a new incarnation of a server (with a new ServerId) uses the same
  * service locator as its predecessor.
@@ -360,8 +360,6 @@ PingClient::logMessage(Context* context, ServerId serverId,
  *      Overall information about this RAMCloud server.
  * \param session
  *      Open connection to another server.
- * \param expectedId
- *      Verify that the server at the other end of session has this id.
  *
  * \result
  *      True is returned if a getServerId RPC returns confirmation that
@@ -369,13 +367,11 @@ PingClient::logMessage(Context* context, ServerId serverId,
  *      that the server is *not* the expected one, or if we are unable
  *      to communicate with the server for any reason.
  */
-bool
-PingClient::verifyServerId(Context* context, Transport::SessionRef session,
-        ServerId expectedId)
+ServerId
+PingClient::getServerId(Context* context, Transport::SessionRef session)
 {
     GetServerIdRpc rpc(context, session);
-    ServerId id = rpc.wait();
-    return (id == expectedId);
+    return rpc.wait();
 }
 
 /**

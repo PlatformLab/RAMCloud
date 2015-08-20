@@ -204,8 +204,9 @@ TEST_F(AbstractServerListTest, getSession_verifyServerId) {
     EXPECT_EQ("mock:host=ping", sl.getSession(id1)->getServiceLocator());
     EXPECT_EQ("", TestLog::get());
     EXPECT_EQ("fail:", sl.getSession(id2)->getServiceLocator());
-    EXPECT_EQ("getSession: couldn't verify server id 1.0 for locator "
-            "mock:host=ping; discarding session", TestLog::get());
+    EXPECT_EQ("getSession: server for locator mock:host=ping has incorrect "
+            "id (expected 1.0, got 0.0); discarding session",
+            TestLog::get());
 }
 
 TEST_F(AbstractServerListTest, flushSession) {

@@ -162,25 +162,13 @@ TEST_F(PingServiceTest, getServerId) {
     pingService.setServerId(ServerId(3, 5));
     Transport::SessionRef session =
             context.transportManager->openSession("mock:host=ping");
-    GetServerIdRpc rpc(&context, session);
-    ServerId id = rpc.wait();
+    ServerId id = PingClient::getServerId(&context, session);
     EXPECT_EQ("3.5", id.toString());
 }
 
 TEST_F(PingServiceTest, getServerId_transportError) {
-    GetServerIdRpc rpc(&context, FailSession::get());
-    ServerId id = rpc.wait();
+    ServerId id = PingClient::getServerId(&context, FailSession::get());
     EXPECT_EQ("invalid", id.toString());
-}
-
-TEST_F(PingServiceTest, verifyServerId) {
-    Transport::SessionRef session =
-            context.transportManager->openSession("mock:host=ping");
-    pingService.setServerId(ServerId(3, 5));
-    EXPECT_TRUE(PingClient::verifyServerId(&context, session,
-            ServerId(3, 5)));
-    EXPECT_FALSE(PingClient::verifyServerId(&context, session,
-            ServerId(2, 5)));
 }
 
 TEST_F(PingServiceTest, ping_basics) {
