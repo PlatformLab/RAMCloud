@@ -148,6 +148,7 @@ InfUdDriver::InfUdDriver(Context* context,
         } else {
             locatorString += format("lid=%u,qpn=%u", lid, qpn);
         }
+        LOG(NOTICE, "Locator for InfUdDriver: %s", locatorString.c_str());
     }
 
     // add receive buffers so we can transition to RTR
