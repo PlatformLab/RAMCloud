@@ -1,5 +1,7 @@
 /* Copyright (c) 2015 Stanford University
  * Copyright (c) 2014-2015 Huawei Technologies Co. Ltd.
+ * The original version of this module was contributed by Anthony Iliopoulos
+ * at DBERC, Huawei
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
