@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -264,7 +264,7 @@ TEST_F(FastTransportTest, handleIncomingPacket_tooSmall) {
     transport->handleIncomingPacket(&recvd);
     EXPECT_EQ(
         "handleIncomingPacket: "
-        "packet too short (1 bytes)", TestLog::get());
+        "packet from 1.2.3.4:99 too short (1 bytes)", TestLog::get());
 }
 
 TEST_F(FastTransportTest, handleIncomingPacket_dropped) {
@@ -306,7 +306,7 @@ TEST_F(FastTransportTest, handleIncomingPacket_c2sBadSession) {
     transport->handleIncomingPacket(&recvd);
     EXPECT_EQ(
         "handleIncomingPacket: "
-        "bad session hint 0", TestLog::get());
+        "bad session hint 0 from 1.2.3.4:99", TestLog::get());
     EXPECT_EQ(
         "{ sessionToken:0 rpcId:0 clientSessionHint:0 "
             "serverSessionHint:0 0/0 frags channel:0 dir:1 reqACK:0 "
@@ -399,7 +399,7 @@ TEST_F(FastTransportTest, handleIncomingPacket_s2cBadHint) {
     transport->handleIncomingPacket(&recvd);
     EXPECT_EQ(
         "handleIncomingPacket: "
-        "bad client session hint 0", TestLog::get());
+        "bad client session hint 0 from 1.2.3.4:99", TestLog::get());
 }
 
 TEST_F(FastTransportTest, ServerRpc_getClientServiceLocator) {
