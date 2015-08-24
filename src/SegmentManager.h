@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -403,7 +403,7 @@ class SegmentManager {
      * of any particular object.
      * As far as the object is not removed, its
      * version number has no influence of the safeVersion, because the
-     * safeVersion is used to keep the monotonicitiy of the version number of
+     * safeVersion is used to keep the monotonicity of the version number of
      * any recreated object.
      *
      * \li When an object is removed, set the safeVersion
@@ -412,6 +412,23 @@ class SegmentManager {
      *
      **/
     std::atomic_uint_fast64_t safeVersion;
+
+
+    /// The following variables allow us to log messages if the epoch
+    /// mechanism gets "stuck", where some old RPC is never completing and
+    /// that prevents us from freeing cleaned segments. OldestRpcEpoch is
+    /// the epoch of the oldest incomplete RPC.
+    uint64_t oldestRpcEpoch;
+
+    /// Time (in Cycles::rdtsc() units) of the beginning of a time interval
+    /// during which oldestRpcEpoch is stuck at a particular value that is
+    /// preventing segments from being freed.
+    uint64_t stuckStartTime;
+
+    /// Time (in seconds measured from stuckStartTime) at which we will
+    /// generate the next log message indicating that segment freeing is
+    /// stuck. 0 means we aren't stuck.
+    double nextMessageSeconds;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentManager);
 };

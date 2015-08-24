@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -626,6 +626,66 @@ TEST_F(SegmentManagerTest, freeUnreferencedSegments) {
     EXPECT_EQ(0U, segmentManager.segmentsByState[
         SegmentManager::FREEABLE_PENDING_REFERENCES].size());
 
+    pool.destroy(rpc);
+}
+
+TEST_F(SegmentManagerTest, freeUnreferencedSegments_logWhenStuck) {
+    TestLog::Enable _("freeUnreferencedSegments");
+    LogSegment* freeable = segmentManager.allocHeadSegment();
+    segmentManager.allocHeadSegment();
+
+    ServerRpcPoolInternal::currentEpoch = 8;
+    ServerRpcPool<TestServerRpc> pool;
+    TestServerRpc* rpc = pool.construct();
+
+    segmentManager.changeState(*freeable,
+        SegmentManager::FREEABLE_PENDING_REFERENCES);
+
+    freeable->cleanedEpoch = 8;
+    Cycles::mockTscValue = 1000;
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ("", TestLog::get());
+    EXPECT_EQ(1.0, segmentManager.nextMessageSeconds);
+
+    Cycles::mockTscValue += Cycles::fromSeconds(0.9);
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ("", TestLog::get());
+
+    Cycles::mockTscValue += Cycles::fromSeconds(0.11);
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ("freeUnreferencedSegments: Unfinished RPCs are preventing 1 "
+            "segments from being freed (segment epoch 8, RPC epoch 8, "
+            "current epoch 8, stuck for 1 seconds)", TestLog::get());
+    TestLog::reset();
+
+    Cycles::mockTscValue += Cycles::fromSeconds(0.5);
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ("", TestLog::get());
+
+    Cycles::mockTscValue += Cycles::fromSeconds(0.55);
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ("freeUnreferencedSegments: Unfinished RPCs are preventing 1 "
+            "segments from being freed (segment epoch 8, RPC epoch 8, "
+            "current epoch 8, stuck for 2 seconds)", TestLog::get());
+
+    Cycles::mockTscValue += Cycles::fromSeconds(2.0);
+    freeable->cleanedEpoch = 7;
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(0U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ(0.0, segmentManager.nextMessageSeconds);
+
+    Cycles::mockTscValue = 0;
     pool.destroy(rpc);
 }
 

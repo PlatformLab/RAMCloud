@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -79,7 +79,10 @@ SegmentManager::SegmentManager(Context* context,
       logIteratorCount(0),
       segmentsOnDisk(0),
       segmentsOnDiskHistogram(maxSegments, 1),
-      safeVersion(1)
+      safeVersion(1),
+      oldestRpcEpoch(0),
+      stuckStartTime(0),
+      nextMessageSeconds(0.0)
 {
     if ((segmentSize % allocator.getSegletSize()) != 0)
         throw SegmentManagerException(HERE, "segmentSize % segletSize != 0");
@@ -309,6 +312,7 @@ SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
             return NULL;
 
         guard.destroy();
+        LOG(NOTICE, "Couldn't allocate segment for cleaning");
 
         // This message is likely benign (it can happen if there are no writes
         // coming in to roll over the log head and free up previously-cleaned
@@ -1166,11 +1170,40 @@ SegmentManager::freeUnreferencedSegments()
         ServerRpcPool<>::getEarliestOutstandingEpoch(context);
     SegmentList::iterator it = freeablePending.begin();
 
+    int skippedCount = 0;
+    uint64_t savedEpoch = ~0;
     while (it != freeablePending.end()) {
         LogSegment& s = *it;
         ++it;
-        if (s.cleanedEpoch < earliestEpoch)
+        if (s.cleanedEpoch < earliestEpoch) {
             free(&s);
+        } else {
+            skippedCount++;
+            if (s.cleanedEpoch < savedEpoch) {
+                savedEpoch = s.cleanedEpoch;
+            }
+        }
+    }
+    if (skippedCount == 0) {
+        nextMessageSeconds = 0;
+    } else if ((earliestEpoch > oldestRpcEpoch)
+            || (nextMessageSeconds == 0.0)) {
+        oldestRpcEpoch = earliestEpoch;
+        stuckStartTime = Cycles::rdtsc();
+        nextMessageSeconds = 1.0;
+    } else {
+        // Outstanding RPCs are keeping us from freeing segments. If this
+        // goes on for a long time then log a message.
+        uint64_t now = Cycles::rdtsc();
+        double stuckSeconds = Cycles::toSeconds(now - stuckStartTime);
+        if (stuckSeconds > nextMessageSeconds) {
+            RAMCLOUD_LOG(WARNING, "Unfinished RPCs are preventing %d segments "
+                    "from being freed (segment epoch %lu, RPC epoch %lu, "
+                    "current epoch %lu, stuck for %.0f seconds)",
+                    skippedCount, savedEpoch, oldestRpcEpoch,
+                    ServerRpcPool<>::getCurrentEpoch(), nextMessageSeconds);
+            nextMessageSeconds += 1.0;
+        }
     }
 }
 
