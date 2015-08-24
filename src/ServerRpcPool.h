@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -138,6 +138,30 @@ class ServerRpcPool {
         }
 
         return earliest;
+    }
+
+    /**
+     * Log information about the epochs for all outstanding RPCs. Intended
+     * for debugging.
+     *
+     * \param context
+     *      Overall information about the RAMCloud server; used to lock the
+     *      dispatcher.
+     */
+    static void
+    logEpochs(Context* context)
+    {
+        Dispatch::Lock lock(context->dispatch);
+
+        ServerRpcPoolInternal::ServerRpcList::iterator it =
+            ServerRpcPoolInternal::outstandingServerRpcs.begin();
+        int count = 0;
+        while (it != ServerRpcPoolInternal::outstandingServerRpcs.end()) {
+            RAMCLOUD_LOG(NOTICE, "Epoch: %lu", it->epoch);
+            it++;
+            count++;
+        }
+        RAMCLOUD_LOG(NOTICE, "Finished with scan: %d RPCs scanned", count);
     }
 
     /**
