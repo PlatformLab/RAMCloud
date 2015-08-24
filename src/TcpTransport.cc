@@ -19,6 +19,7 @@
 #include <arpa/inet.h>
 
 #include "Common.h"
+#include "PerfStats.h"
 #include "ShortMacros.h"
 #include "ServiceManager.h"
 #include "TcpTransport.h"
@@ -421,8 +422,10 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer* payload,
 
     int r = downCast<int>(sys->sendmsg(fd, &msg,
             MSG_NOSIGNAL|MSG_DONTWAIT));
-    if (r == bytesToSend)
+    if (r == bytesToSend) {
+        PerfStats::threadStats.networkOutputBytes += r;
         return 0;
+    }
 #if TESTING
     if ((r > 0) && (r < totalLength)) {
         messageChunks++;
@@ -436,6 +439,7 @@ TcpTransport::sendMessage(int fd, uint64_t nonce, Buffer* payload,
         }
         r = 0;
     }
+    PerfStats::threadStats.networkOutputBytes += r;
     return bytesToSend - r;
 }
 
@@ -462,6 +466,7 @@ ssize_t
 TcpTransport::recvCarefully(int fd, void* buffer, size_t length) {
     ssize_t actual = sys->recv(fd, buffer, length, MSG_DONTWAIT);
     if (actual > 0) {
+        PerfStats::threadStats.networkInputBytes += actual;
         return actual;
     }
     if (actual == 0) {
