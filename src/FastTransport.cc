@@ -46,13 +46,14 @@ FastTransport::FastTransport(Context* context, Driver* driver)
     , clientRpcPool()
 {
     struct IncomingPacketHandler : Driver::IncomingPacketHandler {
-        explicit IncomingPacketHandler(FastTransport& t) : t(t) {}
-        void operator()(Driver::Received* received) {
-            t.handleIncomingPacket(received);
+        explicit IncomingPacketHandler(FastTransport* t) : t(t) {}
+        void handlePacket(Driver::Received* received) {
+            t->handleIncomingPacket(received);
         }
-        FastTransport& t;
+        FastTransport* t;
+        DISALLOW_COPY_AND_ASSIGN(IncomingPacketHandler);
     };
-    driver->connect(new IncomingPacketHandler(*this));
+    driver->connect(new IncomingPacketHandler(this));
 }
 
 FastTransport::~FastTransport()

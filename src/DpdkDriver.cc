@@ -374,7 +374,7 @@ DpdkDriver::Poller::poll()
         rte_memcpy(received.payload,
                 static_cast<char*>(rte_pktmbuf_mtod(m, void *))
                 + sizeof(NetUtil::EthernetHeader), received.len);
-        (*driver->incomingPacketHandler)(&received);
+        driver->incomingPacketHandler->handlePacket(&received);
         rte_pktmbuf_free(m);
     }
     return 1;

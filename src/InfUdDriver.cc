@@ -380,7 +380,7 @@ InfUdDriver::Poller::poll()
     LOG(DEBUG, "received %u byte payload from %s",
         received.len,
         received.sender->toString().c_str());
-    (*driver->incomingPacketHandler)(&received);
+    driver->incomingPacketHandler->handlePacket(&received);
 
     // post the original infiniband buffer back to the receive queue
     driver->infiniband->postReceive(driver->qp, bd);
