@@ -5835,8 +5835,8 @@ void
 linearizableWriteDistRandom()
 {
     int numKeys = 2000000;
-    if (clientIndex != 0)
-        return;
+//    if (clientIndex != 0)
+//        return;
 
     const uint16_t keyLength = 30;
 
@@ -5844,7 +5844,7 @@ linearizableWriteDistRandom()
     char value[objectSize];
 
     // Setup virtual clients.
-    Tub<VirtualClient> virtualClients[numVClients];
+    Tub<VirtualClient>* virtualClients = new Tub<VirtualClient>[numVClients];
     for (int i = 0; i < numVClients; ++i) {
         virtualClients[i].construct(cluster);
         VirtualClient::Context _(virtualClients[i].get());
@@ -5856,9 +5856,17 @@ linearizableWriteDistRandom()
                        NULL, NULL, false, true);
     }
 
+    if (clientIndex == 0)
     {
         VirtualClient::Context _(virtualClients[0].get());
         fillTable(dataTable, numKeys, keyLength, objectSize);
+        sendCommand("start", "running", 1, numClients-1);
+    }
+    else
+    {
+        char command[20];
+        getCommand(command, 20, true);
+        setSlaveState("running");
     }
 
     // Issue the writes back-to-back, and save the times.
@@ -5895,6 +5903,11 @@ linearizableWriteDistRandom()
         valuesInLine++;
     }
     printf("\n");
+
+    for (int i = 0; i < numVClients; ++i) {
+        virtualClients[i].destroy();
+    }
+    delete[] virtualClients;
 }
 
 // This benchmark measures total throughput of a single server (in operations

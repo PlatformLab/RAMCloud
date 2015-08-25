@@ -38,6 +38,7 @@
 #include "Transport.h"
 #include "Tub.h"
 #include "WallTime.h"
+#include "CacheTrace.h"
 
 namespace RAMCloud {
 
@@ -2811,6 +2812,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         WireFormat::Write::Response* respHdr,
         Rpc* rpc)
 {
+    context->timeTrace->record("Start Write.");
     const bool linearizable = reqHdr->rpcId > 0;
     if (linearizable) {
         updateClusterTime(reqHdr->lease.timestamp);
@@ -2823,6 +2825,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
                                              &result)) {
             *respHdr = parseRpcResult<WireFormat::Write>(result);
             rpc->sendReply();
+            context->timeTrace->record("Write linearized: returning early");
             return;
         }
     }
@@ -2863,14 +2866,20 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
                 object, &rejectRules, &respHdr->version, &oldObjectBuffer);
     }
 
+    context->timeTrace->record("object written");
+
     if (respHdr->common.status == STATUS_OK)
         objectManager.syncChanges();
+
+    context->timeTrace->record("object synced");
 
     if (linearizable) {
         unackedRpcResults.recordCompletion(reqHdr->lease.leaseId,
                                     reqHdr->rpcId,
                                     reinterpret_cast<void*>(rpcResultPtr));
     }
+    
+    context->timeTrace->record("completion recorded");
 
     // If this is a overwrite, delete old index entries if any (this can
     // be done asynchronously after sending a reply).
@@ -2881,6 +2890,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             requestRemoveIndexEntries(oldObject);
         }
     }
+    context->timeTrace->record("Write complete.");
 }
 
 ///////////////////////////////////////////////////////////////////////////////
