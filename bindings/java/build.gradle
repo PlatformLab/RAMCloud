@@ -93,7 +93,6 @@ tasks.whenTaskAdded { task ->
             from binaries.testSharedLibrary.sharedLibraryFile
             into sourceSets.test.output.resourcesDir.path + "/libs"
         }
-        jar.dependsOn(copyLibsTest)
         copyLibsTest.dependsOn(testSharedLibrary)
         compileTestJava.dependsOn(copyLibs)
         test.dependsOn(copyLibsTest)
