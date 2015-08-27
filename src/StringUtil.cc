@@ -17,6 +17,7 @@
 #include "StringUtil.h"
 
 #include <regex.h>
+#include <climits>
 #include <sstream>
 
 namespace RAMCloud {
