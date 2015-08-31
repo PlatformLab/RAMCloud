@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -792,7 +792,7 @@ rc_multiRead(struct rc_client* client,
                 continue;
             }
 
-            uint16_t value_offset;
+            uint32_t value_offset;
             bool retval = mReadHelper->value->getValueOffset(&value_offset);
             if (!retval) {
                 read_requests[i]->status = STATUS_INVALID_OBJECT;

@@ -229,6 +229,10 @@ ObjectManager::readHashes(const uint64_t tableId, uint32_t reqNumHashes,
                 tabletManager->incrementReadCount(object.getTableId(),
                         object.getPKHash());
                 ++PerfStats::threadStats.readCount;
+                uint32_t valueLength = object.getValueLength();
+                PerfStats::threadStats.readObjectBytes += valueLength;
+                PerfStats::threadStats.readKeyBytes +=
+                        object.getKeysAndValueLength() - valueLength;
             }
         }
 
@@ -329,13 +333,17 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
 
     Object object(buffer);
     if (valueOnly) {
-        uint16_t valueOffset = 0;
+        uint32_t valueOffset = 0;
         object.getValueOffset(&valueOffset);
         object.appendValueToBuffer(outBuffer, valueOffset);
     } else {
         object.appendKeysAndValueToBuffer(*outBuffer);
     }
     ++PerfStats::threadStats.readCount;
+    uint32_t valueLength = object.getValueLength();
+    PerfStats::threadStats.readObjectBytes += valueLength;
+    PerfStats::threadStats.readKeyBytes +=
+            object.getKeysAndValueLength() - valueLength;
 
     return STATUS_OK;
 }
@@ -1236,6 +1244,10 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
 
     tabletManager->incrementWriteCount(key);
     ++PerfStats::threadStats.writeCount;
+    uint32_t valueLength = newObject.getValueLength();
+    PerfStats::threadStats.writeObjectBytes += valueLength;
+    PerfStats::threadStats.writeKeyBytes +=
+            newObject.getKeysAndValueLength() - valueLength;
 
     TEST_LOG("object: %u bytes, version %lu",
         appends[0].buffer.size(), newObject.getVersion());
@@ -1463,7 +1475,6 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     *rpcResultPtr = appends[rpcResultIndex].reference.toInteger();
 
     //tabletManager->incrementWriteCount(key);
-    ++PerfStats::threadStats.writeCount;
 
     TEST_LOG("preparedOp: %u bytes", appends[0].buffer.size());
     TEST_LOG("rpcResult: %u bytes", appends[rpcResultIndex].buffer.size());
@@ -1924,6 +1935,11 @@ ObjectManager::commitWrite(PreparedOp& op,
                           prepOpTombstone.header.tableId,
                           byteCount,
                           recordCount);
+    ++PerfStats::threadStats.writeCount;
+    uint32_t valueLength = op.object.getValueLength();
+    PerfStats::threadStats.writeObjectBytes += valueLength;
+    PerfStats::threadStats.writeKeyBytes +=
+            op.object.getKeysAndValueLength() - valueLength;
 
     log.free(refToPreparedOp);
 
@@ -2166,7 +2182,7 @@ ObjectManager::prepareForLog(Object& newObject, Buffer *logBuffer,
 
     uint32_t objectOffset = 0;
     uint32_t lengthBefore = logBuffer->size();
-    uint16_t valueOffset = 0;
+    uint32_t valueOffset = 0;
 
     newObject.getValueOffset(&valueOffset);
     objectOffset = lengthBefore + sizeof32(Object::Header) + valueOffset;

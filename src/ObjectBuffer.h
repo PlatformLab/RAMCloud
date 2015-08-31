@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -58,7 +58,7 @@ class ObjectBuffer : public Buffer {
         return reinterpret_cast<const T*>(getValue(dataLength));
     }
 
-    bool getValueOffset(uint16_t *offset);
+    bool getValueOffset(uint32_t *offset);
     void reset();
 
   PRIVATE:

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -106,7 +106,7 @@ TEST_F(ObjectBufferTest, getValue)
 
 TEST_F(ObjectBufferTest, getValueOffset)
 {
-    uint16_t valueOffset;
+    uint32_t valueOffset;
     EXPECT_TRUE(buffer.getValueOffset(&valueOffset));
     EXPECT_EQ(16U, valueOffset);
 }

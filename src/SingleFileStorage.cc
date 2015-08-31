@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -619,6 +619,7 @@ SingleFileStorage::Frame::performRead(Lock& lock)
     } else {
         ++metrics->backup.storageReadCount;
         metrics->backup.storageReadBytes += storage->segmentSize;
+        ++PerfStats::threadStats.backupReadOps;
         PerfStats::threadStats.backupReadBytes += storage->segmentSize;
         // Lock released during this call; assume any field could have changed.
         storage->unlockedRead(lock, buffer.get(),
@@ -669,7 +670,10 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
     } else {
         ++metrics->backup.storageWriteCount;
         metrics->backup.storageWriteBytes += dirtyLength;
+        ++PerfStats::threadStats.backupWriteOps;
         PerfStats::threadStats.backupWriteBytes += dirtyLength;
+        PerfStats::threadStats.temp1 += dirtyLength -
+                (appendedLength - committedLength);
         // Lock released during this call; assume any field could have changed.
         storage->unlockedWrite(lock, firstDirtyBlock, dirtyLength,
                       frameStart + startOfFirstDirtyBlock,

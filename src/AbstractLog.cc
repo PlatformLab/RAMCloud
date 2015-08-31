@@ -18,6 +18,7 @@
 
 #include "Log.h"
 #include "LogCleaner.h"
+#include "PerfStats.h"
 #include "ServerConfig.h"
 #include "ShortMacros.h"
 
@@ -389,8 +390,7 @@ AbstractLog::append(Lock& appendLock,
         totalLiveBytes += lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.
 
-    metrics.totalBytesAppended += length;
-    metrics.totalMetadataBytesAppended += (lengthWithMetadata - length);
+    PerfStats::threadStats.logBytesAppended += lengthWithMetadata;
 
     return true;
 }
@@ -477,9 +477,7 @@ AbstractLog::append(Lock& appendLock,
         totalLiveBytes += lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.
 
-    metrics.totalBytesAppended += entryDataLength;
-    metrics.totalMetadataBytesAppended +=
-                            (lengthWithMetadata - entryDataLength);
+    PerfStats::threadStats.logBytesAppended += lengthWithMetadata;
 
     return true;
 }

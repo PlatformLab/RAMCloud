@@ -14,6 +14,7 @@
  */
 
 #include "BitOps.h"
+#include "PerfStats.h"
 #include "ReplicatedSegment.h"
 #include "Segment.h"
 #include "ShortMacros.h"
@@ -803,6 +804,9 @@ ReplicatedSegment::performWrite(Replica& replica)
                                        masterId, segmentId, queued.epoch,
                                        segment, 0, openLen, certificateToSend,
                                        true, false, replicaIsPrimary(replica));
+            if (replicaIsPrimary(replica)) {
+                PerfStats::threadStats.replicationRpcs++;
+            }
             ++writeRpcsInFlight;
             if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
                 LOG(DEBUG, "@%7lu: Replica <%s,%lu,%lu> write -> %7u+%7u "
@@ -879,6 +883,9 @@ ReplicatedSegment::performWrite(Replica& replica)
                                        certificateToSend,
                                        false, sendClose,
                                        replicaIsPrimary(replica));
+            if (replicaIsPrimary(replica)) {
+                PerfStats::threadStats.replicationRpcs++;
+            }
             ++writeRpcsInFlight;
             if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
                 LOG(DEBUG, "@%7lu: Replica <%s,%lu,%lu> write -> %7u+%7u "

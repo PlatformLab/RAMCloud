@@ -117,7 +117,7 @@ class Object {
     const void* getKeysAndValue();
     KeyCount getKeyCount();
     const void* getValue(uint32_t *valueLength = NULL);
-    bool getValueOffset(uint16_t *offset);
+    bool getValueOffset(uint32_t *offset);
     uint32_t getValueLength();
 
     uint32_t getKeysAndValueLength();

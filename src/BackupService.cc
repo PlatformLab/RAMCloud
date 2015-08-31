@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +18,7 @@
 #include "ClientException.h"
 #include "Cycles.h"
 #include "InMemoryStorage.h"
+#include "PerfStats.h"
 #include "ServerConfig.h"
 #include "ShortMacros.h"
 #include "SingleFileStorage.h"
@@ -647,6 +648,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
                       reqHdr->length, reqHdr->offset,
                       metadata.get(), sizeof(*metadata));
         metrics->backup.writeCopyBytes += reqHdr->length;
+        PerfStats::threadStats.backupBytesReceived += reqHdr->length;
         bytesWritten += reqHdr->length;
     }
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -233,7 +233,7 @@ class SingleFileStorage : public BackupStorage {
     BufferPtr allocateBuffer();
 
     /**
-     * Intermnal use only; block size of storage. Needed to deal
+     * Internal use only; block size of storage. Needed to deal
      * with alignment constraints for O_DIRECT.
      */
     enum { BLOCK_SIZE = 512 };
