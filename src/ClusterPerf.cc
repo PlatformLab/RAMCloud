@@ -2024,7 +2024,7 @@ doMultiRead(int dataLength, uint16_t keyLength,
     for (int tableNum = 0; tableNum < numMasters; ++tableNum) {
         for (int i = 0; i < objsPerMaster; i++) {
             ObjectBuffer* output = values[tableNum][i].get();
-            uint16_t offset;
+            uint32_t offset;
             output->getValueOffset(&offset);
             checkBuffer(output, offset, dataLength, tableIds.at(tableNum),
                     keys[tableNum][i], keyLength);
