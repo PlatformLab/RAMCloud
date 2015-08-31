@@ -1484,6 +1484,105 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
 }
 
 /**
+ * Process prepare request for ReadOnly operation.
+ * It just checks the lock of the corresponding object and compares version
+ * (by rejectRules). It writes no data on the log.
+ *
+ * \param newOp
+ *      The preparedOperation to be written to the log. It does not have
+ *      a valid version and timestamp. So this function will update the version,
+ *      timestamp and the checksum of the object before writing to the log.
+ * \param rejectRules
+ *      Specifies conditions under which the prepare should be aborted with an
+ *      error. May be NULL if no special reject conditions are desired.
+ *
+ * \param[out] isCommitVote
+ *      Vote result after prepare is returned.
+ * \return
+ *      STATUS_OK if we can decide commit-vote or abort-vote.
+ *      STATUS_UNKNOWN_TABLE may be returned.
+ */
+Status
+ObjectManager::prepareReadOnly(PreparedOp& newOp, RejectRules* rejectRules,
+                bool* isCommitVote)
+{
+    *isCommitVote = false;
+    if (!anyWrites) {
+        // This is the first write; use this as a trigger to update the
+        // cluster configuration information and open a session with each
+        // backup, so it won't slow down recovery benchmarks.  This is a
+        // temporary hack, and needs to be replaced with a more robust
+        // approach to updating cluster configuration information.
+        anyWrites = true;
+
+        // Empty coordinator locator means we're in test mode, so skip this.
+        if (!context->coordinatorSession->getLocation().empty()) {
+            ProtoBuf::ServerList backups;
+            CoordinatorClient::getBackupList(context, &backups);
+            TransportManager& transportManager =
+                *context->transportManager;
+            foreach(auto& backup, backups.server())
+                transportManager.getSession(backup.service_locator());
+        }
+    }
+
+    uint16_t keyLength = 0;
+    const void *keyString = newOp.object.getKey(0, &keyLength);
+    Key key(newOp.object.getTableId(), keyString, keyLength);
+
+    objectMap.prefetchBucket(key.getHash());
+    HashTableBucketLock lock(*this, key);
+
+    // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
+    TabletManager::Tablet tablet;
+    if (!tabletManager->getTablet(key, &tablet))
+        return STATUS_UNKNOWN_TABLET;
+    if (tablet.state != TabletManager::NORMAL)
+        return STATUS_UNKNOWN_TABLET;
+
+    // If the key is already locked, abort.
+    if (lockTable.isLockAcquired(key)) {
+        RAMCLOUD_LOG(DEBUG,
+                "TxPrepare(readOnly) fail. Key: %.*s, object is already locked",
+                keyLength, reinterpret_cast<const char*>(keyString));
+        return STATUS_OK;
+    }
+
+    LogEntryType currentType = LOG_ENTRY_TYPE_INVALID;
+    Buffer currentBuffer;
+    Log::Reference currentReference;
+    uint64_t currentVersion = VERSION_NONEXISTENT;
+
+    HashTable::Candidates currentHashTableEntry;
+
+    if (lookup(lock, key, currentType, currentBuffer, 0,
+               &currentReference, &currentHashTableEntry)) {
+        if (currentType == LOG_ENTRY_TYPE_OBJTOMB) {
+            removeIfTombstone(currentReference.toInteger(), this);
+        } else {
+            Object currentObject(currentBuffer);
+            currentVersion = currentObject.getVersion();
+        }
+    }
+
+    if (rejectRules != NULL) {
+        Status status = rejectOperation(rejectRules, currentVersion);
+        if (status != STATUS_OK) {
+            RAMCLOUD_LOG(DEBUG, "TxPrepare(readOnly) fail. Type: %d Key: %.*s, "
+                "RejectRule outcome: %s rejectRule.givenVersion %lu "
+                "currentVersion %lu",
+                    newOp.header.type,
+                    keyLength, reinterpret_cast<const char*>(keyString),
+                    statusToString(status),
+                    rejectRules->givenVersion, currentVersion);
+            return STATUS_OK;
+        }
+    }
+    *isCommitVote = true;
+    return STATUS_OK;
+}
+
+/**
  * Try to acquire transaction lock for an object.
  * This function is used while finalizing recovery.
  *

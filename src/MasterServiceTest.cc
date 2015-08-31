@@ -2723,6 +2723,347 @@ TEST_F(MasterServiceTest, txPrepare_singleRpcOptimization) {
                             value.size()));
 }
 
+TEST_F(MasterServiceTest, txPrepare_readOnly) {
+    // 1. Test setup: Add objects to be used during experiment.
+    uint64_t version;
+    ramcloud->write(1, "key1", 4, "item1", 5);
+    ramcloud->write(1, "key2", 4, "item2", 5);
+    ramcloud->write(1, "key3", 4, "item3", 5);
+
+    // 2. Fabricate TxPrepare rpc with 3 READONLY.
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    Key key1(1, "key1", 4);
+    Key key2(1, "key2", 4);
+    Key key3(1, "key3", 4);
+    Key key4(1, "key4", 4);
+    Buffer buffer, buffer2;
+
+    // Last participant is to prevent single server optimization.
+    WireFormat::TxParticipant participants[4];
+    participants[0] = TxParticipant(key1.getTableId(), key1.getHash(), 10U);
+    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
+    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
+    participants[3] = TxParticipant(key4.getTableId(), key4.getHash(), 12U);
+
+    WireFormat::TxPrepare::Request reqHdr;
+    WireFormat::TxPrepare::Response respHdr;
+    Buffer reqBuffer, respBuffer;
+    Service::Rpc rpc(NULL, &reqBuffer, &respBuffer);
+
+    reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
+    reqHdr.common.service = WireFormat::MASTER_SERVICE;
+    reqHdr.lease = {1, 10, 5};
+    reqHdr.ackId = 9;
+    reqHdr.participantCount = 4;
+    reqHdr.opCount = 3;
+    reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
+    reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 4);
+
+    // 2A. ReadOp
+    RejectRules rejectRules;
+    rejectRules = {1UL, false, false, false, true};
+    TxPrepare::Request::ReadOp op1(key1.getTableId(),
+                                   10,
+                                   key1.getStringKeyLength(),
+                                   rejectRules);
+    op1.type = WireFormat::TxPrepare::READONLY;
+    reqBuffer.appendExternal(&op1, sizeof32(op1));
+    reqBuffer.appendExternal(key1.getStringKey(), key1.getStringKeyLength());
+
+    // 2B. RemoveOp
+    rejectRules = {2UL, false, false, false, true};
+    TxPrepare::Request::ReadOp op2(key2.getTableId(),
+                                    11,
+                                    key2.getStringKeyLength(),
+                                    rejectRules);
+    op2.type = WireFormat::TxPrepare::READONLY;
+    reqBuffer.appendExternal(&op2, sizeof32(op2));
+    reqBuffer.appendExternal(key2.getStringKey(), key2.getStringKeyLength());
+
+    // 2C. WriteOp
+    rejectRules = {3UL, false, false, false, true};
+    TxPrepare::Request::ReadOp op3(key3.getTableId(),
+                                    12,
+                                    key3.getStringKeyLength(),
+                                    rejectRules);
+    op3.type = WireFormat::TxPrepare::READONLY;
+    reqBuffer.appendExternal(&op3, sizeof32(op3));
+    reqBuffer.appendExternal(key3.getStringKey(), key3.getStringKeyLength());
+
+    // 3. Prepare.
+    EXPECT_FALSE(isObjectLocked(key1));
+    EXPECT_FALSE(isObjectLocked(key2));
+    EXPECT_FALSE(isObjectLocked(key3));
+    {
+        Buffer value;
+        ramcloud->read(1, "key1", 4, &value, NULL, &version);
+        EXPECT_EQ(1U, version);
+        EXPECT_EQ("item1", string(reinterpret_cast<const char*>(
+                                  value.getRange(0, value.size())),
+                                  value.size()));
+        value.reset();
+        ramcloud->read(1, "key2", 4, &value, NULL, &version);
+        EXPECT_EQ(2U, version);
+        EXPECT_EQ("item2", string(reinterpret_cast<const char*>(
+                                value.getRange(0, value.size())),
+                                value.size()));
+        value.reset();
+        ramcloud->read(1, "key3", 4, &value, NULL, &version);
+        EXPECT_EQ(3U, version);
+        EXPECT_EQ("item3", string(reinterpret_cast<const char*>(
+                                value.getRange(0, value.size())),
+                                value.size()));
+    }
+    service->txPrepare(&reqHdr, &respHdr, &rpc);
+
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
+    EXPECT_EQ(TxPrepare::COMMITTED, respHdr.vote);
+
+    // 4. Check outcome of Prepare.
+    EXPECT_EQ(0U, service->preparedOps.items.size());
+    EXPECT_FALSE(isObjectLocked(key1));
+    EXPECT_FALSE(isObjectLocked(key2));
+    EXPECT_FALSE(isObjectLocked(key3));
+}
+
+TEST_F(MasterServiceTest, txPrepare_readOnly_failByLock) {
+    // 1. Test setup: Add objects to be used during experiment.
+    uint64_t version;
+    ramcloud->write(1, "key1", 4, "item1", 5);
+    ramcloud->write(1, "key2", 4, "item2", 5);
+    ramcloud->write(1, "key3", 4, "item3", 5);
+
+    // 2. Fabricate TxPrepare rpc with 3 READONLY.
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    Key key1(1, "key1", 4);
+    Key key2(1, "key2", 4);
+    Key key3(1, "key3", 4);
+    Key key4(1, "key4", 4);
+    Buffer buffer, buffer2;
+
+    // Last participant is to prevent single server optimization.
+    WireFormat::TxParticipant participants[4];
+    participants[0] = TxParticipant(key1.getTableId(), key1.getHash(), 10U);
+    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
+    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
+    participants[3] = TxParticipant(key4.getTableId(), key4.getHash(), 12U);
+
+    WireFormat::TxPrepare::Request reqHdr;
+    WireFormat::TxPrepare::Response respHdr;
+    Buffer reqBuffer, respBuffer;
+    Service::Rpc rpc(NULL, &reqBuffer, &respBuffer);
+
+    reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
+    reqHdr.common.service = WireFormat::MASTER_SERVICE;
+    reqHdr.lease = {1, 10, 5};
+    reqHdr.ackId = 9;
+    reqHdr.participantCount = 4;
+    reqHdr.opCount = 3;
+    reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
+    reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 4);
+
+    ////////////////////////////////////////////////
+    // Lock 2nd object by preparing READ.
+    // *Careful to avoid single-RPC optimization.
+    ////////////////////////////////////////////////
+    {
+        RejectRules rejectRules;
+        rejectRules = {2UL, false, false, false, true};
+        TxPrepare::Request::ReadOp op2(key2.getTableId(),
+                                        11,
+                                        key2.getStringKeyLength(),
+                                        rejectRules);
+        reqBuffer.appendExternal(&op2, sizeof32(op2));
+        reqBuffer.appendExternal(key2.getStringKey(),
+                                 key2.getStringKeyLength());
+
+        reqHdr.opCount = 1;
+        service->txPrepare(&reqHdr, &respHdr, &rpc);
+
+        EXPECT_EQ(STATUS_OK, respHdr.common.status);
+        EXPECT_EQ(TxPrepare::PREPARED, respHdr.vote);
+    }
+
+    // Reset buffer for new RPC.
+    reqBuffer.reset();
+    respBuffer.reset();
+    reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
+    reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 4);
+    reqHdr.opCount = 3;
+
+    // 2A. ReadOp
+    RejectRules rejectRules;
+    rejectRules = {1UL, false, false, false, true};
+    TxPrepare::Request::ReadOp op1(key1.getTableId(),
+                                   10,
+                                   key1.getStringKeyLength(),
+                                   rejectRules);
+    op1.type = WireFormat::TxPrepare::READONLY;
+    reqBuffer.appendExternal(&op1, sizeof32(op1));
+    reqBuffer.appendExternal(key1.getStringKey(), key1.getStringKeyLength());
+
+    // 2B. ReadOp
+    rejectRules = {2UL, false, false, false, true};
+    TxPrepare::Request::ReadOp op2(key2.getTableId(),
+                                    11,
+                                    key2.getStringKeyLength(),
+                                    rejectRules);
+    op2.type = WireFormat::TxPrepare::READONLY;
+    reqBuffer.appendExternal(&op2, sizeof32(op2));
+    reqBuffer.appendExternal(key2.getStringKey(), key2.getStringKeyLength());
+
+    // 2C. ReadOp
+    rejectRules = {3UL, false, false, false, true};
+    TxPrepare::Request::ReadOp op3(key3.getTableId(),
+                                    12,
+                                    key3.getStringKeyLength(),
+                                    rejectRules);
+    op3.type = WireFormat::TxPrepare::READONLY;
+    reqBuffer.appendExternal(&op3, sizeof32(op3));
+    reqBuffer.appendExternal(key3.getStringKey(), key3.getStringKeyLength());
+
+    // 3. Prepare.
+    EXPECT_FALSE(isObjectLocked(key1));
+    EXPECT_TRUE(isObjectLocked(key2));
+    EXPECT_FALSE(isObjectLocked(key3));
+    {
+        Buffer value;
+        ramcloud->read(1, "key1", 4, &value, NULL, &version);
+        EXPECT_EQ(1U, version);
+        EXPECT_EQ("item1", string(reinterpret_cast<const char*>(
+                                  value.getRange(0, value.size())),
+                                  value.size()));
+        value.reset();
+        ramcloud->read(1, "key2", 4, &value, NULL, &version);
+        EXPECT_EQ(2U, version);
+        EXPECT_EQ("item2", string(reinterpret_cast<const char*>(
+                                value.getRange(0, value.size())),
+                                value.size()));
+        value.reset();
+        ramcloud->read(1, "key3", 4, &value, NULL, &version);
+        EXPECT_EQ(3U, version);
+        EXPECT_EQ("item3", string(reinterpret_cast<const char*>(
+                                value.getRange(0, value.size())),
+                                value.size()));
+    }
+    service->txPrepare(&reqHdr, &respHdr, &rpc);
+
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
+    EXPECT_EQ(TxPrepare::ABORT, respHdr.vote);
+
+    // 4. Check outcome of Prepare.
+    EXPECT_EQ(1U, service->preparedOps.items.size());
+    EXPECT_FALSE(isObjectLocked(key1));
+    EXPECT_TRUE(isObjectLocked(key2));
+    EXPECT_FALSE(isObjectLocked(key3));
+}
+
+TEST_F(MasterServiceTest, txPrepare_readOnly_failByVer) {
+    // 1. Test setup: Add objects to be used during experiment.
+    uint64_t version;
+    ramcloud->write(1, "key1", 4, "item1", 5);
+    ramcloud->write(1, "key2", 4, "item2", 5);
+    ramcloud->write(1, "key3", 4, "item3", 5);
+
+    // 2. Fabricate TxPrepare rpc with 3 READONLY.
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    Key key1(1, "key1", 4);
+    Key key2(1, "key2", 4);
+    Key key3(1, "key3", 4);
+    Key key4(1, "key4", 4);
+    Buffer buffer, buffer2;
+
+    // Last participant is to prevent single server optimization.
+    WireFormat::TxParticipant participants[4];
+    participants[0] = TxParticipant(key1.getTableId(), key1.getHash(), 10U);
+    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
+    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
+    participants[3] = TxParticipant(key4.getTableId(), key4.getHash(), 12U);
+
+    WireFormat::TxPrepare::Request reqHdr;
+    WireFormat::TxPrepare::Response respHdr;
+    Buffer reqBuffer, respBuffer;
+    Service::Rpc rpc(NULL, &reqBuffer, &respBuffer);
+
+    reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
+    reqHdr.common.service = WireFormat::MASTER_SERVICE;
+    reqHdr.lease = {1, 10, 5};
+    reqHdr.ackId = 9;
+    reqHdr.participantCount = 4;
+    reqHdr.opCount = 3;
+    reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
+    reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 4);
+
+    // 2A. ReadOp
+    RejectRules rejectRules;
+    rejectRules = {1UL, false, false, false, true};
+    TxPrepare::Request::ReadOp op1(key1.getTableId(),
+                                   10,
+                                   key1.getStringKeyLength(),
+                                   rejectRules);
+    op1.type = WireFormat::TxPrepare::READONLY;
+    reqBuffer.appendExternal(&op1, sizeof32(op1));
+    reqBuffer.appendExternal(key1.getStringKey(), key1.getStringKeyLength());
+
+    // 2B. Wrong version
+    rejectRules = {3UL, false, false, false, true};
+    TxPrepare::Request::ReadOp op2(key2.getTableId(),
+                                    11,
+                                    key2.getStringKeyLength(),
+                                    rejectRules);
+    op2.type = WireFormat::TxPrepare::READONLY;
+    reqBuffer.appendExternal(&op2, sizeof32(op2));
+    reqBuffer.appendExternal(key2.getStringKey(), key2.getStringKeyLength());
+
+    // 2C. ReadOp
+    rejectRules = {3UL, false, false, false, true};
+    TxPrepare::Request::ReadOp op3(key3.getTableId(),
+                                    12,
+                                    key3.getStringKeyLength(),
+                                    rejectRules);
+    op3.type = WireFormat::TxPrepare::READONLY;
+    reqBuffer.appendExternal(&op3, sizeof32(op3));
+    reqBuffer.appendExternal(key3.getStringKey(), key3.getStringKeyLength());
+
+    // 3. Prepare.
+    EXPECT_FALSE(isObjectLocked(key1));
+    EXPECT_FALSE(isObjectLocked(key2));
+    EXPECT_FALSE(isObjectLocked(key3));
+    {
+        Buffer value;
+        ramcloud->read(1, "key1", 4, &value, NULL, &version);
+        EXPECT_EQ(1U, version);
+        EXPECT_EQ("item1", string(reinterpret_cast<const char*>(
+                                  value.getRange(0, value.size())),
+                                  value.size()));
+        value.reset();
+        ramcloud->read(1, "key2", 4, &value, NULL, &version);
+        EXPECT_EQ(2U, version);
+        EXPECT_EQ("item2", string(reinterpret_cast<const char*>(
+                                value.getRange(0, value.size())),
+                                value.size()));
+        value.reset();
+        ramcloud->read(1, "key3", 4, &value, NULL, &version);
+        EXPECT_EQ(3U, version);
+        EXPECT_EQ("item3", string(reinterpret_cast<const char*>(
+                                value.getRange(0, value.size())),
+                                value.size()));
+    }
+    service->txPrepare(&reqHdr, &respHdr, &rpc);
+
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
+    EXPECT_EQ(TxPrepare::ABORT, respHdr.vote);
+
+    // 4. Check outcome of Prepare.
+    EXPECT_EQ(0U, service->preparedOps.items.size());
+    EXPECT_FALSE(isObjectLocked(key1));
+    EXPECT_FALSE(isObjectLocked(key2));
+    EXPECT_FALSE(isObjectLocked(key3));
+}
+
 TEST_F(MasterServiceTest, write_basics) {
     ObjectBuffer value;
     uint64_t version;

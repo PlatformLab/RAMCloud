@@ -88,6 +88,8 @@ class ObjectManager : public LogEntryHandlers {
     Status prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                 uint64_t* newOpPtr, bool* isCommitVote,
                 RpcResult* rpcResult, uint64_t* rpcResultPtr);
+    Status prepareReadOnly(PreparedOp& newOp, RejectRules* rejectRules,
+                bool* isCommitVote);
     Status tryGrabTxLock(Object& objToLock, Log::Reference& ref);
     Status writeTxDecisionRecord(TxDecisionRecord& record);
     Status commitRead(PreparedOp& op, Log::Reference& refToPreparedOp);

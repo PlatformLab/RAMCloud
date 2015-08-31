@@ -2688,6 +2688,47 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                          currentReq->length);
 
             reqOffset += currentReq->length;
+        } else if (*type == WireFormat::TxPrepare::READONLY) {
+            const WireFormat::TxPrepare::Request::ReadOp *currentReq =
+                    rpc->requestPayload->getOffset<
+                    WireFormat::TxPrepare::Request::ReadOp>(reqOffset);
+
+            reqOffset += sizeof32(WireFormat::TxPrepare::Request::ReadOp);
+
+            if (currentReq == NULL || rpc->requestPayload->size() <
+                                      reqOffset + currentReq->keyLength) {
+                respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+                respHdr->vote = WireFormat::TxPrepare::ABORT;
+                break;
+            }
+            tableId = currentReq->tableId;
+            rpcId = currentReq->rpcId;
+            rejectRules = currentReq->rejectRules;
+
+            buffer.emplaceAppend<KeyCount>((unsigned char) 1);
+            buffer.emplaceAppend<CumulativeKeyLength>(currentReq->keyLength);
+            buffer.appendExternal(rpc->requestPayload, reqOffset,
+                                  currentReq->keyLength);
+
+            op.construct(*type, reqHdr->lease.leaseId, rpcId,
+                         participantCount, participants,
+                         tableId, 0, 0,
+                         buffer);
+
+            reqOffset += currentReq->keyLength;
+
+            // Since we prepare not to write anything on log and sync with
+            // backup and it is still safe without linearizability,
+            // we skip all linearizability mechanism for READONLY transactions.
+            bool isCommitVote;
+            respHdr->common.status = objectManager.prepareReadOnly(
+                    *op, &rejectRules, &isCommitVote);
+            if (!isCommitVote || respHdr->common.status != STATUS_OK) {
+                respHdr->vote = WireFormat::TxPrepare::ABORT;
+                break;
+            }
+            respHdr->vote = WireFormat::TxPrepare::COMMITTED;
+            continue;
         } else {
             respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
             break;
