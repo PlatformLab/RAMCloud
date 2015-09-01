@@ -2586,6 +2586,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
     // 2. Process operations.
     uint32_t numRequests = reqHdr->opCount;
+    uint32_t numReadOnly = 0;
 
     updateClusterTime(reqHdr->lease.timestamp);
 
@@ -2689,6 +2690,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
             reqOffset += currentReq->length;
         } else if (*type == WireFormat::TxPrepare::READONLY) {
+            numReadOnly++;
             const WireFormat::TxPrepare::Request::ReadOp *currentReq =
                     rpc->requestPayload->getOffset<
                     WireFormat::TxPrepare::Request::ReadOp>(reqOffset);
@@ -2727,7 +2729,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                 respHdr->vote = WireFormat::TxPrepare::ABORT;
                 break;
             }
-            respHdr->vote = WireFormat::TxPrepare::COMMITTED;
+            respHdr->vote = WireFormat::TxPrepare::PREPARED;
             continue;
         } else {
             respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
@@ -2786,7 +2788,9 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
     // when it is a single server transaction, we commit the transaction
     // preemptively, so that a client doesn't need to send decision RPC.
-    if (numRequests == participantCount &&
+    // Assume that if there is at least one READ-ONLY request they should all
+    // be READ-ONLY and thus not need a decision phase.
+    if (numReadOnly == 0 && numRequests == participantCount &&
             respHdr->common.status == STATUS_OK &&
             respHdr->vote == WireFormat::TxPrepare::PREPARED) {
         for (uint32_t i = 0; i < participantCount; ++i) {

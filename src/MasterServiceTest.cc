@@ -2818,7 +2818,7 @@ TEST_F(MasterServiceTest, txPrepare_readOnly) {
     service->txPrepare(&reqHdr, &respHdr, &rpc);
 
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
-    EXPECT_EQ(TxPrepare::COMMITTED, respHdr.vote);
+    EXPECT_EQ(TxPrepare::PREPARED, respHdr.vote);
 
     // 4. Check outcome of Prepare.
     EXPECT_EQ(0U, service->preparedOps.items.size());
