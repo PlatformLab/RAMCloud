@@ -31,6 +31,7 @@ namespace RAMCloud {
  */
 ClientTransactionTask::ClientTransactionTask(RamCloud* ramcloud)
     : ramcloud(ramcloud)
+    , readOnly(true)
     , participantCount(0)
     , participantList()
     , state(INIT)
@@ -741,7 +742,8 @@ ClientTransactionTask::PrepareRpc::appendOp(CommitCacheMap::iterator opEntry)
         case CacheEntry::READ:
             request.emplaceAppend<WireFormat::TxPrepare::Request::ReadOp>(
                     key->tableId, entry->rpcId,
-                    entry->objectBuf->getKeyLength(), entry->rejectRules);
+                    entry->objectBuf->getKeyLength(), entry->rejectRules,
+                    task->readOnly);
             request.appendExternal(entry->objectBuf->getKey(),
                     entry->objectBuf->getKeyLength());
             break;

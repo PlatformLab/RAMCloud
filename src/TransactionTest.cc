@@ -230,11 +230,13 @@ TEST_F(TransactionTest, read_basic) {
     ramcloud->write(tableId1, "0", 1, "abcdef", 6);
     ramcloud->write(tableId1, "0", 1, "abcdef", 6);
 
+    EXPECT_TRUE(task->readOnly);
     Key key(tableId1, "0", 1);
     EXPECT_TRUE(task->findCacheEntry(key) == NULL);
 
     Buffer value;
     transaction->read(tableId1, "0", 1, &value);
+    EXPECT_TRUE(task->readOnly);
     EXPECT_EQ("abcdef", string(reinterpret_cast<const char*>(
                         value.getRange(0, value.size())),
                         value.size()));
@@ -318,11 +320,13 @@ TEST_F(TransactionTest, read_afterCommit) {
 }
 
 TEST_F(TransactionTest, remove) {
+    EXPECT_TRUE(task->readOnly);
     Key key(1, "test", 4);
     EXPECT_TRUE(task->findCacheEntry(key) == NULL);
 
     transaction->remove(1, "test", 4);
 
+    EXPECT_FALSE(task->readOnly);
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(key);
     EXPECT_TRUE(entry != NULL);
     EXPECT_EQ(ClientTransactionTask::CacheEntry::REMOVE, entry->type);
@@ -349,11 +353,13 @@ TEST_F(TransactionTest, write) {
     uint32_t dataLength = 0;
     const char* str;
 
+    EXPECT_TRUE(task->readOnly);
     Key key(1, "test", 4);
     EXPECT_TRUE(task->findCacheEntry(key) == NULL);
 
     transaction->write(1, "test", 4, "hello", 5);
 
+    EXPECT_FALSE(task->readOnly);
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(key);
     EXPECT_TRUE(entry != NULL);
     EXPECT_EQ(ClientTransactionTask::CacheEntry::WRITE, entry->type);

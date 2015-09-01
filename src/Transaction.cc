@@ -144,6 +144,7 @@ Transaction::remove(uint64_t tableId, const void* key, uint16_t keyLength)
     }
 
     ClientTransactionTask* task = taskPtr.get();
+    task->readOnly = false;
 
     Key keyObj(tableId, key, keyLength);
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
@@ -186,6 +187,7 @@ Transaction::write(uint64_t tableId, const void* key, uint16_t keyLength,
     }
 
     ClientTransactionTask* task = taskPtr.get();
+    task->readOnly = false;
 
     Key keyObj(tableId, key, keyLength);
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);

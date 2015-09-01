@@ -130,6 +130,12 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// Overall client state information.
     RamCloud* ramcloud;
 
+  PUBLIC:
+    /// Flag that can be set indicating that the transaction is read-only and
+    /// the read-only optimization can be used.
+    bool readOnly;
+
+  PRIVATE:
     /// Number of participant objects/operations.
     uint32_t participantCount;
     /// Expandable raw storage for the List of participant object identifiers.

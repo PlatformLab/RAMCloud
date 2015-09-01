@@ -250,12 +250,18 @@ class ClientTransactionTaskTest : public ::testing::Test {
                             WireFormat::TxPrepare::OpType>(offset);
             switch (*type) {
                 case WireFormat::TxPrepare::READ:
+                case WireFormat::TxPrepare::READONLY:
                 {
                     WireFormat::TxPrepare::Request::ReadOp* entry =
                             rpc->request.getOffset<
                                     WireFormat::TxPrepare::Request::ReadOp>(
                                             offset);
-                    s.append(format(" READ{%lu, %lu}",
+                    if (*type == WireFormat::TxPrepare::READ) {
+                        s.append(" READ");
+                    } else {
+                        s.append(" READONLY");
+                    }
+                    s.append(format("{%lu, %lu}",
                             entry->tableId, entry->rpcId));
                     offset += sizeof32(WireFormat::TxPrepare::Request::ReadOp);
                     offset += entry->keyLength;
@@ -1115,6 +1121,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_constructor) {
 
 TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_read) {
     insertRead(tableId1, "0", 1);
+    transactionTask->readOnly = false;
 
     ClientTransactionTask::CommitCacheMap::iterator it =
             transactionTask->commitCache.begin();
@@ -1128,8 +1135,24 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_read) {
               rpcToString(prepareRpc.get()));
 }
 
+TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_readOnly) {
+    insertRead(tableId1, "0", 1);
+
+    ClientTransactionTask::CommitCacheMap::iterator it =
+            transactionTask->commitCache.begin();
+    it->second.rpcId = 42;
+    EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING, it->second.state);
+    EXPECT_TRUE(prepareRpc->appendOp(it));
+    EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
+    EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
+    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
+              "ParticipantList[ ] OpSet[ READONLY{1, 42} ]",
+              rpcToString(prepareRpc.get()));
+}
+
 TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_remove) {
     insertRemove(2, "test", 4);
+    transactionTask->readOnly = false;
 
     ClientTransactionTask::CommitCacheMap::iterator it =
             transactionTask->commitCache.begin();
@@ -1145,6 +1168,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_remove) {
 
 TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_write) {
     insertWrite(3, "test", 4, "hello", 5);
+    transactionTask->readOnly = false;
 
     ClientTransactionTask::CommitCacheMap::iterator it =
             transactionTask->commitCache.begin();
