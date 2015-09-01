@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -5327,8 +5327,12 @@ readThroughputMaster(int numObjects, int size, uint16_t keyLength)
     printf("#             (kreads/sec)    utiliz.     utiliz.\n");
     printf("#------------------------------------------------\n");
     fillTable(dataTable, numObjects, keyLength, size);
+    string stats[5];
     for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
         sendCommand("run", "running", numSlaves, 1);
+        Buffer beforeStats;
+        cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS,
+                NULL, 0, &beforeStats);
         Buffer statsBuffer;
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
@@ -5338,6 +5342,13 @@ readThroughputMaster(int numObjects, int size, uint16_t keyLength)
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
+        Buffer afterStats;
+        cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS,
+                NULL, 0, &afterStats);
+        if (numSlaves <= 5) {
+            stats[numSlaves-1] = PerfStats::printClusterStats(&beforeStats,
+                    &afterStats).c_str();
+        }
         PerfStats finishStats = *statsBuffer.getStart<PerfStats>();
         double elapsedTime = static_cast<double>(finishStats.collectionTime -
                 startStats.collectionTime)/ finishStats.cyclesPerSecond;
@@ -5355,6 +5366,11 @@ readThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 numSlaves, rate/1e03, utilization, dispatchUtilization);
     }
     sendCommand("done", "done", 1, numClients-1);
+#if 0
+    for (int i = 0; i < 5; i++) {
+        printf("\nStats for %d clients:\n%s", i+1, stats[i].c_str());
+    }
+#endif
 }
 
 // This benchmark measures total throughput of a single server (in objects
@@ -5653,9 +5669,14 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
     printf("#------------------------------------------------------"
             "--------------------------------------------\n");
     fillTable(dataTable, numObjects, keyLength, size);
+    Cycles::sleep(2000000);
+    string stats[5];
     for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
         sendCommand("run", "running", numSlaves, 1);
         Buffer statsBuffer;
+        Buffer beforeStats;
+        cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS,
+                NULL, 0, &beforeStats);
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
@@ -5664,6 +5685,13 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
+        Buffer afterStats;
+        cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS,
+                NULL, 0, &afterStats);
+        if (numSlaves <= 5) {
+            stats[numSlaves-1] = PerfStats::printClusterStats(&beforeStats,
+                    &afterStats).c_str();
+        }
         PerfStats finishStats = *statsBuffer.getStart<PerfStats>();
         double elapsedCycles = static_cast<double>(
                 finishStats.collectionTime - startStats.collectionTime);
@@ -5714,6 +5742,11 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 netOutRate/1e06, netInRate/1e06);
     }
     sendCommand("done", "done", 1, numClients-1);
+#if 0
+    for (int i = 0; i < 5; i++) {
+        printf("\nStats for %d clients:\n%s", i+1, stats[i].c_str());
+    }
+#endif
 }
 
 // This benchmark measures total throughput of a single server (in objects

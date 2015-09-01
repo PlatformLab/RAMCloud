@@ -141,69 +141,139 @@ PerfStats::printClusterStats(Buffer* first, Buffer* second)
         return "Insufficient PerfStats data\n";
     }
 
+    // Create a few auxiliary rows in the data table.
+    for (size_t i = 0; i < diff["serverId"].size(); i++) {
+        diff["readBytesObjectsAndKeys"].push_back(
+                diff["readObjectBytes"][i] + diff["readKeyBytes"][i]);
+        diff["writeBytesObjectsAndKeys"].push_back(
+                diff["writeObjectBytes"][i] + diff["writeKeyBytes"][i]);
+    }
+
     result.append(format("%-30s %s\n", "Server index",
-            formatMetric(&diff, "serverId", " %9.0f").c_str()));
+            formatMetric(&diff, "serverId", " %8.0f").c_str()));
     result.append(format("%-30s %s\n", "Elapsed time (sec)",
             formatMetricRatio(&diff, "collectionTime", "cyclesPerSecond",
-            " %9.3f").c_str()));
-    result.append(format("%-30s %s\n", "Objects read (kObj)",
-            formatMetric(&diff, "readCount", " %9.1f", 1e-3).c_str()));
-    result.append(format("%-30s %s\n", "Average object size (bytes)",
-            formatMetricRatio(&diff, "readObjectBytes", "readCount",
-            " %9.1f").c_str()));
-    result.append(format("%-30s %s\n", "Average key size (bytes)",
-            formatMetricRatio(&diff, "readKeyBytes", "readCount",
-            " %9.1f").c_str()));
-    result.append(format("%-30s %s\n", "Objects written (kObj)",
-            formatMetric(&diff, "writeCount", " %9.1f", 1e-3).c_str()));
-    result.append(format("%-30s %s\n", "Average object size (bytes)",
-            formatMetricRatio(&diff, "writeObjectBytes", "writeCount",
-            " %9.1f").c_str()));
-    result.append(format("%-30s %s\n", "Average key size (bytes)",
-            formatMetricRatio(&diff, "writeKeyBytes", "writeCount",
-            " %9.1f").c_str()));
-    result.append(format("%-30s %s\n", "Dispatch load factor",
+            " %8.3f").c_str()));
+    result.append(format("%-30s %s\n", "Dispatcher load factor",
             formatMetricRatio(&diff, "dispatchActiveCycles", "collectionTime",
-            " %9.3f").c_str()));
+            " %8.3f").c_str()));
     result.append(format("%-30s %s\n", "Worker load factor",
             formatMetricRatio(&diff, "workerActiveCycles", "collectionTime",
-            " %9.3f").c_str()));
-    result.append(format("%-30s %s\n", "Backup bytes received (MB/s)",
-            formatMetricRate(&diff, "backupBytesReceived",
-            " %9.2f", 1e-6).c_str()));
-    result.append(format("%-30s %s\n", "Disk bytes written (MB/s)",
-            formatMetricRate(&diff, "backupWriteBytes",
-            " %9.2f", 1e-6).c_str()));
-    result.append(format("%-30s %s\n", "Extra disk writes (MB/s)",
-            formatMetricRate(&diff, "temp1",
-            " %9.2f", 1e-6).c_str()));
-    result.append(format("%-30s %s\n", "KB per write op",
-            formatMetricRatio(&diff, "backupWriteBytes", "backupWriteOps",
-            " %9.3f", 1e-3).c_str()));
-    result.append(format("%-30s %s\n", "Write ops/sec",
-            formatMetricRate(&diff, "backupWriteOps",
-            " %9.1f").c_str()));
-    result.append(format("%-30s %s\n", "Disk load factor",
-            formatMetricRatio(&diff, "backupWriteActiveCycles",
-            "collectionTime", " %9.3f").c_str()));
-    result.append(format("%-30s %s\n", "Network input (MB/s)",
-            formatMetricRate(&diff, "networkInputBytes",
-            " %9.2f", 1e-6).c_str()));
-    result.append(format("%-30s %s\n", "Network output (MB/s)",
-            formatMetricRate(&diff, "networkOutputBytes",
-            " %9.2f", 1e-6).c_str()));
-    result.append(format("%-30s %s\n", "Log bytes appended (MB/s)",
+            " %8.3f").c_str()));
+
+    result.append("\nReads:\n");
+    result.append(format("%-30s %s\n", "  Objects read (K)",
+            formatMetric(&diff, "readCount", " %8.1f", 1e-3).c_str()));
+    result.append(format("%-30s %s\n", "  Total MB (objects & keys)",
+            formatMetric(&diff, "readBytesObjectsAndKeys",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Average object size (bytes)",
+            formatMetricRatio(&diff, "readObjectBytes", "readCount",
+            " %8.1f").c_str()));
+    result.append(format("%-30s %s\n", "  Average key data (bytes)",
+            formatMetricRatio(&diff, "readKeyBytes", "readCount",
+            " %8.1f").c_str()));
+    result.append(format("%-30s %s\n", "  Objects/second (K)",
+            formatMetricRate(&diff, "readCount", " %8.1f", 1e-3).c_str()));
+    result.append(format("%-30s %s\n", "  Total MB/s (objects & keys)",
+            formatMetricRate(&diff, "readBytesObjectsAndKeys",
+            " %8.2f", 1e-6).c_str()));
+
+    result.append("\nWrites:\n");
+    result.append(format("%-30s %s\n", "  Objects written (K)",
+            formatMetric(&diff, "writeCount", " %8.1f", 1e-3).c_str()));
+    result.append(format("%-30s %s\n", "  Total MB (objects & keys)",
+            formatMetric(&diff, "writeBytesObjectsAndKeys",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Average object size (bytes)",
+            formatMetricRatio(&diff, "writeObjectBytes", "writeCount",
+            " %8.1f").c_str()));
+    result.append(format("%-30s %s\n", "  Average key data (bytes)",
+            formatMetricRatio(&diff, "writeKeyBytes", "writeCount",
+            " %8.1f").c_str()));
+    result.append(format("%-30s %s\n", "  Objects/second (K)",
+            formatMetricRate(&diff, "writeCount", " %8.1f", 1e-3).c_str()));
+    result.append(format("%-30s %s\n", "  Total MB/s (objects & keys)",
+            formatMetricRate(&diff, "writeBytesObjectsAndKeys",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Log bytes appended (MB/s)",
             formatMetricRate(&diff, "logBytesAppended",
-            " %9.2f", 1e-6).c_str()));
-    result.append(format("%-30s %s\n", "Replication RPCs (K)",
-            formatMetric(&diff, "replicationRpcs",
-            " %9.2f", 1e-3).c_str()));
-    result.append(format("%-30s %s\n", "Replication RPCs/write",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Replication RPCs/write",
             formatMetricRatio(&diff, "replicationRpcs", "writeCount",
-            " %9.2f").c_str()));
-    result.append(format("%-30s %s\n", "Log sync load factor",
+            " %8.2f").c_str()));
+    result.append(format("%-30s %s\n", "  Log sync load factor",
             formatMetricRatio(&diff, "logSyncCycles",
-            "collectionTime", " %9.3f").c_str()));
+            "collectionTime", " %8.2f").c_str()));
+
+    result.append("\nLog cleaner:\n");
+    result.append(format("%-30s %s\n", "  Compactor load factor",
+            formatMetricRatio(&diff, "compactorActiveCycles",
+            "collectionTime", " %8.3f").c_str()));
+    result.append(format("%-30s %s\n", "  Cleaner load factor",
+            formatMetricRatio(&diff, "cleanerActiveCycles",
+            "collectionTime", " %8.3f").c_str()));
+    result.append(format("%-30s %s\n", "  Compactor input (MB)",
+            formatMetric(&diff, "compactorInputBytes",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Compactor survivor data (MB)",
+            formatMetric(&diff, "compactorSurvivorBytes",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Compactor utilization",
+            formatMetricRatio(&diff, "compactorSurvivorBytes",
+            "compactorInputBytes", " %8.3f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Cleaner memory input (MB)",
+            formatMetric(&diff, "cleanerInputMemoryBytes",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Cleaner disk input (MB)",
+            formatMetric(&diff, "cleanerInputDiskBytes",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Cleaner survivor data (MB)",
+            formatMetric(&diff, "cleanerSurvivorBytes",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Cleaner utilization",
+            formatMetricRatio(&diff, "cleanerSurvivorBytes",
+            "cleanerInputDiskBytes", " %8.3f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Cleaner survivor rate (MB/s)",
+            formatMetricRate(&diff, "cleanerSurvivorBytes",
+            " %8.2f", 1e-6).c_str()));
+
+    result.append("\nBackup service:\n");
+    result.append(format("%-30s %s\n", "  Backup bytes received (MB/s)",
+            formatMetricRate(&diff, "backupBytesReceived",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Storage writes (MB/s)",
+            formatMetricRate(&diff, "backupWriteBytes",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Storage write ops/sec",
+            formatMetricRate(&diff, "backupWriteOps",
+            " %8.1f").c_str()));
+    result.append(format("%-30s %s\n", "  KB per storage write",
+            formatMetricRatio(&diff, "backupWriteBytes", "backupWriteOps",
+            " %8.2f", 1e-3).c_str()));
+    result.append(format("%-30s %s\n", "  Storage write load factor",
+            formatMetricRatio(&diff, "backupWriteActiveCycles",
+            "collectionTime", " %8.3f").c_str()));
+    result.append(format("%-30s %s\n", "  Storage reads (MB/s)",
+            formatMetricRate(&diff, "backupReadBytes",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Storage read ops/sec",
+            formatMetricRate(&diff, "backupReadOps",
+            " %8.1f").c_str()));
+    result.append(format("%-30s %s\n", "  KB per storage read",
+            formatMetricRatio(&diff, "backupReadBytes", "backupReadOps",
+            " %8.2f", 1e-3).c_str()));
+    result.append(format("%-30s %s\n", "  Storage read load factor",
+            formatMetricRatio(&diff, "backupReadActiveCycles",
+            "collectionTime", " %8.3f").c_str()));
+
+    result.append("\nNetwork:\n");
+    result.append(format("%-30s %s\n", "  Input bytes (MB/s)",
+            formatMetricRate(&diff, "networkInputBytes",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  Output bytes (MB/s)",
+            formatMetricRate(&diff, "networkOutputBytes",
+            " %8.2f", 1e-6).c_str()));
     return result;
 }
 

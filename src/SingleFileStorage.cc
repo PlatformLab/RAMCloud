@@ -672,8 +672,6 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
         metrics->backup.storageWriteBytes += dirtyLength;
         ++PerfStats::threadStats.backupWriteOps;
         PerfStats::threadStats.backupWriteBytes += dirtyLength;
-        PerfStats::threadStats.temp1 += dirtyLength -
-                (appendedLength - committedLength);
         // Lock released during this call; assume any field could have changed.
         storage->unlockedWrite(lock, firstDirtyBlock, dirtyLength,
                       frameStart + startOfFirstDirtyBlock,
