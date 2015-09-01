@@ -138,15 +138,18 @@ ClientTransactionTask::performTask()
                     case WireFormat::TxDecision::UNDECIDED:
                         decision = WireFormat::TxDecision::COMMIT;
                         TEST_LOG("Set decision to COMMIT.");
-                        // NO break; fall through to go to DECISION state.
+                        // NO break; fall through to...
                     case WireFormat::TxDecision::ABORT:
-                        nextCacheEntry = commitCache.begin();
-                        state = DECISION;
-                        TEST_LOG("Move from PREPARE to DECISION phase.");
-                        break;
+                        if (!readOnly) {
+                            nextCacheEntry = commitCache.begin();
+                            state = DECISION;
+                            TEST_LOG("Move from PREPARE to DECISION phase.");
+                            break;
+                        }
+                        // NO break; fall through to...
                     case WireFormat::TxDecision::COMMIT:
-                        // Prepare must have returned COMMITTED so the
-                        // transaction is now done.
+                        // Prepare must have returned COMMITTED or was READ-ONLY
+                        // so the transaction is now done.
                         ramcloud->rpcTracker->rpcFinished(txId);
                         state = DONE;
                         TEST_LOG("Move from PREPARE to DONE phase; optimized.");

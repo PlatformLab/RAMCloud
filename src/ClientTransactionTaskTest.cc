@@ -177,6 +177,7 @@ class ClientTransactionTaskTest : public ::testing::Test {
 
     void insertRemove(uint64_t tableId, const void* key, uint16_t keyLength)
     {
+        transactionTask->readOnly = false;
         insertEntry(ClientTransactionTask::CacheEntry::REMOVE,
                 tableId, key, keyLength, NULL, 0);
     }
@@ -184,6 +185,7 @@ class ClientTransactionTaskTest : public ::testing::Test {
     void insertWrite(uint64_t tableId, const void* key, uint16_t keyLength,
             const void* buf, uint32_t length)
     {
+        transactionTask->readOnly = false;
         insertEntry(ClientTransactionTask::CacheEntry::WRITE,
                 tableId, key, keyLength, buf, length);
     }
@@ -513,7 +515,21 @@ TEST_F(ClientTransactionTaskTest, performTask_singleRpcOptimization) {
               TestLog::get());
 }
 
+TEST_F(ClientTransactionTaskTest, performTask_readOnlyOptimization) {
+    insertRead(tableId1, "test1", 5);
+
+    TestLog::reset();
+    TestLog::setPredicate("performTask");
+    EXPECT_EQ(ClientTransactionTask::INIT, transactionTask->state);
+    EXPECT_EQ(1, transactionTask->performTask());// RPC 1 Sent, RPC 1 Processed
+    EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
+    EXPECT_EQ("performTask: Set decision to COMMIT. | "
+              "performTask: Move from PREPARE to DONE phase; optimized.",
+              TestLog::get());
+}
+
 TEST_F(ClientTransactionTaskTest, performTask_setDecision) {
+    transactionTask->readOnly = false;
     transactionTask->state = ClientTransactionTask::INIT;
     transactionTask->decision = WireFormat::TxDecision::UNDECIDED;
     TestLog::reset();
@@ -580,6 +596,7 @@ TEST_F(ClientTransactionTaskTest, Poller_poll) {
             taskPtr;
     taskPtr.construct(new ClientTransactionTask(ramcloud.get()));
     ClientTransactionTask* task = taskPtr.get()->get();
+    task->readOnly = false;
     // Give it something to do.
     ClientTransactionTask::CacheEntry* entry;
     Key key1(tableId1, "test1", 5);
