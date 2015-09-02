@@ -59,7 +59,7 @@ namespace po = boost::program_options;
 using namespace RAMCloud;
 
 // Shared state for client library.
-Context context(true);
+Context context(false);
 
 // Used to invoke RAMCloud operations.
 static RamCloud* cluster;
