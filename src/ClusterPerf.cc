@@ -113,6 +113,10 @@ static string workload;     // NOLINT
 // should try to achieve.
 static int targetOps;
 
+// Value of the "--txSpan" command-line option: used by some tests
+// the server span of a transaction.
+static int txSpan;
+
 // Identifier for table that is used for test-specific data.
 uint64_t dataTable = -1;
 
@@ -4427,6 +4431,28 @@ transactionDistRandom()
             int keyId = downCast<int>(generateRandom() % numKeys);
             keyIds.insert(keyId);
         }
+        std::unordered_set<int> tableBlacklist;
+        txSpan = MIN(txSpan, numTables);
+        size_t blacklistSize = static_cast<size_t>(numTables - txSpan);
+        while (tableBlacklist.size() < blacklistSize) {
+            int tableIndex = downCast<int>(generateRandom() % numTables);
+            tableBlacklist.insert(tableIndex);
+        }
+        std::vector<int> selectedTableIndexes;
+        std::unordered_set<int> usedTableIndexes = tableBlacklist;
+        while (selectedTableIndexes.size() < static_cast<size_t>(numObjects)) {
+            int tableIndex = downCast<int>(generateRandom() % numTables);
+            size_t before = usedTableIndexes.size();
+            usedTableIndexes.insert(tableIndex);
+            size_t after = usedTableIndexes.size();
+            if (before < after) {
+                selectedTableIndexes.push_back(tableIndex);
+            }
+            if (static_cast<int>(after) == numTables) {
+                usedTableIndexes.clear();
+                usedTableIndexes = tableBlacklist;
+            }
+        }
 
         Transaction t(cluster);
 
@@ -4437,9 +4463,11 @@ transactionDistRandom()
             Util::genRandomString(value, objectSize);
 
             Buffer buffer;
-            t.read(tableIds.at(j), key, keyLength, &buffer);
-            t.write(tableIds.at(j), key, keyLength, value, objectSize);
-            j = (j + 1) % numTables;
+            t.read(tableIds.at(selectedTableIndexes.at(j)), key, keyLength,
+                    &buffer);
+            t.write(tableIds.at(selectedTableIndexes.at(j)), key, keyLength,
+                    value, objectSize);
+            ++j;
         }
 
         // Do the benchmark
@@ -4564,6 +4592,28 @@ transactionThroughput()
             keyId += partitionSize * clientIndex;
             keyIds.insert(keyId);
         }
+        std::unordered_set<int> tableBlacklist;
+        txSpan = MIN(txSpan, numTables);
+        size_t blacklistSize = static_cast<size_t>(numTables - txSpan);
+        while (tableBlacklist.size() < blacklistSize) {
+            int tableIndex = downCast<int>(generateRandom() % numTables);
+            tableBlacklist.insert(tableIndex);
+        }
+        std::vector<int> selectedTableIndexes;
+        std::unordered_set<int> usedTableIndexes = tableBlacklist;
+        while (selectedTableIndexes.size() < static_cast<size_t>(numObjects)) {
+            int tableIndex = downCast<int>(generateRandom() % numTables);
+            size_t before = usedTableIndexes.size();
+            usedTableIndexes.insert(tableIndex);
+            size_t after = usedTableIndexes.size();
+            if (before < after) {
+                selectedTableIndexes.push_back(tableIndex);
+            }
+            if (static_cast<int>(after) == numTables) {
+                usedTableIndexes.clear();
+                usedTableIndexes = tableBlacklist;
+            }
+        }
 
         Transaction t(cluster);
 
@@ -4574,9 +4624,11 @@ transactionThroughput()
             Util::genRandomString(value, objectSize);
 
             Buffer buffer;
-            t.read(tableIds.at(j), key, keyLength, &buffer);
-            t.write(tableIds.at(j), key, keyLength, value, objectSize);
-            j = (j + 1) % numTables;
+            t.read(tableIds.at(selectedTableIndexes.at(j)), key, keyLength,
+                    &buffer);
+            t.write(tableIds.at(selectedTableIndexes.at(j)), key, keyLength,
+                    value, objectSize);
+            ++j;
         }
 
         // Do the benchmark
@@ -6192,6 +6244,8 @@ try
         ("targetOps", po::value<int>(&targetOps)->default_value(0),
                 "Operations per second that each load generating client"
                 "will try to achieve (0 means run as fast as possible)")
+        ("txSpan", po::value<int>(&txSpan)->default_value(1),
+                "Number of servers that each transaction should span")
         ("numIndexlet", po::value<int>(&numIndexlet)->default_value(1),
                 "number of Indexlets")
         ("numIndexes", po::value<int>(&numIndexes)->default_value(1),
