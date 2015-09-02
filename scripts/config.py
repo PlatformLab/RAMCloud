@@ -52,7 +52,7 @@ except subprocess.CalledProcessError:
 # git_diff is None if the working directory and index are clean, otherwise
 # it is a string containing the unified diff of the uncommitted changes.
 try:
-    git_diff = captureSh('git diff HEAD')
+    git_diff = captureSh('git diff HEAD 2>/dev/null')
     if git_diff == '':
         git_diff = None
 except subprocess.CalledProcessError:
