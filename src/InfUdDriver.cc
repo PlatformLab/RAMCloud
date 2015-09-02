@@ -35,6 +35,7 @@
 #include "FastTransport.h"
 #include "InfUdDriver.h"
 #include "PcapFile.h"
+#include "PerfStats.h"
 #include "ServiceLocator.h"
 #include "ShortMacros.h"
 
@@ -67,6 +68,7 @@ InfUdDriver::InfUdDriver(Context* context,
     , qp()
     , packetBufPool()
     , packetBufsUtilized(0)
+    , mutex()
     , rxBuffers()
     , txBuffers()
     , freeTxBuffers()
@@ -253,9 +255,7 @@ InfUdDriver::getTransmitBuffer()
 void
 InfUdDriver::release(char *payload)
 {
-    // Must sync with the dispatch thread, since this method could potentially
-    // be invoked in a worker.
-    Dispatch::Lock _(context->dispatch);
+    Lock lock(mutex);
 
     // Note: the payload is actually contained in a PacketBuf structure,
     // which we return to a pool for reuse later.
@@ -310,6 +310,7 @@ InfUdDriver::sendPacket(const Driver::Address *addr,
                              localMac ? NULL
                                       : static_cast<const Address*>(addr),
                              QKEY);
+        PerfStats::threadStats.networkOutputBytes += length;
         LOG(DEBUG, "sent successfully!");
     } catch (...) {
         LOG(DEBUG, "send failed!");
@@ -324,20 +325,28 @@ int
 InfUdDriver::Poller::poll()
 {
     assert(driver->context->dispatch->isDispatchThread());
-
-    PacketBuf* buffer = driver->packetBufPool.construct();
     BufferDescriptor* bd = NULL;
+    Received received;
+    PacketBuf* buffer;
+    {
+        Lock lock(driver->mutex);
+        buffer = driver->packetBufPool.construct();
+        driver->packetBufsUtilized++;
+    }
 
     try {
         bd = driver->infiniband->tryReceive(driver->qp,
                             driver->localMac ? NULL : &buffer->infAddress);
-    } catch (...) {
-        driver->packetBufPool.destroy(buffer);
-        throw;
+    } catch (TransportException& e) {
+        LOG(WARNING, "error receiving Infiniband packet: %s",
+                e.message.c_str());
+        goto error;
     }
 
     if (bd == NULL) {
+        Lock lock(driver->mutex);
         driver->packetBufPool.destroy(buffer);
+        driver->packetBufsUtilized--;
         return 0;
     }
 
@@ -346,14 +355,12 @@ InfUdDriver::Poller::poll()
 
     if (bd->messageBytes < (driver->localMac ? 60 : GRH_SIZE)) {
         LOG(ERROR, "received impossibly short packet!");
-        driver->packetBufPool.destroy(buffer);
-        driver->infiniband->postReceive(driver->qp, bd);
-        return 1;
+        goto error;
     }
 
-    Received received;
     received.driver = driver;
     received.payload = buffer->payload;
+    PerfStats::threadStats.networkInputBytes += bd->messageBytes;
     // copy from the infiniband buffer into our dynamically allocated
     // buffer.
     if (driver->localMac) {
@@ -362,9 +369,7 @@ InfUdDriver::Poller::poll()
         received.len = ethHdr.length;
         if (received.len + sizeof(ethHdr) > bd->messageBytes) {
             LOG(ERROR, "corrupt packet");
-            driver->packetBufPool.destroy(buffer);
-            driver->infiniband->postReceive(driver->qp, bd);
-            return 1;
+            goto error;
         }
         memcpy(received.payload,
                bd->buffer + sizeof(ethHdr),
@@ -376,7 +381,6 @@ InfUdDriver::Poller::poll()
                bd->buffer + GRH_SIZE,
                received.len);
     }
-    driver->packetBufsUtilized++;
     LOG(DEBUG, "received %u byte payload from %s",
         received.len,
         received.sender->toString().c_str());
@@ -384,6 +388,19 @@ InfUdDriver::Poller::poll()
 
     // post the original infiniband buffer back to the receive queue
     driver->infiniband->postReceive(driver->qp, bd);
+    return 1;
+
+  error:
+    // If we get here, the receive failed, so we have to return all of the
+    // resources that were allocated
+    {
+        Lock lock(driver->mutex);
+        driver->packetBufPool.destroy(buffer);
+        driver->packetBufsUtilized--;
+        if (bd != NULL) {
+            driver->infiniband->postReceive(driver->qp, bd);
+        }
+    }
     return 1;
 }
 
