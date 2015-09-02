@@ -325,83 +325,86 @@ int
 InfUdDriver::Poller::poll()
 {
     assert(driver->context->dispatch->isDispatchThread());
-    BufferDescriptor* bd = NULL;
-    Received received;
-    PacketBuf* buffer;
-    {
-        Lock lock(driver->mutex);
-        buffer = driver->packetBufPool.construct();
-        driver->packetBufsUtilized++;
-    }
-
-    try {
-        bd = driver->infiniband->tryReceive(driver->qp,
-                            driver->localMac ? NULL : &buffer->infAddress);
-    } catch (TransportException& e) {
-        LOG(WARNING, "error receiving Infiniband packet: %s",
-                e.message.c_str());
-        goto error;
-    }
-
-    if (bd == NULL) {
-        Lock lock(driver->mutex);
-        driver->packetBufPool.destroy(buffer);
-        driver->packetBufsUtilized--;
+    static const int MAX_COMPLETIONS = 10;
+    ibv_wc wc[MAX_COMPLETIONS];
+    int numPackets = driver->infiniband->pollCompletionQueue(driver->qp->rxcq,
+            MAX_COMPLETIONS, wc);
+    if (numPackets <= 0) {
+        if (numPackets < 0) {
+            LOG(ERROR, "pollCompletionQueue failed with result %d", numPackets);
+        }
         return 0;
     }
 
-    if (pcapFile)
-        pcapFile->append(bd->buffer, bd->messageBytes);
-
-    if (bd->messageBytes < (driver->localMac ? 60 : GRH_SIZE)) {
-        LOG(ERROR, "received impossibly short packet!");
-        goto error;
-    }
-
-    received.driver = driver;
-    received.payload = buffer->payload;
-    PerfStats::threadStats.networkInputBytes += bd->messageBytes;
-    // copy from the infiniband buffer into our dynamically allocated
-    // buffer.
-    if (driver->localMac) {
-        auto& ethHdr = *reinterpret_cast<EthernetHeader*>(bd->buffer);
-        received.sender = buffer->macAddress.construct(ethHdr.sourceAddress);
-        received.len = ethHdr.length;
-        if (received.len + sizeof(ethHdr) > bd->messageBytes) {
-            LOG(ERROR, "corrupt packet");
+    // Each iteration of the following loop processes one incoming packet.
+    for (int i = 0; i < numPackets; i++) {
+        ibv_wc* incoming = &wc[i];
+        BufferDescriptor *bd =
+                reinterpret_cast<BufferDescriptor *>(incoming->wr_id);
+        bd->messageBytes = incoming->byte_len;
+        PacketBuf* buffer = NULL;
+        Received received;
+        if (incoming->status != IBV_WC_SUCCESS) {
+            LOG(ERROR, "error in Infiniband completion (%d: %s)",
+                incoming->status,
+                driver->infiniband->wcStatusToString(incoming->status));
             goto error;
         }
-        memcpy(received.payload,
-               bd->buffer + sizeof(ethHdr),
-               received.len);
-    } else {
-        received.sender = buffer->infAddress.get();
-        received.len = bd->messageBytes - GRH_SIZE;
-        memcpy(received.payload,
-               bd->buffer + GRH_SIZE,
-               received.len);
-    }
-    LOG(DEBUG, "received %u byte payload from %s",
-        received.len,
-        received.sender->toString().c_str());
-    driver->incomingPacketHandler->handlePacket(&received);
+        prefetch(bd->buffer, incoming->byte_len);
 
-    // post the original infiniband buffer back to the receive queue
-    driver->infiniband->postReceive(driver->qp, bd);
-    return 1;
+        if (pcapFile)
+            pcapFile->append(bd->buffer, bd->messageBytes);
 
-  error:
-    // If we get here, the receive failed, so we have to return all of the
-    // resources that were allocated
-    {
-        Lock lock(driver->mutex);
-        driver->packetBufPool.destroy(buffer);
-        driver->packetBufsUtilized--;
-        if (bd != NULL) {
-            driver->infiniband->postReceive(driver->qp, bd);
+        if (bd->messageBytes < (driver->localMac ? 60 : GRH_SIZE)) {
+            LOG(ERROR, "received impossibly short packet: %d bytes",
+                    bd->messageBytes);
+            goto error;
         }
+
+        {
+            Lock lock(driver->mutex);
+            buffer = driver->packetBufPool.construct();
+            driver->packetBufsUtilized++;
+        }
+
+        received.driver = driver;
+        received.payload = buffer->payload;
+        PerfStats::threadStats.networkInputBytes += bd->messageBytes;
+        // copy from the infiniband buffer into our dynamically allocated
+        // buffer.
+        if (driver->localMac) {
+            auto& ethHdr = *reinterpret_cast<EthernetHeader*>(bd->buffer);
+            received.sender =
+                    buffer->macAddress.construct(ethHdr.sourceAddress);
+            received.len = ethHdr.length;
+            if (received.len + sizeof(ethHdr) > bd->messageBytes) {
+                LOG(ERROR, "corrupt packet (data length %d, packet length %d",
+                        received.len, bd->messageBytes);
+                goto error;
+            }
+            memcpy(received.payload, bd->buffer + sizeof(ethHdr), received.len);
+        } else {
+            buffer->infAddress.construct(*driver->infiniband,
+                    driver->ibPhysicalPort, incoming->slid, incoming->src_qp);
+            received.sender = buffer->infAddress.get();
+            received.len = bd->messageBytes - GRH_SIZE;
+            memcpy(received.payload, bd->buffer + GRH_SIZE, received.len);
+        }
+        driver->incomingPacketHandler->handlePacket(&received);
+
+        // post the original infiniband buffer back to the receive queue
+        driver->infiniband->postReceive(driver->qp, bd);
+        continue;
+
+      error:
+        if (buffer != NULL) {
+            Lock lock(driver->mutex);
+            driver->packetBufPool.destroy(buffer);
+            driver->packetBufsUtilized--;
+        }
+        driver->infiniband->postReceive(driver->qp, bd);
     }
-    return 1;
+    return numPackets;
 }
 
 /**

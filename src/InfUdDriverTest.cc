@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -22,9 +22,11 @@ namespace RAMCloud {
 class InfUdDriverTest : public ::testing::Test {
   public:
     Context context;
+    TestLog::Enable logEnabler;
 
     InfUdDriverTest()
         : context()
+        , logEnabler()
     {}
 
     // Used to wait for data to arrive on a driver by invoking the
@@ -66,8 +68,10 @@ TEST_F(InfUdDriverTest, basics) {
     message.appendExternal(testString, downCast<uint32_t>(strlen(testString)));
     Buffer::Iterator iterator(&message);
     client->sendPacket(serverAddress, "header:", 7, &iterator);
+    TestLog::reset();
     EXPECT_STREQ("header:This is a sample message",
             receivePacket(&serverTransport));
+    EXPECT_EQ("", TestLog::get());
 
     // Send a response back in the other direction.
     message.reset();
