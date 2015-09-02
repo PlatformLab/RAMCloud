@@ -606,6 +606,15 @@ class ReplicatedSegment : public Task {
     Tub<CycleCounter<RawMetric>>* replicationCounter;
 
     /**
+     * Used to figure out how long it takes the segment to get to a
+     * properly opened state.  If non-zero, it means the segment has
+     * not yet reached a state where all of its replicas are open;
+     * the value indicates the time (in rdtsc cycles) when the segment
+     * was constructed.
+     */
+    uint64_t unopenedStartCycles;
+
+    /**
      * An array of #ReplicaManager::replica backups on which the segment is
      * (being) replicated.
      */

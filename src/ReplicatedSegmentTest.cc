@@ -18,6 +18,7 @@
 #include "TestUtil.h"
 #include "BackupSelector.h"
 #include "Memory.h"
+#include "PerfStats.h"
 #include "ReplicatedSegment.h"
 #include "Segment.h"
 #include "ShortMacros.h"
@@ -1000,6 +1001,34 @@ TEST_F(ReplicatedSegmentTest, performTaskWrite) {
     ASSERT_TRUE(segment->replicas[0].isActive);
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_EQ(0u, deleter.count);
+    reset();
+}
+
+TEST_F(ReplicatedSegmentTest, updateSegmentUnopenedCycles) {
+    segment->unopenedStartCycles = 1000;
+    PerfStats::threadStats.segmentUnopenedCycles = 500;
+    Cycles::mockTscValue = 2000;
+    segment->replicas[0].committed.open = true;
+    segment->replicas[1].committed.open = false;
+
+    // Segment not yet fully open.
+    taskQueue.performTask();
+    EXPECT_EQ(1000lu, segment->unopenedStartCycles);
+    EXPECT_EQ(500lu, PerfStats::threadStats.segmentUnopenedCycles);
+
+    //Segment is now fully open; record statistics.
+    segment->replicas[1].committed.open = true;
+    taskQueue.performTask();
+    EXPECT_EQ(0lu, segment->unopenedStartCycles);
+    EXPECT_EQ(1500lu, PerfStats::threadStats.segmentUnopenedCycles);
+
+    //Segment has been open for a while; don't record new information.
+    Cycles::mockTscValue = 5000;
+    taskQueue.performTask();
+    EXPECT_EQ(0lu, segment->unopenedStartCycles);
+    EXPECT_EQ(1500lu, PerfStats::threadStats.segmentUnopenedCycles);
+
+    Cycles::mockTscValue = 0;
     reset();
 }
 

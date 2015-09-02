@@ -87,6 +87,7 @@ PerfStats::collectStats(PerfStats* total)
         total->logBytesAppended += stats->logBytesAppended;
         total->replicationRpcs += stats->replicationRpcs;
         total->logSyncCycles += stats->logSyncCycles;
+        total->segmentUnopenedCycles += stats->segmentUnopenedCycles;
         total->workerActiveCycles += stats->workerActiveCycles;
         total->compactorInputBytes += stats->compactorInputBytes;
         total->compactorSurvivorBytes += stats->compactorSurvivorBytes;
@@ -205,6 +206,9 @@ PerfStats::printClusterStats(Buffer* first, Buffer* second)
     result.append(format("%-30s %s\n", "  Log sync load factor",
             formatMetricRatio(&diff, "logSyncCycles",
             "collectionTime", " %8.2f").c_str()));
+    result.append(format("%-30s %s\n", "  Segment unopened time (%)",
+            formatMetricRatio(&diff, "segmentUnopenedCycles",
+            "collectionTime", " %8.2f", 100).c_str()));
 
     result.append("\nLog cleaner:\n");
     result.append(format("%-30s %s\n", "  Compactor load factor",
@@ -335,6 +339,7 @@ PerfStats::clusterDiff(Buffer* before, Buffer* after,
         ADD_METRIC(logBytesAppended);
         ADD_METRIC(replicationRpcs);
         ADD_METRIC(logSyncCycles);
+        ADD_METRIC(segmentUnopenedCycles);
         ADD_METRIC(compactorInputBytes);
         ADD_METRIC(compactorSurvivorBytes);
         ADD_METRIC(compactorActiveCycles);

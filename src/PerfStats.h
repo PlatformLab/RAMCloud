@@ -105,6 +105,13 @@ struct PerfStats {
     /// at twice real time).
     uint64_t logSyncCycles;
 
+    /// Total time (in cycles) spend my segments in a state where they have
+    /// at least one replica that has not yet been successfully opened. If
+    /// this value is significant, it probably means that backups don't have
+    /// enough I/O bandwidth to keep up with replication traffic, so they are
+    /// rejecting open requests.
+    uint64_t segmentUnopenedCycles;
+
     //--------------------------------------------------------------------
     // Statistics for the log cleaner follow below.
     //--------------------------------------------------------------------
