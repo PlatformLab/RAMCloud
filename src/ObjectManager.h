@@ -87,7 +87,9 @@ class ObjectManager : public LogEntryHandlers {
     void writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr);
     Status prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                 uint64_t* newOpPtr, bool* isCommitVote,
-                RpcResult* rpcResult, uint64_t* rpcResultPtr);
+                RpcResult* rpcResult, uint64_t* rpcResultPtr,
+                ParticipantList* participantList = NULL,
+                uint64_t* participantListPtr = NULL);
     Status prepareReadOnly(PreparedOp& newOp, RejectRules* rejectRules,
                 bool* isCommitVote);
     Status tryGrabTxLock(Object& objToLock, Log::Reference& ref);

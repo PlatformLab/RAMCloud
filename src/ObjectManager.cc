@@ -1340,6 +1340,11 @@ ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
  *      linearizability.
  * \param[out] rpcResultPtr
  *      The pointer to the RpcResult in log is returned.
+ * \param participantList
+ *      This method appends participantList to the log atomically with
+ *      the other record(s) for the write if it is not NULL.
+ * \param[out] participantListPtr
+ *      The pointer to the ParticipantList in log if it is appened.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_UNKNOWN_TABLE may be returned.
@@ -1347,7 +1352,8 @@ ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
 Status
 ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                 uint64_t* newOpPtr, bool* isCommitVote,
-                RpcResult* rpcResult, uint64_t* rpcResultPtr)
+                RpcResult* rpcResult, uint64_t* rpcResultPtr,
+                ParticipantList* participantList, uint64_t* participantListPtr)
 {
     *isCommitVote = false;
     if (!anyWrites) {
@@ -1435,7 +1441,7 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     assert(currentVersion == VERSION_NONEXISTENT ||
            newOp.object.getVersion() > currentVersion);
 
-    Log::AppendVector appends[2];
+    Log::AppendVector appends[3];
 
     newOp.assembleForLog(appends[0].buffer);
     appends[0].type = LOG_ENTRY_TYPE_PREP;
@@ -1445,14 +1451,22 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     rpcResult->assembleForLog(appends[1].buffer);
     appends[1].type = LOG_ENTRY_TYPE_RPCRESULT;
 
-    if (!log.hasSpaceFor(appends[0].buffer.size() + appends[1].buffer.size())) {
+    int participantListIndex = 2;
+    if (participantList) {
+        participantList->assembleForLog(appends[2].buffer);
+        appends[2].type = LOG_ENTRY_TYPE_TXPLIST;
+    }
+
+    if (!log.hasSpaceFor(appends[0].buffer.size()
+                        + appends[1].buffer.size()
+                        + (participantList ? appends[2].buffer.size() : 0))) {
         // We must bound the amount of live data to ensure deletes are possible
         writePrepareFail(rpcResult, rpcResultPtr);
         return STATUS_OK;
     }
 
 
-    if (!log.append(appends, 2)) {
+    if (!log.append(appends, 2 + (participantList ? 1 : 0))) {
         writePrepareFail(rpcResult, rpcResultPtr);
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load
@@ -1474,6 +1488,11 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     assert(rpcResult && rpcResultPtr);
     *rpcResultPtr = appends[rpcResultIndex].reference.toInteger();
 
+    if (participantList) {
+        *participantListPtr =
+                appends[participantListIndex].reference.toInteger();
+    }
+
     //tabletManager->incrementWriteCount(key);
 
     TEST_LOG("preparedOp: %u bytes", appends[0].buffer.size());
@@ -1481,8 +1500,10 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
 
     {
         uint64_t byteCount = appends[0].buffer.size();
-        uint64_t recordCount = 2;
+        uint64_t recordCount = 2 + (participantList ? 1 : 0);
         byteCount += appends[rpcResultIndex].buffer.size();
+        byteCount += (participantList ?
+                            appends[participantListIndex].buffer.size() : 0);
 
         TableStats::increment(masterTableMetadata,
                               tablet.tableId,

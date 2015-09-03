@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -57,6 +57,9 @@ enum LogEntryType {
 
     /// See TxDecisionRecord
     LOG_ENTRY_TYPE_TXDECISION,
+
+    /// See ParticipantList
+    LOG_ENTRY_TYPE_TXPLIST,
 
     /// Not a type, but rather the total number of types we have defined.
     /// This is currently restricted by the lower 6 bits in a uint8_t field

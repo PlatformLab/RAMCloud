@@ -1642,6 +1642,76 @@ TEST_F(ObjectManagerTest, prepareOp) {
     objectManager.getLog()->totalLiveBytes = original;
 }
 
+TEST_F(ObjectManagerTest, prepareOp_withParticipantList) {
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    Key key(1, "1", 1);
+    Buffer buffer;
+    bool isCommit;
+    uint64_t newOpPtr;
+
+    WireFormat::TxParticipant participants[3];
+    Key key2(1, "2", 1);
+    Key key3(2, "3", 1);
+    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
+    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
+    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
+    uint64_t clientId = 1;
+    // create an object just so that buffer will be populated with the key
+    // and the value. This keeps the abstractions intact
+    PreparedOp op(TxPrepare::READ, clientId, 10,
+                  3, participants,
+                  key, "value", 5, 0, 0, buffer);
+
+    WireFormat::TxPrepare::Vote vote;
+    RpcResult rpcResult(key.getTableId(), key.getHash(),
+                        1, 10, 9, &vote, sizeof(vote));
+    uint64_t rpcResultPtr;
+
+    ParticipantList plist(participants, 3, clientId);
+    uint64_t plistPtr;
+
+    TestLog::Enable _(writeObjectFilter);
+
+    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    Buffer buffer2;
+    Object obj(key, "value", 5, 0, 0, buffer2);
+    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ("writeObject: object: 33 bytes, version 1", TestLog::get());
+    EXPECT_EQ("found=true tableId=1 byteCount=33 recordCount=1"
+              , verifyMetadata(1));
+
+    TestLog::reset();
+    EXPECT_EQ(STATUS_OK, objectManager.prepareOp(op, 0, &newOpPtr, &isCommit,
+                                                 &rpcResult, &rpcResultPtr,
+                                                 &plist, &plistPtr));
+    EXPECT_TRUE(isCommit);
+    EXPECT_EQ("found=true tableId=1 byteCount=302 recordCount=4"
+              , verifyMetadata(1));
+
+    Buffer tempBuff;
+    LogEntryType type =
+            objectManager.log.getEntry(Log::Reference(plistPtr), tempBuff);
+    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, type);
+
+    ParticipantList::Header* header =
+            tempBuff.getStart<ParticipantList::Header>();
+    EXPECT_EQ(3U, header->participantCount);
+    EXPECT_EQ(clientId, header->clientLeaseId);
+
+    WireFormat::TxParticipant* entry;
+    entry = tempBuff.getOffset<WireFormat::TxParticipant>(sizeof32(*header));
+    EXPECT_EQ(10U, entry->rpcId);
+
+    entry = tempBuff.getOffset<WireFormat::TxParticipant>(
+    sizeof32(*header) + sizeof32(*entry));
+    EXPECT_EQ(11U, entry->rpcId);
+
+    entry = tempBuff.getOffset<WireFormat::TxParticipant>(
+    sizeof32(*header) + sizeof32(*entry) + sizeof32(*entry));
+    EXPECT_EQ(12U, entry->rpcId);
+}
+
 TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
 
     TxDecisionRecord record(1, 2, 21, WireFormat::TxDecision::ABORT, 100);
