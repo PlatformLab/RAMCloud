@@ -204,6 +204,65 @@ class PreparedOpTombstone {
     DISALLOW_COPY_AND_ASSIGN(PreparedOpTombstone);
 };
 
+
+class ParticipantList {
+  PUBLIC:
+    ParticipantList(WireFormat::TxParticipant* participants,
+                    uint32_t participantCount,
+                    uint64_t clientLeaseId);
+    ParticipantList(Buffer& buffer, uint32_t offset = 0);
+
+    /// Unique identifier for the transaction consisting of
+    /// (ClientLeaseId, first rpcId)
+    typedef std::pair<uint64_t, uint64_t> TxId;
+
+    void assembleForLog(Buffer& buffer);
+
+    bool checkIntegrity();
+    uint32_t computeChecksum();
+    TxId getTxId();
+  PRIVATE:
+
+    /**
+     * This data structure defines the format of a preparedOp header stored in a
+     * master server's log.
+     */
+    class Header {
+      public:
+        Header(uint64_t clientLeaseId, uint32_t participantCount)
+            : clientLeaseId(clientLeaseId)
+            , participantCount(participantCount)
+            , checksum(0)
+        {
+        }
+
+        /// leaseId of the client that initiated the transaction.
+        /// A (ClientLeaseId, first rpcId) tuple uniquely identifies this
+        /// transaction and this participant list.
+        uint64_t clientLeaseId;
+
+        /// Number of objects participating in the current transaction (and
+        /// thus in this list).
+        uint32_t participantCount;
+
+        /// CRC32C checksum covering everything but this field, including the
+        /// keys and the value.
+        uint32_t checksum;
+
+    } __attribute__((__packed__));
+
+    /// Copy of the PreparedOp header.
+    Header header;
+
+    /// Pointer to the array of #WireFormat::TxParticipant which contains
+    /// all information of objects participating transaction.
+    /// The actual data reside in RPC payload or in log. This pointer should not
+    /// be passed around outside the lifetime of a single RPC handler.
+    WireFormat::TxParticipant* participants;
+
+    DISALLOW_COPY_AND_ASSIGN(ParticipantList);
+};
+
 /**
  * A table for all PreparedOps for all currently executing transactions
  * on a server. Decision RPC handler fetches preparedOp from this table.
