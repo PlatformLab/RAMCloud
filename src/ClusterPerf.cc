@@ -47,6 +47,7 @@ namespace po = boost::program_options;
 
 #include "assert.h"
 #include "btreeRamCloud/Btree.h"
+#include "ClientLease.h"
 #include "CycleCounter.h"
 #include "Cycles.h"
 #include "PerfStats.h"
@@ -66,6 +67,9 @@ static RamCloud* cluster;
 
 // Total number of clients that will be participating in this test.
 static int numClients;
+
+// Number of virtual clients each physical client should simulate.
+static int numVClients;
 
 // Index of this client among all of the participating clients (between
 // 0 and numClients-1).  Client 0 acts as master to control the overall
@@ -483,6 +487,48 @@ class WorkloadGenerator {
     int recordSizeB;
     int readPercent;
     Tub<ZipfianGenerator> generator;
+};
+
+/**
+ * Encapsulates the state of a single client so we can simulate multiple virtual
+ * clients with a single client executable.
+ */
+struct VirtualClient {
+    explicit VirtualClient(RamCloud* ramcloud)
+        : lease(ramcloud)
+        , rpcTracker()
+    {}
+
+    /**
+     * Used to install and uninstall the virtual client's state.  Makes it easy
+     * to "context switch" between clients.
+     */
+    struct Context {
+        explicit Context(VirtualClient* virtualClient)
+            : virtualClient(virtualClient)
+            , originalLease(cluster->clientLease)
+            , originalTracker(cluster->rpcTracker)
+        {
+            // Set context variables.
+            cluster->clientLease = &virtualClient->lease;
+            cluster->rpcTracker = &virtualClient->rpcTracker;
+        }
+
+        ~Context() {
+            cluster->clientLease = originalLease;
+            cluster->rpcTracker = originalTracker;
+        }
+
+        VirtualClient* virtualClient;
+        ClientLease* originalLease;
+        RpcTracker* originalTracker;
+
+        DISALLOW_COPY_AND_ASSIGN(Context);
+    };
+
+    ClientLease lease;
+    RpcTracker rpcTracker;
+    DISALLOW_COPY_AND_ASSIGN(VirtualClient);
 };
 
 /**
@@ -5890,12 +5936,30 @@ linearizableWriteDistRandom()
     char key[keyLength];
     char value[objectSize];
 
-    fillTable(dataTable, numKeys, keyLength, objectSize);
+    // Setup virtual clients.
+    Tub<VirtualClient>* virtualClients = new Tub<VirtualClient>[numVClients];
+    for (int i = 0; i < numVClients; ++i) {
+        virtualClients[i].construct(cluster);
+        VirtualClient::Context _(virtualClients[i].get());
+        makeKey(downCast<int>(generateRandom() % numKeys), keyLength, key);
+        Util::genRandomString(value, objectSize);
+        cluster->write(dataTable, key, keyLength, value, objectSize,
+                       NULL, NULL, false, true);
+    }
+
+    {
+        VirtualClient::Context _(virtualClients[0].get());
+        fillTable(dataTable, numKeys, keyLength, objectSize);
+    }
 
     // Issue the writes back-to-back, and save the times.
     std::vector<uint64_t> ticks;
     ticks.resize(count);
     for (int i = 0; i < count; i++) {
+        // Pick a virtual client
+        int virtualClientIndex = downCast<int>(generateRandom() % numVClients);
+        VirtualClient::Context _(virtualClients[virtualClientIndex].get());
+
         // We generate the random number separately to avoid timing potential
         // cache misses on the client side.
         makeKey(downCast<int>(generateRandom() % numKeys), keyLength, key);
@@ -5922,6 +5986,11 @@ linearizableWriteDistRandom()
         valuesInLine++;
     }
     printf("\n");
+
+    for (int i = 0; i < numVClients; ++i) {
+        virtualClients[i].destroy();
+    }
+    delete[] virtualClients;
 }
 
 // This benchmark measures total throughput of a single server (in operations
@@ -6227,6 +6296,8 @@ try
         ("help,h", "Print this help message")
         ("numClients", po::value<int>(&numClients)->default_value(1),
                 "Total number of clients running")
+        ("numVClients", po::value<int>(&numVClients)->default_value(1),
+                "Total number of virtual clients to simulate pre client")
         ("size,s", po::value<int>(&objectSize)->default_value(100),
                 "Size of objects (in bytes) to use for test")
         ("numObjects", po::value<int>(&numObjects)->default_value(1),
