@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -496,6 +496,28 @@ TEST_F(PreparedOpsTest, markDeletedAndIsDeleted) {
     writes.bufferOp(2, 9, 1029, true);
     EXPECT_EQ(1029UL, writes.peekOp(2, 9));
     EXPECT_FALSE(writes.isDeleted(2, 9));
+}
+
+TEST_F(PreparedOpsTest, hasParticipantListEntry) {
+    ParticipantList::TxId txId(42, 10);
+    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
+    writes.pListTable[txId] = 9001;
+    EXPECT_TRUE(writes.hasParticipantListEntry(txId));
+}
+
+TEST_F(PreparedOpsTest, updateParticipantListEntry) {
+    ParticipantList::TxId txId(42, 10);
+    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
+    writes.updateParticipantListEntry(txId, 9000);
+    EXPECT_TRUE(writes.hasParticipantListEntry(txId));
+    EXPECT_EQ(9000U, writes.pListTable[txId]);
+    writes.updateParticipantListEntry(txId, 9001);
+    EXPECT_TRUE(writes.hasParticipantListEntry(txId));
+    EXPECT_EQ(9001U, writes.pListTable[txId]);
+    writes.updateParticipantListEntry(txId, 0);
+    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
+    writes.updateParticipantListEntry(txId, 0);
+    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
 }
 
 /**

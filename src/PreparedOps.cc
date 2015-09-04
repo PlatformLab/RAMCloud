@@ -14,7 +14,6 @@
  */
 
 #include "PreparedOps.h"
-#include "UnackedRpcResults.h"
 #include "LeaseCommon.h"
 #include "MasterClient.h"
 #include "MasterService.h"
@@ -408,6 +407,7 @@ PreparedOps::PreparedOps(Context* context)
     : context(context)
     , mutex()
     , items()
+    , pListTable()
 {
 }
 
@@ -655,4 +655,43 @@ PreparedOps::isDeleted(uint64_t leaseId,
         }
     }
 }
+
+/**
+ * Check if the ParticipantList entry for the provided txId is still active.
+ *
+ * \return
+ *      True if the entry is still needed, false otherwise.
+ */
+bool
+PreparedOps::hasParticipantListEntry(ParticipantList::TxId txId)
+{
+    Lock lock(mutex);
+    return (pListTable.find(txId) != pListTable.end());
+}
+
+/**
+ * Update tracking information for a ParticipantList entry in the log.  There
+ * should only be one per transaction per server.
+ *
+ * \param txId
+ *      Unique identifier for this transaction and participant list.
+ * \param participantListLogRef
+ *      Log reference to the ParticipantList entry to be tracked in integer
+ *      form.  ZERO indicates that the reference can be removed.
+ */
+void
+PreparedOps::updateParticipantListEntry(ParticipantList::TxId txId,
+                                        uint64_t participantListLogRef)
+{
+    Lock lock(mutex);
+    if (participantListLogRef == 0) {
+        PListTable::iterator it = pListTable.find(txId);
+        if (it != pListTable.end()) {
+            pListTable.erase(it);
+        }
+    } else {
+        pListTable[txId] = participantListLogRef;
+    }
+}
+
 } // namespace RAMCloud
