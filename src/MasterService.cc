@@ -2584,6 +2584,10 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
         return;
     }
 
+    ParticipantList participantList(participants,
+                                    participantCount,
+                                    reqHdr->lease.leaseId);
+
     // 2. Process operations.
     uint32_t numRequests = reqHdr->opCount;
     uint32_t numReadOnly = 0;
@@ -2766,13 +2770,27 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
         uint64_t newOpPtr;
         bool isCommitVote;
+        // Only include the participant list if it does not already exist.
+        ParticipantList* includedParticipantList = NULL;
+        uint64_t participantListRef;
+        if (!preparedOps.hasParticipantListEntry(participantList.getTxId())) {
+            includedParticipantList = &participantList;
+        }
+
         try {
             respHdr->common.status = objectManager.prepareOp(
                     *op, &rejectRules, &newOpPtr, &isCommitVote,
-                    &rpcResult, &rpcResultPtr);
+                    &rpcResult, &rpcResultPtr,
+                    includedParticipantList, &participantListRef);
         } catch (RetryException& e) {
             objectManager.syncChanges();
             throw;
+        }
+
+        if (includedParticipantList) {
+            preparedOps.updateParticipantListEntry(
+                    includedParticipantList->getTxId(),
+                    participantListRef);
         }
 
         if (!isCommitVote || respHdr->common.status != STATUS_OK) {
