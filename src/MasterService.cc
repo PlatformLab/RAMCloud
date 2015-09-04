@@ -2777,6 +2777,9 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             includedParticipantList = &participantList;
         }
 
+        // TODO(cstlee): Hack to remove participant list from PrepareOp.
+        op->header.participantCount = 0;
+
         try {
             respHdr->common.status = objectManager.prepareOp(
                     *op, &rejectRules, &newOpPtr, &isCommitVote,
