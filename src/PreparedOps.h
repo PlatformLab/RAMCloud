@@ -282,6 +282,10 @@ class PreparedOps {
     bool isDeleted(uint64_t leaseId, uint64_t rpcId);
     void regrabLocksAfterRecovery(ObjectManager* objectManager);
 
+    bool hasParticipantListEntry(ParticipantList::TxId txId);
+    void updateParticipantListEntry(ParticipantList::TxId txId,
+                                    uint64_t participantListLogRef);
+
   PRIVATE:
     /**
      * Wrapper for the pointer to PreparedOp with WorkerTimer.
@@ -345,6 +349,9 @@ class PreparedOps {
     /// mapping from <LeaseId, RpcId> to PreparedItem.
     std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> items;
     typedef std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> ItemsMap;
+
+    typedef std::map<ParticipantList::TxId, uint64_t> PListTable;
+    PListTable pListTable;
 
     DISALLOW_COPY_AND_ASSIGN(PreparedOps);
 };
