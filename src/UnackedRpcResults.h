@@ -126,7 +126,7 @@ class UnackedRpcResults {
                                     len(size) {
         }
         ~Client() {
-            delete rpcs;
+            delete[] rpcs;
         }
 
         bool hasRecord(uint64_t rpcId);
