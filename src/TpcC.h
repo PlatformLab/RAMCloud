@@ -22,7 +22,7 @@
 
 namespace RAMCloud { namespace TPCC {
 
-extern uint64_t tableId[100];
+extern uint64_t tableId[1000];
 
 void genLastName(char* target, int rand);
 uint32_t random(uint32_t x, uint32_t y);
@@ -413,7 +413,7 @@ struct TpccStat {
     // .cc file but it will be harder to read.
     // static const char* const[] txTypeIndexToName =
     //   {"payment", "orderStatus", "delivery", "stockLevel", "newOrder"};
-    
+
     double cumulativeLatency[5];
     int txPerformedCount[5];
     int txAbortCount[5];

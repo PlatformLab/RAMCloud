@@ -4619,6 +4619,9 @@ void printPerfStats(PerfStats& startStats, PerfStats& finishStats) {
 void
 tpcc()
 {
+    // Random delay to reduce coordinator's load.
+    //Cycles::sleep((clientIndex % 5) * 1000000);
+
     // Each warehouse takes 83MB to store initial data.
     // Per newOrder, 1KB. Around 10MB per sec.
     // 60 seconds -> total 1500 MB per warehouse.
@@ -4628,9 +4631,9 @@ tpcc()
         TPCC::Driver driver(cluster, numWarehouses, 1);
 
         uint64_t startInitCycles = Cycles::rdtsc();
-        Cycles::sleep(15 * 1000000);
+        Cycles::sleep(150 * 1000000);
         for (int slave = 1; slave < numClients; ++slave) {
-            waitSlave(slave, "ready", 60.0);
+            waitSlave(slave, "ready", 600.0);
         }
 
         uint64_t initElapsed = Cycles::rdtsc() - startInitCycles;
@@ -4638,7 +4641,7 @@ tpcc()
                  Cycles::toSeconds(initElapsed) *1e03);
 
         //Benchmark period in seconds.
-        int period = 30;
+        int period = 60;
         sendCommand("run", "running", 1, numClients-1);
 
         PerfStats startStats[numServers];
@@ -4703,11 +4706,12 @@ tpcc()
         }
 
         printf("%5d  %8d      %8.3f ",
-                //numServers,
-                numClients-1,
+                numServers,
+                //numClients-1,
                 allNewOrderTxDone / period,
                 allNewOrderLatencyTotal / allNewOrderTxDone);
-        for (int i = 0; i < numServers; ++i) {
+        //for (int i = 0; i < numServers; ++i) {
+        for (int i = 0; i < 1; ++i) {
             if (i > 0) {
                 printf("                              ");
             }
@@ -4777,7 +4781,6 @@ void getPerfStats(PerfStats* out) {
                               &statsBuf);
     WireFormat::ServerControlAll::Response* statsHdr =
             statsBuf.getStart<WireFormat::ServerControlAll::Response>();
-    uint32_t startOff = sizeof32(*statsHdr);
     const char* outputBuf = reinterpret_cast<const char*>(
         statsBuf.getRange(sizeof32(*statsHdr), statsHdr->totalRespLength));
     for (uint32_t i = 0; i < statsHdr->respCount; ++i) {

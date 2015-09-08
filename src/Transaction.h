@@ -58,6 +58,7 @@ class Transaction {
     bool commit();
     void sync();
     bool commitAndSync();
+    size_t size();
 
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
             Buffer* value);

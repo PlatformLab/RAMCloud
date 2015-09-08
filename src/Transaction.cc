@@ -63,6 +63,11 @@ Transaction::commit()
     return (task->getDecision() == WireFormat::TxDecision::COMMIT);
 }
 
+size_t
+Transaction::size() {
+    return taskPtr->commitCache.size();
+}
+
 /**
  * Block until the decision of this transaction commit is accepted by all
  * participant servers.  If the commit has not yet occurred and a decision is

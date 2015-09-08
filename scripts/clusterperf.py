@@ -576,12 +576,12 @@ def txCollision(name, options, cluster_args, client_args):
 
 def txTPCC(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = ' -t 10000 -d '
+        cluster_args['master_args'] = ' -t 10000 -d --masterServiceThreads 3 '
     if 'backup_args' not in cluster_args:
-#        cluster_args['backup_args'] = ' --segmentFrames 10000 --maxNonVolatileBuffers 8'
-        cluster_args['backup_args'] = ' --segmentFrames 10000 '
+        cluster_args['backup_args'] = ' --segmentFrames 10000 --maxNonVolatileBuffers 8'
+#        cluster_args['backup_args'] = ' --segmentFrames 10000 '
     if cluster_args['timeout'] < 150:
-        cluster_args['timeout'] = 150
+        cluster_args['timeout'] = 600
     #cluster_args['disjunct'] = True
     if options.num_servers == None:
         cluster_args['num_servers'] = 4

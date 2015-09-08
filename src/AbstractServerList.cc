@@ -213,7 +213,7 @@ AbstractServerList::contains(ServerId id) {
  * This method is used for iterating through the servers in the
  * cluster. Given the id for a particular server, it returns the
  * id for the next server that supports a given set of services.
- * 
+ *
  * \param prev
  *      Return value from a previous indication of this method;
  *      the current invocation will return the next server after
@@ -233,7 +233,7 @@ AbstractServerList::contains(ServerId id) {
  *      parameter is true then crashed servers will also be returned
  *      (as long as they have not been fully recovered, at which point
  *      they cease to exist).
- * 
+ *
  * \return
  *      The return value is the ServerId for the next server after
  *      prev in the server list that supports the given set of

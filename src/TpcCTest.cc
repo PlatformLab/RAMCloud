@@ -678,7 +678,7 @@ void printSize() {
 }
 
 TEST_F(TpcCTest, runAllTests) {
-    printSize();
+//    printSize();
     initBenchmark();
     txNewOrder();
     txPayment_basic();
@@ -688,7 +688,7 @@ TEST_F(TpcCTest, runAllTests) {
     txOrderStatus_byLastName();
     txDelivery();
     txStockLevel();
-    //basic();
+    basic();
     simulate();
 }
 

@@ -22,7 +22,7 @@
 
 namespace RAMCloud { namespace TPCC {
 
-uint64_t tableId[100];
+uint64_t tableId[1000];
 
 Driver::Driver(RamCloud* ramcloud, uint32_t numWarehouse, int serverSpan)
     : ramcloud(ramcloud)

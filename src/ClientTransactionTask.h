@@ -187,8 +187,10 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
      * be performed during commit and well as cache read and write values to
      * services subsequent reads.
      */
+  PUBLIC:
     typedef std::multimap<CacheKey, CacheEntry> CommitCacheMap;
     CommitCacheMap commitCache;
+  PRIVATE:
 
     /// Used to keep track of which cache entry to process next as part of the
     /// commit protocol.

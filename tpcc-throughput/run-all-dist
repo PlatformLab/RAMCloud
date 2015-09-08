@@ -4,7 +4,7 @@ output=$2
 #objectsPerServer=$2
 maxSpan=$1
 
-clientsPerServer=4
+clientsPerServer=12
 
 span=$maxSpan
 #cmd="./scripts/clusterperf.py transactionDistRandom"
@@ -28,7 +28,7 @@ fi ;
 
 echo Starting experiment...
 
-for span in $(seq $maxSpan -2 4)
+for span in $(seq $maxSpan -2 6)
 do
     cmd="../scripts/clusterperf.py tpcc"
 #    cmd=$cmd" --numObjects $((objectsPerServer * span))"

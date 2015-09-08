@@ -681,10 +681,10 @@ def run(
                     host_list = cluster.hosts[:]
                 else:
                     host_list = cluster.hosts[num_servers:]
-                    if share_hosts:
-                        host_list.extend(cluster.hosts[:num_servers])
+#                    if share_hosts:
+#                        host_list.extend(cluster.hosts[:num_servers])
 
-                client_hosts = [host_list[i % len(host_list)]
+                client_hosts = [host_list[i % (len(host_list) - 1)]
                                 for i in range(num_clients)]
             assert(len(client_hosts) == num_clients)
 
