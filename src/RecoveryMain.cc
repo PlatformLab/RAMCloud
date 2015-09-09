@@ -458,6 +458,7 @@ try
                     metricIt->second);
         }
     }
+    client.quiesce();
 
     return 0;
 } catch (RAMCloud::ClientException& e) {
