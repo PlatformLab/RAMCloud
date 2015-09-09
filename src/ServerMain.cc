@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -184,9 +184,9 @@ main(int argc, char *argv[])
              "throuphput, especially for reads.")
             ("maxNonVolatileBuffers",
              ProgramOptions::value<uint32_t>(
-               &config.backup.maxNonVolatileBuffers)->default_value(0),
+               &config.backup.maxNonVolatileBuffers)->default_value(10),
              "Maximum number of segments the backup will buffer in memory. The "
-             "0 value (default) is special: it tells the server to set the "
+             "value 0 is special: it tells the server to set the "
              "limit equal to the \"segmentFrames\" value, effectively making "
              "buffering unlimited.")
             ("preferredIndex",
