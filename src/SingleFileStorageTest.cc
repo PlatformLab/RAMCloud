@@ -317,6 +317,15 @@ TEST_F(SingleFileStorageTest, Frame_closeSync) {
     EXPECT_TRUE(frame->isClosed);
     EXPECT_FALSE(frame->buffer);
     EXPECT_TRUE(frame->isSynced());
+    EXPECT_EQ(0lu, storage->writeBuffersInUse);
+}
+
+TEST_F(SingleFileStorageTest, Frame_closeSyncNotWriteBuffer) {
+    BackupStorage::FrameRef frameRef = storage->open(true);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
+    frame->isWriteBuffer = false;
+    frame->close();
+    EXPECT_EQ(1lu, storage->writeBuffersInUse);
 }
 
 TEST_F(SingleFileStorageTest, Frame_closeLoading) {
@@ -338,6 +347,16 @@ TEST_F(SingleFileStorageTest, Frame_free) {
     EXPECT_FALSE(frame->loadRequested);
     EXPECT_FALSE(frame->buffer);
     EXPECT_EQ(1, storage->freeMap[0]);
+    EXPECT_EQ(0lu, storage->writeBuffersInUse);
+}
+
+TEST_F(SingleFileStorageTest, Frame_freeNotWriteBuffer) {
+    BackupStorage::FrameRef frameRef = storage->open(false);
+    Frame* frame = static_cast<Frame*>(frameRef.get());
+    frame->isWriteBuffer = false;
+    frame->free();
+
+    EXPECT_EQ(1lu, storage->writeBuffersInUse);
 }
 
 TEST_F(SingleFileStorageTest, Frame_reopen) {
@@ -376,6 +395,7 @@ TEST_F(SingleFileStorageTest, Frame_open) {
     EXPECT_TRUE(frame->isOpen);
     EXPECT_FALSE(frame->isClosed);
     EXPECT_FALSE(frame->sync);
+    EXPECT_EQ(1lu, storage->writeBuffersInUse);
 
     frame->open(true);
     EXPECT_FALSE(frame->sync);
@@ -391,6 +411,7 @@ TEST_F(SingleFileStorageTest, Frame_open) {
     frame->free();
     frame->open(true);
     EXPECT_TRUE(frame->sync);
+    EXPECT_EQ(1lu, storage->writeBuffersInUse);
 }
 
 TEST_F(SingleFileStorageTest, Frame_performWrite) {
@@ -424,12 +445,14 @@ TEST_F(SingleFileStorageTest, Frame_performWriteReleasesBufferAtTheRightTimes) {
         frame->performWrite(lock);
     }
     EXPECT_TRUE(frame->buffer);
+    EXPECT_EQ(1lu, storage->writeBuffersInUse);
     frame->loadRequested = false;
     {
         Frame::Lock lock(frame->storage->mutex);
         frame->performWrite(lock);
     }
     EXPECT_FALSE(frame->buffer);
+    EXPECT_EQ(0lu, storage->writeBuffersInUse);
 }
 
 TEST_F(SingleFileStorageTest, Frame_performWriteLoadWaiting) {
@@ -585,7 +608,7 @@ TEST_F(SingleFileStorageTest, open_noFreeFrames) {
 }
 
 TEST_F(SingleFileStorageTest, open_tooManyBuffersInUse) {
-    storage->nonVolatileBuffersInUse = storage->maxNonVolatileBuffers;
+    storage->writeBuffersInUse = storage->maxWriteBuffers;
     EXPECT_THROW(storage->open(false),
                  BackupOpenRejectedException);
 }
