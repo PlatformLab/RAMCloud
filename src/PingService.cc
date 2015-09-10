@@ -15,6 +15,7 @@
 
 #include<fstream>
 #include "Common.h"
+#include "BackupService.h"
 #include "CycleCounter.h"
 #include "Cycles.h"
 #include "MasterService.h"
@@ -292,6 +293,14 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         case WireFormat::LOG_CACHE_TRACE:
         {
             context->cacheTrace->printToLog();
+            break;
+        }
+        case WireFormat::QUIESCE:
+        {
+            LOG(NOTICE, "Backup is waiting for dirty write buffers to sync");
+            if (context->backupService != NULL) {
+                context->backupService->storage->quiesce();
+            }
             break;
         }
         case WireFormat::RESET_METRICS:

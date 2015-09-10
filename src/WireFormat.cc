@@ -80,7 +80,6 @@ opcodeSymbol(uint32_t opcode)
         case BACKUP_STARTREADINGDATA:      return "BACKUP_STARTREADINGDATA";
         case BACKUP_WRITE:                 return "BACKUP_WRITE";
         case BACKUP_RECOVERYCOMPLETE:      return "BACKUP_RECOVERYCOMPLETE";
-        case BACKUP_QUIESCE:               return "BACKUP_QUIESCE";
         case UPDATE_SERVER_LIST:           return "UPDATE_SERVER_LIST";
         case BACKUP_STARTPARTITION:        return "BACKUP_STARTPARTITIONING";
         case DROP_TABLET_OWNERSHIP:        return "DROP_TABLET_OWNERSHIP";

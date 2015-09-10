@@ -98,9 +98,6 @@ class CoordinatorService : public Service {
     void hintServerCrashed(const WireFormat::HintServerCrashed::Request* reqHdr,
             WireFormat::HintServerCrashed::Response* respHdr,
             Rpc* rpc);
-    void quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
-            WireFormat::BackupQuiesce::Response* respHdr,
-            Rpc* rpc);
     void reassignTabletOwnership(
             const WireFormat::ReassignTabletOwnership::Request* reqHdr,
             WireFormat::ReassignTabletOwnership::Response* respHdr,

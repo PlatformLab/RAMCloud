@@ -118,7 +118,6 @@ class RamCloud {
             uint16_t keyLength, WireFormat::ControlOp controlOp,
             const void* inputData = NULL, uint32_t inputLength = 0,
             Buffer* outputData = NULL);
-    void quiesce();
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
             Buffer* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL);
@@ -907,21 +906,6 @@ struct MultiWriteObject : public MultiOpObject {
         version = other.version;
         return *this;
     }
-};
-
-/**
- * Encapsulates the state of a RamCloud::quiesce operation,
- * allowing it to execute asynchronously.
- */
-class QuiesceRpc : public CoordinatorRpcWrapper {
-  public:
-    explicit QuiesceRpc(RamCloud* ramcloud);
-    ~QuiesceRpc() {}
-    /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(context);}
-
-  PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(QuiesceRpc);
 };
 
 /**

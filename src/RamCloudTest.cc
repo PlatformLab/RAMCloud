@@ -461,18 +461,6 @@ TEST_F(RamCloudTest, multiIncrement) {
     delete requests[2];
 }
 
-TEST_F(RamCloudTest, quiesce) {
-    ServerConfig config = ServerConfig::forTesting();
-    config.services = {WireFormat::BACKUP_SERVICE, WireFormat::PING_SERVICE};
-    config.localLocator = "mock:host=backup1";
-    cluster.addServer(config);
-    TestLog::reset();
-    ramcloud->quiesce();
-    EXPECT_EQ("quiesce: Backup at mock:host=master2 quiescing | "
-            "quiesce: Backup at mock:host=backup1 quiescing",
-            TestLog::get());
-}
-
 TEST_F(RamCloudTest, read) {
     ramcloud->write(tableId1, "0", 1, "abcdef", 6);
     ObjectBuffer keysAndValue;

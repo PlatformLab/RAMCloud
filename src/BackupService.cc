@@ -194,10 +194,6 @@ BackupService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::BackupGetRecoveryData, BackupService,
                         &BackupService::getRecoveryData>(rpc);
             break;
-        case WireFormat::BackupQuiesce::opcode:
-            callHandler<WireFormat::BackupQuiesce, BackupService,
-                        &BackupService::quiesce>(rpc);
-            break;
         case WireFormat::BackupRecoveryComplete::opcode:
             callHandler<WireFormat::BackupRecoveryComplete, BackupService,
                         &BackupService::recoveryComplete>(rpc);
@@ -329,25 +325,6 @@ BackupService::initOnceEnlisted()
     LOG(NOTICE, "Backup %s will store replicas under cluster name '%s'",
         serverId.toString().c_str(), config->clusterName.c_str());
     initCalled = true;
-}
-
-/**
- * Flush all data to storage.
- * Returns once all dirty buffers have been written to storage.
- * \param reqHdr
- *      Header of the Rpc request.
- * \param respHdr
- *      Header for the Rpc response.
- * \param rpc
- *      The Rpc being serviced.
- */
-void
-BackupService::quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
-                       WireFormat::BackupQuiesce::Response* respHdr,
-                       Rpc* rpc)
-{
-    LOG(NOTICE, "Backup at %s quiescing", config->localLocator.c_str());
-    storage->quiesce();
 }
 
 /**

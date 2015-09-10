@@ -87,7 +87,6 @@ enum Opcode {
     BACKUP_STARTREADINGDATA     = 31,
     BACKUP_WRITE                = 32,
     BACKUP_RECOVERYCOMPLETE     = 33,
-    BACKUP_QUIESCE              = 34,
     UPDATE_SERVER_LIST          = 35,
     BACKUP_STARTPARTITION       = 36,
     DROP_TABLET_OWNERSHIP       = 39,
@@ -150,6 +149,7 @@ enum ControlOp {
     STOP_PERF_COUNTERS          = 1009,
     LOG_MESSAGE                 = 1010,
     RESET_METRICS               = 1011,
+    QUIESCE                     = 1012,
 };
 
 /**
@@ -276,18 +276,6 @@ struct BackupGetRecoveryData {
                                         ///< the response field. Used by
                                         ///< master to iterate over the
                                         ///< segment.
-    } __attribute__((packed));
-};
-
-// Note: this RPC is supported by the coordinator service as well as backups.
-struct BackupQuiesce {
-    static const Opcode opcode = BACKUP_QUIESCE;
-    static const ServiceType service = BACKUP_SERVICE;
-    struct Request {
-        RequestCommonWithId common;
-    } __attribute__((packed));
-    struct Response {
-        ResponseCommon common;
     } __attribute__((packed));
 };
 

@@ -66,23 +66,6 @@ class GetRecoveryDataRpc : public ServerIdRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a BackupClient::quiesce operation,
- * allowing it to execute asynchronously (it has the "Backup" prefix
- * to distinguish it from the CoordinatorClient version of the
- * same call).
- */
-class BackupQuiesceRpc : public ServerIdRpcWrapper {
-  public:
-    BackupQuiesceRpc(Context* context, ServerId backupId);
-    ~BackupQuiesceRpc() {}
-    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
-    void wait() {waitAndCheckErrors();}
-
-  PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(BackupQuiesceRpc);
-};
-
-/**
  * Encapsulates the state of a BackupClient::recoveryComplete operation,
  * allowing it to execute asynchronously.
  */
@@ -235,7 +218,6 @@ class BackupClient {
                                               uint64_t segmentId,
                                               uint64_t partitionId,
                                               Buffer* response);
-    static void quiesce(Context* context, ServerId backupId);
     static void recoveryComplete(Context* context, ServerId backupId,
             ServerId masterId);
     static StartReadingDataRpc::Result startReadingData(Context* context,

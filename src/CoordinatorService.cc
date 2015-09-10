@@ -146,10 +146,6 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
                 "coordinator service not yet initialized");
     }
     switch (opcode) {
-        case WireFormat::BackupQuiesce::opcode:
-            callHandler<WireFormat::BackupQuiesce, CoordinatorService,
-                        &CoordinatorService::quiesce>(rpc);
-            break;
         case WireFormat::CoordSplitAndMigrateIndexlet::opcode:
             callHandler<WireFormat::CoordSplitAndMigrateIndexlet,
                         CoordinatorService,
@@ -533,27 +529,6 @@ CoordinatorService::hintServerCrashed(
          "starting recovery", serverId.toString().c_str());
 
      serverList->serverCrashed(serverId);
-}
-
-/**
- * Have all backups flush their dirty segments to storage.
- * \copydetails Service::ping
- */
-void
-CoordinatorService::quiesce(
-        const WireFormat::BackupQuiesce::Request* reqHdr,
-        WireFormat::BackupQuiesce::Response* respHdr,
-        Rpc* rpc)
-{
-    for (size_t i = 0; i < serverList->size(); i++) {
-        try {
-            if ((*serverList)[i].isBackup()) {
-                BackupClient::quiesce(context, (*serverList)[i].serverId);
-            }
-        } catch (ServerListException& e) {
-            // Do nothing for the server that doesn't exist. Continue.
-        }
-    }
 }
 
 /**
