@@ -124,6 +124,7 @@ TESTS_SRCFILES := \
 		  src/RecoveryTest.cc \
 		  src/ReplicaManagerTest.cc \
 		  src/ReplicatedSegmentTest.cc \
+		  src/RpcLevelTest.cc \
 		  src/RpcResultTest.cc \
 		  src/RpcTrackerTest.cc \
 		  src/RpcWrapperTest.cc \

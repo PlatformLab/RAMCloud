@@ -17,6 +17,7 @@
 #define RAMCLOUD_RPCWRAPPER_H
 
 #include "Fence.h"
+#include "RpcLevel.h"
 #include "ServerId.h"
 #include "Transport.h"
 #include "WireFormat.h"
@@ -98,6 +99,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     allocHeader()
     {
         assert(request.size() == 0);
+        RpcLevel::checkCall(RpcType::opcode);
         typename RpcType::Request* reqHdr =
                 request.emplaceAppend<typename RpcType::Request>();
         // Don't allow this method to be used for RPCs that use
@@ -134,6 +136,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     allocHeader(ServerId targetId)
     {
         assert(request.size() == 0);
+        RpcLevel::checkCall(RpcType::opcode);
         typename RpcType::Request* reqHdr =
                 request.emplaceAppend<typename RpcType::Request>();
         memset(reqHdr, 0, sizeof(*reqHdr));

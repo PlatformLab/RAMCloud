@@ -125,6 +125,7 @@ SHARED_SRCFILES := \
 		   src/RawMetrics.cc \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \
+		   src/RpcLevel.cc \
 		   src/RpcWrapper.cc \
 		   src/RpcResult.cc \
 		   src/RpcTracker.cc \
@@ -188,6 +189,10 @@ SHARED_SRCFILES := \
 SHARED_OBJFILES := $(SHARED_SRCFILES)
 SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
 SHARED_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
+
+$(OBJDIR)/RpcLevel.o: $(TOP)/$(OBJDIR)/RpcLevelData.h
+$(TOP)/$(OBJDIR)/RpcLevelData.h: $(TOP)/scripts/genLevels.py $(TOP)/src/WireFormat.h
+	$(TOP)/scripts/genLevels.py > $@
 
 $(OBJDIR)/%.o: $(TOP)/src/%.cc $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)

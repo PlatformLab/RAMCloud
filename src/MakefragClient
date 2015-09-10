@@ -82,11 +82,12 @@ CLIENT_SRCFILES := \
 		   src/PortAlarm.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
+		   src/RpcLevel.cc \
 		   src/RpcTracker.cc \
+		   src/RpcWrapper.cc \
 		   src/SegletAllocator.cc \
 		   src/Seglet.cc \
 		   src/Segment.cc \
-		   src/RpcWrapper.cc \
 		   src/ServerIdRpcWrapper.cc \
 		   src/ServerList.cc \
 		   src/ServerMetrics.cc \

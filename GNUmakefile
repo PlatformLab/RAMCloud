@@ -338,6 +338,7 @@ INSTALL_INCLUDES := \
     src/ObjectRpcWrapper.h \
     src/PerfStats.h \
     src/RamCloud.h \
+    src/RpcLevel.h \
     src/RpcWrapper.h \
     src/RpcTracker.h \
     src/RejectRules.h \
@@ -356,6 +357,7 @@ INSTALL_INCLUDES := \
     $(OBJDIR)/LogMetrics.pb.h \
     $(OBJDIR)/MasterRecoveryInfo.pb.h \
     $(OBJDIR)/RecoveryPartition.pb.h \
+    $(OBJDIR)/RpcLevelData.h \
     $(OBJDIR)/ServerConfig.pb.h \
     $(OBJDIR)/ServerList.pb.h \
     $(OBJDIR)/ServerStatistics.pb.h \

@@ -60,6 +60,8 @@ static_assert(INVALID_SERVICE < (sizeof(SerializedServiceMask) * 8),
  * locations:
  * - The method opcodeSymbol in WireFormat.cc.
  * - WireFormatTest.cc's out-of-range test, if ILLEGAL_RPC_TYPE was changed.
+ * - You may need to modify the "callees" table in scripts/genLevels.py,
+ *   which keeps track of which RPCs invoke which other RPCs.
  */
 enum Opcode {
     PING                        = 7,

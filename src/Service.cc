@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,6 +15,7 @@
 
 #include "Cycles.h"
 #include "RawMetrics.h"
+#include "RpcLevel.h"
 #include "Service.h"
 #include "ShortMacros.h"
 #include "ServiceManager.h"
@@ -150,6 +151,7 @@ Service::handleRpc(Rpc* rpc) {
                &(&metrics->rpc.rpc0Count)[opcode]);
     }
     (&metrics->rpc.rpc0Count)[opcode]++;
+    RpcLevel::setCurrentOpcode(WireFormat::Opcode(header->opcode));
     uint64_t start = Cycles::rdtsc();
     try {
         dispatch(WireFormat::Opcode(header->opcode), rpc);
@@ -159,6 +161,13 @@ Service::handleRpc(Rpc* rpc) {
     } catch (ClientException& e) {
         prepareErrorResponse(rpc->replyPayload, e.status);
     }
+#ifdef TESTING
+    // This code is only needed when running unit tests (without it,
+    // the weird structure of the unit test results in lots of errors in
+    // RpcLevel::checkCall). The code is harmless outside of unit tests,
+    // but it just wastes time.
+    RpcLevel::setCurrentOpcode(RpcLevel::NO_RPC);
+#endif
     (&metrics->rpc.rpc0Ticks)[opcode] += Cycles::rdtsc() - start;
 }
 
