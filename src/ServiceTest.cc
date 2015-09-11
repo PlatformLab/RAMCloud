@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -247,8 +247,9 @@ TEST_F(ServiceTest, sendReply) {
     service.gate = -1;
     service.sendReply = true;
     Context context;
-    MockTransport transport(&context);
+    context.serviceManager = new ServiceManager(&context);
     ServiceManager* manager = context.serviceManager;
+    MockTransport transport(&context);
     manager->addService(service, WireFormat::BACKUP_SERVICE);
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
             &transport, "0x10000 3 4");

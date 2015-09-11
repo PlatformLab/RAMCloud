@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -35,7 +35,7 @@ class TcpTransportTest : public ::testing::Test {
 
     TcpTransportTest()
             : context()
-            , serviceManager(context.serviceManager)
+            , serviceManager(NULL)
             , locator("tcp+ip:host=localhost,port=11000")
             , sys(NULL)
             , savedSyscall(NULL)
@@ -43,6 +43,8 @@ class TcpTransportTest : public ::testing::Test {
             , server(&context, &locator)
             , client(&context)
     {
+        serviceManager = new ServiceManager(&context);
+        context.serviceManager = serviceManager;
         sys = new MockSyscall();
         savedSyscall = TcpTransport::sys;
         TcpTransport::sys = sys;

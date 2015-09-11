@@ -1,5 +1,5 @@
 /* Copyright (c) 2011 Facebook
- * Copyright (c) 2011-2014 Stanford University
+ * Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -70,7 +70,6 @@ Context::Context(bool hasDedicatedDispatchThread)
     , dispatch(NULL)
     , mockContextMember2(NULL)
     , transportManager(NULL)
-    , serviceManager(NULL)
     , dispatchExec(NULL)
     , sessionAlarmTimer(NULL)
     , portAlarmTimer(NULL)
@@ -78,6 +77,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , timeTrace(NULL)
     , cacheTrace(NULL)
     , objectFinder(NULL)
+    , serviceManager(NULL)
     , externalStorage(NULL)
     , masterService(NULL)
     , backupService(NULL)
@@ -99,7 +99,6 @@ Context::Context(bool hasDedicatedDispatchThread)
         mockContextMember2 = new MockContextMember(2);
 #endif
         transportManager = new TransportManager(this);
-        serviceManager = new ServiceManager(this);
         dispatchExec = new DispatchExec(dispatch);
         sessionAlarmTimer = new SessionAlarmTimer(this);
         portAlarmTimer = new PortAlarmTimer(this);
@@ -133,6 +132,7 @@ Context::destroy()
 {
     // The pointers are set to NULL here after they're deleted to make it
     // easier to catch bugs in which outer members try to access inner members.
+    // Note: the order of deletion matters!
 
     // Force ObjectManager to drop all of its cached sessions; otherwise
     // they won't get destroyed until after their transports have been deleted.

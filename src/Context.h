@@ -83,7 +83,6 @@ class Context {
     Dispatch* dispatch;
     MockContextMember* mockContextMember2; ///< for testing purposes
     TransportManager* transportManager;
-    ServiceManager* serviceManager;
     DispatchExec* dispatchExec;
     SessionAlarmTimer* sessionAlarmTimer;
     PortAlarmTimer*    portAlarmTimer;
@@ -95,6 +94,10 @@ class Context {
 
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.
+
+    // If this variable is non-NULL, it belongs to the Context and will
+    // be freed when the Context is destroyed.
+    ServiceManager* serviceManager;
 
     // Valid only on the coordinator; used to save coordinator state so it
     // can be recovered after coordinator crashes.

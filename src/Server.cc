@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -46,6 +46,7 @@ Server::Server(Context* context, const ServerConfig* config)
 {
     context->coordinatorSession->setLocation(
             config->coordinatorLocator.c_str(), config->clusterName.c_str());
+    context->serviceManager = new ServiceManager(context);
 }
 
 /**

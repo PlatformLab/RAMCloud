@@ -140,6 +140,7 @@ class FastTransportTest : public ::testing::Test {
         , address("1.2.3.4")
         , port(1234)
     {
+        context.serviceManager = new ServiceManager(&context);
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(&context, driver);
     }
@@ -1189,6 +1190,7 @@ class ServerSessionTest: public ::testing::Test {
         , port(12345)
     {
         context.dispatch->currentTime = 1000;
+        context.serviceManager = new ServiceManager(&context);
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(&context, driver);
         session = new FastTransport::ServerSession(transport, sessionId);
