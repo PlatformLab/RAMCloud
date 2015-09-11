@@ -40,7 +40,7 @@ endif
 # ExternalStorage implementation.
 ZOOKEEPER ?= yes
 ifeq ($(ZOOKEEPER),yes)
-ZOOKEEPER_LIB ?= /usr/local/lib/libzookeeper_mt.a
+ZOOKEEPER_LIB ?= -lzookeeper_mt
 ZOOKEEPER_DIR ?= /usr/local/zookeeper-3.4.5
 else
 ZOOKEEPER_LIB :=
@@ -281,7 +281,7 @@ docs:
 docs-clean: python-docs-clean
 	rm -rf docs/doxygen/
 
-tags: 
+tags:
 	find . -type f | grep -v "\.git" | grep -v docs | xargs etags
 	find . -type f | grep -v "\.git" | grep -v docs | xargs ctags
 
@@ -368,7 +368,7 @@ INSTALL_INCLUDES := \
 
 INSTALLED_BINS := $(patsubst $(OBJDIR)/%, $(INSTALL_DIR)/bin/%, $(INSTALL_BINS))
 INSTALLED_LIBS := $(patsubst $(OBJDIR)/%, $(INSTALL_DIR)/lib/%, $(INSTALL_LIBS))
-	
+
 install: all
 	mkdir -p $(INSTALL_DIR)/bin
 	cp $(INSTALL_BINS) $(INSTALL_DIR)/bin

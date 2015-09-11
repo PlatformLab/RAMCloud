@@ -104,7 +104,7 @@ ClientTransactionTask::insertCacheEntry(Key& key, const void* buf,
 {
     CacheKey cacheKey = {key.getTableId(), key.getHash()};
     CommitCacheMap::iterator it = commitCache.insert(
-            std::make_pair(cacheKey, CacheEntry()));
+            CommitCacheMap::value_type(cacheKey, CacheEntry()));
     it->second.objectBuf = new ObjectBuffer();
     Object::appendKeysAndValueToBuffer(
             key, buf, length, it->second.objectBuf, true);

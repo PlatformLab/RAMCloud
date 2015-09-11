@@ -183,8 +183,10 @@ class MultiOp {
 
     /// Maps sessions to buffers of requests for these sessions.  Filled by
     /// dispatchRequest and packaged into RPCs by flushSessionQueue.
-    std::unordered_map<Transport::SessionRef, std::shared_ptr<SessionQueue>,
-        HashSessionRef> sessionQueues;
+    typedef std::unordered_map<Transport::SessionRef,
+                               std::shared_ptr<SessionQueue>,
+                               HashSessionRef> SessionQueues;
+    SessionQueues sessionQueues;
 
     /// Used for tests only. True = ignores buffer size checking in finishRpc.
     /// Needed since test responses don't put anything in the response buffer.

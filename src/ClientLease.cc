@@ -124,11 +124,11 @@ ClientLease::handleTimerEvent()
                                             LeaseCommon::DANGER_THRESHOLD_US);
 
             // Reschedule timer for renewal.
-            uint64_t renewCycleTime = 0;
-            if (leaseTermLenUs > LeaseCommon::RENEW_THRESHOLD_US) {
-                renewCycleTime = Cycles::fromMicroseconds(
-                        leaseTermLenUs - LeaseCommon::RENEW_THRESHOLD_US);
-            }
+//            uint64_t renewCycleTime = 0;
+//            if (leaseTermLenUs > LeaseCommon::RENEW_THRESHOLD_US) {
+//                renewCycleTime = Cycles::fromMicroseconds(
+//                        leaseTermLenUs - LeaseCommon::RENEW_THRESHOLD_US);
+//            }
 //            start(lastRenewalTimeCycles + renewCycleTime);
         }
     }

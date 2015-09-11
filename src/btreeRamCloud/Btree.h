@@ -564,8 +564,8 @@ PRIVATE:
         uint32_t
         serializeToPreallocatedBuffer(Buffer *toBuffer, uint32_t offset) const
         {
-            uint32_t metadataSize = (isLeaf()) ?
-                                        sizeof(LeafNode) : sizeof(InnerNode);
+            uint32_t metadataSize =
+                    (isLeaf() ? sizeof32(LeafNode) : sizeof32(InnerNode));
             void *ptr;
             uint32_t contigSpace = toBuffer->peek(offset, &ptr);
             assert (contigSpace >= metadataSize + keyStorageUsed);
@@ -612,8 +612,8 @@ PRIVATE:
         serializeAppendToBuffer(Buffer *toBuffer) const
         {
             uint32_t startOffset = toBuffer->size();
-            uint32_t metadataSize = (isLeaf()) ?
-                                        sizeof(LeafNode) : sizeof(InnerNode);
+            uint32_t metadataSize =
+                    (isLeaf() ? sizeof32(LeafNode) : sizeof32(InnerNode));
 
             void *ptr = toBuffer->alloc(metadataSize + keyStorageUsed);
             Node::serializeToPreallocatedBuffer(toBuffer, startOffset);
@@ -639,7 +639,7 @@ PRIVATE:
         reinitFromRead(Buffer *serializedNodeBuffer, uint32_t offset)
         {
             uint32_t nodeSize =
-                    (level == 0) ? sizeof(LeafNode) : sizeof(InnerNode);
+                    ((level == 0) ? sizeof32(LeafNode) : sizeof32(InnerNode));
             keyBuffer = serializedNodeBuffer;
             keysBeginOffset = offset + nodeSize;
         }
@@ -1792,7 +1792,7 @@ PUBLIC:
             n = readNode(childId, &buffer);
         }
 
-        LeafNode *leaf = static_cast<const LeafNode*>(n);
+        const LeafNode *leaf = static_cast<const LeafNode*>(n);
         uint16_t slot = findEntryGE(leaf, key);
         uint64_t num = 0;
 
@@ -2016,7 +2016,7 @@ PRIVATE:
      * \return
      *      Index within the Node
      */
-    inline int
+    inline uint16_t
     findEntryGE(const Node *n, BtreeEntry entry) const
     {
         if ( useBinarySearch ) {
@@ -2063,7 +2063,7 @@ PRIVATE:
      * \return
      *      Index within the Node
      */
-    inline int
+    inline uint16_t
     findEntryGreater(const Node *n, const BtreeEntry entry) const
     {
         if ( useBinarySearch ) {
@@ -2157,7 +2157,8 @@ PRIVATE:
             ptr = static_cast<Node*>(outBuffer->getRange(sizeBeforeRead, sizeof(Node)));
         }
 
-        uint32_t nodeSize = (ptr->isLeaf()) ? sizeof(LeafNode) : sizeof(InnerNode);
+        uint32_t nodeSize =
+                (ptr->isLeaf() ? sizeof32(LeafNode) : sizeof32(InnerNode));
 
         if (peekSize < nodeSize) {
             ptr = static_cast<Node*>(outBuffer->alloc(nodeSize));

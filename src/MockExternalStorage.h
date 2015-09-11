@@ -17,6 +17,7 @@
 #define RAMCLOUD_MOCKEXTERNALSTORAGE_H
 
 #include <thread>
+#include <mutex>
 #include <string>
 #include <queue>
 #include "ExternalStorage.h"

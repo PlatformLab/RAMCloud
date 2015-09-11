@@ -1297,8 +1297,9 @@ void
 ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
 {
     Log::AppendVector av;
-    *((WireFormat::TxPrepare::Vote*)rpcResult->getResp()) =
-        WireFormat::TxPrepare::ABORT;
+    *(reinterpret_cast<WireFormat::TxPrepare::Vote*>(
+            const_cast<void*>(rpcResult->getResp()))) =
+                    WireFormat::TxPrepare::ABORT;
     rpcResult->assembleForLog(av.buffer);
     av.type = LOG_ENTRY_TYPE_RPCRESULT;
 
