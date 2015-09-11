@@ -4478,7 +4478,7 @@ transactionDistRandom()
             keyIds.insert(keyId);
         }
         std::unordered_set<int> tableBlacklist;
-        txSpan = MIN(txSpan, numTables);
+        txSpan = std::min(txSpan, numTables);
         size_t blacklistSize = static_cast<size_t>(numTables - txSpan);
         while (tableBlacklist.size() < blacklistSize) {
             int tableIndex = downCast<int>(generateRandom() % numTables);
@@ -4639,7 +4639,7 @@ transactionThroughput()
             keyIds.insert(keyId);
         }
         std::unordered_set<int> tableBlacklist;
-        txSpan = MIN(txSpan, numTables);
+        txSpan = std::min(txSpan, numTables);
         size_t blacklistSize = static_cast<size_t>(numTables - txSpan);
         while (tableBlacklist.size() < blacklistSize) {
             int tableIndex = downCast<int>(generateRandom() % numTables);
