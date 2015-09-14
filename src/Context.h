@@ -18,30 +18,32 @@
 #define RAMCLOUD_CONTEXT_H
 
 #include "Common.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
 // forward declarations
 class AbstractServerList;
 class BackupService;
+class CacheTrace;
 class CoordinatorServerList;
 class CoordinatorService;
 class CoordinatorSession;
 class Dispatch;
+class DispatchExec;
 class ExternalStorage;
 class Logger;
 class MasterRecoveryManager;
 class MasterService;
 class MockContextMember;
 class ObjectFinder;
+class PortAlarmTimer;
+class Service;
 class ServiceManager;
 class SessionAlarmTimer;
-class PortAlarmTimer;
 class TableManager;
 class TimeTrace;
-class CacheTrace;
 class TransportManager;
-class DispatchExec;
 
 /**
  * Context is a container for global variables.
@@ -98,6 +100,12 @@ class Context {
     // If this variable is non-NULL, it belongs to the Context and will
     // be freed when the Context is destroyed.
     ServiceManager* serviceManager;
+
+    // The following array is indexed by WireFormat::ServiceType, and
+    // holds pointers to all of the services currently known in this
+    // context.  NULL means "no such service". Services register themselves
+    // here.
+    Service* services[WireFormat::INVALID_SERVICE];
 
     // Valid only on the coordinator; used to save coordinator state so it
     // can be recovered after coordinator crashes.

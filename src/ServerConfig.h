@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -63,6 +63,7 @@ struct ServerConfig {
         , segletSize(128 * 1024)
         , maxObjectDataSize(segmentSize / 4)
         , maxObjectKeySize((64 * 1024) - 1)
+        , maxCores(2)
         , master(testing)
         , backup(testing)
     {}
@@ -86,6 +87,7 @@ struct ServerConfig {
         , segletSize(Seglet::DEFAULT_SEGLET_SIZE)
         , maxObjectDataSize(segmentSize / 8)
         , maxObjectKeySize((64 * 1024) - 1)
+        , maxCores(2)
         , master()
         , backup()
     {}
@@ -134,6 +136,7 @@ struct ServerConfig {
         config.set_seglet_size(segletSize);
         config.set_max_object_data_size(maxObjectDataSize);
         config.set_max_object_key_size(maxObjectKeySize);
+        config.set_max_cores(maxCores);
 
         if (services.has(WireFormat::MASTER_SERVICE))
             master.serialize(*config.mutable_master());
@@ -206,6 +209,15 @@ struct ServerConfig {
     uint16_t maxObjectKeySize;
 
     /**
+     *  The maximum number of cores that this server should use under
+     * normal conditions for the dispatcher and worker threads. The
+     * server may need to exceed this number occasionally (e.g. to
+     * avoid distribute deadlocks), but it should limit itself to this
+     * value as much as possible.
+     */
+    uint32_t maxCores;
+
+    /**
      * Configuration details specific to the MasterService on a server,
      * if any.  If !config.has(MASTER_SERVICE) then this field is ignored.
      */
@@ -223,7 +235,6 @@ struct ServerConfig {
             , cleanerBalancer("tombstoneRatio:0.40")
             , cleanerWriteCostThreshold(0)
             , cleanerThreadCount(1)
-            , masterServiceThreadCount(1)
             , numReplicas(0)
             , useMinCopysets(false)
             , allowLocalBackup(false)
@@ -243,7 +254,6 @@ struct ServerConfig {
             , cleanerBalancer()
             , cleanerWriteCostThreshold()
             , cleanerThreadCount()
-            , masterServiceThreadCount()
             , numReplicas()
             , useMinCopysets()
             , allowLocalBackup()
@@ -263,7 +273,6 @@ struct ServerConfig {
             config.set_cleaner_balancer(cleanerBalancer);
             config.set_cleaner_write_cost_threshold(cleanerWriteCostThreshold);
             config.set_cleaner_thread_count(cleanerThreadCount);
-            config.set_master_service_thread_count(masterServiceThreadCount);
             config.set_num_replicas(numReplicas);
             config.set_use_mincopysets(useMinCopysets);
             config.set_use_local_backup(allowLocalBackup);
@@ -284,7 +293,6 @@ struct ServerConfig {
             cleanerBalancer = config.cleaner_balancer();
             cleanerWriteCostThreshold = config.cleaner_write_cost_threshold();
             cleanerThreadCount = config.cleaner_thread_count();
-            masterServiceThreadCount = config.master_service_thread_count();
             numReplicas = config.num_replicas();
             useMinCopysets = config.use_mincopysets();
             allowLocalBackup = config.use_local_backup();
@@ -321,11 +329,6 @@ struct ServerConfig {
         /// the cleaner will use. Higher values may increase write throughput
         /// at the expense of CPU cycles.
         uint32_t cleanerThreadCount;
-
-        /// Determines the maximum number of threads that may service requests
-        /// in MasterService simultaneously. Higher values may increase client
-        /// throughput (especially for reads).
-        uint32_t masterServiceThreadCount;
 
         /// Number of replicas to keep per segment stored on backups.
         uint32_t numReplicas;

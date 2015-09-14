@@ -1,4 +1,4 @@
-/* Copyright (c) 20154 Stanford University
+/* Copyright (c) 2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -71,18 +71,22 @@ class RpcLevel {
     }
 
     /**
-     * Returns a level associated with a particular opcode, which is the
+     * Returns the level associated with a particular opcode, which is the
      * depth of nested RPCs invoked by opcode. 0 means that opcode does not
      * invoke any other RPCs, and NO_LEVEL means that the opcode doesn't
      * have an RPC associated with it.
      */
-    static inline uint8_t
+    static inline int
     getLevel(WireFormat::Opcode opcode)
     {
-        return levels[opcode];
+#if TESTING
+        return downCast<int>(levelsPtr[opcode]);
+#else
+        return downCast<int>(levels[opcode]);
+#endif
     }
 
-    static uint8_t maxLevel();
+    static int maxLevel();
 
     /**
      * This method is invoked to indicate the RPC type currently being
@@ -104,12 +108,22 @@ class RpcLevel {
   PRIVATE:
     RpcLevel();
 
+    // Once maxLevel has been called, it saves its computed result here
+    // so it doesn't have to be recomputed again (it won't change). This
+    // value can be overridden by unit tests if necessary. < 0 means that
+    // maxLevel hasn't been called yet.
+    static int savedMaxLevel;
+
     // Thread-local variable that holds the most recent value passed to
     // setCurrentOpcode.
     static __thread WireFormat::Opcode currentOpcode;
 
     // Defines the level associated with each RPC opcode.
     static uint8_t levels[];
+
+    // When unit tests are running, this points to the array of levels,
+    // so it can be overridden. By default it points to levels.
+    static uint8_t* levelsPtr;
 };
 
 } // end RAMCloud

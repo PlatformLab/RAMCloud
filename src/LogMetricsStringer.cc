@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -110,9 +110,6 @@ LogMetricsStringer::getServerParameters()
     s += ls + format("  In-memory Cleaner:             %s\n",
         (serverConfig->master().disable_in_memory_cleaning()) ?
             "disabled" : "enabled");
-
-    s += ls + format("  MasterService Threads:         %u\n",
-        serverConfig->master().master_service_thread_count());
 
     s += ls + format("  Cleaner Threads:               %u\n",
         serverConfig->master().cleaner_thread_count());

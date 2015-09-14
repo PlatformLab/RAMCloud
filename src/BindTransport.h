@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,6 +16,7 @@
 #include "TestUtil.h"
 #include "Common.h"
 #include "BitOps.h"
+#include "RpcLevel.h"
 #include "Service.h"
 #include "ServerRpcPool.h"
 #include "ServiceManager.h"
@@ -156,7 +157,17 @@ struct BindTransport : public Transport {
             if (service == NULL) {
                 throw ServiceNotAvailableException(HERE);
             }
-            service->handleRpc(&rpc);
+            RpcLevel::setCurrentOpcode(WireFormat::Opcode(header->opcode));
+            try {
+                service->dispatch(WireFormat::Opcode(header->opcode), &rpc);
+            } catch (RetryException& e) {
+                Service::prepareRetryResponse(rpc.replyPayload,
+                        e.minDelayMicros, e.maxDelayMicros, e.message);
+            } catch (ClientException& e) {
+                Service::prepareErrorResponse(rpc.replyPayload, e.status);
+            }
+            RpcLevel::setCurrentOpcode(RpcLevel::NO_RPC);
+
             if (!dontNotify) {
                 notifier->completed();
                 lastNotifier = NULL;

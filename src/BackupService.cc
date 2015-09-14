@@ -57,6 +57,7 @@ BackupService::BackupService(Context* context,
     , taskQueue()
     , oldReplicas(0)
 {
+    context->services[WireFormat::BACKUP_SERVICE] = this;
     if (config->backup.inMemory) {
         storage.reset(new InMemoryStorage(config->segmentSize,
                                           config->backup.numSegmentFrames,
@@ -114,6 +115,7 @@ BackupService::BackupService(Context* context,
 
 BackupService::~BackupService()
 {
+    context->services[WireFormat::BACKUP_SERVICE] = NULL;
     // Stop the garbage collector.
     taskQueue.halt();
     if (gcThread)

@@ -45,6 +45,7 @@ class TcpTransportTest : public ::testing::Test {
     {
         serviceManager = new ServiceManager(&context);
         context.serviceManager = serviceManager;
+        serviceManager->testingSaveRpcs = 1;
         sys = new MockSyscall();
         savedSyscall = TcpTransport::sys;
         TcpTransport::sys = sys;

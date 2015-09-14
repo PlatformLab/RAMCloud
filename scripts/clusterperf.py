@@ -266,7 +266,7 @@ def broadcast(name, options, cluster_args, client_args):
 
 def indexBasic(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '--masterServiceThreads 1 --totalMasterMemory 1500'
+        cluster_args['master_args'] = '--maxCores 2 --totalMasterMemory 1500'
     if cluster_args['timeout'] < 200:
         cluster_args['timeout'] = 200
     # Ensure at least 5 hosts for optimal performance
@@ -278,7 +278,7 @@ def indexBasic(name, options, cluster_args, client_args):
 
 def indexRange(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '--masterServiceThreads 1 --totalMasterMemory 1500'
+        cluster_args['master_args'] = '--maxCores 2 --totalMasterMemory 1500'
     if cluster_args['timeout'] < 360:
         cluster_args['timeout'] = 360
 
@@ -298,7 +298,7 @@ def indexRange(name, options, cluster_args, client_args):
 
 def indexMultiple(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '--masterServiceThreads 1'
+        cluster_args['master_args'] = '--maxCores 2'
     if cluster_args['timeout'] < 360:
         cluster_args['timeout'] = 360
     # Ensure atleast 15 hosts for optimal performance
@@ -325,7 +325,7 @@ def indexMultiple(name, options, cluster_args, client_args):
 
 def indexScalability(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '--masterServiceThreads 2'
+        cluster_args['master_args'] = '--maxCores 3'
     if cluster_args['timeout'] < 360:
         cluster_args['timeout'] = 360
     cluster_args['backups_per_server'] = 0
@@ -348,7 +348,7 @@ def indexScalability(name, options, cluster_args, client_args):
 
 def indexWriteDist(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '--masterServiceThreads 1 --totalMasterMemory 1500'
+        cluster_args['master_args'] = '--maxCores 2 --totalMasterMemory 1500'
     if cluster_args['timeout'] < 200:
         cluster_args['timeout'] = 200
 
@@ -379,7 +379,7 @@ def indexWriteDist(name, options, cluster_args, client_args):
 
 def indexReadDist(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '--masterServiceThreads 1 --totalMasterMemory 1500'
+        cluster_args['master_args'] = '--maxCores 2 --totalMasterMemory 1500'
     if cluster_args['timeout'] < 200:
         cluster_args['timeout'] = 200
 

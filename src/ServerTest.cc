@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for
  * any purpose with or without fee is hereby granted, provided that
@@ -72,19 +72,14 @@ TEST_F(ServerTest, createAndRegisterServices) {
     EXPECT_TRUE(server->backup);
     EXPECT_TRUE(server->membership);
     EXPECT_TRUE(server->ping);
-    const auto& services = context.serviceManager->services;
-    ASSERT_TRUE(services[WireFormat::MASTER_SERVICE]);
     EXPECT_EQ(server->master.get(),
-        &services[WireFormat::MASTER_SERVICE]->service);
-    ASSERT_TRUE(services[WireFormat::BACKUP_SERVICE]);
+        context.services[WireFormat::MASTER_SERVICE]);
     EXPECT_EQ(server->backup.get(),
-        &services[WireFormat::BACKUP_SERVICE]->service);
-    ASSERT_TRUE(services[WireFormat::MEMBERSHIP_SERVICE]);
+        context.services[WireFormat::BACKUP_SERVICE]);
     EXPECT_EQ(server->membership.get(),
-        &services[WireFormat::MEMBERSHIP_SERVICE]->service);
-    ASSERT_TRUE(services[WireFormat::PING_SERVICE]);
+        context.services[WireFormat::MEMBERSHIP_SERVICE]);
     EXPECT_EQ(server->ping.get(),
-        &services[WireFormat::PING_SERVICE]->service);
+        context.services[WireFormat::PING_SERVICE]);
 }
 
 TEST_F(ServerTest, enlist) {

@@ -5761,11 +5761,11 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
     // throughput while gradually increasing the number of workers.
     printf("#\n");
     printf("# clients   throughput   worker   cleaner  compactor  "
-            "cleaner  dispatch  netOut    netIn\n");
+            "cleaner  dispatch  netOut    netIn   replic    sync\n");
     printf("#           (kops/sec)   cores     cores    free %%    "
-            "free %%   utiliz.   (MB/s)    (MB/s)\n");
+            "free %%   utiliz.   (MB/s)    (MB/s)   eff.     frac\n");
     printf("#------------------------------------------------------"
-            "--------------------------------------------\n");
+            "------------------------------------------------------\n");
     fillTable(dataTable, numObjects, keyLength, size);
     Cycles::sleep(2000000);
     string stats[5];
@@ -5833,11 +5833,16 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
         double netInRate = static_cast<double>(
                 finishStats.networkInputBytes -
                 startStats.networkInputBytes) / elapsedTime;
+        double repEfficiency = static_cast<double>(finishStats.writeCount -
+                startStats.writeCount)/static_cast<double>(
+                finishStats.replicationRpcs - startStats.replicationRpcs);
+        double syncFraction = static_cast<double>(finishStats.logSyncCycles -
+                startStats.logSyncCycles) / elapsedCycles;
         printf("%5d       %8.2f   %8.3f %8.3f %8.1f  %8.1f  %8.3f "
-                "%8.2f  %8.2f\n",
+                "%8.2f  %8.2f %7.2f  %7.2f\n",
                 numSlaves, rate/1e03, utilization, cleanerUtilization,
                 compactorFreePct, cleanerFreePct, dispatchUtilization,
-                netOutRate/1e06, netInRate/1e06);
+                netOutRate/1e06, netInRate/1e06, repEfficiency, syncFraction);
     }
     sendCommand("done", "done", 1, numClients-1);
 #if 0

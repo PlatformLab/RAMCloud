@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -78,6 +78,7 @@ typedef enum Status {
     /// (b) the server is not sure it actually has authority to execute
     /// the request, and is checking with the coordinator.
     STATUS_RETRY                        = 17,
+    /// Indicates that the RPC requested an unknown service.
     STATUS_SERVICE_NOT_AVAILABLE        = 18,
     STATUS_TIMEOUT                      = 19,
 

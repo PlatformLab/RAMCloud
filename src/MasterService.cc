@@ -96,10 +96,12 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
     , masterTableMetadata()
     , maxResponseRpcLen(Transport::MAX_RPC_LEN)
 {
+    context->services[WireFormat::MASTER_SERVICE] = this;
 }
 
 MasterService::~MasterService()
 {
+    context->services[WireFormat::MASTER_SERVICE] = NULL;
 }
 
 // See Server::dispatch.

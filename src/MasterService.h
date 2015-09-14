@@ -60,7 +60,6 @@ class MasterService : public Service {
     virtual ~MasterService();
 
     void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
-    int maxThreads() { return config->master.masterServiceThreadCount; }
 
     /*
      * The following class is used to temporarily disable the servicing of

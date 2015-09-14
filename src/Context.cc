@@ -110,6 +110,10 @@ Context::Context(bool hasDedicatedDispatchThread)
         // portAlarmTimer = new PortAlarmTimer(this);
 
         coordinatorSession = new CoordinatorSession(this);
+
+        for (int i = 0; i < WireFormat::INVALID_SERVICE; i++) {
+            services[i] = NULL;
+        }
     } catch (...) {
         destroy();
         throw;

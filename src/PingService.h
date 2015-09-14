@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,10 +29,8 @@ namespace RAMCloud {
 class PingService : public Service {
   public:
     explicit PingService(Context* context);
+    ~PingService();
     void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
-    virtual int maxThreads() {
-        return 5;
-    }
 
   PRIVATE:
     void getMetrics(const WireFormat::GetMetrics::Request* reqHdr,

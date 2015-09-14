@@ -35,6 +35,7 @@ class InfRcTransportTest : public ::testing::Test {
         , client(&context)
     {
         context.serviceManager = new ServiceManager(&context);
+        context.serviceManager->testingSaveRpcs = 1;
     }
 
     ~InfRcTransportTest() {}

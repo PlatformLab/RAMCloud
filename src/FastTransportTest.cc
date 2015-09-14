@@ -141,6 +141,7 @@ class FastTransportTest : public ::testing::Test {
         , port(1234)
     {
         context.serviceManager = new ServiceManager(&context);
+        context.serviceManager->testingSaveRpcs = 1;
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(&context, driver);
     }
@@ -1191,6 +1192,7 @@ class ServerSessionTest: public ::testing::Test {
     {
         context.dispatch->currentTime = 1000;
         context.serviceManager = new ServiceManager(&context);
+        context.serviceManager->testingSaveRpcs = 1;
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(&context, driver);
         session = new FastTransport::ServerSession(transport, sessionId);

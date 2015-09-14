@@ -45,7 +45,6 @@ bool CoordinatorService::forceSynchronousInit = false;
 CoordinatorService::CoordinatorService(Context* context,
                                        uint32_t deadServerTimeout,
                                        bool unitTesting,
-                                       uint32_t maxThreads,
                                        bool neverKill)
     : context(context)
     , serverList(context->coordinatorServerList)
@@ -55,13 +54,13 @@ CoordinatorService::CoordinatorService(Context* context,
     , leaseManager(context)
     , runtimeOptions()
     , recoveryManager(context, tableManager, &runtimeOptions)
-    , threadLimit(maxThreads)
     , forceServerDownForTesting(false)
     , neverKill(neverKill)
     , initFinished(false)
     , backupConfig()
     , masterConfig()
 {
+    context->services[WireFormat::COORDINATOR_SERVICE] = this;
     context->recoveryManager = &recoveryManager;
     context->coordinatorService = this;
 
@@ -81,6 +80,7 @@ CoordinatorService::CoordinatorService(Context* context,
 
 CoordinatorService::~CoordinatorService()
 {
+    context->services[WireFormat::COORDINATOR_SERVICE] = NULL;
     recoveryManager.halt();
 }
 

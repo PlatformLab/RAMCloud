@@ -19,27 +19,32 @@
 namespace RAMCloud {
 
 __thread WireFormat::Opcode RpcLevel::currentOpcode;
+int RpcLevel::savedMaxLevel = -1;
 
 // The contents of the following variable are generated automatically by
 // scripts/genLevels.py.
 uint8_t RpcLevel::levels[] = {
 #include "RpcLevelData.h"
 };
+uint8_t* RpcLevel::levelsPtr = RpcLevel::levels;
 
 /**
  * Returns the highest value (other than NO_LEVEL) that will be returned by
  * getLevel for any RPC currently defined.
  */
-uint8_t
+int
 RpcLevel::maxLevel()
 {
-    uint8_t max = 0;
+    if (savedMaxLevel >= 0) {
+        return savedMaxLevel;
+    }
+    savedMaxLevel = 0;
     for (int i = 0; i < WireFormat::ILLEGAL_RPC_TYPE; i++) {
-        if ((levels[i] != NO_LEVEL) && (max < levels[i])) {
-            max = levels[i];
+        if ((levels[i] != NO_LEVEL) && (savedMaxLevel < levels[i])) {
+            savedMaxLevel = levels[i];
         }
     }
-    return max;
+    return savedMaxLevel;
 }
 
 } // namespace RAMCloud

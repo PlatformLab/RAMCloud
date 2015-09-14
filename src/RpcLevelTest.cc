@@ -37,7 +37,12 @@ TEST(RpcLevelTest, getLevel) {
 }
 
 TEST(RpcLevelTest, maxLevel) {
+    RpcLevel::savedMaxLevel = 11;
+    EXPECT_EQ(11, RpcLevel::maxLevel());
+
+    RpcLevel::savedMaxLevel = -1;
     EXPECT_EQ(2, RpcLevel::maxLevel());
+    EXPECT_EQ(2, RpcLevel::savedMaxLevel);
 }
 
 }  // namespace RAMCloud

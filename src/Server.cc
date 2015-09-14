@@ -46,7 +46,7 @@ Server::Server(Context* context, const ServerConfig* config)
 {
     context->coordinatorSession->setLocation(
             config->coordinatorLocator.c_str(), config->clusterName.c_str());
-    context->serviceManager = new ServiceManager(context);
+    context->serviceManager = new ServiceManager(context, config->maxCores-1);
 }
 
 /**
@@ -158,9 +158,6 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             bindTransport->addService(*master,
                                       config.localLocator,
                                       WireFormat::MASTER_SERVICE);
-        } else {
-            context->serviceManager->addService(*master,
-                                                WireFormat::MASTER_SERVICE);
         }
     }
 
@@ -174,23 +171,18 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             bindTransport->addService(*backup,
                                       config.localLocator,
                                       WireFormat::BACKUP_SERVICE);
-        } else {
-            context->serviceManager->addService(*backup,
-                                                WireFormat::BACKUP_SERVICE);
         }
         LOG(NOTICE, "Backup service started");
     }
 
     if (config.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
-        membership.construct(static_cast<ServerList*>(context->serverList),
+        membership.construct(context,
+                             static_cast<ServerList*>(context->serverList),
                              &config);
         if (bindTransport) {
             bindTransport->addService(*membership,
                                       config.localLocator,
                                       WireFormat::MEMBERSHIP_SERVICE);
-        } else {
-            context->serviceManager->addService(*membership,
-                                                WireFormat::MEMBERSHIP_SERVICE);
         }
     }
 
@@ -200,9 +192,6 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
             bindTransport->addService(*ping,
                                       config.localLocator,
                                       WireFormat::PING_SERVICE);
-        } else {
-            context->serviceManager->addService(*ping,
-                                                WireFormat::PING_SERVICE);
         }
     }
 
