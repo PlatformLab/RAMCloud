@@ -15,6 +15,7 @@
  */
 
 #include "Context.h"
+#include "Cycles.h"
 #include "CoordinatorServerList.h"
 #include "CoordinatorSession.h"
 #include "Dispatch.h"
@@ -88,6 +89,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , recoveryManager(NULL)
 {
     try {
+        Cycles::init();
 #if TESTING
         mockContextMember1 = new MockContextMember(1);
 #endif
