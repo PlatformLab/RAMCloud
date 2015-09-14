@@ -55,10 +55,6 @@ Server::Server(Context* context, const ServerConfig* config)
 Server::~Server()
 {
     delete serverList;
-    if (backup && (backup.get() == context->backupService))
-        context->backupService = NULL;
-    if (master && (master.get() == context->masterService))
-        context->masterService = NULL;
 }
 
 /**
@@ -152,7 +148,6 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     if (config.services.has(WireFormat::MASTER_SERVICE)) {
         LOG(NOTICE, "Master is using %u backups", config.master.numReplicas);
         master.construct(context, &config);
-        context->masterService = master.get();
         if (bindTransport) {
             bindTransport->addService(*master,
                                       config.localLocator,
@@ -163,7 +158,6 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     if (config.services.has(WireFormat::BACKUP_SERVICE)) {
         LOG(NOTICE, "Starting backup service");
         backup.construct(context, &config);
-        context->backupService = backup.get();
         formerServerId = backup->getFormerServerId();
         backupReadSpeed = backup->getReadSpeed();
         if (bindTransport) {

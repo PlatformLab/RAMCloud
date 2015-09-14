@@ -118,7 +118,6 @@ class PingServiceTest : public ::testing::Test {
                                   WireFormat::PING_SERVICE};
         masterService.construct(pingService.context, masterConfig.get());
         masterService->setServerId(serverId);
-        pingService.context->masterService = masterService.get();
         transport.addService(*masterService, "mock:host=ping",
                              WireFormat::MASTER_SERVICE);
     }
@@ -265,8 +264,8 @@ TEST_F(PingServiceTest, proxyPing_timeout) {
 TEST_F(PingServiceTest, serverControl_ObjectServerControl_Basic) {
     // Everything works EXPECT STATUS_UNIMPLEMENTED_REQUEST
     PingServiceTest::addMasterService();
-    context.masterService->tabletManager.addTablet(1, 0, ~0UL,
-                                                   TabletManager::NORMAL);
+    context.getMasterService()->tabletManager.addTablet(
+            1, 0, ~0UL, TabletManager::NORMAL);
 
     Buffer reqBuf;
     Buffer respBuf;
@@ -337,15 +336,14 @@ TEST_F(PingServiceTest, serverControl_ObjectServerControl_NoTablet) {
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, respHdr->common.status);
 
-    context.masterService->tabletManager.addTablet(1, 0, ~0UL,
-                                                   TabletManager::NORMAL);
+    context.getMasterService()->tabletManager.addTablet(
+            1, 0, ~0UL, TabletManager::NORMAL);
 
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNIMPLEMENTED_REQUEST, respHdr->common.status);
 
-    context.masterService->tabletManager.changeState(1, 0, ~0UL,
-                                                     TabletManager::NORMAL,
-                                                     TabletManager::RECOVERING);
+    context.getMasterService()->tabletManager.changeState(
+            1, 0, ~0UL, TabletManager::NORMAL, TabletManager::RECOVERING);
 
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, respHdr->common.status);
@@ -354,9 +352,10 @@ TEST_F(PingServiceTest, serverControl_ObjectServerControl_NoTablet) {
 TEST_F(PingServiceTest, serverControl_IndexServerControl_Basic) {
     // Everything works EXPECT STATUS_UNIMPLEMENTED_REQUEST
     PingServiceTest::addMasterService();
-    context.masterService->tabletManager.addTablet(9, 0, ~0UL,
-                                                        TabletManager::NORMAL);
-    context.masterService->indexletManager.addIndexlet(1, 2, 9, "A", 1, "B", 1);
+    context.getMasterService()->tabletManager.addTablet(
+            9, 0, ~0UL, TabletManager::NORMAL);
+    context.getMasterService()->indexletManager.addIndexlet(
+            1, 2, 9, "A", 1, "B", 1);
 
     Buffer reqBuf;
     Buffer respBuf;
@@ -393,9 +392,10 @@ TEST_F(PingServiceTest, serverControl_IndexServerControl_NoService) {
 TEST_F(PingServiceTest, serverControl_IndexServerControl_BadKey) {
     // Missing key EXPECT STATUS_REQUEST_FORMAT_ERROR
         PingServiceTest::addMasterService();
-    context.masterService->tabletManager.addTablet(9, 0, ~0UL,
-                                                        TabletManager::NORMAL);
-    context.masterService->indexletManager.addIndexlet(1, 2, 9, "A", 1, "B", 1);
+    context.getMasterService()->tabletManager.addTablet(
+            9, 0, ~0UL, TabletManager::NORMAL);
+    context.getMasterService()->indexletManager.addIndexlet(
+            1, 2, 9, "A", 1, "B", 1);
 
     Buffer reqBuf;
     Buffer respBuf;
@@ -415,8 +415,8 @@ TEST_F(PingServiceTest, serverControl_IndexServerControl_BadKey) {
 TEST_F(PingServiceTest, serverControl_IndexServerControl_NoIndexlet) {
     // Index Not Found EXPECT STATUS_UNKNOWN_INDEXLET}
     PingServiceTest::addMasterService();
-    context.masterService->tabletManager.addTablet(9, 0, ~0UL,
-                                                        TabletManager::NORMAL);
+    context.getMasterService()->tabletManager.addTablet(
+            9, 0, ~0UL, TabletManager::NORMAL);
 
     Buffer reqBuf;
     Buffer respBuf;
@@ -432,12 +432,14 @@ TEST_F(PingServiceTest, serverControl_IndexServerControl_NoIndexlet) {
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, respHdr->common.status);
 
-    context.masterService->indexletManager.addIndexlet(1, 2, 9, "A", 1, "B", 1);
+    context.getMasterService()->indexletManager.addIndexlet(
+            1, 2, 9, "A", 1, "B", 1);
 
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNIMPLEMENTED_REQUEST, respHdr->common.status);
 
-    context.masterService->indexletManager.deleteIndexlet(1, 2, "A", 1, "B", 1);
+    context.getMasterService()->indexletManager.deleteIndexlet(1, 2, "A",
+            1, "B", 1);
 
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, respHdr->common.status);

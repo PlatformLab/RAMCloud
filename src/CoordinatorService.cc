@@ -33,8 +33,8 @@ bool CoordinatorService::forceSynchronousInit = false;
  * Construct a CoordinatorService.
  *
  * \param context
- *      Overall information about the RAMCloud server. A pointer to this
- *      object will be stored at context->coordinatorService.
+ *      Overall information about the RAMCloud server.  The new service
+ *      will be registered in this context.
  * \param deadServerTimeout
  *      Servers are presumed dead if they cannot respond to a ping request
  *      in this many milliseconds.
@@ -62,7 +62,6 @@ CoordinatorService::CoordinatorService(Context* context,
 {
     context->services[WireFormat::COORDINATOR_SERVICE] = this;
     context->recoveryManager = &recoveryManager;
-    context->coordinatorService = this;
 
     // Invoke the rest of initialization in a separate thread (except during
     // unit tests). This is needed because some of the recovery operations

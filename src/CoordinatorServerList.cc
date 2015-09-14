@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -336,7 +336,7 @@ CoordinatorServerList::recover(uint64_t lastCompletedUpdate)
                 // the coordinator crashed. Create a new update to finish the
                 // propagation (with a fresh sequence number that we can track).
                 incompleteUpdates = true;
-                uint64_t sequenceNumber = context->coordinatorService->
+                uint64_t sequenceNumber = context->getCoordinatorService()->
                         updateManager.nextSequenceNumber();
                 uint64_t version = updateInfo->version();
                 ServerStatus status = ServerStatus(updateInfo->status());
@@ -665,8 +665,8 @@ CoordinatorServerList::persistAndPropagate(const Lock& lock, Entry* entry,
     ProtoBuf::ServerListEntry_Update* update = &entry->pendingUpdates.back();
     update->set_status(uint32_t(entry->status));
     update->set_version(version + 1);
-    update->set_sequence_number(
-            context->coordinatorService->updateManager.nextSequenceNumber());
+    update->set_sequence_number(context->getCoordinatorService()
+            ->updateManager.nextSequenceNumber());
     entry->sync(context->externalStorage);
 
     // Notify local ServerTrackers about the change.
@@ -1019,8 +1019,8 @@ CoordinatorServerList::pruneUpdates(const Lock& lock)
                     // The following check is a convenience for tests; the
                     // value should never be 0 in production.
                     if (sequenceNumber != 0) {
-                        context->coordinatorService->updateManager.
-                                updateFinished(sequenceNumber);
+                        context->getCoordinatorService()
+                                ->updateManager.updateFinished(sequenceNumber);
                     }
                     entry->pendingUpdates.pop_front();
                 }

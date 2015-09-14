@@ -95,7 +95,7 @@ class TxRecoveryManagerTest : public ::testing::Test {
         cluster.addServer(config);
         ramcloud.construct(&context, "mock:host=coordinator");
 
-        context.masterService = server->master.get();
+        context.services[WireFormat::MASTER_SERVICE] = server->master.get();
 
         // Get pointers to the master sessions.
         Transport::SessionRef session =
