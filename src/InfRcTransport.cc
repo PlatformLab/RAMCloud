@@ -88,13 +88,13 @@
 #include "Transport.h"
 #include "InfRcTransport.h"
 #include "IpAddress.h"
-#include "ServiceLocator.h"
-#include "ServiceManager.h"
-#include "ShortMacros.h"
 #include "PerfCounter.h"
 #include "PerfStats.h"
+#include "ServiceLocator.h"
+#include "ShortMacros.h"
 #include "TimeTrace.h"
 #include "Util.h"
+#include "WorkerManager.h"
 
 #define check_error_null(x, s)                              \
     do {                                                    \
@@ -1407,7 +1407,7 @@ InfRcTransport::Poller::poll()
             port->portAlarm.requestArrived(); // Restarts the port watchdog
             interval.stop();
             r->rpcServiceTime.start();
-            t->context->serviceManager->handleRpc(r);
+            t->context->workerManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
             metrics->transport.receive.iovecCount +=

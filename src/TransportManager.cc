@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -17,13 +17,13 @@
 #include "CycleCounter.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
-#include "ServiceManager.h"
 #include "TransportManager.h"
 #include "TransportFactory.h"
 #include "TcpTransport.h"
 #include "FastTransport.h"
 #include "UdpDriver.h"
 #include "FailSession.h"
+#include "WorkerManager.h"
 #include "WorkerSession.h"
 
 #ifdef INFINIBAND

@@ -18,8 +18,8 @@
 #include "RpcLevel.h"
 #include "Service.h"
 #include "ShortMacros.h"
-#include "ServiceManager.h"
 #include "TransportManager.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 
@@ -119,7 +119,7 @@ Service::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 }
 
 /**
- * This method is invoked by ServiceManager to process an incoming
+ * This method is invoked by WorkerManager to process an incoming
  * RPC.  Under normal conditions, when this method returns the RPC has
  * been serviced and a response has been prepared, but the response
  * has not yet been sent back to the client (the caller will take

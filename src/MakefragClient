@@ -94,7 +94,6 @@ CLIENT_SRCFILES := \
 		   src/ServerRpcPool.cc \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \
-		   src/ServiceManager.cc \
 		   src/SessionAlarm.cc \
 		   src/SpinLock.cc \
 		   src/Status.cc \
@@ -112,6 +111,7 @@ CLIENT_SRCFILES := \
 		   src/UdpDriver.cc \
 		   src/Util.cc \
 		   src/WireFormat.cc \
+		   src/WorkerManager.cc \
 		   src/WorkerSession.cc \
 		   src/WorkerTimer.cc \
 		   src/ZooStorage.cc \

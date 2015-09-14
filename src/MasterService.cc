@@ -32,12 +32,12 @@
 #include "RawMetrics.h"
 #include "Segment.h"
 #include "ServerRpcPool.h"
-#include "ServiceManager.h"
 #include "ShortMacros.h"
 #include "TimeTrace.h"
 #include "Transport.h"
 #include "Tub.h"
 #include "WallTime.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 

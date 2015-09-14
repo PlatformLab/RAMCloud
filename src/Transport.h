@@ -78,7 +78,7 @@ class Transport {
 
         /**
          * Default epoch value on construction. Used to ensure that the proper
-         * value is set before the RPC is passed on to the serviceManager.
+         * value is set before the RPC is passed on to WorkerManager.
          */
         static const uint64_t INVALID_EPOCH = -1;
 
@@ -112,7 +112,7 @@ class Transport {
 
         /**
          * Returns false if the epoch was not set, else true. Used to assert
-         * that no RPCs are pushed through the ServiceManager without an epoch.
+         * that no RPCs are pushed through the WorkerManager without an epoch.
          */
         bool
         epochIsSet()

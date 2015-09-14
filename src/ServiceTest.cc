@@ -18,7 +18,7 @@
 #include "MockTransport.h"
 #include "RawMetrics.h"
 #include "Service.h"
-#include "ServiceManager.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 
@@ -251,8 +251,8 @@ TEST_F(ServiceTest, sendReply) {
     service.gate = -1;
     service.sendReply = true;
     Context context;
-    context.serviceManager = new ServiceManager(&context);
-    ServiceManager* manager = context.serviceManager;
+    context.workerManager = new WorkerManager(&context);
+    WorkerManager* manager = context.workerManager;
     MockTransport transport(&context);
     context.services[WireFormat::BACKUP_SERVICE] = &service;
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(

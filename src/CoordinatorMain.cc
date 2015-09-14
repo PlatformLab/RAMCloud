@@ -22,9 +22,9 @@
 #include "PingService.h"
 #include "PortAlarm.h"
 #include "ServerId.h"
-#include "ServiceManager.h"
 #include "TableManager.h"
 #include "TransportManager.h"
+#include "WorkerManager.h"
 
 /**
  * \file
@@ -96,7 +96,7 @@ main(int argc, char *argv[])
         }
         LOG(NOTICE, "Command line: %s", args.c_str());
 
-        context.serviceManager = new ServiceManager(&context, maxCores-1);
+        context.workerManager = new WorkerManager(&context, maxCores-1);
 
         pinAllMemory();
         localLocator = optionParser.options.getCoordinatorLocator();

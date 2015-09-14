@@ -39,7 +39,7 @@ class MockContextMember;
 class ObjectFinder;
 class PortAlarmTimer;
 class Service;
-class ServiceManager;
+class WorkerManager;
 class SessionAlarmTimer;
 class TableManager;
 class TimeTrace;
@@ -99,7 +99,7 @@ class Context {
 
     // If this variable is non-NULL, it belongs to the Context and will
     // be freed when the Context is destroyed.
-    ServiceManager* serviceManager;
+    WorkerManager* workerManager;
 
     // The following array is indexed by WireFormat::ServiceType, and
     // holds pointers to all of the services currently known in this

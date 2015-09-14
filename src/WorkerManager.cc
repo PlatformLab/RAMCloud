@@ -24,11 +24,10 @@
 #include "RpcLevel.h"
 #include "ShortMacros.h"
 #include "ServerRpcPool.h"
-#include "ServiceManager.h"
 #include "TimeTrace.h"
 #include "TimeTraceUtil.h"
 #include "WireFormat.h"
-#include "PerfCounter.h"
+#include "WorkerManager.h"
 
 // If the following line is uncommented, trace records will be generated that
 // allow service times to be computed for all RPCs.
@@ -54,7 +53,7 @@ static Syscall defaultSyscall;
  * use it points to defaultSyscall; for testing it points to a mock
  * object.
  */
-Syscall* ServiceManager::sys = &defaultSyscall;
+Syscall* WorkerManager::sys = &defaultSyscall;
 
 // Length of time that a worker will actively poll for new work before it puts
 // itself to sleep. This period should be much longer than typical RPC
@@ -62,13 +61,13 @@ Syscall* ServiceManager::sys = &defaultSyscall;
 // conversation with a single client.  It must also be much longer than the
 // time it takes to wake up the thread once it has gone to sleep (as of
 // September 2011 this time appears to be as much as 50 microseconds).
-int ServiceManager::pollMicros = 10000;
+int WorkerManager::pollMicros = 10000;
 // The following constant is used to signal a worker thread that
 // it should exit.
 #define WORKER_EXIT reinterpret_cast<Transport::ServerRpc*>(1)
 
 /**
- * Construct a ServiceManager.
+ * Construct a WorkerManager.
  *
  * \param context
  *      Overall information about this server.
@@ -78,8 +77,8 @@ int ServiceManager::pollMicros = 10000;
  *      deadlocks, it may occasionally be necessary to go beyond this
  *      limit.
  */
-ServiceManager::ServiceManager(Context* context, uint32_t maxCores)
-    : Dispatch::Poller(context->dispatch, "ServiceManager")
+WorkerManager::WorkerManager(Context* context, uint32_t maxCores)
+    : Dispatch::Poller(context->dispatch, "WorkerManager")
     , context(context)
     , levels()
     , busyThreads()
@@ -109,10 +108,10 @@ ServiceManager::ServiceManager(Context* context, uint32_t maxCores)
 }
 
 /**
- * Destroy a ServiceManager.  This method is most commonly invoked during
- * testing (ServiceManagers rarely, if ever, get deleted in normal operation).
+ * Destroy a WorkerManager.  This method is most commonly invoked during
+ * testing (WorkerManagers rarely, if ever, get deleted in normal operation).
  */
-ServiceManager::~ServiceManager()
+WorkerManager::~WorkerManager()
 {
     Dispatch* dispatch = context->dispatch;
     assert(dispatch->isDispatchThread());
@@ -136,7 +135,7 @@ ServiceManager::~ServiceManager()
  *      service.
  */
 void
-ServiceManager::handleRpc(Transport::ServerRpc* rpc)
+WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 {
     assert(rpc->epochIsSet());
 
@@ -224,7 +223,7 @@ ServiceManager::handleRpc(Transport::ServerRpc* rpc)
  * worker threads will be visible to the caller.
  */
 bool
-ServiceManager::idle()
+WorkerManager::idle()
 {
     return busyThreads.empty();
 }
@@ -234,7 +233,7 @@ ServiceManager::idle()
  * for completion of outstanding RPCs.
  */
 int
-ServiceManager::poll()
+WorkerManager::poll()
 {
     int foundWork = 0;
 
@@ -328,7 +327,7 @@ ServiceManager::poll()
  *      limit.
  */
 Transport::ServerRpc*
-ServiceManager::waitForRpc(double timeoutSeconds) {
+WorkerManager::waitForRpc(double timeoutSeconds) {
     uint64_t start = Cycles::rdtsc();
     while (true) {
         if (!testRpcs.empty()) {
@@ -353,7 +352,7 @@ ServiceManager::waitForRpc(double timeoutSeconds) {
  *      and the dispatch thread.
  */
 void
-ServiceManager::workerMain(Worker* worker)
+WorkerManager::workerMain(Worker* worker)
 {
     PerfStats::registerStats(&PerfStats::threadStats);
 
@@ -367,7 +366,7 @@ ServiceManager::workerMain(Worker* worker)
         while (true) {
             uint64_t stopPollingTime = lastIdle + pollCycles;
 
-            // Wait for ServiceManager to supply us with some work to do.
+            // Wait for WorkerManager to supply us with some work to do.
             while (worker->state.load() != Worker::WORKING) {
                 if (lastIdle >= stopPollingTime) {
 #ifdef SMTT
@@ -394,7 +393,7 @@ ServiceManager::workerMain(Worker* worker)
                             // benign.
                             if (errno != EWOULDBLOCK) {
                                 LOG(ERROR, "futexWait failed in "
-                                           "ServiceManager::workerMain: %s",
+                                           "WorkerManager::workerMain: %s",
                                     strerror(errno));
                             }
                         }
@@ -444,7 +443,7 @@ ServiceManager::workerMain(Worker* worker)
 
 /**
  * Force this worker's thread to exit (and don't return until it has exited).
- * This method is only used during testing and ServiceManager destruction.
+ * This method is only used during testing and WorkerManager destruction.
  * This method should be invoked only in the dispatch thread.
  */
 void
@@ -500,7 +499,7 @@ Worker::handoff(Transport::ServerRpc* newRpc)
     if (prevState == SLEEPING) {
         // The worker got tired of polling and went to sleep, so we
         // have to do extra work to wake it up.
-        if (ServiceManager::sys->futexWake(reinterpret_cast<int*>(&state), 1)
+        if (WorkerManager::sys->futexWake(reinterpret_cast<int*>(&state), 1)
                 == -1) {
             LOG(ERROR,
                     "futexWake failed in Worker::handoff: %s",

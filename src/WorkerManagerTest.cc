@@ -19,24 +19,24 @@
 #include "MockSyscall.h"
 #include "MockTransport.h"
 #include "RpcLevel.h"
-#include "ServiceManager.h"
 #include "Tub.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 
     extern int nextId, workersAlive;
 
-class ServiceManagerTest : public ::testing::Test {
+class WorkerManagerTest : public ::testing::Test {
   public:
     Context context;
-    Tub<ServiceManager> manager;
+    Tub<WorkerManager> manager;
     MockTransport transport;
     MockService service;
     TestLog::Enable logEnabler;
     Syscall *savedSyscall;
     MockSyscall sys;
 
-    ServiceManagerTest()
+    WorkerManagerTest()
         : context()
         , manager()
         , transport(&context)
@@ -48,20 +48,20 @@ class ServiceManagerTest : public ::testing::Test {
         static uint8_t levels[] = {0, 1, 2, 0, 1, 2};
         manager.construct(&context, 2);
         context.services[WireFormat::BACKUP_SERVICE] = &service;
-        savedSyscall = ServiceManager::sys;
-        ServiceManager::sys = &sys;
+        savedSyscall = WorkerManager::sys;
+        WorkerManager::sys = &sys;
         RpcLevel::levelsPtr = levels;
         RpcLevel::savedMaxLevel = 2;
     }
 
-    ~ServiceManagerTest() {
+    ~WorkerManagerTest() {
         service.gate = 0;
         // Must explicitly destroy the service manager (to ensure that the
         // worker thread exits); if we used implicit destruction, it's possible
         // that some other objects such as MockService might get destroyed while
         // the worker thread is still using them.
         manager.destroy();
-        ServiceManager::sys = savedSyscall;
+        WorkerManager::sys = savedSyscall;
         RpcLevel::savedMaxLevel = -1;
         RpcLevel::levelsPtr = RpcLevel::levels;
     }
@@ -87,10 +87,10 @@ class ServiceManagerTest : public ::testing::Test {
         }
         EXPECT_EQ(count, completed);
     }
-    DISALLOW_COPY_AND_ASSIGN(ServiceManagerTest);
+    DISALLOW_COPY_AND_ASSIGN(WorkerManagerTest);
 };
 
-TEST_F(ServiceManagerTest, sanityCheck) {
+TEST_F(WorkerManagerTest, sanityCheck) {
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
             &transport, "0x10000 3 4");
     manager->handleRpc(rpc);
@@ -106,14 +106,14 @@ TEST_F(ServiceManagerTest, sanityCheck) {
     EXPECT_EQ("serverReply: 0x10001 4 5", transport.outputLog);
 }
 
-TEST_F(ServiceManagerTest, constructor) {
+TEST_F(WorkerManagerTest, constructor) {
     EXPECT_EQ(4U, manager->idleThreads.size());
     EXPECT_EQ(3U, manager->levels.size());
-    ServiceManager manager1(&context, 7);
+    WorkerManager manager1(&context, 7);
     EXPECT_EQ(9U, manager1.idleThreads.size());
 }
 
-TEST_F(ServiceManagerTest, destructor_cleanupThreads) {
+TEST_F(WorkerManagerTest, destructor_cleanupThreads) {
     TestLog::Enable _;
 
     // Start 2 requests in parallel, but don't let them finish yet.
@@ -128,7 +128,7 @@ TEST_F(ServiceManagerTest, destructor_cleanupThreads) {
     EXPECT_EQ(2U, manager->busyThreads.size());
     EXPECT_EQ("", TestLog::get());
 
-    // Allow the requests to finish, but destroy the ServiceManager before
+    // Allow the requests to finish, but destroy the WorkerManager before
     // they have been moved back to the idle list.
     service.gate = 3;
     manager.destroy();
@@ -136,7 +136,7 @@ TEST_F(ServiceManagerTest, destructor_cleanupThreads) {
             "workerMain: exiting | workerMain: exiting", TestLog::get());
 }
 
-TEST_F(ServiceManagerTest, handleRpc_noHeader) {
+TEST_F(WorkerManagerTest, handleRpc_noHeader) {
     TestLog::Enable _;
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
             &transport, "");
@@ -147,7 +147,7 @@ TEST_F(ServiceManagerTest, handleRpc_noHeader) {
             statusToSymbol(transport.status));
 }
 
-TEST_F(ServiceManagerTest, handleRpc_badOpcode) {
+TEST_F(WorkerManagerTest, handleRpc_badOpcode) {
     TestLog::Enable _;
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
             &transport, "0x10100");
@@ -158,7 +158,7 @@ TEST_F(ServiceManagerTest, handleRpc_badOpcode) {
             statusToSymbol(transport.status));
 }
 
-TEST_F(ServiceManagerTest, handleRpc_deferRpc) {
+TEST_F(WorkerManagerTest, handleRpc_deferRpc) {
     // Create 2 RPCs that can be scheduled.
     MockTransport::MockServerRpc* rpc1 = new MockTransport::MockServerRpc(
             &transport, "0x10002 1");
@@ -187,7 +187,7 @@ TEST_F(ServiceManagerTest, handleRpc_deferRpc) {
     EXPECT_EQ(0, manager->levels[1].requestsRunning);
 }
 
-TEST_F(ServiceManagerTest, handleRpc_handoffToWorker) {
+TEST_F(WorkerManagerTest, handleRpc_handoffToWorker) {
     MockTransport::MockServerRpc* rpc1 = new MockTransport::MockServerRpc(
             &transport, "0x10000 1");
     MockTransport::MockServerRpc* rpc2 = new MockTransport::MockServerRpc(
@@ -199,7 +199,7 @@ TEST_F(ServiceManagerTest, handleRpc_handoffToWorker) {
     EXPECT_EQ(4U, manager->idleThreads.size());
 }
 
-TEST_F(ServiceManagerTest, idle) {
+TEST_F(WorkerManagerTest, idle) {
     EXPECT_TRUE(manager->idle());
     // Start one RPC.
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
@@ -213,7 +213,7 @@ TEST_F(ServiceManagerTest, idle) {
     EXPECT_TRUE(manager->idle());
 }
 
-TEST_F(ServiceManagerTest, poll_scheduleWaitingRpcs) {
+TEST_F(WorkerManagerTest, poll_scheduleWaitingRpcs) {
     // Start 2 RPCs concurrently, with 2 more waiting.
     service.gate = -1;
     MockTransport::MockServerRpc* rpc1 = new MockTransport::MockServerRpc(
@@ -265,7 +265,7 @@ TEST_F(ServiceManagerTest, poll_scheduleWaitingRpcs) {
     EXPECT_EQ(0, manager->poll());
 }
 
-TEST_F(ServiceManagerTest, poll_postprocessing) {
+TEST_F(WorkerManagerTest, poll_postprocessing) {
     // This test makes sure that the POSTPROCESSING state is handled
     // correctly (along with the subsequent POLLING state).
     service.gate = -1;
@@ -295,7 +295,7 @@ TEST_F(ServiceManagerTest, poll_postprocessing) {
 
 // No tests for waitForRpc: this method is only used in tests.
 
-TEST_F(ServiceManagerTest, workerMain_goToSleep) {
+TEST_F(WorkerManagerTest, workerMain_goToSleep) {
     // Workers were already created when the test initialized.  Initially
     // the (first) worker should not go to sleep (time appears to
     // stand still for it, because we stop the TSC clock).
@@ -324,7 +324,7 @@ TEST_F(ServiceManagerTest, workerMain_goToSleep) {
     EXPECT_EQ("serverReply: 0x10001 4 5", transport.outputLog);
 }
 
-TEST_F(ServiceManagerTest, workerMain_futexError) {
+TEST_F(WorkerManagerTest, workerMain_futexError) {
     // Get rid of the original manager (it has too many threads, which
     // would confuse this test).
     manager.destroy();
@@ -332,7 +332,7 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
 
     // Create a new manager with only 1 worker thread.
     RpcLevel::savedMaxLevel = 0;
-    ServiceManager manager2(&context, 1);
+    WorkerManager manager2(&context, 1);
     EXPECT_EQ(1U, manager2.idleThreads.size());
     MockService service2(1);
     Worker* worker = manager2.idleThreads[0];
@@ -349,17 +349,17 @@ TEST_F(ServiceManagerTest, workerMain_futexError) {
             break;
         }
     }
-    EXPECT_EQ("workerMain: futexWait failed in ServiceManager::workerMain: "
+    EXPECT_EQ("workerMain: futexWait failed in WorkerManager::workerMain: "
                 "Operation not permitted", TestLog::get());
 }
 
-TEST_F(ServiceManagerTest, workerMain_exit) {
+TEST_F(WorkerManagerTest, workerMain_exit) {
     manager.destroy();
     EXPECT_EQ("workerMain: exiting | workerMain: exiting | "
             "workerMain: exiting | workerMain: exiting", TestLog::get());
 }
 
-TEST_F(ServiceManagerTest, Worker_exit) {
+TEST_F(WorkerManagerTest, Worker_exit) {
     TestLog::Enable _;
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
             &transport, "0x10000 3 4");
@@ -372,7 +372,7 @@ TEST_F(ServiceManagerTest, Worker_exit) {
     manager->busyThreads[0]->exit();
 }
 
-TEST_F(ServiceManagerTest, Worker_handoff_dontCallFutex) {
+TEST_F(WorkerManagerTest, Worker_handoff_dontCallFutex) {
     TestLog::Enable _;
     // Set futex to return an error, so we can make sure it doesn't
     // get called in the normal case.
@@ -383,12 +383,12 @@ TEST_F(ServiceManagerTest, Worker_handoff_dontCallFutex) {
     waitUntilDone(1);
     EXPECT_EQ("rpc: 0x10000 99", service.log);
 
-    // Reset error so that the ServiceManager destructor can work
+    // Reset error so that the WorkerManager destructor can work
     // correctly.
     sys.futexWakeErrno = 0;
 }
 
-TEST_F(ServiceManagerTest, Worker_handoff_callFutex) {
+TEST_F(WorkerManagerTest, Worker_handoff_callFutex) {
     // Wait for all the workers to go to sleep.
     // See "Timing-Dependent Tests" in designNotes.
     const char *message = "workers didn't go to sleep";

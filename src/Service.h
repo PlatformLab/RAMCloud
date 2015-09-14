@@ -27,8 +27,8 @@
 
 namespace RAMCloud {
 
-// There are cross-dependencies between this header file and ServiceManager.h;
-// the declaration below is used instead of #including ServiceManager.h to
+// There are cross-dependencies between this header file and WorkerManager.h;
+// the declaration below is used instead of #including WorkerManager.h to
 // break the circularity.
 class Worker;
 
@@ -77,7 +77,7 @@ class Service {
         /// True means that sendReply has been invoked.
         bool replied;
 
-        friend class ServiceManager;
+        friend class WorkerManager;
         DISALLOW_COPY_AND_ASSIGN(Rpc);
     };
 

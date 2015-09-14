@@ -15,8 +15,8 @@
 
 #include "BindTransport.h"
 #include "Server.h"
-#include "ServiceManager.h"
 #include "ShortMacros.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 /**
@@ -46,7 +46,7 @@ Server::Server(Context* context, const ServerConfig* config)
 {
     context->coordinatorSession->setLocation(
             config->coordinatorLocator.c_str(), config->clusterName.c_str());
-    context->serviceManager = new ServiceManager(context, config->maxCores-1);
+    context->workerManager = new WorkerManager(context, config->maxCores-1);
 }
 
 /**
@@ -119,12 +119,11 @@ Server::run()
 
 /**
  * Create each of the services which are marked as active in config.services,
- * configure them according to #config, and register them with the
- * ServiceManager (or, if bindTransport is supplied, with the transport).
+ * configure them according to #config, and register them.
  *
  * \param bindTransport
  *      If given, register the services with \a bindTransport instead of the
- *      Context's ServiceManager.
+ *      context.
  *
  * \return
  *      If this server is rejoining a cluster its former server id is returned,

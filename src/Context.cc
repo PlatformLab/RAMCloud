@@ -14,21 +14,21 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "CacheTrace.h"
 #include "Context.h"
 #include "Cycles.h"
 #include "CoordinatorServerList.h"
 #include "CoordinatorSession.h"
 #include "Dispatch.h"
+#include "DispatchExec.h"
 #include "ObjectFinder.h"
-#include "ServiceManager.h"
+#include "PortAlarm.h"
 #include "ShortMacros.h"
 #include "SessionAlarm.h"
-#include "PortAlarm.h"
 #include "TableManager.h"
 #include "TimeTrace.h"
-#include "CacheTrace.h"
 #include "TransportManager.h"
-#include "DispatchExec.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 
@@ -78,7 +78,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , timeTrace(NULL)
     , cacheTrace(NULL)
     , objectFinder(NULL)
-    , serviceManager(NULL)
+    , workerManager(NULL)
     , externalStorage(NULL)
     , masterService(NULL)
     , backupService(NULL)
@@ -150,8 +150,8 @@ Context::destroy()
     delete coordinatorSession;
     coordinatorSession = NULL;
 
-    delete serviceManager;
-    serviceManager = NULL;
+    delete workerManager;
+    workerManager = NULL;
 
     delete transportManager;
     transportManager = NULL;

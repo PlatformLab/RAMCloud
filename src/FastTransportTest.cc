@@ -17,7 +17,7 @@
 #include "MockDriver.h"
 #include "MockTransport.h"
 #include "FastTransport.h"
-#include "ServiceManager.h"
+#include "WorkerManager.h"
 #include "UdpDriver.h"
 
 namespace RAMCloud {
@@ -140,8 +140,8 @@ class FastTransportTest : public ::testing::Test {
         , address("1.2.3.4")
         , port(1234)
     {
-        context.serviceManager = new ServiceManager(&context);
-        context.serviceManager->testingSaveRpcs = 1;
+        context.workerManager = new WorkerManager(&context);
+        context.workerManager->testingSaveRpcs = 1;
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(&context, driver);
     }
@@ -171,7 +171,7 @@ TEST_F(FastTransportTest, sanityCheck) {
     MockWrapper rpc1("abcdefg");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     Transport::ServerRpc* serverRpc =
-        context.serviceManager->waitForRpc(1.0);
+        context.workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("abcdefg", TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_STREQ("completed: 0, failed: 0", rpc1.getState());
@@ -184,7 +184,7 @@ TEST_F(FastTransportTest, sanityCheck) {
     MockWrapper rpc2;
     TestUtil::fillLargeBuffer(&rpc2.request, 100000);
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
-    serverRpc = context.serviceManager->waitForRpc(1.0);
+    serverRpc = context.workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok",
           TestUtil::checkLargeBuffer(&serverRpc->requestPayload, 100000));
@@ -331,7 +331,7 @@ TEST_F(FastTransportTest, handleIncomingPacket_c2sGoodHint) {
         "calling ServerSession::processInboundPacket", TestLog::get());
     FastTransport::ServerRpc* rpc =
         static_cast<FastTransport::ServerRpc*>(
-            context.serviceManager->waitForRpc(0.0));
+            context.workerManager->waitForRpc(0.0));
     EXPECT_NE(static_cast<FastTransport::ServerRpc*>(NULL), rpc);
     transport->serverRpcPool.destroy(rpc);
 }
@@ -416,7 +416,7 @@ TEST_F(FastTransportTest, ServerRpc_getClientServiceLocator) {
     MockWrapper rpc("acdefg");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
-        context.serviceManager->waitForRpc(1.0);
+        context.workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "fast+udp:127\\.0\\.0\\.1:[0-9][0-9]*",
@@ -1191,8 +1191,8 @@ class ServerSessionTest: public ::testing::Test {
         , port(12345)
     {
         context.dispatch->currentTime = 1000;
-        context.serviceManager = new ServiceManager(&context);
-        context.serviceManager->testingSaveRpcs = 1;
+        context.workerManager = new WorkerManager(&context);
+        context.workerManager->testingSaveRpcs = 1;
         driver = new MockDriver(FastTransport::Header::headerToString);
         transport = new FastTransport(&context, driver);
         session = new FastTransport::ServerSession(transport, sessionId);
@@ -1390,7 +1390,7 @@ TEST_F(ServerSessionTest, processInboundPacket_nextRpcReceivedDataPacket) {
 
     FastTransport::ServerRpc* rpc =
         static_cast<FastTransport::ServerRpc*>(
-            context.serviceManager->waitForRpc(0.0));
+            context.workerManager->waitForRpc(0.0));
     EXPECT_NE(static_cast<FastTransport::ServerRpc*>(NULL), rpc);
     transport->serverRpcPool.destroy(rpc);
 }
@@ -1460,7 +1460,7 @@ TEST_F(ServerSessionTest, processReceivedData_receiving) {
 
     FastTransport::ServerRpc* rpc =
         static_cast<FastTransport::ServerRpc*>(
-            context.serviceManager->waitForRpc(0.0));
+            context.workerManager->waitForRpc(0.0));
     EXPECT_NE(static_cast<FastTransport::ServerRpc*>(NULL), rpc);
     transport->serverRpcPool.destroy(rpc);
 

@@ -20,8 +20,8 @@
 #include "MockCluster.h"
 #include "ProtoBuf.h"
 #include "Server.h"
-#include "ServiceManager.h"
 #include "TransportManager.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 
@@ -65,8 +65,6 @@ TEST_F(ServerTest, startForTesting) {
 // run is too much of a pain to and not that interesting.
 
 TEST_F(ServerTest, createAndRegisterServices) {
-    // Use testing config, but register with the real ServiceManager instead
-    // of the BindTransport and see if things get set up properly.
     server->createAndRegisterServices(NULL);
     EXPECT_TRUE(server->master);
     EXPECT_TRUE(server->backup);

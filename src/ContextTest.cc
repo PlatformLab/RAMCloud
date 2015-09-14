@@ -27,7 +27,7 @@ TEST(Context, constructor) {
     EXPECT_TRUE(context.serverList == NULL);
     EXPECT_TRUE(context.dispatch != NULL);
     EXPECT_TRUE(context.transportManager != NULL);
-    EXPECT_TRUE(context.serviceManager == NULL);
+    EXPECT_TRUE(context.workerManager == NULL);
     EXPECT_TRUE(context.coordinatorSession != NULL);
     EXPECT_TRUE(context.timeTrace != NULL);
     mockContextMemberThrowException = 2;

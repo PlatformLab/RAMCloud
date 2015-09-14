@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -21,8 +21,8 @@
 #include "Common.h"
 #include "PerfStats.h"
 #include "ShortMacros.h"
-#include "ServiceManager.h"
 #include "TcpTransport.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 
@@ -313,7 +313,7 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
                 // The incoming request is complete; pass it off for servicing.
                 TcpServerRpc *rpc = socket->rpc;
                 socket->rpc = NULL;
-                transport.context->serviceManager->handleRpc(rpc);
+                transport.context->workerManager->handleRpc(rpc);
             }
         }
         if (events & Dispatch::FileEvent::WRITABLE) {

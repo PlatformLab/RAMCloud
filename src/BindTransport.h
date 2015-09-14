@@ -19,8 +19,8 @@
 #include "RpcLevel.h"
 #include "Service.h"
 #include "ServerRpcPool.h"
-#include "ServiceManager.h"
 #include "TransportManager.h"
+#include "WorkerManager.h"
 
 #ifndef RAMCLOUD_BINDTRANSPORT_H
 #define RAMCLOUD_BINDTRANSPORT_H

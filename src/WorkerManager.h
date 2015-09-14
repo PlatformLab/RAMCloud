@@ -13,8 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_SERVICEMANAGER_H
-#define RAMCLOUD_SERVICEMANAGER_H
+#ifndef RAMCLOUD_WORKERMANAGER_H
+#define RAMCLOUD_WORKERMANAGER_H
 
 #include <queue>
 
@@ -34,10 +34,10 @@ namespace RAMCloud {
  * the dispatch thread (which manages all of the network connections for a
  * server and runs Transport code) and the worker threads.
  */
-class ServiceManager : Dispatch::Poller {
+class WorkerManager : Dispatch::Poller {
   public:
-    explicit ServiceManager(Context* context, uint32_t maxCores = 3);
-    ~ServiceManager();
+    explicit WorkerManager(Context* context, uint32_t maxCores = 3);
+    ~WorkerManager();
 
     void exitWorker();
     void handleRpc(Transport::ServerRpc* rpc);
@@ -106,15 +106,15 @@ class ServiceManager : Dispatch::Poller {
     static Syscall *sys;
 
     friend class Worker;
-    DISALLOW_COPY_AND_ASSIGN(ServiceManager);
+    DISALLOW_COPY_AND_ASSIGN(WorkerManager);
 };
 
 /**
  * An object of this class describes a single worker thread and is used
- * for communication between the thread and the ServiceManager poller
+ * for communication between the thread and the WorkerManager poller
  * running in the dispatch thread.  This structure is read-only to the
  * worker except for the #state field.  In principle this class definition
- * should be nested inside ServiceManager; however, we need to make forward
+ * should be nested inside WorkerManager; however, we need to make forward
  * references to it, and C++ doesn't seem to permit forward references to
  * nested classes.
  */
@@ -197,10 +197,10 @@ class Worker {
     ReadThreadingCost_MetricSet::Interval threadWork;
 
   private:
-    friend class ServiceManager;
+    friend class WorkerManager;
     DISALLOW_COPY_AND_ASSIGN(Worker);
 };
 
 }  // namespace RAMCloud
 
-#endif  // RAMCLOUD_SERVICEMANAGER_H
+#endif  // RAMCLOUD_WORKERMANAGER_H
