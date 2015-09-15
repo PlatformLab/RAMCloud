@@ -18,6 +18,7 @@
 #include "RamCloud.h"
 #include "ClientLease.h"
 #include "CoordinatorSession.h"
+#include "Dispatch.h"
 #include "LinearizableObjectRpcWrapper.h"
 #include "FailSession.h"
 #include "MasterClient.h"
