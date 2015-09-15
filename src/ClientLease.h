@@ -19,7 +19,6 @@
 #include "Common.h"
 #include "CoordinatorClient.h"
 #include "WireFormat.h"
-#include "WorkerTimer.h"
 
 namespace RAMCloud {
 
@@ -34,11 +33,11 @@ class RamCloud;
  * This class is thread-safe (if only to allow lease renewal to happen on a
  * background worker thread).
  */
-class ClientLease : public WorkerTimer {
+class ClientLease {
   public:
     explicit ClientLease(RamCloud* ramcloud);
     WireFormat::ClientLease getLease();
-    virtual void handleTimerEvent();
+    void poll();
 
   PRIVATE:
     /// Monitor-style lock
@@ -54,6 +53,10 @@ class ClientLease : public WorkerTimer {
     /// The Cycles::rdtsc() value (in cycles) when the last ClientLease renewal
     /// request was issued.  Used to estimate when the lease term will elapse.
     uint64_t lastRenewalTimeCycles;
+
+    /// The Cycles::rdtsc() value (in cycles) when the next ClientLease renewal
+    /// request should be issued.
+    uint64_t nextRenewalTimeCycles;
 
     /// If Cycles::rdtsc() returns a value larger than this value, the currently
     /// held lease may have (or will soon be) expired.  Used to determine

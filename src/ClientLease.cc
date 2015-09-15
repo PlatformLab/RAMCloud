@@ -26,11 +26,11 @@ namespace RAMCloud {
  * Constructor for ClientLease.
  */
 ClientLease::ClientLease(RamCloud* ramcloud)
-    : WorkerTimer(ramcloud->clientContext->dispatch)
-    , mutex()
+    : mutex()
     , ramcloud(ramcloud)
     , lease({0, 0, 0})
     , lastRenewalTimeCycles(0)
+    , nextRenewalTimeCycles(0)
     , leaseTermElapseCycles(0)
     , renewLeaseRpc()
 {}
@@ -43,30 +43,18 @@ ClientLease::ClientLease(RamCloud* ramcloud)
 WireFormat::ClientLease
 ClientLease::getLease()
 {
-    // Acquire the dispatch lock first to avoid deadlock.
-    // TODO(cstlee): Using the dispatch lock here is not really the most elegant
-    // solution but it will suffice until we get the client library's threading
-    // model right.  The problem is that if this method gets called from the
-    // client thread (which is the dispatch thread) the dispatch thread is
-    // logically already locked.  Thus to enforce the same locking discipline
-    // between calls from dispatch and non-dispatch threads we first acquire
-    // the dispatch lock.
-    Dispatch::Lock dLock(ramcloud->clientContext->dispatch);
     Lock _(mutex);
 
-    // Block waiting for the lease to become valid (Should normally not happen,
-    // unless the worker timer is stuck).
+    // Block waiting for the lease to become valid; should only occur if there
+    // is a long gap between issuing RPCs that require a client lease (i.e
+    // linearizable RPCs or transaction RPCs).
     while (Cycles::rdtsc() > leaseTermElapseCycles) {
-        // Request renewal immediately as something is running slow.
-//        start(0);
-        RAMCLOUD_CLOG(WARNING, "Blocked waiting for lease to renew.");
+        RAMCLOUD_CLOG(NOTICE, "Blocked waiting for lease to renew.");
 
-        // Release lock so handler can execute.
+        // Release lock so poller can execute.
         Unlock<SpinLock> _(mutex);
 
-        // Run manually for now.
-        handleTimerEvent();
-
+        this->poll();
         ramcloud->poll();
     }
 
@@ -74,23 +62,18 @@ ClientLease::getLease()
 }
 
 /**
- * This method is called when the lease renewal timer elapses and the a lease
- * needs to be renewed.  This method will reschedule itself as necessary to
- * maintain a valid lease.
+ * Make incremental progress toward ensuring a valid lease. This method must be
+ * called periodically in order to maintain a valid lease.
  */
 void
-ClientLease::handleTimerEvent()
+ClientLease::poll()
 {
-    // Acquire the dispatch lock first to avoid deadlock.
-    // TODO(cstlee): Using the dispatch lock here is not really the most elegant
-    // solution but it will suffice until we get the client library's threading
-    // model right.  The problem is that if this method gets called from the
-    // client thread (which is the dispatch thread) the dispatch thread is
-    // logically already locked.  Thus to enforce the same locking discipline
-    // between calls from dispatch and non-dispatch threads we first acquire
-    // the dispatch lock.
-    Dispatch::Lock dLock(ramcloud->clientContext->dispatch);
     Lock _(mutex);
+
+    // Do nothing if it is not yet time to renew.
+    if (Cycles::rdtsc() <= nextRenewalTimeCycles) {
+        return;
+    }
 
     /**
      * This method implements a rules-based asynchronous algorithm (a "task")
@@ -104,11 +87,9 @@ ClientLease::handleTimerEvent()
     if (!renewLeaseRpc) {
         lastRenewalTimeCycles = Cycles::rdtsc();
         renewLeaseRpc.construct(ramcloud->clientContext, lease.leaseId);
-//        start(0);
     } else {
         if (!renewLeaseRpc->isReady()) {
             // Wait for rpc to become ready.
-//            start(0);
         } else {
             lease = renewLeaseRpc->wait();
             renewLeaseRpc.destroy();
@@ -123,13 +104,12 @@ ClientLease::handleTimerEvent()
                                             leaseTermLenUs -
                                             LeaseCommon::DANGER_THRESHOLD_US);
 
-            // Reschedule timer for renewal.
-//            uint64_t renewCycleTime = 0;
-//            if (leaseTermLenUs > LeaseCommon::RENEW_THRESHOLD_US) {
-//                renewCycleTime = Cycles::fromMicroseconds(
-//                        leaseTermLenUs - LeaseCommon::RENEW_THRESHOLD_US);
-//            }
-//            start(lastRenewalTimeCycles + renewCycleTime);
+            uint64_t renewCycleTime = 0;
+            if (leaseTermLenUs > LeaseCommon::RENEW_THRESHOLD_US) {
+                renewCycleTime = Cycles::fromMicroseconds(
+                        leaseTermLenUs - LeaseCommon::RENEW_THRESHOLD_US);
+            }
+            nextRenewalTimeCycles = lastRenewalTimeCycles + renewCycleTime;
         }
     }
 }
