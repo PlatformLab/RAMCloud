@@ -119,7 +119,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         return (state == DONE ||
                 (state == DECISION && nextCacheEntry == commitCache.end()));
     }
-    int performTask();
+    void performTask();
 
   PRIVATE:
     // Forward declaration of RPCs
@@ -194,10 +194,10 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     CommitCacheMap::iterator nextCacheEntry;
 
     void initTask();
-    int processDecisionRpcResults();
-    int processPrepareRpcResults();
-    int sendDecisionRpc();
-    int sendPrepareRpc();
+    void processDecisionRpcResults();
+    void processPrepareRpcResults();
+    void sendDecisionRpc();
+    void sendPrepareRpc();
     virtual void tryFinish();
 
     /// Encapsulates common state and methods of Decision and Prepare RPCs.
