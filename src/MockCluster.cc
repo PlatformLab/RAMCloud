@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -60,8 +60,7 @@ MockCluster::MockCluster(Context* context, string coordinatorLocator)
     coordinatorContext.externalStorage = &externalStorage;
 
     coordinator.construct(&coordinatorContext, 1000, true);
-    transport.addService(*coordinator, coordinatorLocator,
-                         WireFormat::COORDINATOR_SERVICE);
+    transport.registerServer(&coordinatorContext, coordinatorLocator);
 }
 
 /**
@@ -148,6 +147,7 @@ MockCluster::addServer(ServerConfig config) {
 
     Server* server = new Server(context, &config);
     servers.push_back(server);
+    transport.registerServer(context, config.localLocator);
     server->startForTesting(transport);
 
     ServerList* sl = static_cast<ServerList*>(linkedContext->serverList);

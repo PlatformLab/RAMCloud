@@ -1034,7 +1034,7 @@ TEST_F(ClientTransactionTaskTest,
 
 TEST_F(ClientTransactionTaskTest, ClientTransactionRpcWrapper_send) {
     EXPECT_TRUE(RpcWrapper::NOT_STARTED == mockTransactionRpc->state);
-    EXPECT_THROW(mockTransactionRpc->send(), ServiceNotAvailableException);
+    mockTransactionRpc->send();
     EXPECT_TRUE(RpcWrapper::NOT_STARTED != mockTransactionRpc->state);
 }
 

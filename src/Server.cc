@@ -70,7 +70,8 @@ Server::~Server()
 void
 Server::startForTesting(BindTransport& bindTransport)
 {
-    ServerId formerServerId = createAndRegisterServices(&bindTransport);
+    ServerId formerServerId = createAndRegisterServices();
+    bindTransport.registerServer(context, config.localLocator);
     enlist(formerServerId);
 }
 
@@ -83,7 +84,7 @@ void
 Server::run()
 {
     LOG(NOTICE, "Starting services");
-    ServerId formerServerId = createAndRegisterServices(NULL);
+    ServerId formerServerId = createAndRegisterServices();
     LOG(NOTICE, "Services started");
 
     // Only pin down memory _after_ users of LargeBlockOfMemory have
@@ -117,10 +118,6 @@ Server::run()
  * Create each of the services which are marked as active in config.services,
  * configure them according to #config, and register them.
  *
- * \param bindTransport
- *      If given, register the services with \a bindTransport instead of the
- *      context.
- *
  * \return
  *      If this server is rejoining a cluster its former server id is returned,
  *      otherwise an invalid server is returned.  "Rejoining" means the backup
@@ -130,7 +127,7 @@ Server::run()
  *      created to ensure correct garbage collection of the stored replicas.
  */
 ServerId
-Server::createAndRegisterServices(BindTransport* bindTransport)
+Server::createAndRegisterServices()
 {
     ServerId formerServerId;
 
@@ -148,11 +145,6 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
     if (config.services.has(WireFormat::MASTER_SERVICE)) {
         LOG(NOTICE, "Master is using %u backups", config.master.numReplicas);
         master.construct(context, &config);
-        if (bindTransport) {
-            bindTransport->addService(*master,
-                                      config.localLocator,
-                                      WireFormat::MASTER_SERVICE);
-        }
     }
 
     if (config.services.has(WireFormat::BACKUP_SERVICE)) {
@@ -160,11 +152,6 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
         backup.construct(context, &config);
         formerServerId = backup->getFormerServerId();
         backupReadSpeed = backup->getReadSpeed();
-        if (bindTransport) {
-            bindTransport->addService(*backup,
-                                      config.localLocator,
-                                      WireFormat::BACKUP_SERVICE);
-        }
         LOG(NOTICE, "Backup service started");
     }
 
@@ -172,20 +159,10 @@ Server::createAndRegisterServices(BindTransport* bindTransport)
         membership.construct(context,
                              static_cast<ServerList*>(context->serverList),
                              &config);
-        if (bindTransport) {
-            bindTransport->addService(*membership,
-                                      config.localLocator,
-                                      WireFormat::MEMBERSHIP_SERVICE);
-        }
     }
 
     if (config.services.has(WireFormat::PING_SERVICE)) {
         ping.construct(context);
-        if (bindTransport) {
-            bindTransport->addService(*ping,
-                                      config.localLocator,
-                                      WireFormat::PING_SERVICE);
-        }
     }
 
     return formerServerId;

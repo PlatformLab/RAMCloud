@@ -102,8 +102,7 @@ class PingServiceTest : public ::testing::Test {
         , masterConfig()
         , masterService()
     {
-        transport.addService(pingService, "mock:host=ping",
-                             WireFormat::PING_SERVICE);
+        transport.registerServer(&context, "mock:host=ping");
         serverList.testingAdd({serverId, "mock:host=ping",
                                {WireFormat::PING_SERVICE}, 100,
                                ServerStatus::UP});
@@ -118,8 +117,6 @@ class PingServiceTest : public ::testing::Test {
                                   WireFormat::PING_SERVICE};
         masterService.construct(pingService.context, masterConfig.get());
         masterService->setServerId(serverId);
-        transport.addService(*masterService, "mock:host=ping",
-                             WireFormat::MASTER_SERVICE);
     }
 
     void constructUnimplementedServerControlRpc(
@@ -559,21 +556,25 @@ TEST_F(PingServiceTest, serverControl_logTimeTrace) {
 TEST_F(PingServiceTest, serverControl_getCacheTrace) {
     Buffer output;
 
+    Util::mockPmcValue = 1;
     context.cacheTrace->record("sample");
     PingClient::serverControl(&context, serverId, WireFormat::GET_CACHE_TRACE,
             "abc", 3, &output);
     EXPECT_EQ("0 misses (+0 misses): sample",
             TestUtil::toString(&output));
+    Util::mockPmcValue = 0;
 }
 
 TEST_F(PingServiceTest, serverControl_logCacheTrace) {
     Buffer output;
 
+    Util::mockPmcValue = 1;
     context.cacheTrace->record("sample");
     PingClient::serverControl(&context, serverId, WireFormat::LOG_CACHE_TRACE,
                 "abc", 3, &output);
     EXPECT_EQ("printInternal: 0 misses (+0 misses): sample",
             TestLog::get());
+    Util::mockPmcValue = 0;
 }
 
 TEST_F(PingServiceTest, serverControl_addLogMessage) {

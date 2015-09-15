@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -49,7 +49,7 @@ class Server {
     void run();
 
   PRIVATE:
-    ServerId createAndRegisterServices(BindTransport* bindTransport);
+    ServerId createAndRegisterServices();
     void enlist(ServerId replacingId);
 
     /**

@@ -357,7 +357,7 @@ TEST_F(TxRecoveryManagerTest, RecoveryTask_constructor_recovered) {
 
 TEST_F(TxRecoveryManagerTest, TxRecoveryRpcWrapper_send) {
     EXPECT_TRUE(RpcWrapper::NOT_STARTED == txRecoveryRpc->state);
-    EXPECT_THROW(txRecoveryRpc->send(), ServiceNotAvailableException);
+    txRecoveryRpc->send();
     EXPECT_TRUE(RpcWrapper::NOT_STARTED != txRecoveryRpc->state);
 }
 
