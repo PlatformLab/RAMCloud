@@ -63,7 +63,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     void cancel();
     virtual void completed();
     virtual void failed();
-    bool isReady();
+    virtual bool isReady();
 
   PROTECTED:
     /// Possible states for an RPC.
@@ -123,7 +123,7 @@ class RpcWrapper : public Transport::RpcNotifier {
      * \tparam RpcType
      *      A type from WireFormat, such as WireFormat::Read; determines
      *      the type of the return value and the size of the header.
-     * 
+     *
      * \param targetId
      *      ServerId indicating which server is intended to process this
      *      request.

@@ -43,6 +43,7 @@ class LinearizableObjectRpcWrapper
             Buffer* response = NULL);
     virtual ~LinearizableObjectRpcWrapper();
     void cancel();
+    virtual bool isReady();
 
     /**
      * This flag allows users of linearizable RPCs to specific whether to send

@@ -118,6 +118,23 @@ LinearizableObjectRpcWrapper::cancel()
 }
 
 /**
+ * Indicates whether a response has been received for an RPC.  Used for
+ * asynchronous processing of RPCs.  Calling this method will also ensure
+ * the ClientLease remains valid.
+ *
+ * \return
+ *      True means that the RPC has finished or been canceled; #wait will
+ *      not block.  False means that the RPC is still being processed.
+ */
+bool
+LinearizableObjectRpcWrapper::isReady()
+{
+    // Poke the client lease to keep it valid.
+    ramcloud->clientLease->poll();
+    return RpcWrapper::isReady();
+}
+
+/**
  * Fills request header with linearizability information.
  * This function should be invoked in the constructor of every linearizable
  * RPC.

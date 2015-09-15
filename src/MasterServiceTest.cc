@@ -3068,7 +3068,12 @@ TEST_F(MasterServiceTest, write_basics) {
     ObjectBuffer value;
     uint64_t version;
 
-    TestLog::Enable _;
+    TestLog::Enable _("writeObject",
+                      "sync",
+                      "schedule",
+                      "performWrite",
+                      "sync",
+                      NULL);
     ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
     EXPECT_EQ(1U, version);
     EXPECT_EQ("writeObject: object: 36 bytes, version 1 | "
