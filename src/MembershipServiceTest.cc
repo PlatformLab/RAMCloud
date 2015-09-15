@@ -55,8 +55,7 @@ class MembershipServiceTest : public ::testing::Test {
         , logEnabler()
     {
         context.externalStorage  = &storage;
-        transport.addService(service, "mock:host=member",
-                             WireFormat::MEMBERSHIP_SERVICE);
+        transport.registerServer(&context, "mock:host=member");
         serverList.testingAdd({serverId, "mock:host=member",
                                {WireFormat::PING_SERVICE}, 100,
                               ServerStatus::UP});

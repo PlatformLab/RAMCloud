@@ -37,6 +37,7 @@ namespace RAMCloud {
  *      Overall information about the RAMCloud server. The caller is assumed
  *      to have associated a serverList with this context; if not, this service
  *      will not return a valid ServerList version in response to pings.
+ *      The new service will be registered in this context.
  */
 PingService::PingService(Context* context)
     : context(context)
@@ -158,7 +159,7 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
             // We should only get this operation if we own a
             // particular object.
             // Check if there is actually a Master Service running.
-            if (context->masterService == NULL) {
+            if (context->getMasterService() == NULL) {
                 respHdr->common.status = STATUS_UNKNOWN_TABLET;
                 return;
             }
@@ -174,8 +175,8 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
             Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
             TabletManager::Tablet tablet;
 
-            if (!context->masterService->tabletManager.getTablet(key, &tablet)
-                || tablet.state != TabletManager::NORMAL) {
+            if (!context->getMasterService()->tabletManager.getTablet(
+                    key, &tablet) || tablet.state != TabletManager::NORMAL) {
                 respHdr->common.status = STATUS_UNKNOWN_TABLET;
                 return;
             }
@@ -186,7 +187,7 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
             // We should only get this operation if we own a
             // particular indexlet.
             // Check if there is actually a Master Service running.
-            if (context->masterService == NULL) {
+            if (context->getMasterService() == NULL) {
                 respHdr->common.status = STATUS_UNKNOWN_INDEXLET;
                 return;
             }
@@ -199,9 +200,9 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
                 return;
             }
 
-            if (!context->masterService->indexletManager.hasIndexlet(
-                                        reqHdr->tableId, reqHdr->indexId,
-                                        stringKey, reqHdr->keyLength)) {
+            if (!context->getMasterService()->indexletManager.hasIndexlet(
+                    reqHdr->tableId, reqHdr->indexId, stringKey,
+                    reqHdr->keyLength)) {
                 respHdr->common.status = STATUS_UNKNOWN_INDEXLET;
                 return;
             }
@@ -304,8 +305,8 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         case WireFormat::QUIESCE:
         {
             LOG(NOTICE, "Backup is waiting for dirty write buffers to sync");
-            if (context->backupService != NULL) {
-                context->backupService->storage->quiesce();
+            if (context->getBackupService() != NULL) {
+                context->getBackupService()->storage->quiesce();
             }
             break;
         }

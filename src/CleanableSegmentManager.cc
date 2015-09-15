@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -295,8 +295,8 @@ CleanableSegmentManager::scanSegmentTombstones(Lock& guard)
         // Protect tombstones which are still in the hash table since their
         // references are removed asynchronously.
         Key key(tomb.getTableId(), tomb.getKey(), tomb.getKeyLength());
-        if (context->masterService->objectManager.keyPointsAtReference(key,
-                  s.getReference(it.getOffset())))
+        if (context->getMasterService()->objectManager.keyPointsAtReference(
+                key, s.getReference(it.getOffset())))
             continue;
         if (!segmentManager.doesIdExist(tomb.getSegmentId())) {
             deadTombstones++;

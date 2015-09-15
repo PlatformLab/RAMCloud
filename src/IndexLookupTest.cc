@@ -99,7 +99,7 @@ class IndexLookupTest : public ::testing::Test {
         config.localLocator = "mock:host=ping1";
         cluster.addServer(config);
 
-        im = &cluster.contexts[0]->masterService->indexletManager;
+        im = &cluster.contexts[0]->getMasterService()->indexletManager;
         ramcloud.construct("mock:");
         transport.construct(ramcloud->clientContext);
 

@@ -67,7 +67,8 @@ MasterService::Replica::Replica(uint64_t backupId, uint64_t segmentId,
  * Construct a MasterService.
  *
  * \param context
- *      Overall information about the RAMCloud server or client.
+ *      Overall information about the RAMCloud server or client. The new
+ *      service will be registered in this context.
  * \param config
  *      Contains various parameters that configure the operation of
  *      this server.

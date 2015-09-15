@@ -455,7 +455,8 @@ PreparedOps::PreparedItem::handleTimerEvent()
 {
     Buffer opBuffer;
     Log::Reference opRef(newOpPtr);
-    context->masterService->objectManager.getLog()->getEntry(opRef, opBuffer);
+    context->getMasterService()->objectManager.getLog()->getEntry(
+            opRef, opBuffer);
     PreparedOp op(opBuffer, 0, opBuffer.size());
 
     TEST_LOG("TxHintFailed RPC is sent to owner of tableId %lu and "

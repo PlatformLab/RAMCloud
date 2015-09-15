@@ -71,8 +71,8 @@ class IndexletManagerTest : public ::testing::Test {
         config.localLocator = "mock:host=master1";
         cluster.addServer(config);
 
-        im = &cluster.contexts[0]->masterService->indexletManager;
-        tm = &cluster.contexts[0]->masterService->tabletManager;
+        im = &cluster.contexts[0]->getMasterService()->indexletManager;
+        tm = &cluster.contexts[0]->getMasterService()->tabletManager;
 
         ramcloud.construct(&context, "mock:host=coordinator");
 

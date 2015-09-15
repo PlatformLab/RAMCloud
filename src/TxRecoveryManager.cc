@@ -83,7 +83,7 @@ TxRecoveryManager::handleTxHintFailed(Buffer* rpcReq)
     uint32_t offset = sizeof32(*reqHdr);
     WireFormat::TxParticipant* participant =
             rpcReq->getOffset<WireFormat::TxParticipant>(offset);
-    if (!context->masterService->tabletManager.getTablet(
+    if (!context->getMasterService()->tabletManager.getTablet(
             participant->tableId, participant->keyHash)) {
         throw UnknownTabletException(HERE);
     }
@@ -291,8 +291,9 @@ TxRecoveryManager::RecoveryTask::performTask()
                         participant->keyHash,
                         participant->rpcId);
             }
-            context->masterService->objectManager.writeTxDecisionRecord(record);
-            context->masterService->objectManager.syncChanges();
+            context->getMasterService()->objectManager.writeTxDecisionRecord(
+                    record);
+            context->getMasterService()->objectManager.syncChanges();
 
             // Change state to cause next phase to execute.
             state = State::DECIDE;

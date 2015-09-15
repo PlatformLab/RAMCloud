@@ -32,7 +32,8 @@ namespace RAMCloud {
  * Create a BackupService.
  *
  * \param context
- *      Overall information about the RAMCloud server.
+ *      Overall information about the RAMCloud server. The new service
+ *      will be registered in this context.
  * \param config
  *      Settings for this instance. The caller guarantees that config will
  *      exist for the duration of this BackupService's lifetime.

@@ -668,8 +668,9 @@ class GcMockMasterService : public Service {
 TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     TestLog::Enable _("tryToFreeReplica");
     GcMockMasterService master;
-    cluster->transport.addService(master, "mock:host=m", MEMBERSHIP_SERVICE);
-    cluster->transport.addService(master, "mock:host=m", MASTER_SERVICE);
+    context.services[MASTER_SERVICE] = &master;
+    context.services[MEMBERSHIP_SERVICE] = &master;
+    cluster->transport.registerServer(&context, "mock:host=m");
     ServerList* backupServerList = static_cast<ServerList*>(
         backup->context->serverList);
     backupServerList->testingAdd({{13, 0}, "mock:host=m", {}, 100,

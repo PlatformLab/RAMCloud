@@ -95,7 +95,7 @@ class TxRecoveryManagerTest : public ::testing::Test {
         cluster.addServer(config);
         ramcloud.construct(&context, "mock:host=coordinator");
 
-        context.masterService = server->master.get();
+        context.services[WireFormat::MASTER_SERVICE] = server->master.get();
 
         // Get pointers to the master sessions.
         Transport::SessionRef session =
@@ -357,7 +357,7 @@ TEST_F(TxRecoveryManagerTest, RecoveryTask_constructor_recovered) {
 
 TEST_F(TxRecoveryManagerTest, TxRecoveryRpcWrapper_send) {
     EXPECT_TRUE(RpcWrapper::NOT_STARTED == txRecoveryRpc->state);
-    EXPECT_THROW(txRecoveryRpc->send(), ServiceNotAvailableException);
+    txRecoveryRpc->send();
     EXPECT_TRUE(RpcWrapper::NOT_STARTED != txRecoveryRpc->state);
 }
 

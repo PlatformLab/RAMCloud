@@ -65,7 +65,7 @@ TEST_F(ServerTest, startForTesting) {
 // run is too much of a pain to and not that interesting.
 
 TEST_F(ServerTest, createAndRegisterServices) {
-    server->createAndRegisterServices(NULL);
+    server->createAndRegisterServices();
     EXPECT_TRUE(server->master);
     EXPECT_TRUE(server->backup);
     EXPECT_TRUE(server->membership);
@@ -81,8 +81,9 @@ TEST_F(ServerTest, createAndRegisterServices) {
 }
 
 TEST_F(ServerTest, enlist) {
-    server->createAndRegisterServices(&cluster.transport);
-    TestLog::Enable _("serverCrashed", "enlistServer");
+    server->createAndRegisterServices();
+    cluster.transport.registerServer(&context, config.localLocator);
+    TestLog::Enable _("serverCrashed", "enlistServer", NULL);
     server->enlist({128, 0});
     EXPECT_EQ(
         "enlistServer: Enlisting server at mock:host=server0 "

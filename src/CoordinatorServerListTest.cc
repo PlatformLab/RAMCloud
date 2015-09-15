@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -593,8 +593,8 @@ TEST_F(CoordinatorServerListTest, recover_incompleteUpdates) {
     storage->getChildrenValues.push(server2);
     TestLog::reset();
     storage->log.clear();
-    cluster.coordinatorContext.coordinatorService->updateManager.lastAssigned
-            = 100;
+    cluster.coordinatorContext.getCoordinatorService()
+            ->updateManager.lastAssigned = 100;
     sl->recover(10);
     EXPECT_TRUE(TestUtil::contains(TestLog::get(),
             "recover: Rescheduling update for server 2.3, version 5, "
@@ -889,8 +889,8 @@ TEST_F(CoordinatorServerListTest, persistAndPropagate) {
     CoordinatorServerList::Entry* entry = sl->getEntry({2, 3});
     TestLog::reset();
     cluster.externalStorage.log.clear();
-    cluster.coordinatorContext.coordinatorService->updateManager.lastAssigned
-            = 10;
+    cluster.coordinatorContext.getCoordinatorService()
+            ->updateManager.lastAssigned = 10;
     sl->version = 50U;
     sl->persistAndPropagate(lock, entry, ServerChangeEvent::SERVER_CRASHED);
     EXPECT_EQ(1U, entry->pendingUpdates.size());
@@ -1190,7 +1190,7 @@ TEST_F(CoordinatorServerListTest, pruneUpdates_badMaxConfirmedVersion) {
 }
 TEST_F(CoordinatorServerListTest, pruneUpdates_basics) {
     CoordinatorUpdateManager* updateManager =
-            &cluster.coordinatorContext.coordinatorService->updateManager;
+            &cluster.coordinatorContext.getCoordinatorService()->updateManager;
     updateManager->reset();
 
     // Create 10 items on the update list
@@ -1229,7 +1229,7 @@ TEST_F(CoordinatorServerListTest, pruneUpdates_basics) {
 }
 TEST_F(CoordinatorServerListTest, pruneUpdates_updateVersionLessThanEntry) {
     CoordinatorUpdateManager* updateManager =
-            &cluster.coordinatorContext.coordinatorService->updateManager;
+            &cluster.coordinatorContext.getCoordinatorService()->updateManager;
     updateManager->reset();
 
     ServerId id = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
@@ -1252,7 +1252,7 @@ TEST_F(CoordinatorServerListTest, pruneUpdates_updateVersionLessThanEntry) {
 
 TEST_F(CoordinatorServerListTest, pruneUpdates_updateVersionGreaterThanEntry) {
     CoordinatorUpdateManager* updateManager =
-            &cluster.coordinatorContext.coordinatorService->updateManager;
+            &cluster.coordinatorContext.getCoordinatorService()->updateManager;
     updateManager->reset();
 
     ServerId id = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,

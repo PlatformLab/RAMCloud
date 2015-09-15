@@ -104,27 +104,13 @@ class Context {
     // The following array is indexed by WireFormat::ServiceType, and
     // holds pointers to all of the services currently known in this
     // context.  NULL means "no such service". Services register themselves
-    // here.
+    // here. The reference objects are not owned by this class (i.e. they
+    // will not be freed here).
     Service* services[WireFormat::INVALID_SERVICE];
 
     // Valid only on the coordinator; used to save coordinator state so it
     // can be recovered after coordinator crashes.
     ExternalStorage* externalStorage;
-
-    // Master-related information for this server. NULL if this process
-    // is not running a RAMCloud master. Owned elsewhere; not freed by this
-    // class.
-    MasterService* masterService;
-
-    // Backup-related information for this server. NULL if this process
-    // is not running a RAMCloud backup. Owned elsewhere; not freed by this
-    // class.
-    BackupService* backupService;
-
-    // Coordinator-related information for this server. NULL if this process
-    // is not running a RAMCloud coordinator. Owned elsewhere; not freed by
-    // this class.
-    CoordinatorService* coordinatorService;
 
     // The following variable is available on all servers (masters, backups,
     // coordinator). It provides facilities that are common to both ServerList
@@ -146,6 +132,36 @@ class Context {
     // NULL except on coordinators. Owned elsewhere;
     // not freed by this class.
     MasterRecoveryManager* recoveryManager;
+
+    /**
+     * Returns the BackupService associated with this context, if
+     * there is one, or NULL if there is none.
+     */
+    BackupService*
+    getBackupService() {
+        return reinterpret_cast<BackupService*>(
+                services[WireFormat::BACKUP_SERVICE]);
+    }
+
+    /**
+     * Returns the CoordinatorService associated with this context, if
+     * there is one, or NULL if there is none.
+     */
+    CoordinatorService*
+    getCoordinatorService() {
+        return reinterpret_cast<CoordinatorService*>(
+                services[WireFormat::COORDINATOR_SERVICE]);
+    }
+
+    /**
+     * Returns the MasterService associated with this context, if there is one,
+     * or NULL if there is none.
+     */
+    MasterService*
+    getMasterService() {
+        return reinterpret_cast<MasterService*>(
+                services[WireFormat::MASTER_SERVICE]);
+    }
 
   PRIVATE:
     void destroy();

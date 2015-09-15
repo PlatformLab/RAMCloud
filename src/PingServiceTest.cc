@@ -102,8 +102,7 @@ class PingServiceTest : public ::testing::Test {
         , masterConfig()
         , masterService()
     {
-        transport.addService(pingService, "mock:host=ping",
-                             WireFormat::PING_SERVICE);
+        transport.registerServer(&context, "mock:host=ping");
         serverList.testingAdd({serverId, "mock:host=ping",
                                {WireFormat::PING_SERVICE}, 100,
                                ServerStatus::UP});
@@ -118,9 +117,6 @@ class PingServiceTest : public ::testing::Test {
                                   WireFormat::PING_SERVICE};
         masterService.construct(pingService.context, masterConfig.get());
         masterService->setServerId(serverId);
-        pingService.context->masterService = masterService.get();
-        transport.addService(*masterService, "mock:host=ping",
-                             WireFormat::MASTER_SERVICE);
     }
 
     void constructUnimplementedServerControlRpc(
@@ -265,8 +261,8 @@ TEST_F(PingServiceTest, proxyPing_timeout) {
 TEST_F(PingServiceTest, serverControl_ObjectServerControl_Basic) {
     // Everything works EXPECT STATUS_UNIMPLEMENTED_REQUEST
     PingServiceTest::addMasterService();
-    context.masterService->tabletManager.addTablet(1, 0, ~0UL,
-                                                   TabletManager::NORMAL);
+    context.getMasterService()->tabletManager.addTablet(
+            1, 0, ~0UL, TabletManager::NORMAL);
 
     Buffer reqBuf;
     Buffer respBuf;
@@ -337,15 +333,14 @@ TEST_F(PingServiceTest, serverControl_ObjectServerControl_NoTablet) {
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, respHdr->common.status);
 
-    context.masterService->tabletManager.addTablet(1, 0, ~0UL,
-                                                   TabletManager::NORMAL);
+    context.getMasterService()->tabletManager.addTablet(
+            1, 0, ~0UL, TabletManager::NORMAL);
 
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNIMPLEMENTED_REQUEST, respHdr->common.status);
 
-    context.masterService->tabletManager.changeState(1, 0, ~0UL,
-                                                     TabletManager::NORMAL,
-                                                     TabletManager::RECOVERING);
+    context.getMasterService()->tabletManager.changeState(
+            1, 0, ~0UL, TabletManager::NORMAL, TabletManager::RECOVERING);
 
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, respHdr->common.status);
@@ -354,9 +349,10 @@ TEST_F(PingServiceTest, serverControl_ObjectServerControl_NoTablet) {
 TEST_F(PingServiceTest, serverControl_IndexServerControl_Basic) {
     // Everything works EXPECT STATUS_UNIMPLEMENTED_REQUEST
     PingServiceTest::addMasterService();
-    context.masterService->tabletManager.addTablet(9, 0, ~0UL,
-                                                        TabletManager::NORMAL);
-    context.masterService->indexletManager.addIndexlet(1, 2, 9, "A", 1, "B", 1);
+    context.getMasterService()->tabletManager.addTablet(
+            9, 0, ~0UL, TabletManager::NORMAL);
+    context.getMasterService()->indexletManager.addIndexlet(
+            1, 2, 9, "A", 1, "B", 1);
 
     Buffer reqBuf;
     Buffer respBuf;
@@ -393,9 +389,10 @@ TEST_F(PingServiceTest, serverControl_IndexServerControl_NoService) {
 TEST_F(PingServiceTest, serverControl_IndexServerControl_BadKey) {
     // Missing key EXPECT STATUS_REQUEST_FORMAT_ERROR
         PingServiceTest::addMasterService();
-    context.masterService->tabletManager.addTablet(9, 0, ~0UL,
-                                                        TabletManager::NORMAL);
-    context.masterService->indexletManager.addIndexlet(1, 2, 9, "A", 1, "B", 1);
+    context.getMasterService()->tabletManager.addTablet(
+            9, 0, ~0UL, TabletManager::NORMAL);
+    context.getMasterService()->indexletManager.addIndexlet(
+            1, 2, 9, "A", 1, "B", 1);
 
     Buffer reqBuf;
     Buffer respBuf;
@@ -415,8 +412,8 @@ TEST_F(PingServiceTest, serverControl_IndexServerControl_BadKey) {
 TEST_F(PingServiceTest, serverControl_IndexServerControl_NoIndexlet) {
     // Index Not Found EXPECT STATUS_UNKNOWN_INDEXLET}
     PingServiceTest::addMasterService();
-    context.masterService->tabletManager.addTablet(9, 0, ~0UL,
-                                                        TabletManager::NORMAL);
+    context.getMasterService()->tabletManager.addTablet(
+            9, 0, ~0UL, TabletManager::NORMAL);
 
     Buffer reqBuf;
     Buffer respBuf;
@@ -432,12 +429,14 @@ TEST_F(PingServiceTest, serverControl_IndexServerControl_NoIndexlet) {
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, respHdr->common.status);
 
-    context.masterService->indexletManager.addIndexlet(1, 2, 9, "A", 1, "B", 1);
+    context.getMasterService()->indexletManager.addIndexlet(
+            1, 2, 9, "A", 1, "B", 1);
 
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNIMPLEMENTED_REQUEST, respHdr->common.status);
 
-    context.masterService->indexletManager.deleteIndexlet(1, 2, "A", 1, "B", 1);
+    context.getMasterService()->indexletManager.deleteIndexlet(1, 2, "A",
+            1, "B", 1);
 
     pingService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, respHdr->common.status);
@@ -557,21 +556,25 @@ TEST_F(PingServiceTest, serverControl_logTimeTrace) {
 TEST_F(PingServiceTest, serverControl_getCacheTrace) {
     Buffer output;
 
+    Util::mockPmcValue = 1;
     context.cacheTrace->record("sample");
     PingClient::serverControl(&context, serverId, WireFormat::GET_CACHE_TRACE,
             "abc", 3, &output);
     EXPECT_EQ("0 misses (+0 misses): sample",
             TestUtil::toString(&output));
+    Util::mockPmcValue = 0;
 }
 
 TEST_F(PingServiceTest, serverControl_logCacheTrace) {
     Buffer output;
 
+    Util::mockPmcValue = 1;
     context.cacheTrace->record("sample");
     PingClient::serverControl(&context, serverId, WireFormat::LOG_CACHE_TRACE,
                 "abc", 3, &output);
     EXPECT_EQ("printInternal: 0 misses (+0 misses): sample",
             TestLog::get());
+    Util::mockPmcValue = 0;
 }
 
 TEST_F(PingServiceTest, serverControl_addLogMessage) {
