@@ -17,6 +17,7 @@
 
 #include "RamCloud.h"
 #include "ClientLease.h"
+#include "ClientTransactionManager.h"
 #include "CoordinatorSession.h"
 #include "Dispatch.h"
 #include "LinearizableObjectRpcWrapper.h"
@@ -73,6 +74,7 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , status(STATUS_OK)
     , clientLease(new ClientLease(this))
     , rpcTracker(new RpcTracker())
+    , transactionManager(new ClientTransactionManager())
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
@@ -90,6 +92,7 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , status(STATUS_OK)
     , clientLease(new ClientLease(this))
     , rpcTracker(new RpcTracker())
+    , transactionManager(new ClientTransactionManager())
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
@@ -104,6 +107,8 @@ RamCloud::~RamCloud()
 
     delete rpcTracker;
     delete realClientContext;
+
+    delete transactionManager;
 }
 
 /**

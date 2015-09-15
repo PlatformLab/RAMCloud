@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "ClientTransactionManager.h"
 #include "ClientTransactionTask.h"
 #include "Transaction.h"
 
@@ -48,10 +49,11 @@ Transaction::commit()
 
     if (!commitStarted) {
         commitStarted = true;
-        ClientTransactionTask::start(taskPtr);
+        ramcloud->transactionManager->startTransactionTask(taskPtr);
     }
 
     while (!task->allDecisionsSent()) {
+        ramcloud->transactionManager->poll();
         ramcloud->poll();
     }
 
@@ -77,10 +79,11 @@ Transaction::sync()
 
     if (!commitStarted) {
         commitStarted = true;
-        ClientTransactionTask::start(taskPtr);
+        ramcloud->transactionManager->startTransactionTask(taskPtr);
     }
 
     while (!task->isReady()) {
+        ramcloud->transactionManager->poll();
         ramcloud->poll();
     }
 }

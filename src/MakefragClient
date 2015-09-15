@@ -32,6 +32,7 @@ CLIENT_SRCFILES := \
 		   src/CacheTrace.cc \
 		   src/ClientException.cc \
 		   src/ClientLease.cc \
+		   src/ClientTransactionManager.cc \
 		   src/ClientTransactionTask.cc \
 		   src/ClusterMetrics.cc \
 		   src/CodeLocation.cc \

@@ -46,6 +46,7 @@ SHARED_SRCFILES := \
 		   src/CacheTrace.cc \
 		   src/ClientException.cc \
 		   src/ClientLease.cc \
+		   src/ClientTransactionManager.cc \
 		   src/ClientTransactionTask.cc \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \

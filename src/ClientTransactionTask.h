@@ -120,7 +120,6 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
                 (state == DECISION && nextCacheEntry == commitCache.end()));
     }
     int performTask();
-    static void start(std::shared_ptr<ClientTransactionTask>& taskPtr);
 
   PRIVATE:
     // Forward declaration of RPCs
@@ -193,35 +192,6 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// Used to keep track of which cache entry to process next as part of the
     /// commit protocol.
     CommitCacheMap::iterator nextCacheEntry;
-
-    /**
-     * The Poller drives the execution of the ClientTransactionTask.  While this
-     * object exists, ClientTransactionTask::performTask will be called.
-     */
-    class Poller : public Dispatch::Poller {
-      PUBLIC:
-        explicit Poller(Dispatch* dispatch,
-                        std::shared_ptr<ClientTransactionTask>& taskPtr);
-        ~Poller() {
-            RAMCLOUD_TEST_LOG("Destructor called.");
-        }
-        virtual int poll();
-
-      PRIVATE:
-        /// Keeps track of if the poll method is already executing to prevent
-        /// recursive calls due to the use of polling in other modules.
-        bool running;
-        /// Shared pointer to the ClientTransactionTask to be run.
-        std::shared_ptr<ClientTransactionTask> taskPtr;
-
-        DISALLOW_COPY_AND_ASSIGN(Poller);
-    };
-    /// Used to delay execution of the task until commit time.
-    /// This structure is similar to a Tub but its destructor is not called
-    /// automatically when when the ClientTransactionTask is destructed.  This
-    /// is necessary to avoid a circular call the the poller's destructor.
-    Poller poller[0];
-    char pollerRawMemory[sizeof(Poller)];
 
     void initTask();
     int processDecisionRpcResults();

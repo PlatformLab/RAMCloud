@@ -29,6 +29,7 @@
 
 namespace RAMCloud {
 class ClientLease;
+class ClientTransactionManager;
 class MultiIncrementObject;
 class MultiReadObject;
 class MultiRemoveObject;
@@ -199,6 +200,7 @@ class RamCloud {
     // are pointers.
     ClientLease *clientLease;
     RpcTracker *rpcTracker;
+    ClientTransactionManager *transactionManager;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);
