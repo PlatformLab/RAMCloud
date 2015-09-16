@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -569,26 +569,30 @@ class PreparedItemTest : public ::testing::Test {
         Cycles::mockTscValue = 0;
     }
 
-    void waitForTxRecoveryDone()
+    bool waitForTxRecoveryDone()
     {
         // See "Timing-Dependent Tests" in designNotes.
         for (int i = 0; i < 1000; i++) {
+            service1->context->dispatch->poll();
+            service2->context->dispatch->poll();
+            service3->context->dispatch->poll();
             if (service1->preparedOps.items.size() == 0 &&
                     service2->preparedOps.items.size() == 0 &&
                     service3->preparedOps.items.size() == 0 &&
                     service1->txRecoveryManager.recoveries.size() == 0 &&
                     service2->txRecoveryManager.recoveries.size() == 0 &&
                     service3->txRecoveryManager.recoveries.size() == 0) {
-                return;
+                return true;
             }
             usleep(1000);
         }
-        ASSERT_TRUE(service1->preparedOps.items.size() == 0 &&
-                    service2->preparedOps.items.size() == 0 &&
-                    service3->preparedOps.items.size() == 0 &&
-                    service1->txRecoveryManager.recoveries.size() == 0 &&
-                    service2->txRecoveryManager.recoveries.size() == 0 &&
-                    service3->txRecoveryManager.recoveries.size() == 0);
+        EXPECT_EQ(0lu, service1->preparedOps.items.size());
+        EXPECT_EQ(0lu, service2->preparedOps.items.size());
+        EXPECT_EQ(0lu, service3->preparedOps.items.size());
+        EXPECT_EQ(0lu, service1->txRecoveryManager.recoveries.size());
+        EXPECT_EQ(0lu, service2->txRecoveryManager.recoveries.size());
+        EXPECT_EQ(0lu, service3->txRecoveryManager.recoveries.size());
+        return false;
     }
 
     DISALLOW_COPY_AND_ASSIGN(PreparedItemTest);
@@ -628,7 +632,7 @@ TEST_F(PreparedItemTest, handleTimerEvent_basic) {
     Cycles::mockTscValue += Cycles::fromMicroseconds(
             PreparedOps::PreparedItem::TX_TIMEOUT_US * 1.5);
     service1->context->dispatch->poll();
-    waitForTxRecoveryDone();
+    EXPECT_TRUE(waitForTxRecoveryDone());
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
         "handleTimerEvent: TxHintFailed RPC is sent to owner of tableId 3 "
         "and keyHash 8205713012933148717."));

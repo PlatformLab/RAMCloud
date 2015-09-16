@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -56,6 +56,7 @@ class WorkerTimerTest : public ::testing::Test {
             }
             usleep(1000);
         }
+        EXPECT_NE(progressCount, WorkerTimer::workerThreadProgressCount);
     }
 
   private:
@@ -234,7 +235,15 @@ TEST_F(WorkerTimerTest, stopInternal_waitForHandlerToFinish) {
     uint64_t start = Cycles::rdtsc();
     Cycles::mockTscValue = 2000;
     std::thread thread(testPoll, &dispatch);
-    usleep(5000);
+    // Wait for the handler to start executing (see "Timing-Dependent Tests"
+    // in designNotes).
+    for (int i = 1; i < 1000; i++) {
+        if (timer->handlerRunning) {
+            break;
+        }
+        usleep(1000);
+    }
+    EXPECT_TRUE(timer->handlerRunning);
     timer->stop();
     Cycles::mockTscValue = 0;              // We need to measure real time!
     double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
@@ -248,22 +257,13 @@ TEST_F(WorkerTimerTest, Manager_constructor) {
     WorkerTimer timer1(&dispatch);
     waitForWorkerProgress();
     EXPECT_EQ(1, WorkerTimer::workerThreadProgressCount);
-
-    // Make sure only one worker thread is started, no matter
-    // how many managers.
-    Dispatch dispatch2(false);
-    WorkerTimer timer2(&dispatch2);
-    // Wait a while and see if a new worker starts up (it better not).
-    usleep(10000);
-    EXPECT_EQ(1, WorkerTimer::workerThreadProgressCount);
-    EXPECT_EQ(2u, WorkerTimer::managers.size());
+    EXPECT_EQ(1lu, WorkerTimer::managers.size());
 }
 
 TEST_F(WorkerTimerTest, Manager_destructor) {
     Tub<WorkerTimer> timer1, timer2;
-    Dispatch dispatch2(false);
     timer1.construct(&dispatch);
-    timer2.construct(&dispatch2);
+    timer2.construct(&dispatch);
     timer2.destroy();
     EXPECT_EQ(1u, WorkerTimer::managers.size());
     EXPECT_EQ("", TestLog::get());
@@ -297,67 +297,78 @@ TEST_F(WorkerTimerTest, findManager) {
     EXPECT_EQ(3u, WorkerTimer::managers.size());
 }
 
-TEST_F(WorkerTimerTest, findTriggeredTimer) {
-    WorkerTimer timer1(&dispatch);
-    Dispatch dispatch2(false);
-    WorkerTimer timer2(&dispatch2);
-    WorkerTimer timer3(&dispatch2);
-    WorkerTimer timer4(&dispatch2);
+TEST_F(WorkerTimerTest, checkTimers_basics) {
+    DummyWorkerTimer timer1("timer1", &dispatch);
+    DummyWorkerTimer timer2("timer2", &dispatch);
+    DummyWorkerTimer timer3("timer3", &dispatch);
+    DummyWorkerTimer timer4("timer4", &dispatch);
+    waitForWorkerProgress();               // Thread startup
     timer1.start(1000);
     timer2.start(600);
     timer3.start(500);
     timer4.start(1100);
+    WorkerTimer::Lock lock(WorkerTimer::mutex);
 
     // First test: nothing has triggered.
-    WorkerTimer::Lock lock(WorkerTimer::mutex);
     Cycles::mockTscValue = 400;
-    WorkerTimer* triggered = WorkerTimer::findTriggeredTimer(lock);
-    EXPECT_TRUE(triggered == NULL);
+    timer1.manager->stop();
+    timer1.manager->checkTimers(lock);
+    EXPECT_EQ("", TestLog::get());
+    EXPECT_EQ(4u, timer1.manager->activeTimers.size());
+    EXPECT_EQ(500lu, timer1.manager->earliestTriggerTime);
+    EXPECT_TRUE(timer1.manager->isRunning());
 
     // Second test: timer2 and timer3 have both triggered, but timer2
-    // will be discovered first.
+    // should run.
     Cycles::mockTscValue = 700;
-    triggered = WorkerTimer::findTriggeredTimer(lock);
-    EXPECT_TRUE(triggered == &timer2);
-    EXPECT_EQ(2u, timer2.manager->activeTimers.size());
-    EXPECT_EQ(500lu, timer2.manager->earliestTriggerTime);
+    timer1.manager->stop();
+    timer1.manager->checkTimers(lock);
+    EXPECT_EQ("handleTimerEvent: WorkerTimer timer2 invoked", TestLog::get());
+    EXPECT_EQ(3u, timer1.manager->activeTimers.size());
+    EXPECT_EQ(500lu, timer1.manager->earliestTriggerTime);
+    EXPECT_FALSE(timer2.active);
+    EXPECT_TRUE(timer1.manager->isRunning());
 
-    // Third test: all timers have triggered, but timer1 will be
-    // discovered first.
-    Cycles::mockTscValue = 1500;
-    triggered = WorkerTimer::findTriggeredTimer(lock);
-    EXPECT_TRUE(triggered == &timer1);
+    // Third test: run remaining timers.
+    Cycles::mockTscValue = 1200;
+    TestLog::reset();
+    timer1.manager->checkTimers(lock);
+    timer1.manager->checkTimers(lock);
+    timer1.manager->stop();
+    timer1.manager->checkTimers(lock);
+    EXPECT_EQ("handleTimerEvent: WorkerTimer timer1 invoked | "
+            "handleTimerEvent: WorkerTimer timer3 invoked | "
+            "handleTimerEvent: WorkerTimer timer4 invoked", TestLog::get());
     EXPECT_EQ(0u, timer1.manager->activeTimers.size());
     EXPECT_EQ(~0lu, timer1.manager->earliestTriggerTime);
-}
-TEST_F(WorkerTimerTest, findTriggeredTimer_restartDispatchTimer) {
-    DummyWorkerTimer timer1("t1", &dispatch);
-    DummyWorkerTimer timer2("t2", &dispatch);
-    DummyWorkerTimer timer3("t3", &dispatch);
-    timer1.start(500);
-    timer2.start(600);
-    timer3.start(700);
-    waitForWorkerProgress();               // Thread startup.
-
-    Cycles::mockTscValue = 500;
-    dispatch.poll();
-    waitForWorkerProgress();
-    EXPECT_EQ("handleTimerEvent: WorkerTimer t1 invoked", TestLog::get());
-    EXPECT_TRUE(timer1.manager->isRunning());
-
-    TestLog::reset();
-    Cycles::mockTscValue = 600;
-    dispatch.poll();
-    waitForWorkerProgress();
-    EXPECT_EQ("handleTimerEvent: WorkerTimer t2 invoked", TestLog::get());
-    EXPECT_TRUE(timer1.manager->isRunning());
-
-    TestLog::reset();
-    Cycles::mockTscValue = 700;
-    dispatch.poll();
-    waitForWorkerProgress();
-    EXPECT_EQ("handleTimerEvent: WorkerTimer t3 invoked", TestLog::get());
     EXPECT_FALSE(timer1.manager->isRunning());
+}
+
+TEST_F(WorkerTimerTest, checkTimers_setHandlerRunningAndSignalFinished) {
+    Tub<DummyWorkerTimer> timer;
+    timer.construct("timer1", &dispatch);
+    waitForWorkerProgress();               // Thread startup.
+    timer->start(1000);
+    timer->sleepMicroseconds = 10000;
+    Cycles::mockTscValue = 0;              // We need to measure real time!
+    uint64_t start = Cycles::rdtsc();
+    Cycles::mockTscValue = 2000;
+    std::thread thread(testPoll, &dispatch);
+
+    // Wait for the handler to start executing (see "Timing-Dependent Tests"
+    // in designNotes).
+    for (int i = 1; i < 1000; i++) {
+        if (timer->handlerRunning) {
+            break;
+        }
+        usleep(1000);
+    }
+    EXPECT_TRUE(timer->handlerRunning);
+    timer.destroy();
+    Cycles::mockTscValue = 0;              // We need to measure real time!
+    double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
+    EXPECT_GE(elapsed, .01);
+    thread.join();
 }
 
 TEST_F(WorkerTimerTest, workerThreadMain_exit) {
@@ -376,23 +387,6 @@ TEST_F(WorkerTimerTest, workerThreadMain_invokeHandler) {
     dispatch.poll();
     waitForWorkerProgress();
     EXPECT_EQ("handleTimerEvent: WorkerTimer t1 invoked", TestLog::get());
-}
-TEST_F(WorkerTimerTest, workerThreadMain_setHandlerRunningAndSignalFinished) {
-    Tub<DummyWorkerTimer> timer;
-    timer.construct("timer1", &dispatch);
-    waitForWorkerProgress();               // Thread startup.
-    timer->start(1000);
-    timer->sleepMicroseconds = 10000;
-    Cycles::mockTscValue = 0;              // We need to measure real time!
-    uint64_t start = Cycles::rdtsc();
-    Cycles::mockTscValue = 2000;
-    std::thread thread(testPoll, &dispatch);
-    usleep(5000);
-    timer.destroy();
-    Cycles::mockTscValue = 0;              // We need to measure real time!
-    double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
-    EXPECT_GE(elapsed, .01);
-    thread.join();
 }
 
 

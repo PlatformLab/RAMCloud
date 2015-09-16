@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -21,9 +21,7 @@
 
 namespace RAMCloud {
 std::mutex WorkerTimer::mutex;
-std::condition_variable WorkerTimer::timerExpired;
 WorkerTimer::ManagerList WorkerTimer::managers;
-Tub<std::thread> WorkerTimer::workerThread;
 int WorkerTimer::workerThreadProgressCount = 0;
 
 /**
@@ -158,15 +156,13 @@ WorkerTimer::Manager::Manager(Dispatch* dispatch, Lock& lock)
     , dispatch(dispatch)
     , timerCount(0)
     , earliestTriggerTime(~0ul)
+    , workerThread()
+    , waitingForWork()
     , activeTimers()
     , links()
 {
     managers.push_back(*this);
-
-    // Start the worker thread, if it doesn't already exist.
-    if (!workerThread) {
-        workerThread.construct(workerThreadMain);
-    }
+    workerThread.construct(workerThreadMain, this);
 }
 
 /**
@@ -176,18 +172,18 @@ WorkerTimer::Manager::Manager(Dispatch* dispatch, Lock& lock)
 WorkerTimer::Manager::~Manager()
 {
     erase(managers, *this);
-    if (managers.empty()) {
-        // Shut down the worker thread. All we need to do is wake it up:
-        // it will see that there are no more managers and then exit.
-        timerExpired.notify_one();
-        {
-            // Must release lock while waiting for thread to exit; otherwise
-            // it can't run.
-            Unlock<std::mutex> unlock(mutex);
-            workerThread->join();
-        }
-        workerThread.destroy();
+
+    // Shut down the worker thread. All we need to do is wake it up:
+    // it will see that there are no more managers and then exit.
+    timerCount = -1;
+    waitingForWork.notify_one();
+    {
+        // Must release lock while waiting for thread to exit; otherwise
+        // it can't run.
+        Unlock<std::mutex> unlock(mutex);
+        workerThread->join();
     }
+    workerThread.destroy();
 }
 
 /**
@@ -200,7 +196,7 @@ WorkerTimer::Manager::handleTimerEvent()
     // There used to be a WorkerTimer::mutex here, but it is not necessary to
     // hold a lock and it causes deadlock between dispatch thread and the
     // WorkerTimer thread.  Just wake up the worker thread.
-    WorkerTimer::timerExpired.notify_one();
+    waitingForWork.notify_one();
 }
 
 /**
@@ -232,102 +228,87 @@ WorkerTimer::findManager(Dispatch* dispatch, Lock& lock)
 }
 
 /**
- * This function does most of the work of WorkerThreadMain. It is
- * separated into its own method for ease of testing. This method
- * searches the active timers to see if any have triggered. If so,
- * it returns the first one that has triggered (and also resets the
- * state of that timer to reflect the fact that it is no longer running).
- * This method does not actually execute the handler.
+ * This method does most of the work for the worker thread. It checks
+ * to see if any WorkerTimers are ready to execute and, if so, it
+ * runs one of them. In addition, it restarts the Dispatch::Timer
+ * for this manager if there are WorkerTimers still waiting.
  *
  * \param lock
  *      Used to ensure that caller has acquired WorkerTimer::mutex.
  *      Not actually used by the method.
- *
- * \return
- *      The return value is a pointer to a timer whose handler should be
- *      invoked, or NULL if there are no such timers.
  */
-WorkerTimer* WorkerTimer::findTriggeredTimer(Lock& lock)
+void WorkerTimer::Manager::checkTimers(Lock& lock)
 {
-    uint64_t currentTime = Cycles::rdtsc();
-    Manager* manager;
-    WorkerTimer* timer;
-
-    // Search all of the Manager objects (typically there will be
-    // only one) to see if there is a runnable WorkerTimer.
-    for (ManagerList::iterator managerIterator(managers.begin());
-            managerIterator != managers.end(); managerIterator++) {
-        manager = &(*managerIterator);
-        for (Manager::TimerList::iterator
-                timerIterator(manager->activeTimers.begin());
-                timerIterator != manager->activeTimers.end();
-                timerIterator++) {
-            timer = &(*timerIterator);
-            if (timer->triggerTime <= currentTime) {
-                goto foundTriggered;
+    // Scan the list of active timers to (a) find a timer that's ready to run
+    // (if there is one) and (b) recompute earliestTriggerTime.
+    WorkerTimer* ready = NULL;
+    uint64_t newEarliest = ~0lu;
+    uint64_t now = Cycles::rdtsc();
+    for (Manager::TimerList::iterator
+            timerIterator(activeTimers.begin());
+            timerIterator != activeTimers.end();
+            timerIterator++) {
+        // Note: if multiple WorkerTimers are ready, run the one that
+        // has been on the queue the longest (this prevents starvation).)
+        if ((timerIterator->triggerTime <= now)
+                && (ready == NULL)) {
+            ready = &(*timerIterator);
+        } else {
+            if (timerIterator->triggerTime < newEarliest) {
+                newEarliest = timerIterator->triggerTime;
             }
         }
     }
+    earliestTriggerTime = newEarliest;
 
-    // No timer has triggered yet.
-    return NULL;
+    if (ready != NULL) {
+        // Remove the timer from the list (it can reschedule itself if
+        // it wants).
+        erase(activeTimers, *ready);
+        ready->active = false;
+        ready->handlerRunning = true;
 
-    // A timer expired. Deactivate it and recompute the timer for its Manager.
-    foundTriggered:
-    erase(manager->activeTimers, *timer);
-    timer->active = false;
-    manager->earliestTriggerTime = ~0ul;
-    for (Manager::TimerList::iterator
-            timerIterator(manager->activeTimers.begin());
-            timerIterator != manager->activeTimers.end();
-            timerIterator++) {
-        if (timerIterator->triggerTime < manager->earliestTriggerTime) {
-            manager->earliestTriggerTime = timerIterator->triggerTime;
+        // Release the monitor lock while the timer handler runs; otherwise,
+        // WorkerTimer::handleTimerEvent might hang on the lock for a long
+        // time, effectively blocking the dispatch thread.
+        {
+            Unlock<std::mutex> unlock(mutex);
+            ready->handleTimerEvent();
         }
+        ready->handlerRunning = false;
+        ready->handlerFinished.notify_one();
     }
-    if (manager->earliestTriggerTime != ~0ul) {
-        Dispatch::Lock dispatchLock(manager->dispatch);
-        manager->start(manager->earliestTriggerTime);
+
+    if (!activeTimers.empty()) {
+        Dispatch::Lock dispatchLock(dispatch);
+        start(earliestTriggerTime);
     }
-    return timer;
 }
 
 /**
- * This function is the main program for the worker thread, which
- * executes the handlers for WorkerTimers.
+ * This function is the main program for worker threads, which
+ * executes the handlers for WorkerTimers associated with a single
+ * Dispatch.
  */
-void WorkerTimer::workerThreadMain()
+void WorkerTimer::Manager::workerThreadMain(Manager* manager)
 try {
     Lock lock(mutex);
 
-    // Each iteration through the following loop runs one WorkerTimer,
-    // if one has triggered, or else it waits on a condition variable for
-    // the next timer to complete.
     while (true) {
-        if (managers.empty()) {
+        workerThreadProgressCount++;
+        manager->checkTimers(lock);
+
+        // The following check must occur *after* calling checkTimers, since
+        // checkTimers may release the lock, which could allow timerCount
+        // to change. Note: if timerCount was already negative, then
+        // checkTimers won't find any work to do.
+        if (manager->timerCount < 0) {
             // There are no longer any Manager objects; this is our cue
             // to exit the thread.
             TEST_LOG("exiting");
-            workerThreadProgressCount++;
             return;
         }
-
-        WorkerTimer* timer = findTriggeredTimer(lock);
-        if (timer != NULL) {
-            // Release the monitor lock while the timer handler runs; otherwise,
-            // WorkerTimer::handleTimerEvent might hang on the lock for a long
-            // time, effectively blocking the dispatch thread.
-            timer->handlerRunning = true;
-            {
-                Unlock<std::mutex> unlock(mutex);
-                timer->handleTimerEvent();
-            }
-            timer->handlerRunning = false;
-            timer->handlerFinished.notify_one();
-        } else {
-            workerThreadProgressCount++;
-            timerExpired.wait(lock);
-        }
+        manager->waitingForWork.wait(lock);
     }
 } catch (const std::exception& e) {
     LOG(ERROR, "Fatal error in workerThreadMain: %s", e.what());

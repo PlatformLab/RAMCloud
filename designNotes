@@ -242,7 +242,7 @@ with a pointer rather than an inline structure, e.g.
     ClientLease *clientLease
 not
     ClientLease clientLease
-This ccomplicates storage management slightly (e.g., destructors must free
+This complicates storage management slightly (e.g., destructors must free
 the nested object), but it eliminates the need for the corresponding header
 file to be included. This is important primarily in header files that are
 used by clients, such as RamCloud.h:  without this approach, virtually every
