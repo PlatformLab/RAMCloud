@@ -60,6 +60,11 @@ class PingService : public Service {
     /// for this call.
     bool ignoreKill;
 
+    /// Used during unit tests: if true, the next call to getServerId
+    /// will return an invalid id, and it will reset this variable to
+    /// false.
+    bool returnUnknownId;
+
     DISALLOW_COPY_AND_ASSIGN(PingService);
 };
 

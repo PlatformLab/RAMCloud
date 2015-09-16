@@ -207,6 +207,21 @@ TEST_F(AbstractServerListTest, getSession_verifyServerId) {
             "id (expected 1.0, got 0.0); discarding session",
             TestLog::get());
 }
+TEST_F(AbstractServerListTest, getSession_retryIdVerification) {
+    AbstractServerList::skipServerIdCheck = false;
+    BindTransport transport(&context);
+    TransportManager::MockRegistrar mockRegistrar(&context, transport);
+    PingService pingService(&context);
+    pingService.returnUnknownId = true;
+    transport.registerServer(&context, "mock:host=ping");
+    ServerId id1 = sl.add("mock:host=ping", ServerStatus::UP,
+            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE});
+    pingService.setServerId(id1);
+    TestLog::Enable _;
+    EXPECT_EQ("mock:host=ping", sl.getSession(id1)->getServiceLocator());
+    EXPECT_EQ("getSession: retrying server id check for 0.0: server "
+            "not yet enlisted", TestLog::get());
+}
 
 TEST_F(AbstractServerListTest, flushSession) {
     MockTransport transport(&context);

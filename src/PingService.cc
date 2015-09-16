@@ -42,6 +42,7 @@ namespace RAMCloud {
 PingService::PingService(Context* context)
     : context(context)
     , ignoreKill(false)
+    , returnUnknownId(false)
 {
     context->services[WireFormat::PING_SERVICE] = this;
 }
@@ -77,7 +78,12 @@ PingService::getServerId(const WireFormat::GetServerId::Request* reqHdr,
              WireFormat::GetServerId::Response* respHdr,
              Rpc* rpc)
 {
-    respHdr->serverId = serverId.getId();
+    if (returnUnknownId) {
+        returnUnknownId = false;
+        respHdr->serverId = ServerId().getId();
+    } else {
+        respHdr->serverId = serverId.getId();
+    }
 }
 
 /**

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -155,13 +155,23 @@ AbstractServerList::getSession(ServerId id)
     // the server uses the same locator, but has a different server id).
     // See RAM-571 for more on this.
     if (!skipServerIdCheck) {
-        ServerId actualId = PingClient::getServerId(context, session);
-        if (actualId != id) {
-            RAMCLOUD_LOG(NOTICE, "server for locator %s has incorrect id "
-                    "(expected %s, got %s); discarding session",
-                    locator.c_str(), id.toString().c_str(),
-                    actualId.toString().c_str());
-            return FailSession::get();
+        while (1) {
+            ServerId actualId = PingClient::getServerId(context, session);
+            if (actualId == id) {
+                break;
+            }
+            if (actualId.isValid()) {
+                RAMCLOUD_LOG(NOTICE, "server for locator %s has incorrect id "
+                        "(expected %s, got %s); discarding session",
+                        locator.c_str(), id.toString().c_str(),
+                        actualId.toString().c_str());
+                return FailSession::get();
+            }
+            // If we get here, it means that the server doesn't yet know its
+            // id (it must not have completed the enlistment process yet).
+            // Keep trying.
+            RAMCLOUD_CLOG(NOTICE, "retrying server id check for %s: "
+                    "server not yet enlisted", id.toString().c_str());
         }
     }
 
