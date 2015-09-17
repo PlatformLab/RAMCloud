@@ -57,7 +57,7 @@ TxRecoveryManager::handleTimerEvent()
         }
     }
 
-    // Reschedule if there is still recoveries in progress.
+    // Reschedule if there are still recoveries in progress.
     if (recoveries.size() > 0) {
         this->start(0);
     }
@@ -214,8 +214,8 @@ TxRecoveryManager::RecoveryTask::RecoveryTask(
         uint64_t keyHash = participant->keyHash;
         uint64_t rpcId = participant->rpcId;
         participants.emplace_back(tableId,
-                                     keyHash,
-                                     rpcId);
+                                  keyHash,
+                                  rpcId);
         offset += sizeof32(*participant);
     }
     nextParticipantEntry = participants.begin();
@@ -265,8 +265,15 @@ void
 TxRecoveryManager::RecoveryTask::performTask()
 {
     if (state == State::REQUEST_ABORT) {
-        processRequestAbortRpcs();
         sendRequestAbortRpc();
+        try {
+            processRequestAbortRpcResults();
+        } catch (StaleRpcException& e) {
+            // Finish early since the recovery process is not actually needed.
+            requestAbortRpcs.clear();   // cleanup early to avoid extra work.
+            state = State::DONE;
+            return;
+        }
         if (nextParticipantEntry == participants.end()
             && requestAbortRpcs.empty())
         {
@@ -299,9 +306,10 @@ TxRecoveryManager::RecoveryTask::performTask()
             state = State::DECIDE;
             nextParticipantEntry = participants.begin();
         }
-    } else if (state == State::DECIDE) {
-        processDecisionRpcs();
+    }
+    if (state == State::DECIDE) {
         sendDecisionRpc();
+        processDecisionRpcResults();
         if (nextParticipantEntry == participants.end()
             && requestAbortRpcs.empty())
         {
@@ -309,17 +317,6 @@ TxRecoveryManager::RecoveryTask::performTask()
             // Change state to cause next phase to execute.
             state = State::DONE;
         }
-    }
-}
-
-/**
- * Polls waiting for the recovery task to complete.
- */
-void
-TxRecoveryManager::RecoveryTask::wait()
-{
-    while (!isReady()) {
-        performTask();
     }
 }
 
@@ -504,7 +501,7 @@ TxRecoveryManager::RecoveryTask::DecisionRpc::wait()
  * of testing.
  */
 void
-TxRecoveryManager::RecoveryTask::processDecisionRpcs()
+TxRecoveryManager::RecoveryTask::processDecisionRpcResults()
 {
     // Process outstanding RPCs.
     std::list<DecisionRpc>::iterator it = decisionRpcs.begin();
@@ -651,9 +648,13 @@ TxRecoveryManager::RecoveryTask::RequestAbortRpc::wait()
 /**
  * Process any request abort rpcs that have completed.  Factored out mostly for
  * ease of testing.
+ *
+ * \throw StaleRpcException
+ *      At least one of the requested aborts could not complete because the
+ *      client has already completed the transaction protocol.
  */
 void
-TxRecoveryManager::RecoveryTask::processRequestAbortRpcs()
+TxRecoveryManager::RecoveryTask::processRequestAbortRpcResults()
 {
     // Process outstanding RPCs.
     std::list<RequestAbortRpc>::iterator it = requestAbortRpcs.begin();
@@ -665,7 +666,7 @@ TxRecoveryManager::RecoveryTask::processRequestAbortRpcs()
         }
 
         try {
-            if (rpc->wait() == WireFormat::TxPrepare::PREPARED) {
+            if (rpc->wait() == WireFormat::TxPrepare::ABORT) {
                 decision = WireFormat::TxDecision::ABORT;
             }
         } catch (UnknownTabletException& e) {

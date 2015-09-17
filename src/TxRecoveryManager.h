@@ -112,7 +112,6 @@ class TxRecoveryManager : public WorkerTimer {
         RecoveryId getId() { return {leaseId, participants.begin()->rpcId}; }
         bool isReady() { return (state == State::DONE); }
         void performTask();
-        void wait();
 
       PRIVATE:
         /// Encapsulates common state and methods of the Decision and
@@ -208,9 +207,9 @@ class TxRecoveryManager : public WorkerTimer {
         /// List of outstanding request abort rpcs.
         std::list<RequestAbortRpc> requestAbortRpcs;
 
-        void processDecisionRpcs();
+        void processDecisionRpcResults();
         void sendDecisionRpc();
-        void processRequestAbortRpcs();
+        void processRequestAbortRpcResults();
         void sendRequestAbortRpc();
 
         string toString();

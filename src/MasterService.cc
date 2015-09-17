@@ -2482,6 +2482,16 @@ MasterService::txRequestAbort(
         uint64_t rpcId = participants[i].rpcId;
         uint64_t keyHash = participants[i].keyHash;
 
+        // If the tablet doesn't exist in the NORMAL state,
+        // we must plead ignorance.
+        TabletManager::Tablet tablet;
+        if (!tabletManager.getTablet(tableId, keyHash, &tablet) ||
+            tablet.state != TabletManager::NORMAL) {
+            respHdr->common.status = STATUS_UNKNOWN_TABLET;
+            rpc->sendReply();
+            return;
+        }
+
         rpcHandles.emplace_back(&unackedRpcResults,
                                 reqHdr->leaseId,
                                 rpcId,
