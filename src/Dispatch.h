@@ -44,6 +44,9 @@ namespace RAMCloud {
  * - Other threads can invoke Dispatch methods, but they must hold a
  *   Dispatch::Lock object at the time of the invocation, in order to avoid
  *   synchronization problems.
+ * - The Timer methods are thread-safe without acquiring Dispatch::Lock
+ *   (use of Dispatch::Lock is now deprecated because it is slow, so we
+ *   are gradually eliminating its use).
  */
 class Dispatch {
   public:
@@ -191,6 +194,8 @@ class Dispatch {
         void stop();
 
       PROTECTED:
+        void stopInternal(std::lock_guard<SpinLock>& lock);
+
         /// The Dispatch object that owns this Timer.  NULL means the
         /// Dispatch has been deleted.
         Dispatch* owner;
@@ -283,6 +288,10 @@ class Dispatch {
     // Used to assign a (nearly) unique identifier to each invocation
     // of a File.
     int fileInvocationSerial;
+
+    // Protects all accesses to timers and write accesses to
+    // earliestTriggerTime.
+    SpinLock timerMutex;
 
     // Keeps track of all of the timers that are currently active.  We
     // don't use an intrusive list here because it isn't reentrant: we need

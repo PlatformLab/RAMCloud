@@ -98,7 +98,6 @@ void WorkerTimer::start(uint64_t rdtscTime)
         manager->activeTimers.push_back(*this);
     }
     if (triggerTime < manager->earliestTriggerTime) {
-        Dispatch::Lock dispatchLock(manager->dispatch);
         manager->earliestTriggerTime = triggerTime;
         manager->start(manager->earliestTriggerTime);
     }
@@ -134,7 +133,6 @@ void WorkerTimer::stopInternal(Lock& lock)
         erase(manager->activeTimers, *this);
         active = false;
         if (manager->activeTimers.empty()) {
-            Dispatch::Lock dispatchLock(manager->dispatch);
             manager->earliestTriggerTime = ~0lu;
             manager->stop();
         }
@@ -280,7 +278,6 @@ void WorkerTimer::Manager::checkTimers(Lock& lock)
     }
 
     if (!activeTimers.empty()) {
-        Dispatch::Lock dispatchLock(dispatch);
         start(earliestTriggerTime);
     }
 }
