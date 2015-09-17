@@ -55,6 +55,7 @@ callees = {
     "INSERT_INDEX_ENTRY":    ["BACKUP_WRITE"],
     "MULTI_OP":              ["BACKUP_WRITE", "INSERT_INDEX_ENTRY",
                               "REMOVE_INDEX_ENTRY"],
+    "RECEIVE_MIGRATION_DATA":["BACKUP_WRITE"],
     "RECOVER":               ["BACKUP_GETRECOVERYDATA", "BACKUP_WRITE"],
     "REMOVE":                ["BACKUP_WRITE", "REMOVE_INDEX_ENTRY"],
     "REMOVE_INDEX_ENTRY":    ["BACKUP_WRITE"],
