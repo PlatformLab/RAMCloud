@@ -90,6 +90,52 @@ TEST_F(TableStatsTest, constructor_TableStats) {
     }
 }
 
+TEST_F(TableStatsTest, addKeyHashRange) {
+    MasterTableMetadata::Entry* entry;
+    EXPECT_TRUE(mtm.find(0) == NULL);
+    TableStats::addKeyHashRange(&mtm, 0, 0, 10);
+    EXPECT_NE(mtm.tableMetadataMap.end(), mtm.tableMetadataMap.find(0));
+    entry = mtm.find(0);
+    EXPECT_FALSE(entry == NULL);
+    {
+        TableStats::Lock guard(entry->stats.lock);
+        EXPECT_EQ(11U, entry->stats.keyHashCount);
+        EXPECT_FALSE(entry->stats.totalOwnership);
+    }
+
+    TableStats::addKeyHashRange(&mtm, 0, 11, ~0UL);
+    {
+        TableStats::Lock guard(entry->stats.lock);
+        EXPECT_EQ(0U, entry->stats.keyHashCount);
+        EXPECT_TRUE(entry->stats.totalOwnership);
+    }
+}
+
+TEST_F(TableStatsTest, deleteKeyHashRange) {
+    MasterTableMetadata::Entry* entry;
+    EXPECT_TRUE(mtm.find(0) == NULL);
+    TableStats::deleteKeyHashRange(&mtm, 0, 11, ~0UL);
+    entry = mtm.find(0);
+    EXPECT_TRUE(entry == NULL);
+
+    TableStats::addKeyHashRange(&mtm, 0, 0, ~0UL);
+    entry = mtm.find(0);
+    EXPECT_FALSE(entry == NULL);
+    {
+        TableStats::Lock guard(entry->stats.lock);
+        EXPECT_EQ(0U, entry->stats.keyHashCount);
+        EXPECT_TRUE(entry->stats.totalOwnership);
+    }
+
+    TableStats::deleteKeyHashRange(&mtm, 0, 11, ~0UL);
+    EXPECT_FALSE(entry == NULL);
+    {
+        TableStats::Lock guard(entry->stats.lock);
+        EXPECT_EQ(11U, entry->stats.keyHashCount);
+        EXPECT_FALSE(entry->stats.totalOwnership);
+    }
+}
+
 TEST_F(TableStatsTest, increment) {
     MasterTableMetadata::Entry* entry;
     EXPECT_TRUE(mtm.find(0) == NULL);

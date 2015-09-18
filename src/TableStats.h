@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -56,16 +56,30 @@ namespace TableStats {
  */
 struct Block {
     SpinLock lock;          /// Aquire this monitor lock before member access.
+    uint64_t keyHashCount;  /// Number of key hashes that reside on this master.
+                            /// If a master has total ownership this value is
+                            /// assumed to be 2^64.
+    bool totalOwnership;    /// True if this master completely owns this table.
     uint64_t byteCount;     /// Number of bytes of data related to a table.
     uint64_t recordCount;   /// Number of log records related to a table.
 
     Block()
         : lock("TableStats::lock")
+        , keyHashCount(0)
+        , totalOwnership(false)
         , byteCount(0)
         , recordCount(0)
     {}
 };
 
+void addKeyHashRange(MasterTableMetadata* mtm,
+                     uint64_t tableId,
+                     uint64_t startKeyHash,
+                     uint64_t endKeyHash);
+void deleteKeyHashRange(MasterTableMetadata* mtm,
+                        uint64_t tableId,
+                        uint64_t startKeyHash,
+                        uint64_t endKeyHash);
 void increment(MasterTableMetadata* mtm,
                uint64_t tableId,
                uint64_t byteCount,
@@ -84,8 +98,8 @@ void serialize(Buffer* buf, MasterTableMetadata *mtm);
  *
  * A threshold of 24MB was selected to both bound the max number of entries we
  * would store in the stats block and ensure that the error the results would be
- * "relatively small" compared to the target partition size.  Some assume value
- * include:
+ * "relatively small" compared to the target partition size.  Some assumed
+ * values include:
  *      SegmentSize 8MB
  *      MasterCapacity 64GB
  *      StatsEntrySize 24B

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -20,6 +20,86 @@
 namespace RAMCloud {
 
 namespace TableStats {
+
+/**
+ * Update the table status information in the event a tablet is added to keep
+ * track of the number of key hash values that this master owns for the given
+ * tableId.  This is called by callers of TabletManager::addTablet.  This method
+ * does no sanity checking; it assumes that callers ensure tablet ranges do not
+ * overlap causing double counting (by calling TabletManager::addTablet first).
+ *
+ * \param mtm
+ *      Pointer to MasterTableMetadata container that is storing the current
+ *      stats information.  Must not be NULL.
+ * \param tableId
+ *      Id of table whose stats information will be updated.
+ * \param startKeyHash
+ *      First key hash value of the to-be-added tablet.
+ * \param endKeyHash
+ *      Last Key hash value of the to-be-added tablet.
+ */
+void
+addKeyHashRange(MasterTableMetadata* mtm,
+                uint64_t tableId,
+                uint64_t startKeyHash,
+                uint64_t endKeyHash)
+{
+    MasterTableMetadata::Entry* entry;
+    entry = mtm->findOrCreate(tableId);
+
+    Lock guard(entry->stats.lock);
+    // We assuming that calls to addTablet will only overflow keyHashCount if
+    // the master has total ownership (in that case the keyHashCount will
+    // overflow to 0).
+    entry->stats.keyHashCount += (endKeyHash - startKeyHash);
+    entry->stats.keyHashCount += 1;
+    if (entry->stats.keyHashCount == 0) {
+        entry->stats.totalOwnership = true;
+    }
+    TEST_LOG("tableId %lu range [0x%lx,0x%lx]",
+            tableId, startKeyHash, endKeyHash);
+}
+
+/**
+ * Update the table status information in the event a tablet is deleted to keep
+ * track of the number of key hash values that this master owns for the given
+ * tableId.  This is called by callers of TabletManager::deleteTablet.  This
+ * method does no sanity checking; it assumes that callers ensure tablet ranges
+ * do not overlap causing double counting (by calling
+ * TabletManager::deleteTablet first).
+ *
+ * \param mtm
+ *      Pointer to MasterTableMetadata container that is storing the current
+ *      stats information.  Must not be NULL.
+ * \param tableId
+ *      Id of table whose stats information will be updated.
+ * \param startKeyHash
+ *      First key hash value of the to-be-deleted tablet.
+ * \param endKeyHash
+ *      Last Key hash value of the to-be-deleted tablet.
+ */
+void
+deleteKeyHashRange(MasterTableMetadata* mtm,
+                   uint64_t tableId,
+                   uint64_t startKeyHash,
+                   uint64_t endKeyHash)
+{
+    MasterTableMetadata::Entry* entry;
+    entry = mtm->find(tableId);
+
+    if (entry != NULL) {
+        Lock guard(entry->stats.lock);
+        // We assuming that calls to deleteTablet will not cause keyHashCount
+        // underflow except when moving from a state where the master owns the
+        // whole table.
+        entry->stats.keyHashCount -= (endKeyHash - startKeyHash);
+        entry->stats.keyHashCount -= 1;
+        entry->stats.totalOwnership = false;
+    }
+    TEST_LOG("tableId %lu range [0x%lx,0x%lx]",
+            tableId, startKeyHash, endKeyHash);
+}
+
 /**
  * Update table stats information, incrementing the exisitng stats values by the
  * values provided.  If no stats information previously existed for the
@@ -174,7 +254,7 @@ Estimator::Estimator(const Digest* digest, vector<Tablet>* tablets)
                   digest->header.otherByteCount,
                   digest->header.otherRecordCount};
 
-    // Second, the estimator uses the tablet infromation to collect aggragate
+    // Second, the estimator uses the tablet information to collect aggregate
     // keyHash range information.
     for (vector<Tablet>::iterator it = tablets->begin();
          it != tablets->end();
