@@ -240,7 +240,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
     TestLog::Enable _;
     build(buf, length, certificate, 2, partitions, recoverySegments.get());
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-        "Couldn't place object with <tableId, keyHash> of <10"));
+        "Couldn't place object"));
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
         "Skipping object with <tableId, keyHash> of <2"));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
