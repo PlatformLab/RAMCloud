@@ -33,6 +33,7 @@
 #include "Segment.h"
 #include "ServerRpcPool.h"
 #include "ShortMacros.h"
+#include "TableStats.h"
 #include "TimeTrace.h"
 #include "Transport.h"
 #include "Tub.h"
@@ -316,8 +317,12 @@ MasterService::dropTabletOwnership(
         WireFormat::DropTabletOwnership::Response* respHdr,
         Rpc* rpc)
 {
-    tabletManager.deleteTablet(reqHdr->tableId,
-            reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+    bool removed = tabletManager.deleteTablet(reqHdr->tableId,
+                   reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+    if (removed) {
+        TableStats::deleteKeyHashRange(&masterTableMetadata, reqHdr->tableId,
+                reqHdr->firstKeyHash, reqHdr->lastKeyHash);
+    }
 
     // Ensure that the ObjectManager never returns objects from this deleted
     // tablet again.
@@ -1053,7 +1058,13 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
             context->serverList->toString(receiver).c_str(),
             totalBytes);
 
-    tabletManager.deleteTablet(tableId, firstKeyHash, lastKeyHash);
+    bool removed = tabletManager.deleteTablet(tableId,
+                                              firstKeyHash,
+                                              lastKeyHash);
+    if (removed) {
+        TableStats::deleteKeyHashRange(&masterTableMetadata, tableId,
+                firstKeyHash, lastKeyHash);
+    }
 
     // Ensure that the ObjectManager never returns objects from this deleted
     // tablet again.
@@ -1505,6 +1516,8 @@ MasterService::prepForMigration(
         LOG(NOTICE, "Ready to receive tablet [0x%lx,0x%lx] in tableId %lu from "
                 "\"??\"", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
                 reqHdr->tableId);
+        TableStats::addKeyHashRange(&masterTableMetadata, reqHdr->tableId,
+                reqHdr->firstKeyHash, reqHdr->lastKeyHash);
     } else {
         TabletManager::Tablet tablet;
         if (!tabletManager.getTablet(reqHdr->tableId,
@@ -2241,6 +2254,8 @@ MasterService::takeTabletOwnership(
     if (added) {
         LOG(NOTICE, "Took ownership of new tablet [0x%lx,0x%lx] in tableId %lu",
                 reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
+        TableStats::addKeyHashRange(&masterTableMetadata, reqHdr->tableId,
+                reqHdr->firstKeyHash, reqHdr->lastKeyHash);
     } else {
         TabletManager::Tablet tablet;
         if (tabletManager.getTablet(reqHdr->tableId,
@@ -3463,6 +3478,10 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                     newTablet.table_id(),
                     newTablet.start_key_hash(), newTablet.end_key_hash(),
                     tabletManager.toString().c_str()));
+        } else {
+            TableStats::addKeyHashRange(&masterTableMetadata,
+                    newTablet.table_id(), newTablet.start_key_hash(),
+                    newTablet.end_key_hash());
         }
     }
 
@@ -3598,8 +3617,14 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // recovery before starting to serve requests again.
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
                 recoveryPartition.tablet()) {
-            tabletManager.deleteTablet(tablet.table_id(),
+            bool removed = tabletManager.deleteTablet(tablet.table_id(),
                     tablet.start_key_hash(), tablet.end_key_hash());
+            if (removed) {
+                TableStats::deleteKeyHashRange(&masterTableMetadata,
+                        tablet.table_id(), tablet.start_key_hash(),
+                        tablet.end_key_hash());
+            }
+
         }
         foreach (const ProtoBuf::Indexlet& indexlet,
                 recoveryPartition.indexlet()) {
