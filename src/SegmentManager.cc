@@ -615,8 +615,8 @@ SegmentManager::doesIdExist(uint64_t id)
 }
 
 #ifdef TESTING
-/// Set to non-0 to mock the reported utilization of backup segments.
 int SegmentManager::mockSegmentUtilization = 0;
+int SegmentManager::mockMemoryUtilization = 0;
 #endif
 
 /**
@@ -648,6 +648,11 @@ int
 SegmentManager::getMemoryUtilization()
 {
     Lock guard(lock);
+
+#ifdef TESTING
+    if (mockMemoryUtilization)
+        return mockMemoryUtilization;
+#endif
 
     size_t freeSeglets = allocator.getFreeCount(SegletAllocator::DEFAULT);
     size_t totalSeglets = allocator.getTotalCount(SegletAllocator::DEFAULT);

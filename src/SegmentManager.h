@@ -140,6 +140,10 @@ class SegmentManager {
     /// Used to mock the return value of getSegmentUtilization() when set to
     /// anything other than 0.
     static int mockSegmentUtilization;
+
+    /// If nonzero, then getMemoryUtilization will always return this
+    /// value. Used in unit tests.
+    static int mockMemoryUtilization;
 #endif
 
   PRIVATE:

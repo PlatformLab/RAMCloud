@@ -24,6 +24,10 @@
 
 namespace RAMCloud {
 
+#ifdef TESTING
+int CleanableSegmentManager::mockLiveObjectUtilization = 0;
+#endif
+
 CleanableSegmentManager::CleanableSegmentManager(
                                     SegmentManager& segmentManager,
                                     const ServerConfig* config,
@@ -54,6 +58,11 @@ CleanableSegmentManager::~CleanableSegmentManager()
 int
 CleanableSegmentManager::getLiveObjectUtilization()
 {
+#ifdef TESTING
+    if (mockLiveObjectUtilization != 0) {
+        return mockLiveObjectUtilization;
+    }
+#endif
     Lock guard(lock);
     update(guard);
 

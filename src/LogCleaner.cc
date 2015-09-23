@@ -63,6 +63,10 @@ LogCleaner::LogCleaner(Context* context,
       numThreads(config->master.cleanerThreadCount),
       segletSize(config->segletSize),
       segmentSize(config->segmentSize),
+      activeThreads(0),
+      disableCount(0),
+      cleanerIdle(),
+      mutex(),
       doWorkTicks(0),
       doWorkSleepTicks(0),
       inMemoryMetrics(),
@@ -235,30 +239,49 @@ LogCleaner::doWork(CleanerThreadState* state)
 {
     AtomicCycleCounter _(&doWorkTicks);
 
-    threadMetrics.noteThreadStart();
 
     bool goToSleep = false;
-    switch (balancer->requestTask(state)) {
-    case Balancer::CLEAN_DISK:
-      {
-        CycleCounter<uint64_t> __(&state->diskCleaningTicks);
-        doDiskCleaning();
-        break;
-      }
+    {
+        // See if we have been disabled.
+        Lock lock(mutex);
+        activeThreads++;
+        if (disableCount) {
+            goToSleep = true;
+        }
+    }
+    if (!goToSleep) {
+        threadMetrics.noteThreadStart();
+        switch (balancer->requestTask(state)) {
+        case Balancer::CLEAN_DISK:
+          {
+            CycleCounter<uint64_t> __(&state->diskCleaningTicks);
+            doDiskCleaning();
+            break;
+          }
 
-    case Balancer::COMPACT_MEMORY:
-      {
-        CycleCounter<uint64_t> __(&state->memoryCompactionTicks);
-        doMemoryCleaning();
-        break;
-      }
+        case Balancer::COMPACT_MEMORY:
+          {
+            CycleCounter<uint64_t> __(&state->memoryCompactionTicks);
+            doMemoryCleaning();
+            break;
+          }
 
-    case Balancer::SLEEP:
-        goToSleep = true;
-        break;
+        case Balancer::SLEEP:
+            goToSleep = true;
+            break;
+        }
+
+        threadMetrics.noteThreadStop();
     }
 
-    threadMetrics.noteThreadStop();
+    {
+        // Wake up disablers, if any are waiting for the cleaner to go idle.
+        Lock lock(mutex);
+        activeThreads--;
+        if ((activeThreads == 0) && (disableCount != 0)) {
+            cleanerIdle.notify_all();
+        }
+    }
 
     if (goToSleep) {
         AtomicCycleCounter __(&doWorkSleepTicks);
@@ -907,6 +930,34 @@ LogCleaner::FixedBalancer::isDiskCleaningNeeded(CleanerThreadState* thread)
         return false;
 
     return true;
+}
+
+/**
+ * Construct a Disabler object. Once the constructor returns, the caller
+ * can be certain that no cleaner threads are running, or will run until
+ * the object is destroyed.
+ *
+ * \param cleaner
+ *      Identifies the cleaner that should be disabled.
+ */
+LogCleaner::Disabler::Disabler(LogCleaner* cleaner)
+    : cleaner(cleaner)
+{
+    Lock lock(cleaner->mutex);
+    cleaner->disableCount++;
+    while (cleaner->activeThreads) {
+        cleaner->cleanerIdle.wait(lock);
+    }
+}
+
+/**
+ * Destroy a Disabler object. Once all Disablers have been destroyed, log
+ * cleaning can resume.
+ */
+LogCleaner::Disabler::~Disabler()
+{
+    Lock lock(cleaner->mutex);
+    cleaner->disableCount--;
 }
 
 } // namespace

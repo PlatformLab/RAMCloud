@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,11 +29,11 @@
 #include "StringUtil.h"
 #include "LogEntryTypes.h"
 #include "LogCleaner.h"
+#include "MasterTableMetadata.h"
 #include "ReplicaManager.h"
 #include "WallTime.h"
 
 namespace RAMCloud {
-#if 0
 
 class TestEntryHandlers : public LogEntryHandlers {
   public:
@@ -58,21 +58,22 @@ class TestEntryHandlers : public LogEntryHandlers {
         RAMCLOUD_TEST_LOG("type %d, size %u",
             downCast<int>(type), oldBuffer.size());
         if (attemptToRelocate)
-            relocator.append(type, oldBuffer, timestamp);
+            relocator.append(type, oldBuffer);
     }
 
     uint32_t timestamp;
     bool attemptToRelocate;
 };
 
-class MyServerConfig {
+class CleanerServerConfig {
   public:
-    MyServerConfig()
+    CleanerServerConfig()
         : serverConfig(ServerConfig::forTesting())
     {
         serverConfig.segmentSize = 8 * 1024 * 1024;
         serverConfig.segletSize = 64 * 1024;
         serverConfig.master.logBytes = serverConfig.segmentSize * 50;
+        serverConfig.master.numReplicas = 3;
     }
 
     ServerConfig*
@@ -92,26 +93,54 @@ class LogCleanerTest : public ::testing::Test {
     Context context;
     ServerId serverId;
     ServerList serverList;
-    MyServerConfig serverConfig;
+    MasterTableMetadata masterTableMetadata;
+    CleanerServerConfig serverConfig;
     ReplicaManager replicaManager;
     SegletAllocator allocator;
     SegmentManager segmentManager;
     TestEntryHandlers entryHandlers;
     LogCleaner cleaner;
+    LogCleaner::CleanerThreadState threadState;
 
     LogCleanerTest()
         : context(),
           serverId(ServerId(57, 0)),
           serverList(&context),
+          masterTableMetadata(),
           serverConfig(),
-          replicaManager(&context, &serverId, 0, false),
+          replicaManager(&context, &serverId, 0, false, false),
           allocator(serverConfig()),
           segmentManager(&context, serverConfig(), &serverId,
-                         allocator, replicaManager),
+                         allocator, replicaManager, &masterTableMetadata),
           entryHandlers(),
           cleaner(&context, serverConfig(), segmentManager,
-                  replicaManager, entryHandlers)
+                  replicaManager, entryHandlers),
+          threadState()
     {
+    }
+
+    void clearLiveBytes(LogSegment* segment) {
+        for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
+            segment->deadEntryLengths[i] = segment->entryLengths[i].load();
+        }
+    }
+
+    void getNewCandidates() {
+        LogSegmentVector newCandidates;
+        segmentManager.cleanableSegments(newCandidates);
+        CleanableSegmentManager::Lock guard(cleaner.cleanableSegments.lock);
+        foreach (LogSegment* segment, newCandidates) {
+            segment->cachedCleaningCostBenefitScore =
+                    cleaner.cleanableSegments.computeCleaningCostBenefitScore(
+                    segment);
+            segment->cachedCompactionCostBenefitScore =
+                    cleaner.cleanableSegments.computeCompactionCostBenefitScore(
+                    segment);
+            segment->cachedTombstoneScanScore =
+                    cleaner.cleanableSegments.computeTombstoneScanScore(
+                    segment);
+            cleaner.cleanableSegments.insertInAll(segment, guard);
+        }
     }
 
   private:
@@ -127,7 +156,8 @@ TEST_F(LogCleanerTest, constructor) {
     // wct 0 => no in-memory cleaning
     SegletAllocator allocator2(serverConfig());
     SegmentManager segmentManager2(&context, serverConfig(), &serverId,
-                                   allocator2, replicaManager);
+                                   allocator2, replicaManager,
+                                   &masterTableMetadata);
     serverConfig()->master.disableInMemoryCleaning = false;
     serverConfig()->master.cleanerWriteCostThreshold = 0;
     LogCleaner cleaner2(&context, serverConfig(),
@@ -137,7 +167,8 @@ TEST_F(LogCleanerTest, constructor) {
     // ensure in-memory cleaning can be enabled
     SegletAllocator allocator3(serverConfig());
     SegmentManager segmentManager3(&context, serverConfig(), &serverId,
-                                   allocator3, replicaManager);
+                                   allocator3, replicaManager,
+                                   &masterTableMetadata);
     serverConfig()->master.disableInMemoryCleaning = false;
     serverConfig()->master.cleanerWriteCostThreshold = 1;
     LogCleaner cleaner3(&context, serverConfig(),
@@ -168,16 +199,17 @@ TEST_F(LogCleanerTest, doWork) {
     cleaner.disableInMemoryCleaning = false;
 
     // No work to do.
-    SegletAllocator::mockMemoryUtilization = 1;
-    SegmentManager::mockSegmentUtilization = 1;
-    cleaner.doWork();
+    SegmentManager::mockMemoryUtilization = 1;
+    CleanableSegmentManager::mockLiveObjectUtilization = 1;
+    cleaner.doWork(&threadState);
     EXPECT_EQ("", TestLog::get());
     TestLog::reset();
 
     // Low on disk segments, but lots of free memory.
-    SegletAllocator::mockMemoryUtilization = 1;
+    SegmentManager::mockMemoryUtilization = 1;
     SegmentManager::mockSegmentUtilization = 99;
-    cleaner.doWork();
+    CleanableSegmentManager::mockLiveObjectUtilization = 99;
+    cleaner.doWork(&threadState);
     EXPECT_EQ(
         "doDiskCleaning: called | "
         "getSegmentsToClean: 0 segments selected with 0 allocated segments",
@@ -185,77 +217,113 @@ TEST_F(LogCleanerTest, doWork) {
     TestLog::reset();
 
     // Lots of free disk segments, but low on memory.
-    SegletAllocator::mockMemoryUtilization = 99;
+    SegmentManager::mockMemoryUtilization = 99;
     SegmentManager::mockSegmentUtilization = 1;
-    cleaner.doWork();
+    CleanableSegmentManager::mockLiveObjectUtilization = 1;
+    cleaner.doWork(&threadState);
     EXPECT_EQ(
-        "doMemoryCleaning: called | "
-        "doDiskCleaning: called | "
-        "getSegmentsToClean: 0 segments selected with 0 allocated segments",
-        TestLog::get());
-    TestLog::reset();
-
-    // Low on both disk and memory.
-    SegletAllocator::mockMemoryUtilization = 99;
-    SegmentManager::mockSegmentUtilization = 99;
-    cleaner.doWork();
-    EXPECT_EQ(
-        "doMemoryCleaning: called | "
-        "doDiskCleaning: called | "
-        "getSegmentsToClean: 0 segments selected with 0 allocated segments",
+        "doMemoryCleaning: called",
         TestLog::get());
 
-    SegletAllocator::mockMemoryUtilization = 0;
+    SegmentManager::mockMemoryUtilization = 0;
     SegmentManager::mockSegmentUtilization = 0;
+    CleanableSegmentManager::mockLiveObjectUtilization = 0;
 }
 
-TEST_F(LogCleanerTest, doMemoryCleaning) {
-    segmentManager.allocHeadSegment()->statistics.liveBytes = 0;
-    segmentManager.allocHeadSegment(); // roll over
-    segmentManager.cleanableSegments(cleaner.candidates);
-
+TEST_F(LogCleanerTest, doWork_disabled) {
     TestLog::Enable _;
-    EXPECT_NEAR(1, cleaner.doMemoryCleaning(), 0.01);
+    cleaner.disableInMemoryCleaning = false;
+
+    // Set up for running the disk cleaner.
+    SegmentManager::mockMemoryUtilization = 1;
+    SegmentManager::mockSegmentUtilization = 99;
+    CleanableSegmentManager::mockLiveObjectUtilization = 99;
+    {
+        LogCleaner::Disabler disabler(&cleaner);
+        cleaner.doWork(&threadState);
+    }
+    EXPECT_EQ("", TestLog::get());
+    cleaner.doWork(&threadState);
     EXPECT_EQ(
-      "doMemoryCleaning: called | "
-      "alloc: purpose: 3 | "
-      "allocSideSegment: id = 1 | "
-      "relocate: type 1, size 24 | "
-      "relocate: type 4, size 12 | "
-      "relocate: type 5, size 12 | "
-      "compactionComplete: Compaction used 1 seglets to free 128 seglets",
+        "doDiskCleaning: called | "
+        "getSegmentsToClean: 0 segments selected with 0 allocated segments",
         TestLog::get());
+
+    SegmentManager::mockMemoryUtilization = 0;
+    SegmentManager::mockSegmentUtilization = 0;
+    CleanableSegmentManager::mockLiveObjectUtilization = 0;
 }
 
-TEST_F(LogCleanerTest, doMemoryCleaning_noWork) {
-    TestLog::Enable _;
-    EXPECT_EQ(std::numeric_limits<double>::max(), cleaner.doMemoryCleaning());
-    EXPECT_EQ("doMemoryCleaning: called", TestLog::get());
+// Helper function that runs in a separate thread for the following test.
+static void disableThread(LogCleaner* cleaner) {
+    LogCleaner::Disabler disabler(cleaner);
+    TEST_LOG("cleaner idle");
 }
+
+TEST_F(LogCleanerTest, doWork_notifyConditionVariable) {
+    TestLog::Enable _;
+    cleaner.disableInMemoryCleaning = false;
+
+    // First try: bump activeThreads so cleaner looks busy.
+    cleaner.activeThreads = 1;
+    std::thread thread(disableThread, &cleaner);
+    while (cleaner.disableCount == 0) {
+        // Wait for the thread to acquire the lock and sleep.
+    }
+    cleaner.doWork(&threadState);
+    Cycles::sleep(1000);
+    EXPECT_EQ("", TestLog::get());
+
+    // Second try: cleaner is really idle.
+    cleaner.activeThreads = 0;
+    cleaner.doWork(&threadState);
+    for (int i = 0; i < 1000; i++) {
+        Cycles::sleep(1000);
+        if (TestLog::get().size() > 0) {
+            break;
+        }
+    }
+    EXPECT_EQ("disableThread: cleaner idle", TestLog::get());
+    thread.join();
+}
+
+// There are currently no meaningful tests for doMemoryCleaning;
+// please write some!
 
 TEST_F(LogCleanerTest, doDiskCleaning) {
     // Not entirely sure what to check here. doDiskCleaning() mostly just
     // invokes a standard sequence of meatier methods and updates metrics.
     // Right now we'll just ensure that it calls all of the expected functions.
 
-    segmentManager.allocHeadSegment()->statistics.liveBytes = 0;
+    clearLiveBytes(segmentManager.allocHeadSegment());
     segmentManager.allocHeadSegment(); // roll over
-    segmentManager.cleanableSegments(cleaner.candidates);
+    getNewCandidates();
 
     TestLog::Enable _;
     cleaner.doDiskCleaning();
     EXPECT_EQ(
         "doDiskCleaning: called | "
         "getSegmentsToClean: 1 segments selected with 128 allocated segments | "
-        "getSortedEntries: 3 entries extracted from 1 segments | "
+        "getSortedEntries: 4 entries extracted from 1 segments | "
+        "getEntry: Contiguous entry | "
         "relocate: type 1, size 24 | "
+        "getEntry: Contiguous entry | "
         "relocate: type 4, size 12 | "
+        "getEntry: Contiguous entry | "
+        "relocate: type 6, size 24 | "
+        "getEntry: Contiguous entry | "
         "relocate: type 5, size 12 | "
+        "relocateLiveEntries: Cleaner finished syncing survivor "
+        "segments: 0.0 ms, 0.0 MB/sec | "
         "doDiskCleaning: used 0 seglets and 0 segments | "
         "cleaningComplete: Cleaning used 0 seglets to free 128 seglets",
         TestLog::get());
 }
 
+// The tests below were disabled a long time ago by Steve Rumble and
+// never got reworked to reflect his changes, so they are currently
+// broken.
+#if 0
 TEST_F(LogCleanerTest, getSegmentToCompact) {
     uint32_t freeableSeglets;
 
@@ -552,6 +620,56 @@ TEST_F(LogCleanerTest, relocateEntry) {
                                                buffer,
                                                NULL,
                                                metrics));
+}
+#endif
+
+TEST_F(LogCleanerTest, Disabler_basics) {
+    TestLog::Enable _;
+    Tub<LogCleaner::Disabler> disabler1, disabler2;
+    disabler1.construct(&cleaner);
+    EXPECT_EQ(1, cleaner.disableCount);
+    disabler2.construct(&cleaner);
+    EXPECT_EQ(2, cleaner.disableCount);
+    disabler1.destroy();
+    EXPECT_EQ(1, cleaner.disableCount);
+    disabler2.destroy();
+    EXPECT_EQ(0, cleaner.disableCount);
+}
+
+// The Disabler sleep/wakeup mechanism was already tested previously.
+
+#if 0
+// Helper function that runs in a separate thread for the following test.
+static void fooThread(LogCleaner* cleaner) {
+    LogCleaner::Disabler disabler(cleaner);
+    TEST_LOG("cleaner idle");
+}
+
+TEST_F(LogCleanerTest, doWork_notifyConditionVariable) {
+    TestLog::Enable _;
+    cleaner.disableInMemoryCleaning = false;
+
+    // First try: bump activeThreads so cleaner looks busy.
+    cleaner.activeThreads = 1;
+    std::thread thread(disableThread, &cleaner);
+    while (cleaner.disableCount == 0) {
+        // Wait for the thread to acquire the lock and sleep.
+    }
+    cleaner.doWork(&threadState);
+    Cycles::sleep(1000);
+    EXPECT_EQ("", TestLog::get());
+
+    // Second try: cleaner is really idle.
+    cleaner.activeThreads = 0;
+    cleaner.doWork(&threadState);
+    for (int i = 0; i < 1000; i++) {
+        Cycles::sleep(1000);
+        if (TestLog::get().size() > 0) {
+            break;
+        }
+    }
+    EXPECT_EQ("disableThread: cleaner idle", TestLog::get());
+    thread.join();
 }
 #endif
 } // namespace RAMCloud
