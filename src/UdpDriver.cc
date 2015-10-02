@@ -215,7 +215,7 @@ UdpDriver::ReadHandler::handleFileEvent(int events)
     // to this method improves throughput under load by 50%.
     while (1) {
         buffer = driver->packetBufPool.construct();
-        socklen_t addrlen = sizeof(&buffer->ipAddress.address);
+        socklen_t addrlen = sizeof(buffer->ipAddress.address);
         ssize_t r = sys->recvfrom(driver->socketFd, buffer->payload,
                                   MAX_PAYLOAD_SIZE,
                                   MSG_DONTWAIT,
