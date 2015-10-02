@@ -227,7 +227,6 @@ TEST_F(UdpDriverTest, sendPacket_errorInSend) {
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     EXPECT_EQ("sendPacket: UdpDriver error sending to socket: "
             "Operation not permitted", TestLog::get());
-    EXPECT_EQ(-1, client->socketFd);
 }
 
 TEST_F(UdpDriverTest, ReadHandler_errorInRecv) {
@@ -237,7 +236,6 @@ TEST_F(UdpDriverTest, ReadHandler_errorInRecv) {
             Dispatch::FileEvent::READABLE);
     EXPECT_EQ("handleFileEvent: UdpDriver error receiving from socket: "
             "Operation not permitted", TestLog::get());
-    EXPECT_EQ(-1, server->socketFd);
 }
 
 TEST_F(UdpDriverTest, ReadHandler_noPacketAvailable) {
