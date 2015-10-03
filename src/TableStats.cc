@@ -193,23 +193,53 @@ serialize(Buffer *buf, MasterTableMetadata *mtm)
     DigestHeader* header = buf->emplaceAppend<DigestHeader>();
     *header = {0, 0, 0};
 
+    double otherKeyHashCount = 0;
+    uint64_t otherByteCount = 0;
+    uint64_t otherRecordCount = 0;
+    bool hasOtherEntries = false;
+
     MasterTableMetadata::scanner sc = mtm->getScanner();
     while (sc.hasNext()) {
         MasterTableMetadata::Entry* entry = sc.next();
         {
             Lock guard(entry->stats.lock);
+            double keyHashCount;
+            if (entry->stats.totalOwnership) {
+                keyHashCount = double(entry->stats.keyHashCount - 1);
+                keyHashCount += 1;
+            } else {
+                // Skip this entry if it is empty
+                if (entry->stats.keyHashCount == 0) {
+                    continue;
+                }
+
+                keyHashCount = double(entry->stats.keyHashCount);
+            }
+
+
             if (entry->stats.byteCount >= threshold) {
                 header->entryCount++;
+                double bytesPerKeyHash = double(entry->stats.byteCount) /
+                                         keyHashCount;
+                double recordsPerKeyHash = double(entry->stats.recordCount) /
+                                           keyHashCount;
                 *(buf->emplaceAppend<DigestEntry>()) =
-                        {entry->tableId, entry->stats.byteCount,
-                         entry->stats.recordCount};
-
+                        {entry->tableId, bytesPerKeyHash, recordsPerKeyHash};
 
             } else {
-                header->otherByteCount += entry->stats.byteCount;
-                header->otherRecordCount += entry->stats.recordCount;
+                otherKeyHashCount += keyHashCount;
+                otherByteCount += entry->stats.byteCount;
+                otherRecordCount += entry->stats.recordCount;
+                hasOtherEntries = true;
             }
         }
+    }
+
+    if (hasOtherEntries) {
+            header->otherBytesPerKeyHash = double(otherByteCount) /
+                                           otherKeyHashCount;
+            header->otherRecordsPerKeyHash = double(otherRecordCount) /
+                                             otherKeyHashCount;
     }
 }
 
@@ -221,55 +251,32 @@ serialize(Buffer *buf, MasterTableMetadata *mtm)
  *      of each of its segments.  This digest is the summarized table stats
  *      information extracted from the head segment of the failed master that is
  *      now to be recovered.
- * \param tablets
- *      Contains the tablets of the failed master that are to be recovered.
  */
-Estimator::Estimator(const Digest* digest, vector<Tablet>* tablets)
-    : tableStats()
+Estimator::Estimator(const Digest* digest)
+    : valid(false)
+    , tableStats()
     , otherStats()
-    , valid(false)
 {
-    // If for some reason, the digest or vector the estimator needs is not
-    // avilable, we should log an error as this should never be the case during
-    // normal operation.  This error might occur if the digest, for instance,
-    // was for some reason missing from the head segment.  In this case, we
-    // would still like to try to recover (using a degraded recovery method)
-    // so we simply construct an invalid estimator and allow recovery to
-    // continue without crashing.
-    if (digest == NULL || tablets == NULL) {
-        LOG(ERROR,
-            "Table digest or tablet information missing during recovery.");
+    // If for some reason, the digest the estimator needs is not available, we
+    // should log an error as this should never be the case during normal
+    // operation.  This error might occur if the digest, for instance, was for
+    // some reason missing from the head segment.  In this case, we  would still
+    // like to try to recover (using a degraded recovery method) so we simply
+    // construct an invalid estimator and allow recovery to continue without
+    // crashing.
+    if (digest == NULL) {
+        LOG(ERROR, "Table digest missing during recovery.");
         return;
     }
 
-    // First, the estimator is populated using table digest information to fill
-    // in the byteCount and recordCount information.  KeyHash range information
-    // will be filled in later.
     for (uint64_t i = 0; i < digest->header.entryCount; i++) {
         const DigestEntry* entry = &digest->entries[i];
-        tableStats[entry->tableId] = {0, entry->byteCount, entry->recordCount};
+        tableStats[entry->tableId] = {entry->bytesPerKeyHash,
+                                      entry->recordsPerKeyHash};
     }
 
-    otherStats = {0,
-                  digest->header.otherByteCount,
-                  digest->header.otherRecordCount};
-
-    // Second, the estimator uses the tablet information to collect aggregate
-    // keyHash range information.
-    for (vector<Tablet>::iterator it = tablets->begin();
-         it != tablets->end();
-         it++) {
-        StatsMap::iterator entry = tableStats.find(it->tableId);
-        if (entry != tableStats.end()) {
-            // Increment performed after conversion to avoid overflow.
-            entry->second.keyRange += double(it->endKeyHash
-                                             - it->startKeyHash) + 1;
-        } else {
-            // Increment performed after conversion to avoid overflow.
-            otherStats.keyRange += double(it->endKeyHash
-                                          - it->startKeyHash) + 1;
-        }
-    }
+    otherStats = {digest->header.otherBytesPerKeyHash,
+                  digest->header.otherRecordsPerKeyHash};
 
     valid = true;
 }
@@ -287,55 +294,25 @@ Estimator::Estimator(const Digest* digest, vector<Tablet>* tablets)
  *      available, the table information is used.  If no specific table
  *      information is found, the cumulative stats information is used.
  */
-Estimator::Entry
+Estimator::Estimate
 Estimator::estimate(Tablet *tablet)
 {
-    Entry est = {0, 0, 0};
-    est.keyRange = double(tablet->endKeyHash - tablet->startKeyHash) + 1;
+    Estimate est = {0, 0};
+    double keyRange = double(tablet->endKeyHash - tablet->startKeyHash) + 1;
 
     StatsMap::iterator entry = tableStats.find(tablet->tableId);
     if (entry != tableStats.end()) {
         // The table was large enough that statistics were kept specifically
         // for this table.
-        if (entry->second.keyRange > 0) {
-            // This tablet's fraction of its table's byte and record counts are
-            // estimated to be proportional to the tablet's fraction of the
-            // table's keyRange.
-            est.byteCount = uint64_t(double(entry->second.byteCount)
-                                     * est.keyRange
-                                     / entry->second.keyRange);
-            est.recordCount = uint64_t(double(entry->second.recordCount)
-                                       * est.keyRange
-                                       / entry->second.keyRange);
-        } else {
-            // If the keyRange is 0 (or less than 0) then we will assume the
-            // byteCount and recordCount is also 0. Note: they are initialized
-            // to 0.
-            // THIS CASE SHOULD NEVER BE REACHED.
-        }
+        est.byteCount = uint64_t(entry->second.bytesPerKeyHash * keyRange);
+        est.recordCount = uint64_t(entry->second.recordsPerKeyHash * keyRange);
     } else {
         // This table was so small that statistics were not kept separately for
         // it; instead, its statistics were lumped together with all of the
         // other small tables. Use that aggregate information to estimate the
         // info for this table.
-        if (otherStats.keyRange > 0) {
-            // This tablet's fraction of the small table aggregate byte and
-            // record counts are estimated to be proportional to the tablet's
-            // fraction of the small table aggregate keyRange.
-            est.byteCount = uint64_t(double(otherStats.byteCount)
-                                     * est.keyRange
-                                     / otherStats.keyRange);
-            est.recordCount = uint64_t(double(otherStats.recordCount)
-                                       * est.keyRange
-                                       / otherStats.keyRange);
-        } else {
-            // If the keyRange is 0 (or less than 0) then we will assume the
-            // byteCount and recordCount is also 0. Note: they are initialized
-            // to 0.
-            // This might be the case if a new table is created and a new table
-            // stats digest was not written afterward because the head segment
-            // did not roll over yet.
-        }
+        est.byteCount = uint64_t(otherStats.bytesPerKeyHash * keyRange);
+        est.recordCount = uint64_t(otherStats.recordsPerKeyHash * keyRange);
     }
 
     return est;
