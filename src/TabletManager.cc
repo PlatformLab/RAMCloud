@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -211,11 +211,13 @@ TabletManager::getTablets(vector<Tablet>* outTablets)
  *      Key hash value at which the to-be-deleted tablet begins.
  * \param endKeyHash
  *      Key hash value at which the to-be-deleted tablet ends.
+ * \return
+ *      True if a tablet was removed; false otherwise.
  * \throw
  *      InternalError if tablet was not found because the range overlaps
  *      with one or more existing tablets.
  */
-void
+bool
 TabletManager::deleteTablet(uint64_t tableId,
                             uint64_t startKeyHash,
                             uint64_t endKeyHash)
@@ -227,7 +229,7 @@ TabletManager::deleteTablet(uint64_t tableId,
         RAMCLOUD_LOG(DEBUG, "Could not find tablet in tableId %lu with "
                             "startKeyHash %lu and endKeyHash %lu",
                             tableId, startKeyHash, endKeyHash);
-        return;
+        return false;
     }
 
     Tablet* t = &it->second;
@@ -240,7 +242,7 @@ TabletManager::deleteTablet(uint64_t tableId,
     }
 
     tabletMap.erase(it);
-    return;
+    return true;
 }
 
 /**

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -154,7 +154,7 @@ TEST_F(TabletManagerTest, getTablets) {
 
 TEST_F(TabletManagerTest, deleteTablet) {
     TestLog::Enable _("deleteTablet");
-    EXPECT_NO_THROW(tm.deleteTablet(1, 1, 1));
+    EXPECT_FALSE(tm.deleteTablet(1, 1, 1));
     EXPECT_EQ("deleteTablet: Could not find tablet in tableId 1 with "
               "startKeyHash 1 and endKeyHash 1", TestLog::get());
 
@@ -162,19 +162,19 @@ TEST_F(TabletManagerTest, deleteTablet) {
     EXPECT_TRUE(tm.getTablet(1, 1, 1));
 
     TestLog::reset();
-    EXPECT_NO_THROW(tm.deleteTablet(1, 1, 1));
+    EXPECT_TRUE(tm.deleteTablet(1, 1, 1));
     EXPECT_EQ("", TestLog::get());
     EXPECT_FALSE(tm.getTablet(1, 1, 1));
 
     TestLog::reset();
-    EXPECT_NO_THROW(tm.deleteTablet(1, 1, 1));
+    EXPECT_FALSE(tm.deleteTablet(1, 1, 1));
     EXPECT_EQ("deleteTablet: Could not find tablet in tableId 1 with "
               "startKeyHash 1 and endKeyHash 1", TestLog::get());
     EXPECT_EQ(0U, tm.getNumTablets());
 
     tm.addTablet(0, 1, 2, TabletManager::NORMAL);
     TestLog::reset();
-    EXPECT_NO_THROW(tm.deleteTablet(0, 0, 2));
+    EXPECT_FALSE(tm.deleteTablet(0, 0, 2));
     EXPECT_EQ("deleteTablet: Could not find tablet in tableId 0 with "
               "startKeyHash 0 and endKeyHash 2", TestLog::get());
     TestLog::reset();
