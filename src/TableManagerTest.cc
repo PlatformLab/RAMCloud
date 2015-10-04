@@ -508,6 +508,7 @@ TEST_F(TableManagerTest, recover_basics) {
     cluster.externalStorage.getChildrenValues.push(str);
 
     tableManager->recover(87);
+    EXPECT_EQ(12346U, tableManager->nextTableId);
     EXPECT_EQ("Table { name: second, id 444, "
             "Tablet { startKeyHash: 0x800, endKeyHash: 0x900, "
             "serverId: 88.0, status: RECOVERING, ctime: 31.32 } } "
@@ -1199,6 +1200,7 @@ TEST_F(TableManagerTest, recreateTable_basics) {
             77, 21, 22);
     addTablet(&info, 0x800, 0x900, ProtoBuf::Table::Tablet::RECOVERING,
             88, 31, 32);
+    tableManager->nextTableId = 12346;
     tableManager->recreateTable(lock, &info);
     EXPECT_EQ("Table { name: table1, id 12345, "
             "Tablet { startKeyHash: 0x100, endKeyHash: 0x200, serverId: 66.0, "
@@ -1209,7 +1211,6 @@ TEST_F(TableManagerTest, recreateTable_basics) {
             "status: RECOVERING, ctime: 31.32 } }",
             tableManager->debugString());
     EXPECT_EQ(12345U, tableManager->directory["table1"]->id);
-    EXPECT_EQ(12346U, tableManager->nextTableId);
     EXPECT_EQ("recreateTable: Recovered tablet 0x100-0x200 for "
             "table 'table1' (id 12345) on server 66.0 | "
             "recreateTable: Recovered tablet 0x400-0x500 for "
@@ -1295,9 +1296,9 @@ TEST_F(TableManagerTest, serializeTable) {
             info.ShortDebugString());
 }
 
-TEST_F(TableManagerTest, sync) {
+TEST_F(TableManagerTest, syncNextTableId) {
     tableManager->nextTableId = 444u;
-    tableManager->sync(lock);
+    tableManager->syncNextTableId(lock);
     EXPECT_EQ("set(UPDATE, tableManager)",
             cluster.externalStorage.log);
     EXPECT_EQ("next_table_id: 444",
