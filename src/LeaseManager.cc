@@ -280,11 +280,11 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
         }
     }
 
-    clientLease.leaseExpiration = clock.getTime() + LeaseCommon::LEASE_TERM_US;
+    clientLease.timestamp = clock.getTime();
+    clientLease.leaseExpiration = clientLease.timestamp
+                                  + LeaseCommon::LEASE_TERM_US;
     leaseMap[clientLease.leaseId] = clientLease.leaseExpiration;
     expirationOrder.insert({clientLease.leaseExpiration, clientLease.leaseId});
-
-    clientLease.timestamp = clock.getTime();
 
     return clientLease;
 }

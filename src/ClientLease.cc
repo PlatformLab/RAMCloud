@@ -31,7 +31,7 @@ ClientLease::ClientLease(RamCloud* ramcloud)
     , lease({0, 0, 0})
     , lastRenewalTimeCycles(0)
     , nextRenewalTimeCycles(0)
-    , leaseTermElapseCycles(0)
+    , leaseExpirationCycles(0)
     , renewLeaseRpc()
 {}
 
@@ -48,7 +48,7 @@ ClientLease::getLease()
     // Block waiting for the lease to become valid; should only occur if there
     // is a long gap between issuing RPCs that require a client lease (i.e
     // linearizable RPCs or transaction RPCs).
-    while (Cycles::rdtsc() > leaseTermElapseCycles) {
+    while (Cycles::rdtsc() > leaseExpirationCycles) {
         RAMCLOUD_CLOG(NOTICE, "Blocked waiting for lease to renew.");
 
         // Release lock so poller can execute.
@@ -95,20 +95,21 @@ ClientLease::poll()
             renewLeaseRpc.destroy();
             // Use local rdtsc cycle time to estimate when the lease will expire
             // if the lease is not renewed.
-            uint64_t leaseTermLenUs = 0;
-            if (lease.leaseExpiration > lease.timestamp) {
-                leaseTermLenUs = lease.leaseExpiration - lease.timestamp;
-            }
-            leaseTermElapseCycles = lastRenewalTimeCycles +
+            //
+            // If any of the asserts fail, an assumption about the behavior of
+            // LeaseManager::renewLease must have been violated.
+            assert(lease.leaseExpiration >= lease.timestamp);
+            uint64_t leaseTermLenUs = lease.leaseExpiration - lease.timestamp;
+
+            assert(leaseTermLenUs >= LeaseCommon::DANGER_THRESHOLD_US);
+            leaseExpirationCycles = lastRenewalTimeCycles +
                                     Cycles::fromMicroseconds(
                                             leaseTermLenUs -
                                             LeaseCommon::DANGER_THRESHOLD_US);
 
-            uint64_t renewCycleTime = 0;
-            if (leaseTermLenUs > LeaseCommon::RENEW_THRESHOLD_US) {
-                renewCycleTime = Cycles::fromMicroseconds(
+            assert(leaseTermLenUs >= LeaseCommon::RENEW_THRESHOLD_US);
+            uint64_t renewCycleTime = Cycles::fromMicroseconds(
                         leaseTermLenUs - LeaseCommon::RENEW_THRESHOLD_US);
-            }
             nextRenewalTimeCycles = lastRenewalTimeCycles + renewCycleTime;
         }
     }
