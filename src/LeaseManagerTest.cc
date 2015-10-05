@@ -123,11 +123,14 @@ TEST_F(LeaseManagerTest, leaseReservationAgent_handleTimerEvent) {
     EXPECT_EQ(0U, leaseMgr->maxReservedLeaseId);
     leaseMgr->reservationAgent.handleTimerEvent();
     EXPECT_EQ(0U, leaseMgr->lastIssuedLeaseId);
-    EXPECT_EQ(1000U, leaseMgr->maxReservedLeaseId);
-    leaseMgr->lastIssuedLeaseId = 5;
+    EXPECT_EQ(1U, leaseMgr->maxReservedLeaseId);
+    EXPECT_TRUE(leaseMgr->reservationAgent.isRunning());
+    leaseMgr->reservationAgent.stop();
+    leaseMgr->maxReservedLeaseId = 1000 - 1;
     leaseMgr->reservationAgent.handleTimerEvent();
-    EXPECT_EQ(5U, leaseMgr->lastIssuedLeaseId);
-    EXPECT_EQ(1005U, leaseMgr->maxReservedLeaseId);
+    EXPECT_EQ(0U, leaseMgr->lastIssuedLeaseId);
+    EXPECT_EQ(1000U, leaseMgr->maxReservedLeaseId);
+    EXPECT_FALSE(leaseMgr->reservationAgent.isRunning());
 }
 
 TEST_F(LeaseManagerTest, leaseCleaner_handleTimerEvent) {
@@ -141,6 +144,9 @@ TEST_F(LeaseManagerTest, leaseCleaner_handleTimerEvent) {
     leaseMgr->expirationOrder.insert({60000, 99});
 
     leaseMgr->cleaner.handleTimerEvent();
+    while (leaseMgr->cleaner.triggerTime == 0U) {
+        leaseMgr->cleaner.handleTimerEvent();
+    }
 
     EXPECT_EQ(1U, leaseMgr->leaseMap.size());
     EXPECT_EQ(1U, leaseMgr->expirationOrder.size());

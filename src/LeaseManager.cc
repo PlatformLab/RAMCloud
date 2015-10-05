@@ -172,22 +172,22 @@ LeaseManager::LeaseReservationAgent::LeaseReservationAgent(Context* context,
 {}
 
 /**
- * The handler performs the lease reservation.
+ * The handler performs the lease reservation and is scheduled by calls to
+ * renewLease when the number of reserved leases runs low.  The handler works
+ * incrementally and will continue to rescheduled itself until the number of
+ * reserved leases reaches a comfortable level (RESERVATION_LIMIT).
  */
 void
 LeaseManager::LeaseReservationAgent::handleTimerEvent()
 {
-    uint64_t reservationCount = 0;
-    while (true) {
-        LeaseManager::Lock lock(leaseManager->mutex);
-        reservationCount = leaseManager->maxReservedLeaseId -
-                             leaseManager->lastIssuedLeaseId;
-        if (reservationCount >= RESERVATION_LIMIT)
-            break;
-        leaseManager->reserveNextLease(lock);
+    LeaseManager::Lock lock(leaseManager->mutex);
+    leaseManager->reserveNextLease(lock);
+    uint64_t reservationCount = leaseManager->maxReservedLeaseId -
+                                leaseManager->lastIssuedLeaseId;
+    if (reservationCount < RESERVATION_LIMIT) {
+            this->start(0);
     }
 }
-
 
 /**
  * Constructor for the LeaseCleaner.
@@ -204,18 +204,20 @@ LeaseManager::LeaseCleaner::LeaseCleaner(Context* context,
 {}
 
 /**
- * This handler performs a cleaning pass on leaseManager.
+ * This handler performs a cleaning pass on leaseManager incrementally; will
+ * reschedule itself as necessary.
  */
 void
 LeaseManager::LeaseCleaner::handleTimerEvent()
 {
-    bool stillCleaning = true;
-    while (stillCleaning) {
-        stillCleaning = leaseManager->cleanNextLease();
+    if (leaseManager->cleanNextLease()) {
+        // Cleaning pass not complete; reschedule for immediate execution.
+        this->start(0);
+    } else {
+        // Run once per lease term as some will likely have expired by then.
+        this->start(Cycles::rdtsc() + Cycles::fromNanoseconds(
+                LeaseCommon::LEASE_TERM_US * 1000));
     }
-    // Run once per lease term as some will likely have expired by then.
-    this->start(Cycles::rdtsc() + Cycles::fromNanoseconds(
-            LeaseCommon::LEASE_TERM_US * 1000));
 }
 
 /**

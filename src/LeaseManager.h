@@ -55,6 +55,9 @@ class LeaseManager {
      * of lastIssuedLeaseId by the RESERVATION_LIMIT.  This batch reservation
      * process only blocks during each individual reservation; other operations
      * like issuing leases can be safely interleaved.
+     *
+     * The agent is structured as a WorkerTimer as a convenient way to perform
+     * reservations using a separate worker thread (only start(0) is ever used).
      */
     class LeaseReservationAgent : public WorkerTimer {
       public:
