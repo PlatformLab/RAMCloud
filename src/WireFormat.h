@@ -671,11 +671,11 @@ struct GetLeaseInfo {
     static const ServiceType service = COORDINATOR_SERVICE;
     struct Request {
         RequestCommon common;
-        uint64_t leaseId;
+        uint64_t leaseId;       // Id of lease whose info should be returned.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        ClientLease lease;
+        ClientLease lease;      // Requested lease information.
     } __attribute__((packed));
 };
 
