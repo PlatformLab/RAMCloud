@@ -140,6 +140,7 @@ class LeaseManager {
     LeaseCleaner cleaner;
 
     bool cleanNextLease();
+    std::string getLeaseObjName(uint64_t leaseId);
     WireFormat::ClientLease renewLeaseInternal(uint64_t leaseId, Lock &lock);
     void reserveNextLease(Lock &lock);
 

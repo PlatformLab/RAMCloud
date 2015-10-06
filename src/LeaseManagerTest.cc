@@ -228,6 +228,13 @@ TEST_F(LeaseManagerTest, cleanNextLease) {
     EXPECT_EQ(1U, leaseMgr->expirationOrder.size());
 }
 
+TEST_F(LeaseManagerTest, getLeaseObjName) {
+    EXPECT_EQ("leaseManager/12345",
+              leaseMgr->getLeaseObjName(12345));
+    EXPECT_EQ("leaseManager/67890",
+              leaseMgr->getLeaseObjName(67890));
+}
+
 TEST_F(LeaseManagerTest, renewLeaseInternal_renew) {
     LeaseManager::Lock lock(leaseMgr->mutex);
     leaseMgr->leaseMap[1] = 1;

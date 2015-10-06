@@ -243,14 +243,23 @@ LeaseManager::cleanNextLease()
     ExpirationOrderSet::iterator it = expirationOrder.begin();
     if (it != expirationOrder.end() && it->leaseExpiration < clock.getTime()) {
         uint64_t leaseId = it->leaseId;
-        std::string leaseObjName = STORAGE_PREFIX + "/"
-                + format("%lu", leaseId);
-        context->externalStorage->remove(leaseObjName.c_str());
+        context->externalStorage->remove(getLeaseObjName(leaseId).c_str());
         expirationOrder.erase(it);
         leaseMap.erase(leaseId);
         return true;
     }
     return false;
+}
+
+/**
+ * Return the external storage object name for the external storage object that
+ * represents a lease with the given leaseId.
+ */
+std::string
+LeaseManager::getLeaseObjName(uint64_t leaseId)
+{
+    std::string leaseObjName = STORAGE_PREFIX + "/" + format("%lu", leaseId);
+    return leaseObjName;
 }
 
 /**
@@ -307,10 +316,8 @@ void
 LeaseManager::reserveNextLease(Lock &lock)
 {
     uint64_t nextLeaseId = maxReservedLeaseId + 1;
-    std::string leaseObjName = STORAGE_PREFIX + "/"
-            + format("%lu", nextLeaseId);
     context->externalStorage->set(ExternalStorage::Hint::CREATE,
-                                  leaseObjName.c_str(),
+                                  getLeaseObjName(nextLeaseId).c_str(),
                                   "", 0);
     maxReservedLeaseId = nextLeaseId;
 }
