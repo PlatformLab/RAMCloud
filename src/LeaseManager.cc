@@ -24,8 +24,16 @@
 namespace RAMCloud {
 
 /// Defines the number of leases the reservation agent should try to keep ahead
-/// of the lastIssuedLeaseId.
+/// of the lastIssuedLeaseId.  This limit should be set large enough to amortize
+/// the cost of external storage writes but small enough so that we don't use up
+/// the 64-bit id space (i.e. LIMIT * "num coordinator crashes" << 2^64 ).
 const uint64_t RESERVATION_LIMIT = 1000;
+
+/// Defines the number of reserved leases below which the reservation agent
+/// should be started.  This should be set large enough so that the reservation
+/// agent can start reserving more leases before they run out completely but
+/// small enough such that the reservation agent is constantly being run.
+const uint64_t RESERVATIONS_LOW = 250;
 
 /// Defines the prefix for objects stored in external storage by this module.
 const std::string STORAGE_PREFIX = "leaseManager";
@@ -138,7 +146,7 @@ LeaseManager::renewLease(uint64_t leaseId)
     WireFormat::ClientLease clientLease = renewLeaseInternal(leaseId, lock);
 
     // Poke reservation agent if we are getting close to running out of leases.
-    if (maxReservedLeaseId - lastIssuedLeaseId < RESERVATION_LIMIT / 4) {
+    if (maxReservedLeaseId - lastIssuedLeaseId < RESERVATIONS_LOW) {
         reservationAgent.start(0);
     }
 
