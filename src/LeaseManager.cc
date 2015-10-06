@@ -292,8 +292,10 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
         while (maxReservedLeaseId <= lastIssuedLeaseId) {
             // Instead of waiting for the reservation agent to run and catch up,
             // we reserve an additional leaseId manually.
+            RAMCLOUD_LOG(WARNING,
+                         "Lease reservations are not keeping up; "
+                         "maxReservedLeaseId = %lu", maxReservedLeaseId);
             reserveNextLease(lock);
-            RAMCLOUD_CLOG(WARNING, "Lease reservations are not keeping up.");
         }
     }
 

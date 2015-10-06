@@ -310,7 +310,8 @@ TEST_F(LeaseManagerTest, renewLeaseInternal_reservationsNotKeepingUp) {
     TestLog::Enable _("renewLeaseInternal");
     TestLog::reset();
     lease = leaseMgr->renewLeaseInternal(0, lock);
-    EXPECT_EQ("renewLeaseInternal: Lease reservations are not keeping up.",
+    EXPECT_EQ("renewLeaseInternal: Lease reservations are not keeping up; "
+              "maxReservedLeaseId = 12",
               TestLog::get());
 }
 
