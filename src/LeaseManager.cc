@@ -23,9 +23,17 @@
 
 namespace RAMCloud {
 
-/// Defines the number of leases the preallocator should try to keep ahead of
-/// the lastIssuedLeaseId.
-const uint64_t PREALLOCATION_LIMIT = 1000;
+/// Defines the number of leases the reservation agent should try to keep ahead
+/// of the lastIssuedLeaseId.  This limit should be set large enough to amortize
+/// the cost of external storage writes but small enough so that we don't use up
+/// the 64-bit id space (i.e. LIMIT * "num coordinator crashes" << 2^64 ).
+const uint64_t RESERVATION_LIMIT = 1000;
+
+/// Defines the number of reserved leases below which the reservation agent
+/// should be started.  This should be set large enough so that the reservation
+/// agent can start reserving more leases before they run out completely but
+/// small enough such that the reservation agent is constantly being run.
+const uint64_t RESERVATIONS_LOW = 250;
 
 /// Defines the prefix for objects stored in external storage by this module.
 const std::string STORAGE_PREFIX = "leaseManager";
@@ -35,10 +43,10 @@ LeaseManager::LeaseManager(Context* context)
     , context(context)
     , clock(context)
     , lastIssuedLeaseId(0)
-    , maxAllocatedLeaseId(0)
+    , maxReservedLeaseId(0)
     , leaseMap()
     , expirationOrder()
-    , preallocator(context, this)
+    , reservationAgent(context, this)
     , cleaner(context, this)
 {}
 
@@ -87,21 +95,21 @@ LeaseManager::recover()
     vector<ExternalStorage::Object> objects;
     context->externalStorage->getChildren(STORAGE_PREFIX.c_str(), &objects);
 
-    // We can safely make the approximation that every allocated lease was
-    // issued with the exception of the largest allocated leaseId.
+    // We can safely make the approximation that every reserved lease was
+    // issued with the exception of the largest reserved leaseId.
     foreach (ExternalStorage::Object& object, objects) {
         try {
             std::string name = object.name;
             uint64_t leaseId = std::stoull(name);
 
-            // Keep track of the largest allocated leaseId and only auto "renew"
+            // Keep track of the largest reserved leaseId and only auto "renew"
             // the other leaseIds.
-            if (maxAllocatedLeaseId == 0) {
-                maxAllocatedLeaseId = leaseId;
+            if (maxReservedLeaseId == 0) {
+                maxReservedLeaseId = leaseId;
                 continue;
-            } else if (leaseId > maxAllocatedLeaseId) {
-                uint64_t temp = maxAllocatedLeaseId;
-                maxAllocatedLeaseId = leaseId;
+            } else if (leaseId > maxReservedLeaseId) {
+                uint64_t temp = maxReservedLeaseId;
+                maxReservedLeaseId = leaseId;
                 leaseId = temp;
             }
 
@@ -114,8 +122,8 @@ LeaseManager::recover()
         }
     }
 
-    if (maxAllocatedLeaseId > 0) {
-        lastIssuedLeaseId = maxAllocatedLeaseId - 1;
+    if (maxReservedLeaseId > 0) {
+        lastIssuedLeaseId = maxReservedLeaseId - 1;
     }
 }
 
@@ -137,57 +145,57 @@ LeaseManager::renewLease(uint64_t leaseId)
     Lock lock(mutex);
     WireFormat::ClientLease clientLease = renewLeaseInternal(leaseId, lock);
 
-    // Poke the preallocator if we are getting close to running out of leases.
-    if (maxAllocatedLeaseId - lastIssuedLeaseId < PREALLOCATION_LIMIT / 4) {
-        preallocator.start(0);
+    // Poke reservation agent if we are getting close to running out of leases.
+    if (maxReservedLeaseId - lastIssuedLeaseId < RESERVATIONS_LOW) {
+        reservationAgent.start(0);
     }
 
     return clientLease;
 }
 
 /**
- * Start background timers to perform preallocation and cleaning and also start
- * the cluster clock updater.
+ * Start background timers to perform lease reservation and cleaning and also
+ * start the cluster clock updater.
  */
 void
 LeaseManager::startUpdaters()
 {
-    preallocator.start(0);
+    reservationAgent.start(0);
     cleaner.start(0);
     clock.startUpdater();
 }
 
 /**
- * Constructor for the LeasePreallocator.
+ * Constructor for the LeaseReservationAgent.
  * \param context
  *      Overall information about the RAMCloud server and provides access to
  *      the dispatcher.
  * \param leaseManager
- *      Provides access to the leaseManager to perform preallocation.
+ *      Provides access to the leaseManager to perform reservation.
  */
-LeaseManager::LeasePreallocator::LeasePreallocator(Context* context,
+LeaseManager::LeaseReservationAgent::LeaseReservationAgent(Context* context,
                                                   LeaseManager* leaseManager)
     : WorkerTimer(context->dispatch)
     , leaseManager(leaseManager)
 {}
 
 /**
- * The handler performs the lease preallocation.
+ * The handler performs the lease reservation and is scheduled by calls to
+ * renewLease when the number of reserved leases runs low.  The handler works
+ * incrementally and will continue to rescheduled itself until the number of
+ * reserved leases reaches a comfortable level (RESERVATION_LIMIT).
  */
 void
-LeaseManager::LeasePreallocator::handleTimerEvent()
+LeaseManager::LeaseReservationAgent::handleTimerEvent()
 {
-    uint64_t preallocationCount = 0;
-    while (true) {
-        LeaseManager::Lock lock(leaseManager->mutex);
-        preallocationCount = leaseManager->maxAllocatedLeaseId -
-                             leaseManager->lastIssuedLeaseId;
-        if (preallocationCount >= PREALLOCATION_LIMIT)
-            break;
-        leaseManager->allocateNextLease(lock);
+    LeaseManager::Lock lock(leaseManager->mutex);
+    leaseManager->reserveNextLease(lock);
+    uint64_t reservationCount = leaseManager->maxReservedLeaseId -
+                                leaseManager->lastIssuedLeaseId;
+    if (reservationCount < RESERVATION_LIMIT) {
+            this->start(0);
     }
 }
-
 
 /**
  * Constructor for the LeaseCleaner.
@@ -204,36 +212,20 @@ LeaseManager::LeaseCleaner::LeaseCleaner(Context* context,
 {}
 
 /**
- * This handler performs a cleaning pass on leaseManager.
+ * This handler performs a cleaning pass on leaseManager incrementally; will
+ * reschedule itself as necessary.
  */
 void
 LeaseManager::LeaseCleaner::handleTimerEvent()
 {
-    bool stillCleaning = true;
-    while (stillCleaning) {
-        stillCleaning = leaseManager->cleanNextLease();
+    if (leaseManager->cleanNextLease()) {
+        // Cleaning pass not complete; reschedule for immediate execution.
+        this->start(0);
+    } else {
+        // Run once per lease term as some will likely have expired by then.
+        this->start(Cycles::rdtsc() + Cycles::fromNanoseconds(
+                LeaseCommon::LEASE_TERM_US * 1000));
     }
-    // Run once per lease term as some will likely have expired by then.
-    this->start(Cycles::rdtsc() + Cycles::fromNanoseconds(
-            LeaseCommon::LEASE_TERM_US * 1000));
-}
-
-/**
- * Persist the next available leaseId to external storage=.
- *
- * \param lock
- *      Ensures that caller has acquired mutex; not actually used here.
- */
-void
-LeaseManager::allocateNextLease(Lock &lock)
-{
-    uint64_t nextLeaseId = maxAllocatedLeaseId + 1;
-    std::string leaseObjName = STORAGE_PREFIX + "/"
-            + format("%lu", nextLeaseId);
-    context->externalStorage->set(ExternalStorage::Hint::CREATE,
-                                  leaseObjName.c_str(),
-                                  "", 0);
-    maxAllocatedLeaseId = nextLeaseId;
 }
 
 /**
@@ -251,14 +243,23 @@ LeaseManager::cleanNextLease()
     ExpirationOrderSet::iterator it = expirationOrder.begin();
     if (it != expirationOrder.end() && it->leaseExpiration < clock.getTime()) {
         uint64_t leaseId = it->leaseId;
-        std::string leaseObjName = STORAGE_PREFIX + "/"
-                + format("%lu", leaseId);
-        context->externalStorage->remove(leaseObjName.c_str());
+        context->externalStorage->remove(getLeaseObjName(leaseId).c_str());
         expirationOrder.erase(it);
         leaseMap.erase(leaseId);
         return true;
     }
     return false;
+}
+
+/**
+ * Return the external storage object name for the external storage object that
+ * represents a lease with the given leaseId.
+ */
+std::string
+LeaseManager::getLeaseObjName(uint64_t leaseId)
+{
+    std::string leaseObjName = STORAGE_PREFIX + "/" + format("%lu", leaseId);
+    return leaseObjName;
 }
 
 /**
@@ -285,24 +286,42 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
         // Must issue a new lease as the old one has expired.
         clientLease.leaseId = ++lastIssuedLeaseId;
 
-        // The maxAllocatedLeaseId needs to always stay ahead of any issued
-        // leaseId.  If it is not, more leases need to be allocated.
-        // This should only ever execute once if at all.
-        while (maxAllocatedLeaseId <= lastIssuedLeaseId) {
-            // Instead of waiting for the allocator to run and catch up, we
-            // allocate manually.
-            allocateNextLease(lock);
-            RAMCLOUD_CLOG(WARNING, "Lease pre-allocation is not keeping up.");
+        // The maxReservedLeaseId needs to always stay ahead of any issued
+        // leaseId.  If it is not, more leases need to be reserved. This should
+        // only ever execute once if at all.
+        while (maxReservedLeaseId <= lastIssuedLeaseId) {
+            // Instead of waiting for the reservation agent to run and catch up,
+            // we reserve an additional leaseId manually.
+            RAMCLOUD_LOG(WARNING,
+                         "Lease reservations are not keeping up; "
+                         "maxReservedLeaseId = %lu", maxReservedLeaseId);
+            reserveNextLease(lock);
         }
     }
 
-    clientLease.leaseExpiration = clock.getTime() + LeaseCommon::LEASE_TERM_US;
+    clientLease.timestamp = clock.getTime();
+    clientLease.leaseExpiration = clientLease.timestamp
+                                  + LeaseCommon::LEASE_TERM_US;
     leaseMap[clientLease.leaseId] = clientLease.leaseExpiration;
     expirationOrder.insert({clientLease.leaseExpiration, clientLease.leaseId});
 
-    clientLease.timestamp = clock.getTime();
-
     return clientLease;
+}
+
+/**
+ * Persist the next available leaseId to external storage.
+ *
+ * \param lock
+ *      Ensures that caller has acquired mutex; not actually used here.
+ */
+void
+LeaseManager::reserveNextLease(Lock &lock)
+{
+    uint64_t nextLeaseId = maxReservedLeaseId + 1;
+    context->externalStorage->set(ExternalStorage::Hint::CREATE,
+                                  getLeaseObjName(nextLeaseId).c_str(),
+                                  "", 0);
+    maxReservedLeaseId = nextLeaseId;
 }
 
 } // namespace RAMCloud

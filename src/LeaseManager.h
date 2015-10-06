@@ -47,24 +47,27 @@ class LeaseManager {
 
   PRIVATE:
     /**
-     * The LeasePreallocator is periodically invoked to allocate a range of
-     * leaseIds on external storage.  The goal is that this preallocator will
-     * work ahead of the issued leases so that a client does not have to wait
-     * for an external storage operation to complete a new lease request.  Every
-     * invocation of the preallocator should ensure that maxAllocatedLeaseId
-     * runs ahead of lastIssuedLeaseId by the PREALLOCATION_LIMIT.  This batch
-     * allocation process only blocks during each individual allocation; other
-     * operations like issuing leases can be safely interleaved.
+     * The LeaseReservationAgent is periodically invoked to reserve a range of
+     * leaseIds on external storage.  The goal is that this agent will work
+     * ahead of the issued leases so that a client does not have to wait for an
+     * external storage operation to service a request for a new lease.  Every
+     * invocation of the agent should ensure that maxAllocatedLeaseId runs ahead
+     * of lastIssuedLeaseId by the RESERVATION_LIMIT.  This batch reservation
+     * process only blocks during each individual reservation; other operations
+     * like issuing leases can be safely interleaved.
+     *
+     * The agent is structured as a WorkerTimer as a convenient way to perform
+     * reservations using a separate worker thread (only start(0) is ever used).
      */
-    class LeasePreallocator : public WorkerTimer {
+    class LeaseReservationAgent : public WorkerTimer {
       public:
-        explicit LeasePreallocator(Context* context,
-                                   LeaseManager* leaseManager);
+        explicit LeaseReservationAgent(Context* context,
+                                       LeaseManager* leaseManager);
         virtual void handleTimerEvent();
 
         LeaseManager* leaseManager;
       private:
-        DISALLOW_COPY_AND_ASSIGN(LeasePreallocator);
+        DISALLOW_COPY_AND_ASSIGN(LeaseReservationAgent);
     };
 
     /**
@@ -97,16 +100,12 @@ class LeaseManager {
     /// next leaseId issued should be ++lastIssuedLeaseId.
     uint64_t lastIssuedLeaseId;
 
-    /// This is the largest leaseId that has been pre-allocated in external
-    /// storage.  Pre-allocating leaseIds allows this module to respond to
-    /// requests for new leases without waiting for an external storage
-    /// operation.  This module must never issue a leaseId greater than this
-    /// value.  To guarantee this value is recovered after a crash we must make
-    /// sure that maxAllocatedLeaseId is never removed (i.e. has its lease
-    /// freed).  In the normal case, continual pre-allocations will make sure
-    /// that this value runs ahead of lastIssuedLeaseId and thus cannot have
-    /// its corresponding lease freed.
-    uint64_t maxAllocatedLeaseId;
+    /// This is the largest leaseId that has been reserved in external storage.
+    /// To ensure this value can be recovered after a coordinator crash, this
+    /// module must never issue a leaseId greater than or equal to this value.
+    /// This constraint prevents the lease cleaner from ever removing the
+    /// external storage record for the largest reserved leaseId.
+    uint64_t maxReservedLeaseId;
 
     /// Maps from leaseId to its leaseExpiration.  This is used to quickly
     /// service requests about a lease's liveness.  This structure is updated
@@ -137,12 +136,13 @@ class LeaseManager {
     typedef std::set<ExpirationOrderElem> ExpirationOrderSet;
     ExpirationOrderSet expirationOrder;
 
-    LeasePreallocator preallocator;
+    LeaseReservationAgent reservationAgent;
     LeaseCleaner cleaner;
 
-    void allocateNextLease(Lock &lock);
     bool cleanNextLease();
+    std::string getLeaseObjName(uint64_t leaseId);
     WireFormat::ClientLease renewLeaseInternal(uint64_t leaseId, Lock &lock);
+    void reserveNextLease(Lock &lock);
 
     DISALLOW_COPY_AND_ASSIGN(LeaseManager);
 };

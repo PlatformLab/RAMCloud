@@ -66,7 +66,7 @@ TEST_F(ClientLeaseTest, getLease_nonblocking) {
     lease.lastRenewalTimeCycles = 0;
     uint64_t leaseExpiration = 300*1e6;
     uint64_t currentTimeUs = leaseExpiration - RENEW_THRESHOLD_US + 1;
-    lease.leaseTermElapseCycles = Cycles::fromNanoseconds(
+    lease.leaseExpirationCycles = Cycles::fromNanoseconds(
             (leaseExpiration - DANGER_THRESHOLD_US) * 1000);
     Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeUs * 1000);
     WireFormat::ClientLease l = {0, leaseExpiration, 0};
@@ -85,7 +85,7 @@ TEST_F(ClientLeaseTest, getLease_blocking) {
     lease.lastRenewalTimeCycles = 0;
     uint64_t leaseExpiration = 300*1e6;
     uint64_t currentTimeUs = leaseExpiration - DANGER_THRESHOLD_US + 1;
-    lease.leaseTermElapseCycles = Cycles::fromNanoseconds(
+    lease.leaseExpirationCycles = Cycles::fromNanoseconds(
             (leaseExpiration - DANGER_THRESHOLD_US) * 1000);
     Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeUs * 1000);
     WireFormat::ClientLease l = {0, leaseExpiration, 0};

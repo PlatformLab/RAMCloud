@@ -61,7 +61,7 @@ class ClientLease {
     /// If Cycles::rdtsc() returns a value larger than this value, the currently
     /// held lease may have (or will soon be) expired.  Used to determine
     /// whether getLease will need to block waiting for a new lease.
-    uint64_t leaseTermElapseCycles;
+    uint64_t leaseExpirationCycles;
 
     /// Holds a possibly outstanding RenewLeaseRpc so that this module can
     /// use asynchronous calls to the coordinator to maintain its lease.
