@@ -25,7 +25,7 @@ class CoordinatorClusterClockTest : public ::testing::Test {
     Context context;
     MockExternalStorage storage;
     Tub<CoordinatorClusterClock> clock;
-    const uint64_t safeTimeIntervalUs;
+    const uint64_t safeTimeIntervalNS;
 
 
     CoordinatorClusterClockTest()
@@ -33,7 +33,7 @@ class CoordinatorClusterClockTest : public ::testing::Test {
         , context()
         , storage(true)
         , clock()
-        , safeTimeIntervalUs(CoordinatorClusterClock::safeTimeIntervalUs)
+        , safeTimeIntervalNS(CoordinatorClusterClock::safeTimeIntervalNS)
     {
         context.externalStorage = &storage;
         clock.construct(&context);
@@ -45,14 +45,14 @@ class CoordinatorClusterClockTest : public ::testing::Test {
 TEST_F(CoordinatorClusterClockTest, getTime) {
     // Time dependent test;
     // Set large safe time so that the test will not hit it.
-    clock->safeClusterTimeUs = 10000;
+    clock->safeClusterTimeNS = 10000000;
     EXPECT_GT(clock->getTime(), 0U);
-    EXPECT_LT(clock->getTime(), 10000U);
+    EXPECT_LT(clock->getTime(), 10000000U);
 }
 
 TEST_F(CoordinatorClusterClockTest, getTime_stale) {
     usleep(1000);
-    EXPECT_EQ(0U, clock->safeClusterTimeUs.load());
+    EXPECT_EQ(0U, clock->safeClusterTimeNS.load());
     EXPECT_EQ(0U, clock->getTime());
     usleep(1000);
     TestLog::reset();
@@ -71,14 +71,14 @@ TEST_F(CoordinatorClusterClockTest, startUpdater) {
 TEST_F(CoordinatorClusterClockTest, handleTimerEvent) {
     // Covers both the handleTimerEvent and recoverClusterTime methods.
     EXPECT_EQ(0U, clock->recoverClusterTime(context.externalStorage));
-    EXPECT_EQ(0U, clock->safeClusterTimeUs.load());
+    EXPECT_EQ(0U, clock->safeClusterTimeNS.load());
     storage.log.clear();
     clock->updater.handleTimerEvent();
     EXPECT_EQ("set(UPDATE, coordinatorClusterClock)", storage.log);
     storage.getResults.push(storage.setData);
     uint64_t storedTime = clock->recoverClusterTime(context.externalStorage);
-    EXPECT_GT(storedTime, safeTimeIntervalUs);
-    EXPECT_EQ(storedTime, clock->safeClusterTimeUs.load());
+    EXPECT_GT(storedTime, safeTimeIntervalNS);
+    EXPECT_EQ(storedTime, clock->safeClusterTimeNS.load());
 }
 
 TEST_F(CoordinatorClusterClockTest, getInternal) {
@@ -86,7 +86,7 @@ TEST_F(CoordinatorClusterClockTest, getInternal) {
     usleep(50);
     uint64_t secondTime = clock->getInternal();
     EXPECT_GT(secondTime, firstTime);
-    EXPECT_GT(firstTime, clock->startingClusterTimeUs);
+    EXPECT_GT(firstTime, clock->startingClusterTimeNS);
 }
 
 // recoverClusterTime covered by handleTimerEvent test.

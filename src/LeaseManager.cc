@@ -114,7 +114,7 @@ LeaseManager::recover()
             }
 
             uint64_t leaseExpiration = clock.getTime() +
-                                       LeaseCommon::LEASE_TERM_US;
+                                       LeaseCommon::LEASE_TERM_NS;
             leaseMap[leaseId] = leaseExpiration;
             expirationOrder.insert({leaseExpiration, leaseId});
         } catch (std::invalid_argument& e) {
@@ -222,9 +222,11 @@ LeaseManager::LeaseCleaner::handleTimerEvent()
         // Cleaning pass not complete; reschedule for immediate execution.
         this->start(0);
     } else {
-        // Run once per lease term as some will likely have expired by then.
-        this->start(Cycles::rdtsc() + Cycles::fromNanoseconds(
-                LeaseCommon::LEASE_TERM_US * 1000));
+        // Run roughly 10 times per lease term; frequent enough to do more
+        // aggressive garbage collection but waiting long enough for a bunch
+        // of leases to expire.
+        this->start(Cycles::rdtsc() +
+                    Cycles::fromNanoseconds(LeaseCommon::LEASE_TERM_NS / 10) );
     }
 }
 
@@ -301,7 +303,7 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
 
     clientLease.timestamp = clock.getTime();
     clientLease.leaseExpiration = clientLease.timestamp
-                                  + LeaseCommon::LEASE_TERM_US;
+                                  + LeaseCommon::LEASE_TERM_NS;
     leaseMap[clientLease.leaseId] = clientLease.leaseExpiration;
     expirationOrder.insert({clientLease.leaseExpiration, clientLease.leaseId});
 

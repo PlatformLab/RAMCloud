@@ -59,11 +59,11 @@ class CoordinatorClusterClock {
         DISALLOW_COPY_AND_ASSIGN(SafeTimeUpdater);
     };
 
-    /// Amount of time (in microseconds) to advance the safeClusterTime stored
+    /// Amount of time (in nanoseconds) to advance the safeClusterTime stored
     /// in external storage.  This value should be much larger than the time
     /// to perform the external storage write (~10ms) but much much less than
     /// the max value (2^64 - 1).
-    static const uint64_t safeTimeIntervalUs = 3 * 1e6; // 3 seconds
+    static const uint64_t safeTimeIntervalNS = 3 * 1e9; // 3 seconds
 
     /// Amount of time (in seconds) between updates of the safeClusterTime to
     /// externalStorage.  This time should be less than the safeTimeIntervalMs;
@@ -72,16 +72,16 @@ class CoordinatorClusterClock {
 
     /// System time of the coordinator when the clock is initialized.  Used to
     /// calculate current cluster time.
-    const uint64_t startingSysTimeUs;
+    const uint64_t startingSysTimeNS;
 
     /// Recovered safeClusterTime from externalStorage when the clock is
     /// initialized (may be zero if cluster is new).  Used to calculate current
     /// cluster time.
-    const uint64_t startingClusterTimeUs;
+    const uint64_t startingClusterTimeNS;
 
     /// The last cluster time stored in externalStorage.  Represents the
     /// largest cluster time that may be returned from getTime().
-    Atomic<uint64_t> safeClusterTimeUs;
+    Atomic<uint64_t> safeClusterTimeNS;
 
     SafeTimeUpdater updater;
 

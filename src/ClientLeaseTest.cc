@@ -28,8 +28,8 @@ class ClientLeaseTest : public ::testing::Test {
     MockCluster cluster;
     RamCloud ramcloud;
     ClientLease lease;
-    uint64_t RENEW_THRESHOLD_US;
-    uint64_t DANGER_THRESHOLD_US;
+    uint64_t RENEW_THRESHOLD_NS;
+    uint64_t DANGER_THRESHOLD_NS;
 
     ClientLeaseTest()
         : logEnabler()
@@ -37,8 +37,8 @@ class ClientLeaseTest : public ::testing::Test {
         , cluster(&context, "mock:host=coordinator")
         , ramcloud(&context, "mock:host=coordinator")
         , lease(&ramcloud)
-        , RENEW_THRESHOLD_US(LeaseCommon::RENEW_THRESHOLD_US)
-        , DANGER_THRESHOLD_US(LeaseCommon::DANGER_THRESHOLD_US)
+        , RENEW_THRESHOLD_NS(LeaseCommon::RENEW_THRESHOLD_NS)
+        , DANGER_THRESHOLD_NS(LeaseCommon::DANGER_THRESHOLD_NS)
     {}
 
     ~ClientLeaseTest()
@@ -64,11 +64,11 @@ TEST_F(ClientLeaseTest, getLease_basic) {
 
 TEST_F(ClientLeaseTest, getLease_nonblocking) {
     lease.lastRenewalTimeCycles = 0;
-    uint64_t leaseExpiration = 300*1e6;
-    uint64_t currentTimeUs = leaseExpiration - RENEW_THRESHOLD_US + 1;
+    uint64_t leaseExpiration = LeaseCommon::LEASE_TERM_NS;
+    uint64_t currentTimeNS = leaseExpiration - RENEW_THRESHOLD_NS + 1;
     lease.leaseExpirationCycles = Cycles::fromNanoseconds(
-            (leaseExpiration - DANGER_THRESHOLD_US) * 1000);
-    Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeUs * 1000);
+            leaseExpiration - DANGER_THRESHOLD_NS);
+    Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeNS);
     WireFormat::ClientLease l = {0, leaseExpiration, 0};
     lease.lease = l;
     TestLog::setPredicate("getLease");
@@ -83,11 +83,11 @@ TEST_F(ClientLeaseTest, getLease_nonblocking) {
 
 TEST_F(ClientLeaseTest, getLease_blocking) {
     lease.lastRenewalTimeCycles = 0;
-    uint64_t leaseExpiration = 300*1e6;
-    uint64_t currentTimeUs = leaseExpiration - DANGER_THRESHOLD_US + 1;
+    uint64_t leaseExpiration = LeaseCommon::LEASE_TERM_NS;
+    uint64_t currentTimeNS = leaseExpiration - DANGER_THRESHOLD_NS + 1;
     lease.leaseExpirationCycles = Cycles::fromNanoseconds(
-            (leaseExpiration - DANGER_THRESHOLD_US) * 1000);
-    Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeUs * 1000);
+            leaseExpiration - DANGER_THRESHOLD_NS);
+    Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeNS);
     WireFormat::ClientLease l = {0, leaseExpiration, 0};
     lease.lease = l;
     TestLog::setPredicate("getLease");

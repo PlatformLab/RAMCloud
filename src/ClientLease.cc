@@ -99,17 +99,17 @@ ClientLease::poll()
             // If any of the asserts fail, an assumption about the behavior of
             // LeaseManager::renewLease must have been violated.
             assert(lease.leaseExpiration >= lease.timestamp);
-            uint64_t leaseTermLenUs = lease.leaseExpiration - lease.timestamp;
+            uint64_t leaseTermLenNS = lease.leaseExpiration - lease.timestamp;
 
-            assert(leaseTermLenUs >= LeaseCommon::DANGER_THRESHOLD_US);
+            assert(leaseTermLenNS >= LeaseCommon::DANGER_THRESHOLD_NS);
             leaseExpirationCycles = lastRenewalTimeCycles +
-                                    Cycles::fromMicroseconds(
-                                            leaseTermLenUs -
-                                            LeaseCommon::DANGER_THRESHOLD_US);
+                                    Cycles::fromNanoseconds(
+                                            leaseTermLenNS -
+                                            LeaseCommon::DANGER_THRESHOLD_NS);
 
-            assert(leaseTermLenUs >= LeaseCommon::RENEW_THRESHOLD_US);
-            uint64_t renewCycleTime = Cycles::fromMicroseconds(
-                        leaseTermLenUs - LeaseCommon::RENEW_THRESHOLD_US);
+            assert(leaseTermLenNS >= LeaseCommon::RENEW_THRESHOLD_NS);
+            uint64_t renewCycleTime = Cycles::fromNanoseconds(
+                        leaseTermLenNS - LeaseCommon::RENEW_THRESHOLD_NS);
             nextRenewalTimeCycles = lastRenewalTimeCycles + renewCycleTime;
         }
     }

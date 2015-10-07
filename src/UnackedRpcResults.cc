@@ -534,7 +534,7 @@ UnackedRpcResults::Cleaner::handleTimerEvent()
 
     // Run once per 1/10 of lease term to keep expected garbage ~ 5%.
     this->start(Cycles::rdtsc()+Cycles::fromNanoseconds(
-            LeaseCommon::LEASE_TERM_US * 100));
+            LeaseCommon::LEASE_TERM_NS / 10));
 }
 
 /**
