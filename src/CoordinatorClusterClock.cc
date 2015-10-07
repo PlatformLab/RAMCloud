@@ -30,8 +30,7 @@ namespace RAMCloud {
  *      externalStorage (externalStorage must be non-null).
  */
 CoordinatorClusterClock::CoordinatorClusterClock(Context *context)
-    : mutex()
-    , startingSysTimeUs(Cycles::toMicroseconds(Cycles::rdtsc()))
+    : startingSysTimeUs(Cycles::toMicroseconds(Cycles::rdtsc()))
     , startingClusterTimeUs(recoverClusterTime(context->externalStorage))
     , safeClusterTimeUs(startingClusterTimeUs)
     , updater(context, this)
@@ -50,14 +49,17 @@ CoordinatorClusterClock::CoordinatorClusterClock(Context *context)
 uint64_t
 CoordinatorClusterClock::getTime()
 {
-    Lock lock(mutex);
-    uint64_t time = getInternal(lock);
+    uint64_t time = getInternal();
+    // Cache current safe time for isolation; we want to avoid a time of check
+    // vs time of use problem since the safe cluster time may change while this
+    // method executes.
+    uint64_t currentSafeTimeUs = safeClusterTimeUs.load();
     // In the unlikely event that the current time exceeds the safe time,
     // return the safe time so that an unsafe time can never be observed.
-    if (expect_false(time > safeClusterTimeUs)) {// Not sure predictor helps.
+    if (expect_false(time > currentSafeTimeUs)) {// Not sure predictor helps.
         RAMCLOUD_CLOG(WARNING, "Returning stale time. "
                                "SafeTimeUpdater may be running behind.");
-        return safeClusterTimeUs;
+        return currentSafeTimeUs;
     }
     return time;
 }
@@ -98,9 +100,7 @@ void
 CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
 {
     uint64_t startTimeCycles = Cycles::rdtsc();
-    CoordinatorClusterClock::Lock lock(clock->mutex);
-    uint64_t nextSafeTimeUs = clock->getInternal(lock)
-                              + clock->safeTimeIntervalUs;
+    uint64_t nextSafeTimeUs = clock->getInternal() + clock->safeTimeIntervalUs;
     ProtoBuf::CoordinatorClusterClock info;
     info.set_next_safe_time(nextSafeTimeUs);
     std::string str;
@@ -110,19 +110,16 @@ CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
                          str.c_str(),
                          downCast<int>(str.length()));
 
-    clock->safeClusterTimeUs = nextSafeTimeUs;
+    clock->safeClusterTimeUs.store(nextSafeTimeUs);
     this->start(startTimeCycles + Cycles::fromSeconds(clock->updateIntervalS));
 }
 
 /**
  * Returns the raw, calculated, unprotected cluster time.  Should not be used
  * by external methods.
- *
- * \param lock
- *      Ensures that caller has acquired mutex; not actually used here.
  */
 uint64_t
-CoordinatorClusterClock::getInternal(Lock &lock)
+CoordinatorClusterClock::getInternal()
 {
     uint64_t currentSysTimeUs = Cycles::toMicroseconds(Cycles::rdtsc());
     return (currentSysTimeUs - startingSysTimeUs) + startingClusterTimeUs;
