@@ -654,7 +654,16 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_notReady) {
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
 }
 
-// TODO(cstlee) : Unit test processDecisionRpcResults_badStatus
+TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_badStatus) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->participantCount = 10;     // Cause format error
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendDecisionRpc();
+
+    EXPECT_THROW(transactionTask->processDecisionRpcResults(),
+                 RequestFormatError);
+}
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_basic) {
     insertWrite(tableId1, "test", 4, "hello", 5);
@@ -764,23 +773,18 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_ServerNotUp) {
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 }
 
-// TODO(cstlee) : Unit test processPrepareRpcResults_badStatus
-//TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_badStatus) {
-//    insertWrite(tableId1, "test", 4, "hello", 5);
-//    transactionTask->initTask();
-//    transactionTask->lease.leaseId = 0;
-//    transactionTask->lease.leaseExpiration = 0;
-//    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
-//    transactionTask->sendPrepareRpc();
-//
-//    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
-//    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
-//    EXPECT_EQ(STATUS_OK, transactionTask->status);
-//    transactionTask->processPrepareRpcResults();
-//    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
-//    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
-//    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, transactionTask->status);
-//}
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_badStatus) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->participantCount = 10;     // Cause format error
+    transactionTask->lease.leaseId = 0;
+    transactionTask->lease.leaseExpiration = 0;
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+
+    EXPECT_THROW(transactionTask->processPrepareRpcResults(),
+                 RequestFormatError);
+}
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_notReady) {
     insertWrite(tableId1, "test", 4, "hello", 5);
