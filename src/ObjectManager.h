@@ -289,6 +289,8 @@ class ObjectManager : public LogEntryHandlers {
             LogEntryRelocator& relocator);
     void relocateTxDecisionRecord(
             Buffer& oldBuffer, LogEntryRelocator& relocator);
+    void relocateTxParticipantList(
+            Buffer& oldBuffer, LogEntryRelocator& relocator);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
 
     /**

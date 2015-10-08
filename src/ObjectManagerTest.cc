@@ -3015,6 +3015,98 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
               , verifyMetadata(1));
 }
 
+TEST_F(ObjectManagerTest, relocateTxParticipantList_relocate) {
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42);
+
+    // Setup its initial existence.
+    Buffer pListBuffer;
+    participantList.assembleForLog(pListBuffer);
+    ParticipantList::TxId txId = participantList.getTxId();
+
+    Log::Reference oldPListReference;
+    bool success = objectManager.log.append(
+            LOG_ENTRY_TYPE_TXPLIST, pListBuffer, &oldPListReference);
+    objectManager.log.sync();
+    objectManager.preparedOps->updateParticipantListEntry(
+            txId, oldPListReference.toInteger());
+    EXPECT_TRUE(success);
+    EXPECT_TRUE(objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_EQ(oldPListReference.toInteger(),
+              objectManager.preparedOps->pListTable[txId]);
+
+    // Make sure the PariticipantList is considered live.
+    objectManager.unackedRpcResults->shouldRecover(42, 10, 0);
+    EXPECT_FALSE(objectManager.unackedRpcResults->isRpcAcked(42, 10));
+
+    LogEntryType oldTypeInLog;
+    Buffer oldBufferInLog;
+    oldTypeInLog = objectManager.log.getEntry(oldPListReference,
+                                              oldBufferInLog);
+    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, oldTypeInLog);
+
+    // Try to relocate.
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_TXPLIST,
+                           oldBufferInLog,
+                           oldPListReference,
+                           relocator);
+    EXPECT_TRUE(relocator.didAppend);
+    EXPECT_TRUE(objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_NE(oldPListReference.toInteger(),
+              objectManager.preparedOps->pListTable[txId]);
+}
+
+TEST_F(ObjectManagerTest, relocateTxParticipantList_clean) {
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42);
+
+    // Setup its initial existence.
+    Buffer pListBuffer;
+    participantList.assembleForLog(pListBuffer);
+    ParticipantList::TxId txId = participantList.getTxId();
+
+    Log::Reference oldPListReference;
+    bool success = objectManager.log.append(
+            LOG_ENTRY_TYPE_TXPLIST, pListBuffer, &oldPListReference);
+    objectManager.log.sync();
+    objectManager.preparedOps->updateParticipantListEntry(
+            txId, oldPListReference.toInteger());
+    EXPECT_TRUE(success);
+    EXPECT_TRUE(objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_EQ(oldPListReference.toInteger(),
+              objectManager.preparedOps->pListTable[txId]);
+
+    // Make sure the PariticipantList is not considered live.
+    objectManager.unackedRpcResults->shouldRecover(42, 10, 11);
+    EXPECT_TRUE(objectManager.unackedRpcResults->isRpcAcked(42, 10));
+
+    LogEntryType oldTypeInLog;
+    Buffer oldBufferInLog;
+    oldTypeInLog = objectManager.log.getEntry(oldPListReference,
+                                              oldBufferInLog);
+    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, oldTypeInLog);
+
+    // Try to relocate.
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_TXPLIST,
+                           oldBufferInLog,
+                           oldPListReference,
+                           relocator);
+    EXPECT_FALSE(relocator.didAppend);
+    EXPECT_FALSE(objectManager.preparedOps->hasParticipantListEntry(txId));
+}
+
 TEST_F(ObjectManagerTest, replace_noPriorVersion) {
     Key key(1, "1", 1);
 

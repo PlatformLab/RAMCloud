@@ -2350,6 +2350,8 @@ ObjectManager::relocate(LogEntryType type, Buffer& oldBuffer,
         relocatePreparedOpTombstone(oldBuffer, relocator);
     else if (type == LOG_ENTRY_TYPE_TXDECISION)
         relocateTxDecisionRecord(oldBuffer, relocator);
+    else if (type == LOG_ENTRY_TYPE_TXPLIST)
+        relocateTxParticipantList(oldBuffer, relocator);
 }
 
 /**
@@ -3141,6 +3143,54 @@ ObjectManager::relocateTxDecisionRecord(
                               record.getTableId(),
                               oldBuffer.size(),
                               1);
+    }
+}
+
+/**
+ * Method used by the LogCleaner when it's cleaning a Segment and comes across
+ * a ParticipantList record.
+ *
+ * This method will decide if the ParticipantList is still alive. If it is, it
+ * must move the record to a new location and update the PreparedOps module.
+ *
+ * \param oldBuffer
+ *      Buffer pointing to the ParticipantList's current location, which will
+ *      soon be invalidated.
+ * \param relocator
+ *      The relocator may be used to store the ParticipantList in a new location
+ *      if it is still alive. It also provides a reference to the new location
+ *      and keeps track of whether this call wanted the ParticipantList anymore
+ *      or not.
+ *
+ *      It is possible that relocation may fail (because more memory needs to
+ *      be allocated). In this case, the callback should just return. The
+ *      cleaner will note the failure, allocate more memory, and try again.
+ */
+void
+ObjectManager::relocateTxParticipantList(Buffer& oldBuffer,
+        LogEntryRelocator& relocator)
+{
+    ParticipantList participantList(oldBuffer);
+
+    // See if this transaction is still going on and thus if the participant
+    // list should be kept.
+    ParticipantList::TxId txId = participantList.getTxId();
+
+    bool keep = !unackedRpcResults->isRpcAcked(txId.first, txId.second);
+
+    if (keep) {
+        // Try to relocate it. If it fails, just return. The cleaner will
+        // allocate more memory and retry.
+        if (!relocator.append(LOG_ENTRY_TYPE_TXPLIST, oldBuffer))
+            return;
+
+        preparedOps->updateParticipantListEntry(
+                txId, relocator.getNewReference().toInteger());
+    } else {
+        // Participant List will be dropped/"cleaned"
+        preparedOps->updateParticipantListEntry(txId, 0);
+
+        // TODO(cstlee): Update TableStats here? If so, which table?
     }
 }
 
