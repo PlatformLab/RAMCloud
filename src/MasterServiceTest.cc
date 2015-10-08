@@ -2337,8 +2337,6 @@ TEST_F(MasterServiceTest, txDecision_unknownTablet) {
     EXPECT_TRUE(isObjectLocked(key3));
 }
 
-// TODO(cstlee) : Unit test MasterService::txHintFailed()
-
 TEST_F(MasterServiceTest, txPrepare_basics) {
     // 1. Test setup: Add objects to be used during experiment.
     uint64_t version;
