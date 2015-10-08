@@ -1568,6 +1568,39 @@ TEST_F(ObjectManagerTest, writeObject_returnRemovedObj) {
                                       oldValueLength));
 }
 
+TEST_F(ObjectManagerTest, logTransactionParticipantList) {
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42);
+    uint64_t logRefNum;
+
+    objectManager.logTransactionParticipantList(participantList, &logRefNum);
+
+    Log::Reference logRef(logRefNum);
+    Buffer buffer;
+    LogEntryType type = objectManager.log.getEntry(logRef, buffer);
+    ParticipantList outputParticipantList(buffer);
+
+    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, type);
+    EXPECT_EQ(3U, outputParticipantList.header.participantCount);
+    EXPECT_EQ(42U, outputParticipantList.header.clientLeaseId);
+
+    EXPECT_EQ(1U, outputParticipantList.participants[0].tableId);
+    EXPECT_EQ(2U, outputParticipantList.participants[0].keyHash);
+    EXPECT_EQ(10U, outputParticipantList.participants[0].rpcId);
+
+    EXPECT_EQ(123U, outputParticipantList.participants[1].tableId);
+    EXPECT_EQ(234U, outputParticipantList.participants[1].keyHash);
+    EXPECT_EQ(11U, outputParticipantList.participants[1].rpcId);
+
+    EXPECT_EQ(111U, outputParticipantList.participants[2].tableId);
+    EXPECT_EQ(222U, outputParticipantList.participants[2].keyHash);
+    EXPECT_EQ(12U, outputParticipantList.participants[2].rpcId);
+}
+
 TEST_F(ObjectManagerTest, prepareOp) {
     using WireFormat::TxParticipant;
     using WireFormat::TxPrepare;

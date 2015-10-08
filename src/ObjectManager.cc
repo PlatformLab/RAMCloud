@@ -1318,6 +1318,40 @@ ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
 }
 
 /**
+ * Append the provided ParticipantList to the log.
+ *
+ * \param participantList
+ *      ParticipantList to be appended.
+ * \param participantListLogRef
+ *      Log reference to the appended ParticipantList.
+ * \return
+ *      STATUS_OK if the ParticipantList could be appended.
+ *      STATUS_RETRY otherwise.
+ */
+Status
+ObjectManager::logTransactionParticipantList(ParticipantList& participantList,
+                                             uint64_t* participantListLogRef)
+{
+    Buffer participantListBuffer;
+    Log::Reference reference;
+    participantList.assembleForLog(participantListBuffer);
+
+    // Write the ParticipantList into the Log, update the table.
+    if (!log.append(LOG_ENTRY_TYPE_TXPLIST, participantListBuffer, &reference))
+    {
+        // The log is out of space. Tell the client to retry and hope
+        // that the cleaner makes space soon.
+        return STATUS_RETRY;
+    }
+
+    *participantListLogRef = reference.toInteger();
+
+    // TODO(cstlee): do we need to update TableStats here?  If so, which table?
+
+    return STATUS_OK;
+}
+
+/**
  * Prepares an operation during transaction prepare stage.
  * It locks the corresponding object and writes logs for PreparedOp
  * and RpcResult (for linearizablity of vote).
