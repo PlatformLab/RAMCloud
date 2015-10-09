@@ -83,7 +83,6 @@ class ServerRpcPool {
     construct(Args&&... args)
     {
         T* rpc = pool.construct(static_cast<Args&&>(args)...);
-        rpc->epoch = ServerRpcPoolInternal::currentEpoch;
         ServerRpcPoolInternal::outstandingServerRpcs.push_back(*rpc);
         outstandingAllocations++;
         return rpc;
@@ -137,7 +136,7 @@ class ServerRpcPool {
         ServerRpcPoolInternal::ServerRpcList::iterator it =
             ServerRpcPoolInternal::outstandingServerRpcs.begin();
         while (it != ServerRpcPoolInternal::outstandingServerRpcs.end()) {
-            if ((it->activities & activities) != 0) {
+            if (((it->activities & activities) != 0) & (it->epoch != 0)) {
                 earliest = std::min(it->epoch, earliest);
             }
             it++;

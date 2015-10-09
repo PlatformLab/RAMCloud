@@ -48,10 +48,7 @@ TEST(ServerRpcPoolTest, construct) {
     Context context;
     ServerRpcPool<TestServerRpc> pool;
 
-    ServerRpcPoolInternal::currentEpoch = 12;
     TestServerRpc* rpc = pool.construct();
-    EXPECT_EQ(12UL, rpc->epoch);
-    EXPECT_EQ(12UL, ServerRpcPool<>::getEarliestOutstandingEpoch(&context, ~0));
     EXPECT_EQ(true, rpc->outstandingRpcListHook.is_linked());
     EXPECT_EQ(1U, pool.outstandingAllocations);
 
@@ -80,6 +77,8 @@ TEST(ServerRpcPoolTest, getEarliestOutstandingEpoch_basics) {
     ServerRpcPoolInternal::currentEpoch = 57;
     ServerRpcPool<TestServerRpc> pool;
     TestServerRpc* rpc = pool.construct();
+    EXPECT_EQ(-1UL, ServerRpcPool<>::getEarliestOutstandingEpoch(&context, ~0));
+    rpc->epoch = 57;
     EXPECT_EQ(57UL, ServerRpcPool<>::getEarliestOutstandingEpoch(&context, ~0));
     pool.destroy(rpc);
 

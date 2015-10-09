@@ -137,8 +137,6 @@ WorkerManager::~WorkerManager()
 void
 WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 {
-    assert(rpc->epochIsSet());
-
     // Find the service for this RPC.
     const WireFormat::RequestCommon* header;
     header = rpc->requestPayload.getStart<WireFormat::RequestCommon>();
@@ -412,6 +410,7 @@ WorkerManager::workerMain(Worker* worker)
                     TimeTraceUtil::RequestStatus::WORKER_START));
 #endif
 
+            worker->rpc->epoch = ServerRpcPool<>::getCurrentEpoch();
             Service::Rpc rpc(worker, &worker->rpc->requestPayload,
                     &worker->rpc->replyPayload);
             Service::handleRpc(worker->context, &rpc);

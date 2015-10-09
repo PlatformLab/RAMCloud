@@ -949,6 +949,10 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     uint64_t lastKeyHash = reqHdr->lastKeyHash;
     ServerId receiver(reqHdr->newOwnerMasterId);
 
+    // Mark this request as read-only, to avoid deadlock when performing
+    // epoch-related waits below.
+    rpc->worker->rpc->activities = Transport::ServerRpc::READ_ACTIVITY;
+
     // Find the tablet we're trying to move. We only support migration
     // when the tablet to be migrated consists of a range within a single,
     // contiguous tablet of ours.
@@ -1014,10 +1018,6 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         // Increment the current epoch and save the last epoch any
         // currently running RPC could have been a part of
         uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
-
-        // Increase our epoch nuumber to the current epoch number so we do not
-        // wait on ourselves
-        rpc->worker->rpc->epoch = epoch + 1;
 
         // Wait for the remainder of already running writes to finish.
         while (true) {
@@ -2077,6 +2077,10 @@ MasterService::splitAndMigrateIndexlet(
     void* splitKey = rpc->requestPayload->getRange(
             sizeof32(*reqHdr), splitKeyLength);
 
+    // Mark this request as read-only, to avoid deadlock when performing
+    // epoch-related waits below.
+    rpc->worker->rpc->activities = Transport::ServerRpc::READ_ACTIVITY;
+
     if (splitKey == NULL) {
         throw FatalError(HERE, "Ill-formed RPC in splitAndMigrateIndexlet.");
     }
@@ -2158,10 +2162,6 @@ MasterService::splitAndMigrateIndexlet(
         // Increment the current epoch and save the last epoch any
         // currently running RPC could have been a part of
         uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
-
-        // Increase our epoch nuumber to the current epoch number so we do not
-        // wait on ourselves
-        rpc->worker->rpc->epoch = epoch + 1;
 
         // Wait for the remainder of already running writes to finish.
         while (true) {

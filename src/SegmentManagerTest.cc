@@ -587,9 +587,9 @@ TEST_F(SegmentManagerTest, freeUnreferencedSegments) {
     LogSegment* freeable = segmentManager.allocHeadSegment();
     segmentManager.allocHeadSegment();
 
-    ServerRpcPoolInternal::currentEpoch = 8;
     ServerRpcPool<TestServerRpc> pool;
     TestServerRpc* rpc = pool.construct();
+    rpc->epoch = 8;
 
     segmentManager.changeState(*freeable,
         SegmentManager::FREEABLE_PENDING_REFERENCES);
@@ -620,6 +620,7 @@ TEST_F(SegmentManagerTest, freeUnreferencedSegments_logWhenStuck) {
     ServerRpcPoolInternal::currentEpoch = 8;
     ServerRpcPool<TestServerRpc> pool;
     TestServerRpc* rpc = pool.construct();
+    rpc->epoch = 8;
 
     segmentManager.changeState(*freeable,
         SegmentManager::FREEABLE_PENDING_REFERENCES);
