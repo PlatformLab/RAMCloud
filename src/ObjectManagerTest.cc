@@ -686,12 +686,13 @@ TEST_F(ObjectManagerTest, removeObject_returnRemovedObj) {
 
 TEST_F(ObjectManagerTest, removeOrphanedObjects) {
     tabletManager.addTablet(97, 0, ~0UL, TabletManager::NORMAL);
-    Key key(97, "1", 1);
 
+    Key key(97, "1", 1);
     Buffer value;
     Object obj(key, "hi", 2, 0, 0, value);
 
     EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, NULL, NULL));
+    EXPECT_EQ(32lu, objectManager.log.totalLiveBytes);
 
     EXPECT_TRUE(tabletManager.getTablet(key, NULL));
     EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, NULL, NULL));
@@ -703,6 +704,18 @@ TEST_F(ObjectManagerTest, removeOrphanedObjects) {
     EXPECT_FALSE(tabletManager.getTablet(key, NULL));
 
     value.reset();
+
+    {
+        tabletManager.addTablet(98, 0, ~0UL, TabletManager::NORMAL);
+        Key key(98, "1", 1);
+        Buffer value;
+        Object obj(key, "hi", 2, 0, 0, value);
+
+        EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, NULL, NULL));
+        EXPECT_EQ(64lu, objectManager.log.totalLiveBytes);
+    }
+    value.reset();
+
     TestLog::Enable _(antiGetEntryFilter);
     HashTable::Candidates c;
     objectManager.objectMap.lookup(key.getHash(), c);
@@ -719,6 +732,7 @@ TEST_F(ObjectManagerTest, removeOrphanedObjects) {
         format("removeIfOrphanedObject: removing orphaned object at ref %lu | "
                "free: free on reference %lu", ref, ref),
         TestLog::get());
+    EXPECT_EQ(32lu, objectManager.log.totalLiveBytes);
 }
 
 TEST_F(ObjectManagerTest, replaySegment_nextNodeIdMap) {

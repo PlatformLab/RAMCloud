@@ -256,6 +256,28 @@ class AbstractLog {
         {
         }
 
+        /**
+         * Add all of the metrics this instance to the fields in \a other.
+         * This method is kind of inverted (merges into the arg's fields) due to
+         * weird issues with accessing protected fields through member pointers.
+         */
+        void mergeInto(AbstractLog* other)
+        {
+            other->metrics.totalAppendCalls += totalAppendCalls;
+            other->metrics.totalAppendTicks += totalAppendTicks;
+            other->metrics.totalNoSpaceTicks += totalNoSpaceTicks;
+            other->metrics.totalBytesAppended += totalBytesAppended;
+            other->metrics.totalMetadataBytesAppended +=
+                totalMetadataBytesAppended;
+        }
+
+        /// Reset the metrics for the log to the initial/empty state.
+        void reset()
+        {
+            this->~Metrics();
+            new(this) Metrics{};
+        }
+
         /// Total number of times any of the public append() methods have been
         /// called.
         uint64_t totalAppendCalls;
