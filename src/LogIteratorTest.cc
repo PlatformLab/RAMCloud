@@ -74,14 +74,12 @@ class LogIteratorTest : public ::testing::Test {
 };
 
 TEST_F(LogIteratorTest, constructor_emptyLog) {
-    EXPECT_EQ(0, segmentManager.logIteratorCount);
     LogIterator i(l);
     EXPECT_TRUE(i.isDone());
     EXPECT_EQ(&l, &i.log);
     EXPECT_EQ(0U, i.segmentList.size());
     EXPECT_FALSE(i.currentIterator);
     EXPECT_EQ(-1UL, i.currentSegmentId);
-    EXPECT_EQ(1, segmentManager.logIteratorCount);
 }
 
 TEST_F(LogIteratorTest, constructor_singleSegmentLog) {
@@ -89,13 +87,11 @@ TEST_F(LogIteratorTest, constructor_singleSegmentLog) {
     l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data));
     l.sync();
 
-    EXPECT_EQ(0, segmentManager.logIteratorCount);
     LogIterator i(l);
     EXPECT_EQ(&l, &i.log);
     EXPECT_EQ(1U, i.segmentList.size());
     EXPECT_TRUE(i.currentIterator);
     EXPECT_EQ(1U, i.currentSegmentId);
-    EXPECT_EQ(1, segmentManager.logIteratorCount);
 }
 
 TEST_F(LogIteratorTest, constructor_multiSegmentLog) {
@@ -104,20 +100,11 @@ TEST_F(LogIteratorTest, constructor_multiSegmentLog) {
         l.append(LOG_ENTRY_TYPE_OBJ, data, sizeof(data));
     l.sync();
 
-    EXPECT_EQ(0, segmentManager.logIteratorCount);
     LogIterator i(l);
     EXPECT_EQ(&l, &i.log);
     EXPECT_EQ(2U, i.segmentList.size());
     EXPECT_TRUE(i.currentIterator);
     EXPECT_EQ(1U, i.currentSegmentId);
-    EXPECT_EQ(1, segmentManager.logIteratorCount);
-}
-
-TEST_F(LogIteratorTest, destructor) {
-    {
-        LogIterator i(l);
-    }
-    EXPECT_EQ(0, segmentManager.logIteratorCount);
 }
 
 TEST_F(LogIteratorTest, next_basics) {

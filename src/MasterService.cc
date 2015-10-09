@@ -989,7 +989,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     uint64_t entryTotals[TOTAL_LOG_ENTRY_TYPES] = {0};
     uint64_t totalBytes = 0;
 
-    LogIterator it(*objectManager.getLog(), false);
+    LogIterator it(*objectManager.getLog());
     // Phase 1: scan the log from oldest to newest entries until we reach
     // the head segment.
     if (!it.isDone()) {
@@ -2126,7 +2126,7 @@ MasterService::splitAndMigrateIndexlet(
     uint64_t totalTombstones = 0;
     uint64_t totalBytes = 0;
 
-    LogIterator it(*objectManager.getLog(), false);
+    LogIterator it(*objectManager.getLog());
 
     // Phase 1: scan the log from oldest to newest entries until we reach
     // the head segment.

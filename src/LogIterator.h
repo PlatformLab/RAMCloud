@@ -50,7 +50,7 @@ namespace RAMCloud {
  */
 class LogIterator {
   PUBLIC:
-    explicit LogIterator(Log& log, bool lockHead = true);
+    explicit LogIterator(Log& log);
     ~LogIterator();
 
     void next();

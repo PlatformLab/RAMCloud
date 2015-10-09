@@ -76,7 +76,6 @@ SegmentManager::SegmentManager(Context* context,
       allSegments(),
       segmentsByState(),
       lock("SegmentManager::lock"),
-      logIteratorCount(0),
       segmentsOnDisk(0),
       segmentsOnDiskHistogram(maxSegments, 1),
       safeVersion(1),
@@ -479,28 +478,6 @@ SegmentManager::cleanableSegments(LogSegmentVector& out)
 }
 
 /**
- * Called whenever a LogIterator is created. The point is that the segment
- * manager keeps track of when iterators exist and ensures that cleaning does
- * not permute the log until after all iteration has completed.
- */
-void
-SegmentManager::logIteratorCreated()
-{
-    Lock guard(lock);
-    logIteratorCount++;
-}
-
-/**
- * Called whenever a LogIterator is destroyed.
- */
-void
-SegmentManager::logIteratorDestroyed()
-{
-    Lock guard(lock);
-    logIteratorCount--;
-}
-
-/**
  * Get a list of active segments (segments that are currently part of the log)
  * that have an identifier greater than or equal to the given value. This is
  * used by the log iterator to discover segments to iterate over.
@@ -519,9 +496,6 @@ SegmentManager::getActiveSegments(uint64_t minSegmentId,
                                   LogSegmentVector& outList)
 {
     Lock guard(lock);
-
-    if (logIteratorCount == 0)
-        throw SegmentManagerException(HERE, "cannot call outside of iteration");
 
     // Walk the lists to collect the closed Segments. Since the cleaner
     // is locked out of inserting survivor segments and freeing cleaned
@@ -833,12 +807,9 @@ SegmentManager::writeDigest(LogSegment* newHead, LogSegment* prevHead)
 {
     LogDigest digest;
 
-    // Only include new survivor segments if no log iteration in progress.
-    if (logIteratorCount == 0) {
-        while (!segmentsByState[CLEANABLE_PENDING_DIGEST].empty()) {
-            LogSegment& s = segmentsByState[CLEANABLE_PENDING_DIGEST].front();
-            changeState(s, NEWLY_CLEANABLE);
-        }
+    while (!segmentsByState[CLEANABLE_PENDING_DIGEST].empty()) {
+        LogSegment& s = segmentsByState[CLEANABLE_PENDING_DIGEST].front();
+        changeState(s, NEWLY_CLEANABLE);
     }
 
     foreach (LogSegment& s, segmentsByState[CLEANABLE])
@@ -852,19 +823,11 @@ SegmentManager::writeDigest(LogSegment* newHead, LogSegment* prevHead)
 
     digest.addSegmentId(newHead->id);
 
-    // Only preclude/free cleaned segments if no log iteration in progress.
-    if (logIteratorCount == 0) {
-        SegmentList& list = segmentsByState[
-            FREEABLE_PENDING_DIGEST_AND_REFERENCES];
-        while (!list.empty()) {
-            LogSegment& s = list.front();
-            changeState(s, FREEABLE_PENDING_REFERENCES);
-        }
-    } else {
-        SegmentList& list = segmentsByState[
-            FREEABLE_PENDING_DIGEST_AND_REFERENCES];
-        foreach (LogSegment& s, list)
-            digest.addSegmentId(s.id);
+    SegmentList& list = segmentsByState[
+        FREEABLE_PENDING_DIGEST_AND_REFERENCES];
+    while (!list.empty()) {
+        LogSegment& s = list.front();
+        changeState(s, FREEABLE_PENDING_REFERENCES);
     }
 
     Buffer buffer;

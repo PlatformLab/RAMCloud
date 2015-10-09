@@ -68,7 +68,6 @@ TEST_F(SegmentManagerTest, constructor)
                  SegmentManagerException);
 
     EXPECT_EQ(1U, segmentManager.nextSegmentId);
-    EXPECT_EQ(0, segmentManager.logIteratorCount);
     EXPECT_EQ(320U, segmentManager.maxSegments);
     EXPECT_EQ(segmentManager.maxSegments - 2,
               segmentManager.freeSlots.size());
@@ -275,23 +274,9 @@ TEST_F(SegmentManagerTest, cleanableSegments) {
     EXPECT_EQ(1U, cleanable.size());
 }
 
-TEST_F(SegmentManagerTest, logIteratorCreated_and_logIteratorDestroyed) {
-    EXPECT_EQ(0, segmentManager.logIteratorCount);
-    segmentManager.logIteratorCreated();
-    EXPECT_EQ(1, segmentManager.logIteratorCount);
-    segmentManager.logIteratorCreated();
-    EXPECT_EQ(2, segmentManager.logIteratorCount);
-    segmentManager.logIteratorDestroyed();
-    segmentManager.logIteratorDestroyed();
-    EXPECT_EQ(0, segmentManager.logIteratorCount);
-}
-
 TEST_F(SegmentManagerTest, getActiveSegments) {
     LogSegmentVector active;
 
-    EXPECT_THROW(segmentManager.getActiveSegments(1, active),
-        SegmentManagerException);
-    segmentManager.logIteratorCreated();
     EXPECT_NO_THROW(segmentManager.getActiveSegments(1, active));
     EXPECT_EQ(0U, active.size());
 
@@ -321,8 +306,6 @@ TEST_F(SegmentManagerTest, getActiveSegments) {
     active.clear();
     segmentManager.getActiveSegments(head->id + 1, active);
     EXPECT_EQ(0U, active.size());
-
-    segmentManager.logIteratorDestroyed();
 }
 
 TEST_F(SegmentManagerTest, initializeSurvivorSegmentReserve) {

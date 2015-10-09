@@ -125,8 +125,6 @@ class SegmentManager {
     void injectSideSegments(LogSegmentVector& segments);
     void freeUnusedSideSegments(LogSegmentVector& segments);
     void cleanableSegments(LogSegmentVector& out);
-    void logIteratorCreated();
-    void logIteratorDestroyed();
     void getActiveSegments(uint64_t nextSegmentId, LogSegmentVector& list);
     bool initializeSurvivorReserve(uint32_t numSegments);
     LogSegment& operator[](SegmentSlot slot);
@@ -357,13 +355,6 @@ class SegmentManager {
     /// threads. At a minimum, the log and log cleaner modules may operate
     /// simultaneously.
     SpinLock lock;
-
-    /// Count of the number of LogIterators currently in existence that
-    /// refer to the log we're managing. So long as this count is non-zero,
-    /// no changes made by the cleaner may be applied. That means that
-    /// survivor segments must not be added to the log and cleaned segments
-    /// must not be freed.
-    int logIteratorCount;
 
     /// Number of segments currently on backup disks. This is exactly the number
     /// of ReplicatedSegments that exist.

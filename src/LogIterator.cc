@@ -37,10 +37,8 @@ namespace RAMCloud {
  *
  * \param log
  *      The log to iterate over.
- * \param lockHead
- *      When set, we will take the log's appendLock upon reaching the head.
  */
-LogIterator::LogIterator(Log& log, bool lockHead)
+LogIterator::LogIterator(Log& log)
     : log(log),
       segmentList(),
       currentIterator(),
@@ -50,8 +48,6 @@ LogIterator::LogIterator(Log& log, bool lockHead)
       done(false),
       headReached(false)
 {
-    log.segmentManager->logIteratorCreated();
-
     if (log.head == NULL) {
         // Log is empty; not sure this should ever happen in practice.
         done = true;
@@ -60,13 +56,10 @@ LogIterator::LogIterator(Log& log, bool lockHead)
 }
 
 /**
- * Destroy the iterator. Once the last iterator on a log has been destroyed,
- * it may resume completing garbage collection. If the head segment was locked
- * for iteration, appends will also be re-enabled.
+ * Destroy the iterator.
  */
 LogIterator::~LogIterator()
 {
-    log.segmentManager->logIteratorDestroyed();
 }
 
 /**
