@@ -508,7 +508,7 @@ class DelayedIncrementer {
 void
 ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
 {
-  replaySegment(sideLog, it, NULL);
+    replaySegment(sideLog, it, NULL);
 }
 
 /**
@@ -1033,8 +1033,41 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                                       buffer.size(),
                                       1);
             }
-        }
+        } else if (type == LOG_ENTRY_TYPE_TXPLIST) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
 
+            ParticipantList participantList(buffer);
+
+            bool checksumIsValid = ({
+                CycleCounter<uint64_t> c(&verifyChecksumTicks);
+                participantList.checkIntegrity();
+            });
+
+            ParticipantList::TxId txId = participantList.getTxId();
+
+            if (expect_false(!checksumIsValid)) {
+                LOG(ERROR,
+                        "bad ParticipantList checksum! "
+                        "(leaseId: %lu, txId: %lu)",
+                        txId.first, txId.second);
+                // TODO(cstlee): Should throw and try another segment replica?
+            }
+            if (unackedRpcResults->shouldRecover(txId.first, txId.second, 0)
+                    && !preparedOps->hasParticipantListEntry(txId)) {
+                CycleCounter<uint64_t> _(&segmentAppendTicks);
+                Log::Reference logRef;
+                if (sideLog->append(LOG_ENTRY_TYPE_TXPLIST, buffer, &logRef)) {
+                    preparedOps->updateParticipantListEntry(
+                            txId, logRef.toInteger());
+                } else {
+                    LOG(ERROR,
+                            "Could not append ParticipantList! "
+                            "(leaseId: %lu, txId: %lu)",
+                            txId.first, txId.second);
+                }
+            }
+        }
     }
 
     metrics->master.backupInRecoverTicks +=

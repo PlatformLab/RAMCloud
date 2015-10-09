@@ -264,6 +264,33 @@ class ObjectManagerTest : public ::testing::Test {
     }
 
     /**
+     * Build a properly formatted segment containing a single ParticipantList.
+     * This segment may be passed directly to the ObjectManager::replaySegment()
+     * routine.
+     */
+    uint32_t
+    buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
+                         ParticipantList &record,
+                         SegmentCertificate* outCertificate)
+    {
+        Segment s;
+        Buffer newBuffer;
+        record.assembleForLog(newBuffer);
+        bool success = s.append(LOG_ENTRY_TYPE_TXPLIST,
+                                newBuffer);
+        EXPECT_TRUE(success);
+        s.close();
+
+        Buffer buffer;
+        s.appendToBuffer(buffer);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
+        s.getAppendedLength(outCertificate);
+
+        return buffer.size();
+    }
+
+    /**
      * Store an object in the log and hash table, returning its Log::Reference.
      */
     Log::Reference
@@ -1468,6 +1495,116 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
     EXPECT_EQ(1U, txRecoveryManager->recoveringIds.size());
     EXPECT_EQ(0U, txRecoveryManager->recoveries.size());
     EXPECT_FALSE(txRecoveryManager->isRunning());
+}
+
+TEST_F(ObjectManagerTest, replaySegment_ParticipantList_basic) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
+    PreparedOps* preparedOps = objectManager.preparedOps;
+
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList record(participants, 3, 42);
+    ParticipantList::TxId txId = record.getTxId();
+
+    EXPECT_FALSE(unackedRpcResults->clients.find(txId.first) !=
+            unackedRpcResults->clients.end());
+    EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
+
+    {
+        SegmentCertificate certificate;
+        Buffer buf;
+        len = buildRecoverySegment(seg, segLen, record, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_TRUE(unackedRpcResults->clients.find(txId.first) !=
+            unackedRpcResults->clients.end());
+    EXPECT_TRUE(preparedOps->hasParticipantListEntry(txId));
+}
+
+TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_acked) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
+    PreparedOps* preparedOps = objectManager.preparedOps;
+
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList record(participants, 3, 42);
+    ParticipantList::TxId txId = record.getTxId();
+
+    // pre-insert ack
+    unackedRpcResults->shouldRecover(txId.first, txId.second, txId.second);
+    EXPECT_TRUE(unackedRpcResults->clients.find(txId.first) !=
+            unackedRpcResults->clients.end());
+    EXPECT_TRUE(unackedRpcResults->isRpcAcked(txId.first, txId.second));
+    EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
+
+    {
+        SegmentCertificate certificate;
+        Buffer buf;
+        len = buildRecoverySegment(seg, segLen, record, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
+}
+
+TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_hasPListEntry) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
+    PreparedOps* preparedOps = objectManager.preparedOps;
+
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList record(participants, 3, 42);
+    ParticipantList::TxId txId = record.getTxId();
+
+    // pre-insert (bad) participant list entry
+    preparedOps->pListTable[txId] = 0;
+    EXPECT_FALSE(unackedRpcResults->clients.find(txId.first) !=
+            unackedRpcResults->clients.end());
+    EXPECT_TRUE(preparedOps->hasParticipantListEntry(txId));
+
+    {
+        SegmentCertificate certificate;
+        Buffer buf;
+        len = buildRecoverySegment(seg, segLen, record, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_TRUE(preparedOps->hasParticipantListEntry(txId));
+    EXPECT_EQ(0U, preparedOps->pListTable[txId]);
 }
 
 static bool
