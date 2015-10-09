@@ -2533,6 +2533,16 @@ ObjectManager::dumpSegment(Segment* segment)
                     decisionRecord.getTableId(), decisionRecord.getKeyHash(),
                     decisionRecord.getLeaseId());
 
+        } else if (type == LOG_ENTRY_TYPE_TXPLIST) {
+            Buffer buffer;
+            it.appendToBuffer(buffer);
+            ParticipantList participantList(buffer);
+            result += format("%sparticipantList at offset %u, length %u with "
+                    "TxId: (leaseId %lu, rpcId %lu) containing %u entries",
+                    separator, it.getOffset(), it.getLength(),
+                    participantList.getTxId().first,
+                    participantList.getTxId().second,
+                    participantList.header.participantCount);
         }
 
         it.next();

@@ -85,7 +85,8 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             && type != LOG_ENTRY_TYPE_RPCRESULT
             && type != LOG_ENTRY_TYPE_PREP
             && type != LOG_ENTRY_TYPE_PREPTOMB
-            && type != LOG_ENTRY_TYPE_TXDECISION)
+            && type != LOG_ENTRY_TYPE_TXDECISION
+            && type != LOG_ENTRY_TYPE_TXPLIST)
             continue;
 
         if (header == NULL) {
@@ -97,9 +98,11 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
         it.appendToBuffer(entryBuffer);
 
         uint64_t tableId = -1;
-        if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
-            // Copy SAFEVERSION to all the partitions for
-            // safeVersion recovery on all recovery masters
+        if (type == LOG_ENTRY_TYPE_SAFEVERSION ||
+            type == LOG_ENTRY_TYPE_TXPLIST)
+        {
+            // Copy SAFEVERSION and ParticipantLists to all the partitions for
+            // safeVersion and ParticipantList recovery on all recovery masters
             LogPosition position(header->segmentId, it.getOffset());
             for (int i = 0; i < numPartitions; i++) {
                 if (!recoverySegments[i].append(type, entryBuffer)) {

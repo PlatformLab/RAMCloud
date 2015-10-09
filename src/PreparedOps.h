@@ -221,7 +221,6 @@ class ParticipantList {
     bool checkIntegrity();
     uint32_t computeChecksum();
     TxId getTxId();
-  PRIVATE:
 
     /**
      * This data structure defines the format of a preparedOp header stored in a

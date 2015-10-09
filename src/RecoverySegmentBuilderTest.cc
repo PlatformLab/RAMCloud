@@ -303,6 +303,43 @@ TEST_F(RecoverySegmentBuilderTest, build_safeVersionEntries) {
             ObjectManager::dumpSegment(&recoverySegments[2]));
 }
 
+TEST_F(RecoverySegmentBuilderTest, build_participantList) {
+    auto build = RecoverySegmentBuilder::build;
+
+    // Create one replica containing a participantList record.
+    LogSegment* segment = segmentManager.allocHeadSegment();
+    WireFormat::TxParticipant participants[3];
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList record(participants, 3, 42);
+    ParticipantList::TxId txId = record.getTxId();
+    Buffer buffer;
+    record.assembleForLog(buffer);
+
+    ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_TXPLIST, buffer));
+    SegmentCertificate certificate;
+    uint32_t length = segment->getAppendedLength(&certificate);
+    char buf[serverConfig.segmentSize];
+    ASSERT_TRUE(segment->copyOut(0, buf, length));
+
+    std::unique_ptr<Segment[]> recoverySegments(new Segment[3]);
+    build(buf, length, certificate, 3, partitions, recoverySegments.get());
+
+    EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
+            "participantList at offset 14, length 88 with "
+            "TxId: (leaseId 42, rpcId 10) containing 3 entries",
+            ObjectManager::dumpSegment(&recoverySegments[0]));
+    EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
+            "participantList at offset 14, length 88 with "
+            "TxId: (leaseId 42, rpcId 10) containing 3 entries",
+            ObjectManager::dumpSegment(&recoverySegments[1]));
+    EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
+            "participantList at offset 14, length 88 with "
+            "TxId: (leaseId 42, rpcId 10) containing 3 entries",
+            ObjectManager::dumpSegment(&recoverySegments[2]));
+}
+
 TEST_F(RecoverySegmentBuilderTest, extractDigest) {
     auto extractDigest = RecoverySegmentBuilder::extractDigest;
     LogSegment* segment = segmentManager.allocHeadSegment();
