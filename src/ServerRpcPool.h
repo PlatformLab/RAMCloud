@@ -123,9 +123,13 @@ class ServerRpcPool {
      * \param context
      *      Overall information about the RAMCloud server; used to lock the
      *      dispatcher.
+     * \param activities
+     *      A bit mask of flags such as Transport::READ_ACTIVITY. Only
+     *      RPCs performing at least one of to consider all active RPCs,
+     *      independent of their activities.
      */
     static uint64_t
-    getEarliestOutstandingEpoch(Context* context)
+    getEarliestOutstandingEpoch(Context* context, int activities)
     {
         Dispatch::Lock lock(context->dispatch);
         uint64_t earliest = -1;
@@ -133,7 +137,9 @@ class ServerRpcPool {
         ServerRpcPoolInternal::ServerRpcList::iterator it =
             ServerRpcPoolInternal::outstandingServerRpcs.begin();
         while (it != ServerRpcPoolInternal::outstandingServerRpcs.end()) {
-            earliest = std::min(it->epoch, earliest);
+            if ((it->activities & activities) != 0) {
+                earliest = std::min(it->epoch, earliest);
+            }
             it++;
         }
 

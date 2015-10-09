@@ -57,6 +57,7 @@ class SegmentIterator {
     uint32_t getLength();
     uint32_t getOffset();
     void setOffset(uint32_t offset);
+    void setLimit(uint32_t limit);
     Segment::Reference getReference();
     uint32_t appendToBuffer(Buffer& buffer);
     uint32_t setBufferTo(Buffer& buffer);
@@ -75,7 +76,7 @@ class SegmentIterator {
     {
         // This is defined in the header file so that the logic is inlined,
         // rather than duplicated in the .cc file to avoid extra method calls.
-        return currentOffset >= certificate.segmentLength;
+        return currentOffset >= offsetLimit;
     }
 
     /**
@@ -154,17 +155,19 @@ class SegmentIterator {
     /// we're iterating over a void buffer.
     Segment* segment;
 
-    /// Indicates which porition of a segment contains valid data (and should
-    /// be iterated over) and information to verify the integrity of the
-    /// metadata of the segment.
+    /// Contains information to verify the integrity of the metadata of
+    /// the segment.
     /// checkMetadataIntegrity() must be called explicitly before iterating
-    /// over the segment, otherwise, only the length is used from the
-    /// certificate and the metadata of the segment is trusted.
+    /// over the segment, otherwise, the metadata of the segment is trusted.
     SegmentCertificate certificate;
 
     /// Current offset into the segment. This points to the entry we're on and
     /// will use in the getType, getLength, appendToBuffer, etc. calls.
     uint32_t currentOffset;
+
+    /// Don't consider any log entries whose first byte has a higher
+    /// offset within the segments than this.
+    uint32_t offsetLimit;
 
     /// Copy of the current log entry's header (the one at currentOffset).
     Segment::EntryHeader currentHeader;

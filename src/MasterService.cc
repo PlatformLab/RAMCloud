@@ -881,13 +881,14 @@ MasterService::migrateSingleLogEntry(
         return STATUS_OK;
 
     if (type == LOG_ENTRY_TYPE_OBJ) {
-        // Only send objects when they're currently in the hash table.
-        // Otherwise they're dead.
-        Key key(type, buffer);
-        if (!objectManager.keyPointsAtReference(key,
-                    it.getReference())) {
-            return STATUS_OK;
-        }
+        // Note: there used to be code here to ignore objects that aren't
+        // pointed to by the hash table, under the assumption that they are
+        // dead. However, this doesn't work in the presence of concurrent
+        // cleaning: the cleaner may have moved an object to a side segment
+        // that is not yet visible. Thus, we must send objects even if they
+        // ddon't appear to be alive. If an object really is dead, we will
+        // also send a tombstone, which will allow the object to be filtered at
+        // the destination.
 
     } else if (type == LOG_ENTRY_TYPE_OBJTOMB) {
         // We must always send tombstones, since an object we may have sent
@@ -989,17 +990,23 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     uint64_t totalBytes = 0;
 
     LogIterator it(*objectManager.getLog(), false);
-    // Scan the log from oldest to newest entries until we reach the head
-    for (; !it.onHead(); it.next()) {
-        Status error = migrateSingleLogEntry(
-                *it.getCurrentSegmentIterator(),
-                transferSeg, entryTotals, totalBytes,
-                tableId, firstKeyHash, lastKeyHash,
-                receiver);
-        if (error) return;
+    // Phase 1: scan the log from oldest to newest entries until we reach
+    // the head segment.
+    if (!it.isDone()) {
+        while (true) {
+            Status error = migrateSingleLogEntry(
+                    *it.getCurrentSegmentIterator(),
+                    transferSeg, entryTotals, totalBytes,
+                    tableId, firstKeyHash, lastKeyHash,
+                    receiver);
+            if (error) return;
+            if (it.onHead())
+                break;
+            it.next();
+        }
     }
 
-    // Phase 2 block new writes and let current writes finish
+    // Phase 2: block new writes and let current writes finish
     if (it.onHead()) {
         tabletManager.changeState(tableId, firstKeyHash, lastKeyHash,
                 TabletManager::NORMAL, TabletManager::LOCKED_FOR_MIGRATION);
@@ -1015,23 +1022,24 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         // Wait for the remainder of already running writes to finish.
         while (true) {
             uint64_t earliestEpoch =
-                ServerRpcPool<>::getEarliestOutstandingEpoch(context);
+                ServerRpcPool<>::getEarliestOutstandingEpoch(context,
+                        Transport::ServerRpc::APPEND_ACTIVITY);
             if (earliestEpoch > epoch)
                 break;
         }
+    }
 
-        // Now we mark the position and finish the migration
-        LogPosition position = objectManager.getLog()->getHead();
-        it.refresh();
-
-        for (; it.getPosition() < position; it.next()) {
-            Status error = migrateSingleLogEntry(
-                    *it.getCurrentSegmentIterator(),
-                    transferSeg, entryTotals, totalBytes,
-                    tableId, firstKeyHash, lastKeyHash,
-                    receiver);
-            if (error) return;
-        }
+    // Phase 3: finish iterating over the remaining log entries.
+    while (true) {
+        it.next();
+        if (it.isDone())
+            break;
+        Status error = migrateSingleLogEntry(
+                *it.getCurrentSegmentIterator(),
+                transferSeg, entryTotals, totalBytes,
+                tableId, firstKeyHash, lastKeyHash,
+                receiver);
+        if (error) return;
     }
 
     if (transferSeg) {
@@ -1977,12 +1985,14 @@ MasterService::migrateSingleIndexObject(
     Buffer dataBufferToTransfer;
 
     if (type == LOG_ENTRY_TYPE_OBJ) {
-        // Only send objects when they're currently in the hash table.
-        // Otherwise they're dead.
-        if (!objectManager.keyPointsAtReference(
-                indexNodeKey, it.getReference())) {
-            return 0;
-        }
+        // Note: there used to be code here to ignore objects that aren't
+        // pointed to by the hash table, under the assumption that they are
+        // dead. However, this doesn't work in the presence of concurrent
+        // cleaning: the cleaner may have moved an object to a side segment
+        // that is not yet visible. Thus, we must send objects even if they
+        // ddon't appear to be alive. If an object really is dead, we will
+        // also send a tombstone, which will allow the object to be filtered at
+        // the destination.
 
         totalObjects++;
 
@@ -2118,15 +2128,21 @@ MasterService::splitAndMigrateIndexlet(
 
     LogIterator it(*objectManager.getLog(), false);
 
-    // Scan the log from oldest to newest entries until we reach the head.
-    for (; !it.isDone(); it.next()) {
-        int error = migrateSingleIndexObject(
-                receiver, tableId, indexId,
-                currentBackingTableId, newBackingTableId,
-                splitKey, splitKeyLength,
-                it, transferSeg, totalObjects, totalTombstones, totalBytes,
-                respHdr);
-        if (error) return;
+    // Phase 1: scan the log from oldest to newest entries until we reach
+    // the head segment.
+    if (!it.isDone()) {
+        while (true) {
+            int error = migrateSingleIndexObject(
+                    receiver, tableId, indexId,
+                    currentBackingTableId, newBackingTableId,
+                    splitKey, splitKeyLength,
+                    it, transferSeg, totalObjects, totalTombstones, totalBytes,
+                    respHdr);
+            if (error) return;
+            if (it.onHead())
+                break;
+            it.next();
+        }
     }
 
     // Phase 2 block new writes and let current writes finish
@@ -2150,24 +2166,25 @@ MasterService::splitAndMigrateIndexlet(
         // Wait for the remainder of already running writes to finish.
         while (true) {
             uint64_t earliestEpoch =
-                ServerRpcPool<>::getEarliestOutstandingEpoch(context);
+                ServerRpcPool<>::getEarliestOutstandingEpoch(context,
+                        Transport::ServerRpc::APPEND_ACTIVITY);
             if (earliestEpoch > epoch)
                 break;
         }
+    }
 
-        // Now we mark the position and finish the migration
-        LogPosition position = objectManager.getLog()->getHead();
-        it.refresh();
-
-        for (; it.getPosition() < position; it.next()) {
-            int error = migrateSingleIndexObject(
-                    receiver, tableId, indexId,
-                    currentBackingTableId, newBackingTableId,
-                    splitKey, splitKeyLength,
-                    it, transferSeg, totalObjects, totalTombstones, totalBytes,
-                    respHdr);
-            if (error) return;
-        }
+    // Phase 3: finish iterating over the remaining log entries.
+    while (true) {
+        it.next();
+        if (it.isDone())
+            break;
+        int error = migrateSingleIndexObject(
+                receiver, tableId, indexId,
+                currentBackingTableId, newBackingTableId,
+                splitKey, splitKeyLength,
+                it, transferSeg, totalObjects, totalTombstones, totalBytes,
+                respHdr);
+        if (error) return;
     }
 
     if (transferSeg) {

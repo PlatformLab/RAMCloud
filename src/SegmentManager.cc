@@ -1172,7 +1172,8 @@ SegmentManager::freeUnreferencedSegments()
         return;
 
     uint64_t earliestEpoch =
-        ServerRpcPool<>::getEarliestOutstandingEpoch(context);
+        ServerRpcPool<>::getEarliestOutstandingEpoch(context,
+                Transport::ServerRpc::READ_ACTIVITY);
     SegmentList::iterator it = freeablePending.begin();
 
     int skippedCount = 0;

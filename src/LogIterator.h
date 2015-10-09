@@ -25,31 +25,46 @@ namespace RAMCloud {
 
 /**
  * The LogIterator provides the necessary state and methods to step through an
- * entire log, entry by entry. In conjunction with the SegmentManager class, it
- * hides the complexities of dealing with a log that is in constant flux due to
- * new appends and log cleaning. This class is primarily used by the tablet
- * migration mechanism, though it could be used for many other purposes, such as
- * scrubbing memory for bit errors.
+ * entire log, entry by entry. It is intended primarily for use in tablet
+ * and indexlet migration, though it may be useful for other purposes as well.
+ * This class is designed to allow normal operations to operate concurrently
+ * with migration up until migration reaches the head segment.
  *
- * It is important to understand that in order to deal with concurrent appends
- * and cleaning, the instantation of a LogIterator object essentially stops the
- * log from reclaiming memory due to cleaning. Furthermore, once the head log
- * segment is reached, further appends to it are paused until the iterator is
- * destroyed. It is important, therefore, that log iterators are not longer
- * lived than they need to be and especially that iteration of the head segment
- * completes quickly.
+ * Here are the rules that must be obeyed by LogIterator clients in order to
+ * avoid conflicts with concurrent updates:
+ * - After each call to next, the client must invoke onHead to see if the
+ *   head segment has been reached.
+ * - As soon as the head segment has been reached, the caller must do
+ *   whatever is needed to ensure that no more conflicting updates occur
+ *   (e.g. the tablet being migrated must be marked so that new writes
+ *   are rejected). The caller must wait until any existing updates have
+ *   completed.
+ * - Then the caller continues iterating until it reaches the end of the
+ *   iteration
+ * - In the next call to next after the head is reached, LogIterator will
+ *   note the current extent of the log. The iteration will continue until
+ *   this point is reached. New entries added to the log after this point
+ *   will not be iterated (presumably the caller has locked out any
+ *   updates that are relevant to the iteration).
+ * - When iteration completes, the caller releases its lock(s).
  */
 class LogIterator {
   PUBLIC:
     explicit LogIterator(Log& log, bool lockHead = true);
     ~LogIterator();
 
-    bool isDone();
     void next();
     bool onHead();
-    LogPosition getPosition();
     Log::Reference getReference();
-    void setPosition(LogPosition position);
+
+    /**
+     * Returns true if the iteration has completed (there are no more entries
+     * to consider). A false value means that there exists a "current entry"
+     * that may be examined with methods such as #getType and #getLength.
+     */
+    bool isDone() {
+        return done;
+    }
 
     /**
      * Used by some tests that would otherwise have to take a LogIterator
@@ -60,29 +75,10 @@ class LogIterator {
         return currentIterator.get();
     }
 
-    // Renew the segmentList with the latest updates from the log.
-    // If we reach the head segment, and do not lock the head, our current
-    // SegmentIterator will cache the length of the segment at the time of its
-    // own construction.
-    //
-    // Meanwhile, the log can continue to grow because its
-    // appendLock is still free.
-    //
-    // We call refresh() to force a reconstruction of the SegmentIterator,
-    // allowing us to continue iterating past the former head position of the
-    // log.
-    void refresh() {
-        setPosition(getPosition());
-    }
     LogEntryType getType();
     uint32_t getLength();
     uint32_t appendToBuffer(Buffer& buffer);
     uint32_t setBufferTo(Buffer& buffer);
-
-    // Set whether the head should be locked when the head segment is reached.
-    void setLockHead(bool flag) {
-        lockHead = flag;
-    }
 
   PRIVATE:
     /**
@@ -112,20 +108,25 @@ class LogIterator {
     /// Identifier of the Segment currently being iterated over.
     uint64_t currentSegmentId;
 
-    /// Indication that the head is locked and must be unlocked on destruction.
-    bool headLocked;
+    /// The last (highest numbered) segment we will iterate over; NULL
+    /// means we haven't yet decided what that segment is.
+    LogSegment* lastSegment;
 
-    /// A flag indicating whether we will lock the head when we reach it.
-    bool lockHead;
+    /// Don't consider entries starting at this position or later in
+    /// lastSegment;
+    uint32_t lastSegmentLength;
+
+    /// True means that the iteration has completed: there are no more
+    /// log entries to consider.
+    bool done;
 
     /// A flag indicating whether we have reached the head segment while
     /// iterating.
     ///
     /// If this flag is set, it means that at some point the iterator referred
-    /// to the log's head. If lockHead is also set, then the log head is now
-    /// locked, so it is guaranteed still to be head. If lockHead is not set,
-    /// it is possible that the head advanced to a new segment after we  reached
-    /// it, in which case the iterator might not be referring to the  log head.
+    /// to the log's head. It is possible that the head advanced to a new
+    /// segment after we  reached it, in which case the iterator might not
+    /// be referring to the log head anymore.
     bool headReached;
 
     DISALLOW_COPY_AND_ASSIGN(LogIterator);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,7 +21,7 @@ namespace RAMCloud {
 /// See ServerRpcPool.h for details.
 namespace ServerRpcPoolInternal {
     ServerRpcPoolInternal::ServerRpcList outstandingServerRpcs;
-    uint64_t currentEpoch = 0;
+    uint64_t currentEpoch = 1;
 }
 
 } // namespace RAMCloud

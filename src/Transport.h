@@ -70,17 +70,12 @@ class Transport {
          * Constructor for ServerRpc.
          */
         ServerRpc()
-            : requestPayload(),
-              replyPayload(),
-              epoch(INVALID_EPOCH),
-              outstandingRpcListHook()
+            : requestPayload()
+            , replyPayload()
+            , epoch(0)
+            , activities(~0)
+            , outstandingRpcListHook()
         {}
-
-        /**
-         * Default epoch value on construction. Used to ensure that the proper
-         * value is set before the RPC is passed on to WorkerManager.
-         */
-        static const uint64_t INVALID_EPOCH = -1;
 
       public:
         /**
@@ -117,7 +112,7 @@ class Transport {
         bool
         epochIsSet()
         {
-            return epoch != INVALID_EPOCH;
+            return epoch != 0;
         }
 
         /**
@@ -138,6 +133,24 @@ class Transport {
          * still outstanding in the system.
          */
         uint64_t epoch;
+
+        /**
+         * A bit mask indicating what sorts of actions are being performed
+         * during this RPC (default: ~0, which means all activities).
+         * Individual RPCs can replace the default with a more selective
+         * value so that the RPCs will be ignored in some cases when
+         * scanning epochs. 0 means the RPC isn't doing anything that
+         * matters to anyone.
+         */
+        int activities;
+
+        /**
+         * Bit values for activities above.
+         * READ_ACTIVITY:             RPC is reading log information
+         * APPEND_ACTIVITY:           RPC may add new entries to the log
+         */
+        static const int READ_ACTIVITY = 1;
+        static const int APPEND_ACTIVITY = 2;
 
         /**
          * Hook for the list of active server RPCs that the ServerRpcPool class
