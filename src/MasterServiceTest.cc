@@ -750,6 +750,284 @@ TEST_F(MasterServiceTest, increment_parallel) {
     EXPECT_EQ(2, value);
 }
 
+TEST_F(MasterServiceTest, migrateSingleLogEntry_basic) {
+    // Populate segment
+    Key key(1, "1", 1);
+    Buffer buffer;
+    Object obj(key, "value", 5, 0, 0, buffer);
+    EXPECT_EQ(STATUS_OK, service->objectManager.writeObject(obj, 0, 0));
+
+    LogIterator it(*service->objectManager.getLog(), false);
+    Tub<Segment> transferSeg;
+
+    uint64_t entryTotals[TOTAL_LOG_ENTRY_TYPES] = {0};
+    uint64_t totalBytes = 0;
+    uint64_t tableId = 1;
+    uint64_t firstKeyHash = 0x0;
+    uint64_t lastKeyHash = 0xffffffffffffffff;
+    ServerId receiver(1);
+
+    Status error;
+    for (; !it.isDone(); it.next()) {
+        TestLog::reset();
+        error = service->migrateSingleLogEntry(
+                *it.getCurrentSegmentIterator(),
+                transferSeg, entryTotals, totalBytes,
+                tableId, firstKeyHash, lastKeyHash,
+                receiver);
+        if (error) break;
+    }
+
+    EXPECT_EQ(STATUS_OK, error);
+    EXPECT_EQ("migrateSingleLogEntry: Migrated log entry type Object",
+            TestLog::get());
+    EXPECT_EQ(33U, totalBytes);
+    EXPECT_EQ(1U, entryTotals[LOG_ENTRY_TYPE_OBJ]);
+}
+
+TEST_F(MasterServiceTest, migrateSingleLogEntry_wrongTable) {
+    // Populate segment
+    Key key(1, "1", 1);
+    Buffer buffer;
+    Object obj(key, "value", 5, 0, 0, buffer);
+    EXPECT_EQ(STATUS_OK, service->objectManager.writeObject(obj, 0, 0));
+
+    LogIterator it(*service->objectManager.getLog(), false);
+    Tub<Segment> transferSeg;
+
+    uint64_t entryTotals[TOTAL_LOG_ENTRY_TYPES] = {0};
+    uint64_t totalBytes = 0;
+    uint64_t tableId = 2;
+    uint64_t firstKeyHash = 0x0;
+    uint64_t lastKeyHash = 0xffffffffffffffff;
+    ServerId receiver(1);
+
+    Status error;
+    for (; !it.isDone(); it.next()) {
+        TestLog::reset();
+        error = service->migrateSingleLogEntry(
+                *it.getCurrentSegmentIterator(),
+                transferSeg, entryTotals, totalBytes,
+                tableId, firstKeyHash, lastKeyHash,
+                receiver);
+        if (error) break;
+    }
+
+    EXPECT_EQ(STATUS_OK, error);
+    EXPECT_EQ("migrateSingleLogEntry: Object not migrated; "
+                    "tableId doesn't match",
+            TestLog::get());
+    EXPECT_EQ(0U, totalBytes);
+    EXPECT_EQ(0U, entryTotals[LOG_ENTRY_TYPE_OBJ]);
+}
+
+TEST_F(MasterServiceTest, migrateSingleLogEntry_wrongKeyHash) {
+    // Populate segment
+    Key key(1, "1", 1);
+    Buffer buffer;
+    Object obj(key, "value", 5, 0, 0, buffer);
+    EXPECT_EQ(STATUS_OK, service->objectManager.writeObject(obj, 0, 0));
+
+    LogIterator it(*service->objectManager.getLog(), false);
+    Tub<Segment> transferSeg;
+
+    uint64_t entryTotals[TOTAL_LOG_ENTRY_TYPES] = {0};
+    uint64_t totalBytes = 0;
+    uint64_t tableId = 1;
+    uint64_t firstKeyHash = 0x0;
+    uint64_t lastKeyHash = 0x0;
+    ServerId receiver(1);
+
+    Status error;
+    for (; !it.isDone(); it.next()) {
+        TestLog::reset();
+        error = service->migrateSingleLogEntry(
+                *it.getCurrentSegmentIterator(),
+                transferSeg, entryTotals, totalBytes,
+                tableId, firstKeyHash, lastKeyHash,
+                receiver);
+        if (error) break;
+    }
+
+    EXPECT_EQ(STATUS_OK, error);
+    EXPECT_EQ("migrateSingleLogEntry: Object not migrated; "
+                    "keyHash not in range",
+            TestLog::get());
+    EXPECT_EQ(0U, totalBytes);
+    EXPECT_EQ(0U, entryTotals[LOG_ENTRY_TYPE_OBJ]);
+}
+
+TEST_F(MasterServiceTest, migrateSingleLogEntry_object_wrongReference) {
+    // Populate segment
+    Key key(1, "1", 1);
+    Buffer buffer;
+    Object obj(key, "value", 5, 0, 0, buffer);
+    EXPECT_EQ(STATUS_OK, service->objectManager.writeObject(obj, 0, 0));
+    {
+        ObjectManager::HashTableBucketLock lock(service->objectManager, key);
+        service->objectManager.remove(lock, key);
+    }
+
+    LogIterator it(*service->objectManager.getLog(), false);
+    Tub<Segment> transferSeg;
+
+    uint64_t entryTotals[TOTAL_LOG_ENTRY_TYPES] = {0};
+    uint64_t totalBytes = 0;
+    uint64_t tableId = 1;
+    uint64_t firstKeyHash = 0x0;
+    uint64_t lastKeyHash = 0xffffffffffffffff;
+    ServerId receiver(1);
+
+    Status error;
+    for (; !it.isDone(); it.next()) {
+        TestLog::reset();
+        error = service->migrateSingleLogEntry(
+                *it.getCurrentSegmentIterator(),
+                transferSeg, entryTotals, totalBytes,
+                tableId, firstKeyHash, lastKeyHash,
+                receiver);
+        if (error) break;
+    }
+
+    EXPECT_EQ(STATUS_OK, error);
+    EXPECT_EQ("migrateSingleLogEntry: Object not migrated; "
+                    "object no longer referenced",
+            TestLog::get());
+    EXPECT_EQ(0U, totalBytes);
+    EXPECT_EQ(0U, entryTotals[LOG_ENTRY_TYPE_OBJ]);
+}
+
+TEST_F(MasterServiceTest, migrateSingleLogEntry_decisionRecord) {
+    // Populate segment
+    {
+        // Migrate
+        TxDecisionRecord record(1, 0, 2, WireFormat::TxDecision::COMMIT, 1);
+        service->objectManager.writeTxDecisionRecord(record);
+    }
+    {
+        // Bad table
+        service->tabletManager.addTablet(2, 0, ~0UL, TabletManager::NORMAL);
+        TxDecisionRecord record(2, 0, 2, WireFormat::TxDecision::COMMIT, 1);
+        service->objectManager.writeTxDecisionRecord(record);
+    }
+    {
+        // Bad key hash
+        TxDecisionRecord record(1, 1, 2, WireFormat::TxDecision::COMMIT, 1);
+        service->objectManager.writeTxDecisionRecord(record);
+    }
+
+    LogIterator it(*service->objectManager.getLog(), false);
+    Tub<Segment> transferSeg;
+
+    uint64_t entryTotals[TOTAL_LOG_ENTRY_TYPES] = {0};
+    uint64_t totalBytes = 0;
+    uint64_t tableId = 1;
+    uint64_t firstKeyHash = 0x0;
+    uint64_t lastKeyHash = 0x0;
+    ServerId receiver(1);
+
+    TestLog::reset();
+    Status error;
+    for (; !it.isDone(); it.next()) {
+        error = service->migrateSingleLogEntry(
+                *it.getCurrentSegmentIterator(),
+                transferSeg, entryTotals, totalBytes,
+                tableId, firstKeyHash, lastKeyHash,
+                receiver);
+        if (error) break;
+    }
+
+    EXPECT_EQ(STATUS_OK, error);
+    EXPECT_EQ("migrateSingleLogEntry: Ignoring log entry type Segment Header | "
+              "migrateSingleLogEntry: Ignoring log entry type Log Digest | "
+              "migrateSingleLogEntry: Ignoring log entry type "
+                    "Table Stats Digest | "
+              "migrateSingleLogEntry: Ignoring log entry type "
+                    "Object Safe Version | "
+              "migrateSingleLogEntry: Migrated log entry type "
+                    "Transaction Decision Record | "
+              "migrateSingleLogEntry: Transaction Decision Record not "
+                    "migrated; tableId doesn't match | "
+              "migrateSingleLogEntry: Transaction Decision Record not "
+                    "migrated; keyHash not in range",
+            TestLog::get());
+    EXPECT_EQ(40U, totalBytes);
+    EXPECT_EQ(1U, entryTotals[LOG_ENTRY_TYPE_TXDECISION]);
+}
+
+TEST_F(MasterServiceTest, migrateSingleLogEntry_participantList) {
+    // Populate segment
+    {
+        // Good
+        WireFormat::TxParticipant participants[4];
+        participants[0] = WireFormat::TxParticipant(123, 0, 10);
+        participants[1] = WireFormat::TxParticipant(1, 2, 11);
+        participants[2] = WireFormat::TxParticipant(1, 0, 12);
+        participants[3] = WireFormat::TxParticipant(10, 0, 13);
+        ParticipantList record(participants, 4, 42);
+        uint64_t logRef;
+        service->objectManager.logTransactionParticipantList(record, &logRef);
+    }
+    {
+        // Bad
+        WireFormat::TxParticipant participants[3];
+        participants[0] = WireFormat::TxParticipant(123, 224, 10);
+        participants[1] = WireFormat::TxParticipant(222, 2, 11);
+        participants[2] = WireFormat::TxParticipant(111, 0, 12);
+        ParticipantList record(participants, 3, 42);
+        uint64_t logRef;
+        service->objectManager.logTransactionParticipantList(record, &logRef);
+    }
+    {
+        // Bad
+        WireFormat::TxParticipant participants[3];
+        participants[0] = WireFormat::TxParticipant(123, 224, 10);
+        participants[1] = WireFormat::TxParticipant(222, 2, 11);
+        participants[2] = WireFormat::TxParticipant(1, 2, 12);
+        ParticipantList record(participants, 3, 42);
+        uint64_t logRef;
+        service->objectManager.logTransactionParticipantList(record, &logRef);
+    }
+
+    LogIterator it(*service->objectManager.getLog(), false);
+    Tub<Segment> transferSeg;
+
+    uint64_t entryTotals[TOTAL_LOG_ENTRY_TYPES] = {0};
+    uint64_t totalBytes = 0;
+    uint64_t tableId = 1;
+    uint64_t firstKeyHash = 0x0;
+    uint64_t lastKeyHash = 0x0;
+    ServerId receiver(1);
+
+    TestLog::reset();
+    Status error;
+    for (; !it.isDone(); it.next()) {
+        error = service->migrateSingleLogEntry(
+                *it.getCurrentSegmentIterator(),
+                transferSeg, entryTotals, totalBytes,
+                tableId, firstKeyHash, lastKeyHash,
+                receiver);
+        if (error) break;
+    }
+
+    EXPECT_EQ(STATUS_OK, error);
+    EXPECT_EQ("migrateSingleLogEntry: Ignoring log entry type Segment Header | "
+              "migrateSingleLogEntry: Ignoring log entry type Log Digest | "
+              "migrateSingleLogEntry: Ignoring log entry type "
+                    "Table Stats Digest | "
+              "migrateSingleLogEntry: Ignoring log entry type "
+                    "Object Safe Version | "
+              "migrateSingleLogEntry: Migrated log entry type "
+                    "Transaction Participant List Record | "
+              "migrateSingleLogEntry: Transaction Participant List Record not "
+                    "migrated; tableId doesn't match | "
+              "migrateSingleLogEntry: Transaction Participant List Record not "
+                    "migrated; keyHash not in range",
+            TestLog::get());
+    EXPECT_EQ(112U, totalBytes);
+    EXPECT_EQ(1U, entryTotals[LOG_ENTRY_TYPE_TXPLIST]);
+}
+
 TEST_F(MasterServiceTest, migrateTablet_tabletNotOnServer) {
     TestLog::Enable _;
     EXPECT_THROW(ramcloud->migrateTablet(99, 0, -1, ServerId(0, 0)),

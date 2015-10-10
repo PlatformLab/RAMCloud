@@ -842,9 +842,12 @@ MasterService::migrateSingleLogEntry(
     LogEntryType type = it.getType();
     if (type != LOG_ENTRY_TYPE_OBJ &&
         type != LOG_ENTRY_TYPE_OBJTOMB &&
-        type != LOG_ENTRY_TYPE_TXDECISION)
+        type != LOG_ENTRY_TYPE_TXDECISION &&
+        type != LOG_ENTRY_TYPE_TXPLIST)
     {
         // We aren't interested in any other types.
+        TEST_LOG("Ignoring log entry type %s",
+                LogEntryTypeHelpers::toString(type));
         return STATUS_OK;
     }
 
@@ -861,16 +864,34 @@ MasterService::migrateSingleLogEntry(
         TxDecisionRecord record(buffer);
         entryTableId = record.getTableId();
         entryKeyHash = record.getKeyHash();
+    } else if (type == LOG_ENTRY_TYPE_TXPLIST) {
+        ParticipantList participantList(buffer);
+        for (uint64_t i = 0; i < participantList.header.participantCount; ++i) {
+            entryTableId = participantList.participants[i].tableId;
+            entryKeyHash = participantList.participants[i].keyHash;
+            if (entryTableId != tableId)
+                continue;
+            if (entryKeyHash < firstKeyHash || entryKeyHash > lastKeyHash)
+                continue;
+            break;
+        }
     }
 
     // Skip if not applicable.
-    if (entryTableId != tableId)
+    if (entryTableId != tableId) {
+        TEST_LOG("%s not migrated; tableId doesn't match",
+                LogEntryTypeHelpers::toString(type));
         return STATUS_OK;
+    }
 
     // TODO(stutsman) May want to hold back on computing hashes until here?
 
-    if (entryKeyHash < firstKeyHash || entryKeyHash > lastKeyHash)
+    if (entryKeyHash < firstKeyHash || entryKeyHash > lastKeyHash) {
+        TEST_LOG("%s not migrated; keyHash not in range",
+                LogEntryTypeHelpers::toString(type));
         return STATUS_OK;
+    }
+
 
     if (type == LOG_ENTRY_TYPE_OBJ) {
         // Only send objects when they're currently in the hash table.
@@ -878,6 +899,8 @@ MasterService::migrateSingleLogEntry(
         Key key(type, buffer);
         if (!objectManager.keyPointsAtReference(key,
                     it.getReference())) {
+            TEST_LOG("%s not migrated; object no longer referenced",
+                    LogEntryTypeHelpers::toString(type));
             return STATUS_OK;
         }
 
@@ -919,6 +942,9 @@ MasterService::migrateSingleLogEntry(
             return STATUS_INTERNAL_ERROR;
         }
     }
+
+    TEST_LOG("Migrated log entry type %s",
+            LogEntryTypeHelpers::toString(type));
     return STATUS_OK;
 }
 
