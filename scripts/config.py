@@ -165,3 +165,6 @@ def getHosts():
                          '192.168.1.%d' % (100 + i),
                          i))
     return serverList
+
+if __name__ == '__main__':
+    print('\n'.join([s[0] for s in getHosts()]))
