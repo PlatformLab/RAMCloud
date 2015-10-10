@@ -91,7 +91,7 @@ class Object {
 
     void assembleForLog(Buffer& buffer);
     void assembleForLog(void* buffer);
-    void appendValueToBuffer(Buffer* buffer, uint32_t valueOffset = 0);
+    void appendValueToBuffer(Buffer* buffer);
     static void appendKeysAndValueToBuffer(
             uint64_t tableId, KeyCount numKeys, KeyInfo *keyList,
             const void* value, uint32_t valueLength, Buffer* request,

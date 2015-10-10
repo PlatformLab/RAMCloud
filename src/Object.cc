@@ -245,12 +245,13 @@ Object::assembleForLog(void* memBlock)
  *
  * \param buffer
  *      The buffer to append the value to.
- * \param valueOffset
- *      Offset of the value in the keysAndValue portion of the object
  */
 void
-Object::appendValueToBuffer(Buffer* buffer, uint32_t valueOffset)
+Object::appendValueToBuffer(Buffer* buffer)
 {
+    uint32_t valueOffset;
+    getValueOffset(&valueOffset);
+
     // Prioritize using the keysAndValueBuffer to do a buffer-to-buffer
     // copy as the Buffer class contains additional logic to safely
     // append data from another buffer (RAM-688)

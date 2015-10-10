@@ -475,7 +475,7 @@ TEST_F(ObjectTest, appendValueToBuffer) {
         object.getValueOffset(&valueOffset);
         EXPECT_EQ(16U, valueOffset);
 
-        object.appendValueToBuffer(&buffer, valueOffset);
+        object.appendValueToBuffer(&buffer);
         EXPECT_EQ(4U, buffer.size());
         EXPECT_EQ("YO!", string(reinterpret_cast<const char*>(
                         buffer.getRange(0, 4))));

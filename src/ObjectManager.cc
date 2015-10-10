@@ -333,9 +333,7 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
 
     Object object(buffer);
     if (valueOnly) {
-        uint32_t valueOffset = 0;
-        object.getValueOffset(&valueOffset);
-        object.appendValueToBuffer(outBuffer, valueOffset);
+        object.appendValueToBuffer(outBuffer);
     } else {
         object.appendKeysAndValueToBuffer(*outBuffer);
     }
