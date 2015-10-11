@@ -2638,6 +2638,7 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
     reqHdr.opCount = 3;
     reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
     reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 4);
+    ParticipantList::TxId txId(1U, 10U);
 
     // 2A. ReadOp
     RejectRules rejectRules;
@@ -2673,6 +2674,8 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
     EXPECT_FALSE(isObjectLocked(key1));
     EXPECT_FALSE(isObjectLocked(key2));
     EXPECT_FALSE(isObjectLocked(key3));
+    EXPECT_FALSE(
+            service->objectManager.preparedOps->hasParticipantListEntry(txId));
     {
         Buffer value;
         ramcloud->read(1, "key1", 4, &value, NULL, &version);
@@ -2703,6 +2706,8 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
     EXPECT_TRUE(isObjectLocked(key1));
     EXPECT_TRUE(isObjectLocked(key2));
     EXPECT_TRUE(isObjectLocked(key3));
+    EXPECT_TRUE(
+            service->objectManager.preparedOps->hasParticipantListEntry(txId));
 
     Buffer value;
     ramcloud->read(1, "key1", 4, &value, NULL, &version);

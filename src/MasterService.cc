@@ -2604,10 +2604,27 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
     reqOffset += sizeof32(WireFormat::TxParticipant) * participantCount;
 
-    if (participants == NULL) {
+    if (participantCount == 0 || participants == NULL) {
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         rpc->sendReply();
         return;
+    }
+
+    ParticipantList participantList(participants,
+                                    participantCount,
+                                    reqHdr->lease.leaseId);
+    if (!preparedOps.hasParticipantListEntry(participantList.getTxId())) {
+        uint64_t logRef = 0;
+        Status status = objectManager.logTransactionParticipantList(
+                                                    participantList, &logRef);
+        if (status == STATUS_OK) {
+            preparedOps.updateParticipantListEntry(participantList.getTxId(),
+                                                   logRef);
+        } else {
+            respHdr->common.status = status;
+            rpc->sendReply();
+            return;
+        }
     }
 
     // 2. Process operations.
