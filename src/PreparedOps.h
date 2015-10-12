@@ -195,7 +195,18 @@ class PreparedOpTombstone {
     DISALLOW_COPY_AND_ASSIGN(PreparedOpTombstone);
 };
 
-
+/**
+ * This class defines the format of a ParticipantList record stored in the log
+ * and provides methods to easily construct new ones to be appended and
+ * interpret ones that have already been written.
+ *
+ * In other words, this code centralizes the format and parsing of
+ * ParticipantList records (essentially serialization and deserialization).
+ * Different constructors serve these two purposes.
+ *
+ * Each record contains one or more WireFormat::TxParticipant entries and a
+ * couple other pieces of metadata.
+ */
 class ParticipantList {
   PUBLIC:
     ParticipantList(WireFormat::TxParticipant* participants,
@@ -244,10 +255,10 @@ class ParticipantList {
     /// Copy of the PreparedOp header.
     Header header;
 
-    /// Pointer to the array of #WireFormat::TxParticipant which contains
-    /// all information of objects participating transaction.
+    /// Pointer to the array of #WireFormat::TxParticipant containing the
+    /// tableId, keyHash, and rpcId of every operations in this transactions.
     /// The actual data reside in RPC payload or in log. This pointer should not
-    /// be passed around outside the lifetime of a single RPC handler.
+    /// be passed around outside the lifetime of a single RPC handler or epoch.
     WireFormat::TxParticipant* participants;
 
     DISALLOW_COPY_AND_ASSIGN(ParticipantList);
