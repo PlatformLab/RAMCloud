@@ -558,16 +558,39 @@ PreparedOps::PreparedItem::handleTimerEvent()
     context->masterService->objectManager.getLog()->getEntry(opRef, opBuffer);
     PreparedOp op(opBuffer, 0, opBuffer.size());
 
-    TEST_LOG("TxHintFailed RPC is sent to owner of tableId %lu and "
-             "keyHash %lu.", op.participants[0].tableId,
-             op.participants[0].keyHash);
-
     //TODO(seojin): RAM-767. op.participants can be stale while log cleaning.
     //              It is possible to cause invalid memory access.
     assert(op.header.participantCount >= 1);
-    MasterClient::txHintFailed(context, op.participants[0].tableId,
-            op.participants[0].keyHash, op.header.clientId,
-            op.header.participantCount, op.participants);
+
+    ParticipantList::TxId txId =
+            std::make_pair<uint64_t, uint64_t>(op.header.clientId,
+                                               op.participants[0].rpcId);
+    PListTable* pListTable = &context->masterService->preparedOps.pListTable;
+    PListTable::iterator it = pListTable->find(txId);
+    if (it != pListTable->end()) {
+        Buffer pListBuf;
+        Log::Reference pListRef(it->second);
+        context->masterService->objectManager.getLog()->getEntry(pListRef,
+                                                                 pListBuf);
+        ParticipantList participantList(pListBuf);
+
+        assert(participantList.header.participantCount > 0);
+        TEST_LOG("TxHintFailed RPC is sent to owner of tableId %lu and "
+                "keyHash %lu.", participantList.participants[0].tableId,
+                participantList.participants[0].keyHash);
+
+        MasterClient::txHintFailed(context,
+                participantList.participants[0].tableId,
+                participantList.participants[0].keyHash,
+                participantList.header.clientLeaseId,
+                participantList.header.participantCount,
+                participantList.participants);
+    } else {
+        RAMCLOUD_LOG(WARNING,
+                "Unable to find participant list record for TxId (%lu, %lu); "
+                "client transaction recovery could not be requested.",
+                txId.first, txId.second);
+    }
 
     this->start(Cycles::rdtsc() + Cycles::fromMicroseconds(TX_TIMEOUT_US));
 }

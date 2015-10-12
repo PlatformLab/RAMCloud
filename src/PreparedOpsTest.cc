@@ -757,6 +757,13 @@ TEST_F(PreparedItemTest, handleTimerEvent_basic) {
     participants[1] = {tableId2, key2.getHash(), 12};
     participants[2] = {tableId1, key3.getHash(), 13};
 
+    ParticipantList participantList(participants, 3, 1);
+    uint64_t logRef;
+    service1->objectManager.logTransactionParticipantList(participantList,
+                                                          &logRef);
+    service1->preparedOps.updateParticipantListEntry(participantList.getTxId(),
+                                                     logRef);
+
     Buffer keyAndValBuffer;
 
     Object::appendKeysAndValueToBuffer(key3, "val", 3, &keyAndValBuffer);
@@ -786,6 +793,44 @@ TEST_F(PreparedItemTest, handleTimerEvent_basic) {
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
         "handleTimerEvent: TxHintFailed RPC is sent to owner of tableId 3 "
         "and keyHash 8205713012933148717."));
+}
+
+TEST_F(PreparedItemTest, handleTimerEvent_noParticipantList) {
+    Key key1(tableId3, "key1", 4);
+    Key key2(tableId2, "key2", 4);
+    Key key3(tableId1, "key3", 4);
+    WireFormat::TxParticipant participants[3];
+    participants[0] = {tableId3, key1.getHash(), 11};
+    participants[1] = {tableId2, key2.getHash(), 12};
+    participants[2] = {tableId1, key3.getHash(), 13};
+
+    Buffer keyAndValBuffer;
+
+    Object::appendKeysAndValueToBuffer(key3, "val", 3, &keyAndValBuffer);
+
+    PreparedOp op(WireFormat::TxPrepare::OpType::READ, 1, 13, 3, participants,
+                  tableId1, 0, 0, keyAndValBuffer);
+    Buffer buf;
+    op.assembleForLog(buf);
+    Segment::Reference opRef;
+    service1->objectManager.getLog()->append(LOG_ENTRY_TYPE_PREP, buf, &opRef);
+
+    TestLog::Enable _("handleTimerEvent");
+
+    Cycles::mockTscValue = 100;
+    service1->preparedOps.bufferOp(1, 13, opRef.toInteger());
+    EXPECT_EQ(opRef.toInteger(), service1->preparedOps.peekOp(1, 13));
+    PreparedOps::PreparedItem* item = service1->preparedOps.items[
+            std::make_pair<uint64_t, uint64_t>(1, 13)];
+
+    TestLog::reset();
+
+    item->handleTimerEvent();
+
+    EXPECT_EQ("handleTimerEvent: "
+            "Unable to find participant list record for TxId (1, 11); "
+            "client transaction recovery could not be requested.",
+            TestLog::get());
 }
 
 } // namespace RAMCloud
