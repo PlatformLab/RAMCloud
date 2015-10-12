@@ -264,6 +264,33 @@ class ObjectManagerTest : public ::testing::Test {
     }
 
     /**
+     * Build a properly formatted segment containing a single ParticipantList.
+     * This segment may be passed directly to the ObjectManager::replaySegment()
+     * routine.
+     */
+    uint32_t
+    buildRecoverySegment(char *segmentBuf, uint64_t segmentCapacity,
+                         ParticipantList &record,
+                         SegmentCertificate* outCertificate)
+    {
+        Segment s;
+        Buffer newBuffer;
+        record.assembleForLog(newBuffer);
+        bool success = s.append(LOG_ENTRY_TYPE_TXPLIST,
+                                newBuffer);
+        EXPECT_TRUE(success);
+        s.close();
+
+        Buffer buffer;
+        s.appendToBuffer(buffer);
+        EXPECT_GE(segmentCapacity, buffer.size());
+        buffer.copy(0, buffer.size(), segmentBuf);
+        s.getAppendedLength(outCertificate);
+
+        return buffer.size();
+    }
+
+    /**
      * Store an object in the log and hash table, returning its Log::Reference.
      */
     Log::Reference
@@ -322,7 +349,7 @@ class ObjectManagerTest : public ::testing::Test {
         Buffer dataBuffer;
         Buffer buffer;
         Log::Reference ref;
-        PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 0, NULL, key, NULL,
+        PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 1, key, NULL,
                 0, 0, 0, dataBuffer);
         prepOp.assembleForLog(buffer);
         objectManager.log.append(LOG_ENTRY_TYPE_PREP, buffer, &ref);
@@ -1281,7 +1308,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
         Key key(10, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 10UL, 0, NULL,
+                      1UL, 10UL, 10UL,
                       key, "hello", 6, 0, 0, buf);
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1297,7 +1324,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
         Key key(10, "2", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 11UL, 0, NULL,
+                      1UL, 10UL, 11UL,
                       key, "helli", 6, 1 /*version*/, 0, buf);
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1320,7 +1347,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
         Key key(10, "2", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 11UL, 0, NULL,
+                      1UL, 10UL, 11UL,
                       key, "helli", 6, 3 /*version*/, 0, buf);
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1336,8 +1363,8 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     PreparedOp savedOp(preparedOpBuffer, 0, preparedOpBuffer.size());
 
     EXPECT_EQ(1UL, savedOp.header.clientId);
+    EXPECT_EQ(10UL, savedOp.header.txRpcId);
     EXPECT_EQ(11UL, savedOp.header.rpcId);
-    EXPECT_EQ(0UL, savedOp.header.participantCount);
     EXPECT_EQ(10UL, savedOp.object.getTableId());
     EXPECT_EQ(3UL, savedOp.object.header.version);
 }
@@ -1363,7 +1390,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         Key key(10, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 10UL, 0, NULL,
+                      1UL, 10UL, 10UL,
                       key, "hello", 6, 0, 0, buf);
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1379,7 +1406,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         Key key(10, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 10UL, 0, NULL,
+                      1UL, 10UL, 10UL,
                       key, "hello", 6, 0, 0, buf);
         PreparedOpTombstone opTomb(op, 0);
         len = buildRecoverySegment(seg, segLen, opTomb, &certificate);
@@ -1398,7 +1425,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         Key key(10, "2", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 11UL, 0, NULL,
+                      1UL, 10UL, 11UL,
                       key, "hello", 6, 0, 0, buf);
         PreparedOpTombstone opTomb(op, 0);
         len = buildRecoverySegment(seg, segLen, opTomb, &certificate);
@@ -1414,7 +1441,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         Key key(10, "2", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 11UL, 0, NULL,
+                      1UL, 10UL, 11UL,
                       key, "hello", 6, 0, 0, buf);
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1482,6 +1509,116 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
     EXPECT_EQ(1U, txRecoveryManager->recoveringIds.size());
     EXPECT_EQ(0U, txRecoveryManager->recoveries.size());
     EXPECT_FALSE(txRecoveryManager->isRunning());
+}
+
+TEST_F(ObjectManagerTest, replaySegment_ParticipantList_basic) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
+    PreparedOps* preparedOps = objectManager.preparedOps;
+
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList record(participants, 3, 42);
+    ParticipantList::TxId txId = record.getTxId();
+
+    EXPECT_FALSE(unackedRpcResults->clients.find(txId.first) !=
+            unackedRpcResults->clients.end());
+    EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
+
+    {
+        SegmentCertificate certificate;
+        Buffer buf;
+        len = buildRecoverySegment(seg, segLen, record, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_TRUE(unackedRpcResults->clients.find(txId.first) !=
+            unackedRpcResults->clients.end());
+    EXPECT_TRUE(preparedOps->hasParticipantListEntry(txId));
+}
+
+TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_acked) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
+    PreparedOps* preparedOps = objectManager.preparedOps;
+
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList record(participants, 3, 42);
+    ParticipantList::TxId txId = record.getTxId();
+
+    // pre-insert ack
+    unackedRpcResults->shouldRecover(txId.first, txId.second, txId.second);
+    EXPECT_TRUE(unackedRpcResults->clients.find(txId.first) !=
+            unackedRpcResults->clients.end());
+    EXPECT_TRUE(unackedRpcResults->isRpcAcked(txId.first, txId.second));
+    EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
+
+    {
+        SegmentCertificate certificate;
+        Buffer buf;
+        len = buildRecoverySegment(seg, segLen, record, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
+}
+
+TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_hasPListEntry) {
+    uint32_t segLen = 8192;
+    char seg[segLen];
+    uint32_t len; // number of bytes in a recovery segment
+    SideLog sl(&objectManager.log);
+    Tub<SegmentIterator> it;
+
+    UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
+    PreparedOps* preparedOps = objectManager.preparedOps;
+
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList record(participants, 3, 42);
+    ParticipantList::TxId txId = record.getTxId();
+
+    // pre-insert (bad) participant list entry
+    preparedOps->pListTable[txId] = 0;
+    EXPECT_FALSE(unackedRpcResults->clients.find(txId.first) !=
+            unackedRpcResults->clients.end());
+    EXPECT_TRUE(preparedOps->hasParticipantListEntry(txId));
+
+    {
+        SegmentCertificate certificate;
+        Buffer buf;
+        len = buildRecoverySegment(seg, segLen, record, &certificate);
+        it.construct(&seg[0], len, certificate);
+    }
+
+    objectManager.replaySegment(&sl, *it);
+
+    EXPECT_TRUE(preparedOps->hasParticipantListEntry(txId));
+    EXPECT_EQ(0U, preparedOps->pListTable[txId]);
 }
 
 static bool
@@ -1582,6 +1719,39 @@ TEST_F(ObjectManagerTest, writeObject_returnRemovedObj) {
                                       oldValueLength));
 }
 
+TEST_F(ObjectManagerTest, logTransactionParticipantList) {
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42);
+    uint64_t logRefNum;
+
+    objectManager.logTransactionParticipantList(participantList, &logRefNum);
+
+    Log::Reference logRef(logRefNum);
+    Buffer buffer;
+    LogEntryType type = objectManager.log.getEntry(logRef, buffer);
+    ParticipantList outputParticipantList(buffer);
+
+    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, type);
+    EXPECT_EQ(3U, outputParticipantList.header.participantCount);
+    EXPECT_EQ(42U, outputParticipantList.header.clientLeaseId);
+
+    EXPECT_EQ(1U, outputParticipantList.participants[0].tableId);
+    EXPECT_EQ(2U, outputParticipantList.participants[0].keyHash);
+    EXPECT_EQ(10U, outputParticipantList.participants[0].rpcId);
+
+    EXPECT_EQ(123U, outputParticipantList.participants[1].tableId);
+    EXPECT_EQ(234U, outputParticipantList.participants[1].keyHash);
+    EXPECT_EQ(11U, outputParticipantList.participants[1].rpcId);
+
+    EXPECT_EQ(111U, outputParticipantList.participants[2].tableId);
+    EXPECT_EQ(222U, outputParticipantList.participants[2].keyHash);
+    EXPECT_EQ(12U, outputParticipantList.participants[2].rpcId);
+}
+
 TEST_F(ObjectManagerTest, prepareOp) {
     using WireFormat::TxParticipant;
     using WireFormat::TxPrepare;
@@ -1598,8 +1768,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
     participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op(TxPrepare::READ, 1, 10,
-                  3, participants,
+    PreparedOp op(TxPrepare::READ, 1, 10, 10,
                   key, "value", 5, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
@@ -1639,7 +1808,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
 
-    EXPECT_EQ("found=true tableId=1 byteCount=214 recordCount=3"
+    EXPECT_EQ("found=true tableId=1 byteCount=146 recordCount=3"
               , verifyMetadata(1));
 
     // Check object is locked.
@@ -1690,7 +1859,7 @@ TEST_F(ObjectManagerTest, tryGrabTxLock) {
     Buffer buffer;
     Buffer logBuffer;
     Log::Reference ref;
-    PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 0, NULL, key, "value",
+    PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 1, key, "value",
             5, 0, 0, buffer);
     prepOp.assembleForLog(logBuffer);
     objectManager.log.append(LOG_ENTRY_TYPE_PREP, logBuffer, &ref);
@@ -1722,14 +1891,9 @@ TEST_F(ObjectManagerTest, commitRead) {
     bool isCommit;
     uint64_t newOpPtr;
 
-    WireFormat::TxParticipant participants[3];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
-    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
-    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op(TxPrepare::READ, 1, 10,
-                  3, participants,
+    PreparedOp op(TxPrepare::READ, 1, 10, 10,
                   key, "value", 5, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
@@ -1746,7 +1910,7 @@ TEST_F(ObjectManagerTest, commitRead) {
     EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
-    EXPECT_EQ("found=true tableId=1 byteCount=214 recordCount=3"
+    EXPECT_EQ("found=true tableId=1 byteCount=146 recordCount=3"
               , verifyMetadata(1));
 
     // Check object is locked.
@@ -1769,12 +1933,9 @@ TEST_F(ObjectManagerTest, commitRemove) {
     bool isCommit;
     uint64_t newOpPtr;
 
-    WireFormat::TxParticipant participants[1];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op(TxPrepare::REMOVE, 1, 10,
-                  1, participants,
+    PreparedOp op(TxPrepare::REMOVE, 1, 10, 10,
                   key, "", 0, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
@@ -1822,12 +1983,9 @@ TEST_F(ObjectManagerTest, commitWrite) {
     uint64_t newOpPtr;
     uint64_t ver;
 
-    WireFormat::TxParticipant participants[1];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op(TxPrepare::WRITE, 1, 10,
-                  1, participants,
+    PreparedOp op(TxPrepare::WRITE, 1, 10, 10,
                   key, "new", 3, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
@@ -2461,14 +2619,8 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
     Buffer oldBuffer;
     bool success = false;
 
-    using WireFormat::TxParticipant;
-    TxParticipant participants[3];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
-    participants[1] = TxParticipant(573U, key.getHash(), 11U);
-    participants[2] = TxParticipant(574U, key.getHash(), 12U);
-
     Buffer value;
-    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 3U, participants,
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 10UL,
                   key, "item1", 5, 0, 0, value);
     op.assembleForLog(oldBuffer);
 
@@ -2512,14 +2664,8 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
     Buffer oldBuffer;
     bool success = false;
 
-    using WireFormat::TxParticipant;
-    TxParticipant participants[3];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
-    participants[1] = TxParticipant(573U, key.getHash(), 11U);
-    participants[2] = TxParticipant(574U, key.getHash(), 12U);
-
     Buffer value;
-    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 3U, participants,
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 10UL,
                   key, "item1", 5, 0, 0, value);
     op.assembleForLog(oldBuffer);
 
@@ -2696,12 +2842,8 @@ TEST_F(ObjectManagerTest, relocatePreparedOpTombstone_relocate) {
     Buffer buffer;
     bool success = false;
 
-    using WireFormat::TxParticipant;
-    TxParticipant participants[1];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
-
     Buffer value;
-    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 1U, participants,
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 10UL,
                   key, "item1", 5, 0, 0, value);
     op.assembleForLog(buffer);
 
@@ -2741,12 +2883,8 @@ TEST_F(ObjectManagerTest, relocatePreparedOpTombstone_clean) {
     Buffer buffer;
     bool success = false;
 
-    using WireFormat::TxParticipant;
-    TxParticipant participants[1];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
-
     Buffer value;
-    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 1U, participants,
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 10UL,
                   key, "item1", 5, 0, 0, value);
     PreparedOpTombstone opTomb(op, 0xBAD);
     opTomb.assembleForLog(buffer);
@@ -2994,6 +3132,98 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
     EXPECT_FALSE(relocator.didAppend);
     EXPECT_EQ("found=true tableId=1 byteCount=0 recordCount=0"
               , verifyMetadata(1));
+}
+
+TEST_F(ObjectManagerTest, relocateTxParticipantList_relocate) {
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42);
+
+    // Setup its initial existence.
+    Buffer pListBuffer;
+    participantList.assembleForLog(pListBuffer);
+    ParticipantList::TxId txId = participantList.getTxId();
+
+    Log::Reference oldPListReference;
+    bool success = objectManager.log.append(
+            LOG_ENTRY_TYPE_TXPLIST, pListBuffer, &oldPListReference);
+    objectManager.log.sync();
+    objectManager.preparedOps->updateParticipantListEntry(
+            txId, oldPListReference.toInteger());
+    EXPECT_TRUE(success);
+    EXPECT_TRUE(objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_EQ(oldPListReference.toInteger(),
+              objectManager.preparedOps->pListTable[txId]);
+
+    // Make sure the PariticipantList is considered live.
+    objectManager.unackedRpcResults->shouldRecover(42, 10, 0);
+    EXPECT_FALSE(objectManager.unackedRpcResults->isRpcAcked(42, 10));
+
+    LogEntryType oldTypeInLog;
+    Buffer oldBufferInLog;
+    oldTypeInLog = objectManager.log.getEntry(oldPListReference,
+                                              oldBufferInLog);
+    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, oldTypeInLog);
+
+    // Try to relocate.
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_TXPLIST,
+                           oldBufferInLog,
+                           oldPListReference,
+                           relocator);
+    EXPECT_TRUE(relocator.didAppend);
+    EXPECT_TRUE(objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_NE(oldPListReference.toInteger(),
+              objectManager.preparedOps->pListTable[txId]);
+}
+
+TEST_F(ObjectManagerTest, relocateTxParticipantList_clean) {
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42);
+
+    // Setup its initial existence.
+    Buffer pListBuffer;
+    participantList.assembleForLog(pListBuffer);
+    ParticipantList::TxId txId = participantList.getTxId();
+
+    Log::Reference oldPListReference;
+    bool success = objectManager.log.append(
+            LOG_ENTRY_TYPE_TXPLIST, pListBuffer, &oldPListReference);
+    objectManager.log.sync();
+    objectManager.preparedOps->updateParticipantListEntry(
+            txId, oldPListReference.toInteger());
+    EXPECT_TRUE(success);
+    EXPECT_TRUE(objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_EQ(oldPListReference.toInteger(),
+              objectManager.preparedOps->pListTable[txId]);
+
+    // Make sure the PariticipantList is not considered live.
+    objectManager.unackedRpcResults->shouldRecover(42, 10, 11);
+    EXPECT_TRUE(objectManager.unackedRpcResults->isRpcAcked(42, 10));
+
+    LogEntryType oldTypeInLog;
+    Buffer oldBufferInLog;
+    oldTypeInLog = objectManager.log.getEntry(oldPListReference,
+                                              oldBufferInLog);
+    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, oldTypeInLog);
+
+    // Try to relocate.
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    objectManager.relocate(LOG_ENTRY_TYPE_TXPLIST,
+                           oldBufferInLog,
+                           oldPListReference,
+                           relocator);
+    EXPECT_FALSE(relocator.didAppend);
+    EXPECT_FALSE(objectManager.preparedOps->hasParticipantListEntry(txId));
 }
 
 TEST_F(ObjectManagerTest, replace_noPriorVersion) {

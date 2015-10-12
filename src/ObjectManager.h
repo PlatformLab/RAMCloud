@@ -85,6 +85,8 @@ class ObjectManager : public LogEntryHandlers {
                 RpcResult* rpcResult = NULL, uint64_t* rpcResultPtr = NULL);
     bool keyPointsAtReference(Key& k, AbstractLog::Reference oldReference);
     void writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr);
+    Status logTransactionParticipantList(ParticipantList& participantList,
+                uint64_t* participantListLogRef);
     Status prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                 uint64_t* newOpPtr, bool* isCommitVote,
                 RpcResult* rpcResult, uint64_t* rpcResultPtr);
@@ -286,6 +288,8 @@ class ObjectManager : public LogEntryHandlers {
     void relocateTombstone(Buffer& oldBuffer, Log::Reference oldReference,
             LogEntryRelocator& relocator);
     void relocateTxDecisionRecord(
+            Buffer& oldBuffer, LogEntryRelocator& relocator);
+    void relocateTxParticipantList(
             Buffer& oldBuffer, LogEntryRelocator& relocator);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
 

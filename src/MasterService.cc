@@ -850,9 +850,12 @@ MasterService::migrateSingleLogEntry(
     LogEntryType type = it.getType();
     if (type != LOG_ENTRY_TYPE_OBJ &&
         type != LOG_ENTRY_TYPE_OBJTOMB &&
-        type != LOG_ENTRY_TYPE_TXDECISION)
+        type != LOG_ENTRY_TYPE_TXDECISION &&
+        type != LOG_ENTRY_TYPE_TXPLIST)
     {
         // We aren't interested in any other types.
+        TEST_LOG("Ignoring log entry type %s",
+                LogEntryTypeHelpers::toString(type));
         return STATUS_OK;
     }
 
@@ -869,16 +872,34 @@ MasterService::migrateSingleLogEntry(
         TxDecisionRecord record(buffer);
         entryTableId = record.getTableId();
         entryKeyHash = record.getKeyHash();
+    } else if (type == LOG_ENTRY_TYPE_TXPLIST) {
+        ParticipantList participantList(buffer);
+        for (uint64_t i = 0; i < participantList.header.participantCount; ++i) {
+            entryTableId = participantList.participants[i].tableId;
+            entryKeyHash = participantList.participants[i].keyHash;
+            if (entryTableId != tableId)
+                continue;
+            if (entryKeyHash < firstKeyHash || entryKeyHash > lastKeyHash)
+                continue;
+            break;
+        }
     }
 
     // Skip if not applicable.
-    if (entryTableId != tableId)
+    if (entryTableId != tableId) {
+        TEST_LOG("%s not migrated; tableId doesn't match",
+                LogEntryTypeHelpers::toString(type));
         return STATUS_OK;
+    }
 
     // TODO(stutsman) May want to hold back on computing hashes until here?
 
-    if (entryKeyHash < firstKeyHash || entryKeyHash > lastKeyHash)
+    if (entryKeyHash < firstKeyHash || entryKeyHash > lastKeyHash) {
+        TEST_LOG("%s not migrated; keyHash not in range",
+                LogEntryTypeHelpers::toString(type));
         return STATUS_OK;
+    }
+
 
     if (type == LOG_ENTRY_TYPE_OBJ) {
         // Note: there used to be code here to ignore objects that aren't
@@ -928,6 +949,9 @@ MasterService::migrateSingleLogEntry(
             return STATUS_INTERNAL_ERROR;
         }
     }
+
+    TEST_LOG("Migrated log entry type %s",
+            LogEntryTypeHelpers::toString(type));
     return STATUS_OK;
 }
 
@@ -2623,10 +2647,28 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
     reqOffset += sizeof32(WireFormat::TxParticipant) * participantCount;
 
-    if (participants == NULL) {
+    if (participantCount == 0 || participants == NULL) {
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         rpc->sendReply();
         return;
+    }
+
+    ParticipantList participantList(participants,
+                                    participantCount,
+                                    reqHdr->lease.leaseId);
+    ParticipantList::TxId txId = participantList.getTxId();
+    if (!preparedOps.hasParticipantListEntry(txId)) {
+        uint64_t logRef = 0;
+        Status status = objectManager.logTransactionParticipantList(
+                                                    participantList, &logRef);
+        if (status == STATUS_OK) {
+            preparedOps.updateParticipantListEntry(participantList.getTxId(),
+                                                   logRef);
+        } else {
+            respHdr->common.status = status;
+            rpc->sendReply();
+            return;
+        }
     }
 
     // 2. Process operations.
@@ -2675,8 +2717,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, reqHdr->lease.leaseId, rpcId,
-                         participantCount, participants,
+            op.construct(*type, txId.first, txId.second, rpcId,
                          tableId, 0, 0,
                          buffer);
 
@@ -2705,8 +2746,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, reqHdr->lease.leaseId, rpcId,
-                         participantCount, participants,
+            op.construct(*type, txId.first, txId.second, rpcId,
                          tableId, 0, 0,
                          buffer);
 
@@ -2727,8 +2767,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             tableId = currentReq->tableId;
             rpcId = currentReq->rpcId;
             rejectRules = currentReq->rejectRules;
-            op.construct(*type, reqHdr->lease.leaseId, rpcId,
-                         participantCount, participants,
+            op.construct(*type, txId.first, txId.second, rpcId,
                          tableId, 0, 0,
                          *(rpc->requestPayload), reqOffset,
                          currentReq->length);
@@ -2757,8 +2796,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, reqHdr->lease.leaseId, rpcId,
-                         participantCount, participants,
+            op.construct(*type, txId.first, txId.second, rpcId,
                          tableId, 0, 0,
                          buffer);
 
