@@ -74,7 +74,7 @@ class LockTableTest : public ::testing::Test {
         Buffer buffer;
         Buffer logBuffer;
         Log::Reference ref;
-        PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 0, NULL, key, NULL,
+        PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 1, key, NULL,
                 0, 0, 0, buffer);
         prepOp.assembleForLog(logBuffer);
         log.append(LOG_ENTRY_TYPE_PREP, logBuffer, &ref);

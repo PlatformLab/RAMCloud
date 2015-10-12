@@ -2613,7 +2613,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
     ParticipantList participantList(participants,
                                     participantCount,
                                     reqHdr->lease.leaseId);
-    if (!preparedOps.hasParticipantListEntry(participantList.getTxId())) {
+    ParticipantList::TxId txId = participantList.getTxId();
+    if (!preparedOps.hasParticipantListEntry(txId)) {
         uint64_t logRef = 0;
         Status status = objectManager.logTransactionParticipantList(
                                                     participantList, &logRef);
@@ -2673,8 +2674,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, reqHdr->lease.leaseId, rpcId,
-                         participantCount, participants,
+            op.construct(*type, txId.first, txId.second, rpcId,
                          tableId, 0, 0,
                          buffer);
 
@@ -2703,8 +2703,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, reqHdr->lease.leaseId, rpcId,
-                         participantCount, participants,
+            op.construct(*type, txId.first, txId.second, rpcId,
                          tableId, 0, 0,
                          buffer);
 
@@ -2725,8 +2724,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             tableId = currentReq->tableId;
             rpcId = currentReq->rpcId;
             rejectRules = currentReq->rejectRules;
-            op.construct(*type, reqHdr->lease.leaseId, rpcId,
-                         participantCount, participants,
+            op.construct(*type, txId.first, txId.second, rpcId,
                          tableId, 0, 0,
                          *(rpc->requestPayload), reqOffset,
                          currentReq->length);
@@ -2755,8 +2753,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, reqHdr->lease.leaseId, rpcId,
-                         participantCount, participants,
+            op.construct(*type, txId.first, txId.second, rpcId,
                          tableId, 0, 0,
                          buffer);
 

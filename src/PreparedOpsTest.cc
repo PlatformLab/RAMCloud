@@ -35,7 +35,6 @@ class PreparedOpTest : public ::testing::Test {
     PreparedOpTest()
         : stringKey()
         , dataBlob()
-        , keyHash()
         , buffer()
         , buffer2()
         , preparedOpFromRpc()
@@ -63,17 +62,10 @@ class PreparedOpTest : public ::testing::Test {
         // append data
         buffer.appendExternal(dataBlob, 4);
 
-        // construct participant list.
-        keyHash = key.getHash();
-        participants[0] = WireFormat::TxParticipant(572U, key.getHash(), 10U);
-        participants[1] = WireFormat::TxParticipant(573U, key.getHash(), 11U);
-        participants[2] = WireFormat::TxParticipant(574U, key.getHash(), 12U);
-
         preparedOpFromRpc.construct(WireFormat::TxPrepare::WRITE,
                                     1UL,
                                     10UL,
-                                    3U,
-                                    participants,
+                                    10UL,
                                     key.getTableId(),
                                     75,
                                     723,
@@ -103,9 +95,6 @@ class PreparedOpTest : public ::testing::Test {
     char stringKey[5];
     char dataBlob[4];
 
-    uint64_t keyHash;
-    WireFormat::TxParticipant participants[3];
-
     Buffer buffer;
     Buffer buffer2;
 
@@ -124,15 +113,8 @@ TEST_F(PreparedOpTest, constructor_fromRpc) {
 
     EXPECT_EQ(WireFormat::TxPrepare::WRITE, record.header.type);
     EXPECT_EQ(1UL, record.header.clientId);
+    EXPECT_EQ(10UL, record.header.txRpcId);
     EXPECT_EQ(10UL, record.header.rpcId);
-    EXPECT_EQ(3U, record.header.participantCount);
-
-    EXPECT_EQ(WireFormat::TxParticipant(572U, keyHash, 10U),
-              record.participants[0]);
-    EXPECT_EQ(WireFormat::TxParticipant(573U, keyHash, 11U),
-              record.participants[1]);
-    EXPECT_EQ(WireFormat::TxParticipant(574U, keyHash, 12U),
-              record.participants[2]);
 
     EXPECT_EQ(572U, record.object.header.tableId);
     EXPECT_EQ(75U, record.object.header.version);
@@ -174,14 +156,8 @@ TEST_F(PreparedOpTest, constructor_fromBuffer) {
 
     EXPECT_EQ(WireFormat::TxPrepare::WRITE, record.header.type);
     EXPECT_EQ(1UL, record.header.clientId);
+    EXPECT_EQ(10UL, record.header.txRpcId);
     EXPECT_EQ(10UL, record.header.rpcId);
-    EXPECT_EQ(3U, record.header.participantCount);
-    EXPECT_EQ(WireFormat::TxParticipant(572U, keyHash, 10U),
-              record.participants[0]);
-    EXPECT_EQ(WireFormat::TxParticipant(573U, keyHash, 11U),
-              record.participants[1]);
-    EXPECT_EQ(WireFormat::TxParticipant(574U, keyHash, 12U),
-              record.participants[2]);
 
     EXPECT_EQ(572U, record.object.header.tableId);
     EXPECT_EQ(75U, record.object.header.version);
@@ -225,28 +201,18 @@ TEST_F(PreparedOpTest, assembleForLog) {
         const PreparedOp::Header* header =
                 buffer.getStart<PreparedOp::Header>();
 
-        EXPECT_EQ(sizeof(*header) + sizeof(WireFormat::TxParticipant) * 3 +
+        EXPECT_EQ(sizeof(*header) +
                   sizeof(Object::Header) +
                   sizeof(KeyCount) + sizeof(CumulativeKeyLength) + 5 + 4,
                   buffer.size());
 
         EXPECT_EQ(WireFormat::TxPrepare::WRITE, header->type);
         EXPECT_EQ(1UL, header->clientId);
+        EXPECT_EQ(10UL, header->txRpcId);
         EXPECT_EQ(10UL, header->rpcId);
-        EXPECT_EQ(3UL, header->participantCount);
         //EXPECT_EQ(0xE86291D1, op->header.checksum);
 
-        WireFormat::TxParticipant* partList =
-            (WireFormat::TxParticipant*) buffer.getRange(sizeof32(*header),
-            sizeof32(WireFormat::TxParticipant) * 3);
-        EXPECT_EQ(WireFormat::TxParticipant(572U, keyHash, 10U),
-                  partList[0]);
-        EXPECT_EQ(WireFormat::TxParticipant(573U, keyHash, 11U),
-                  partList[1]);
-        EXPECT_EQ(WireFormat::TxParticipant(574U, keyHash, 12U),
-                  partList[2]);
-
-        uint32_t offset = sizeof32(*header) + sizeof32(TxParticipant) * 3;
+        uint32_t offset = sizeof32(*header);
         const Object::Header* objHdr =
                 buffer.getOffset<Object::Header>(offset);
         EXPECT_EQ(572U, objHdr->tableId);
@@ -340,7 +306,7 @@ class PreparedOpTombstoneTest : public ::testing::Test {
         participants[2] = WireFormat::TxParticipant(574U, key.getHash(), 12U);
 
         preparedOp.construct(WireFormat::TxPrepare::WRITE,
-                             1UL, 10UL, 3U, participants,
+                             1UL, 10UL, 10UL,
                              key.getTableId(), 75, 723, buffer);
 
         preparedOpTombstoneFromRpc.construct(*preparedOp, 999UL);
@@ -768,7 +734,7 @@ TEST_F(PreparedItemTest, handleTimerEvent_basic) {
 
     Object::appendKeysAndValueToBuffer(key3, "val", 3, &keyAndValBuffer);
 
-    PreparedOp op(WireFormat::TxPrepare::OpType::READ, 1, 13, 3, participants,
+    PreparedOp op(WireFormat::TxPrepare::OpType::READ, 1, 11, 13,
                   tableId1, 0, 0, keyAndValBuffer);
     Buffer buf;
     op.assembleForLog(buf);
@@ -799,16 +765,12 @@ TEST_F(PreparedItemTest, handleTimerEvent_noParticipantList) {
     Key key1(tableId3, "key1", 4);
     Key key2(tableId2, "key2", 4);
     Key key3(tableId1, "key3", 4);
-    WireFormat::TxParticipant participants[3];
-    participants[0] = {tableId3, key1.getHash(), 11};
-    participants[1] = {tableId2, key2.getHash(), 12};
-    participants[2] = {tableId1, key3.getHash(), 13};
 
     Buffer keyAndValBuffer;
 
     Object::appendKeysAndValueToBuffer(key3, "val", 3, &keyAndValBuffer);
 
-    PreparedOp op(WireFormat::TxPrepare::OpType::READ, 1, 13, 3, participants,
+    PreparedOp op(WireFormat::TxPrepare::OpType::READ, 1, 11, 13,
                   tableId1, 0, 0, keyAndValBuffer);
     Buffer buf;
     op.assembleForLog(buf);

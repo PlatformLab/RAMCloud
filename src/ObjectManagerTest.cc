@@ -349,7 +349,7 @@ class ObjectManagerTest : public ::testing::Test {
         Buffer dataBuffer;
         Buffer buffer;
         Log::Reference ref;
-        PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 0, NULL, key, NULL,
+        PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 1, key, NULL,
                 0, 0, 0, dataBuffer);
         prepOp.assembleForLog(buffer);
         objectManager.log.append(LOG_ENTRY_TYPE_PREP, buffer, &ref);
@@ -1294,7 +1294,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
         Key key(10, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 10UL, 0, NULL,
+                      1UL, 10UL, 10UL,
                       key, "hello", 6, 0, 0, buf);
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1310,7 +1310,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
         Key key(10, "2", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 11UL, 0, NULL,
+                      1UL, 10UL, 11UL,
                       key, "helli", 6, 1 /*version*/, 0, buf);
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1333,7 +1333,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
         Key key(10, "2", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 11UL, 0, NULL,
+                      1UL, 10UL, 11UL,
                       key, "helli", 6, 3 /*version*/, 0, buf);
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1349,8 +1349,8 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     PreparedOp savedOp(preparedOpBuffer, 0, preparedOpBuffer.size());
 
     EXPECT_EQ(1UL, savedOp.header.clientId);
+    EXPECT_EQ(10UL, savedOp.header.txRpcId);
     EXPECT_EQ(11UL, savedOp.header.rpcId);
-    EXPECT_EQ(0UL, savedOp.header.participantCount);
     EXPECT_EQ(10UL, savedOp.object.getTableId());
     EXPECT_EQ(3UL, savedOp.object.header.version);
 }
@@ -1376,7 +1376,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         Key key(10, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 10UL, 0, NULL,
+                      1UL, 10UL, 10UL,
                       key, "hello", 6, 0, 0, buf);
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1392,7 +1392,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         Key key(10, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 10UL, 0, NULL,
+                      1UL, 10UL, 10UL,
                       key, "hello", 6, 0, 0, buf);
         PreparedOpTombstone opTomb(op, 0);
         len = buildRecoverySegment(seg, segLen, opTomb, &certificate);
@@ -1411,7 +1411,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         Key key(10, "2", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 11UL, 0, NULL,
+                      1UL, 10UL, 11UL,
                       key, "hello", 6, 0, 0, buf);
         PreparedOpTombstone opTomb(op, 0);
         len = buildRecoverySegment(seg, segLen, opTomb, &certificate);
@@ -1427,7 +1427,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         Key key(10, "2", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 11UL, 0, NULL,
+                      1UL, 10UL, 11UL,
                       key, "hello", 6, 0, 0, buf);
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1754,8 +1754,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
     participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op(TxPrepare::READ, 1, 10,
-                  3, participants,
+    PreparedOp op(TxPrepare::READ, 1, 10, 10,
                   key, "value", 5, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
@@ -1795,7 +1794,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
 
-    EXPECT_EQ("found=true tableId=1 byteCount=214 recordCount=3"
+    EXPECT_EQ("found=true tableId=1 byteCount=146 recordCount=3"
               , verifyMetadata(1));
 
     // Check object is locked.
@@ -1846,7 +1845,7 @@ TEST_F(ObjectManagerTest, tryGrabTxLock) {
     Buffer buffer;
     Buffer logBuffer;
     Log::Reference ref;
-    PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 0, NULL, key, "value",
+    PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 1, key, "value",
             5, 0, 0, buffer);
     prepOp.assembleForLog(logBuffer);
     objectManager.log.append(LOG_ENTRY_TYPE_PREP, logBuffer, &ref);
@@ -1878,14 +1877,9 @@ TEST_F(ObjectManagerTest, commitRead) {
     bool isCommit;
     uint64_t newOpPtr;
 
-    WireFormat::TxParticipant participants[3];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
-    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
-    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op(TxPrepare::READ, 1, 10,
-                  3, participants,
+    PreparedOp op(TxPrepare::READ, 1, 10, 10,
                   key, "value", 5, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
@@ -1902,7 +1896,7 @@ TEST_F(ObjectManagerTest, commitRead) {
     EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
-    EXPECT_EQ("found=true tableId=1 byteCount=214 recordCount=3"
+    EXPECT_EQ("found=true tableId=1 byteCount=146 recordCount=3"
               , verifyMetadata(1));
 
     // Check object is locked.
@@ -1925,12 +1919,9 @@ TEST_F(ObjectManagerTest, commitRemove) {
     bool isCommit;
     uint64_t newOpPtr;
 
-    WireFormat::TxParticipant participants[1];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op(TxPrepare::REMOVE, 1, 10,
-                  1, participants,
+    PreparedOp op(TxPrepare::REMOVE, 1, 10, 10,
                   key, "", 0, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
@@ -1978,12 +1969,9 @@ TEST_F(ObjectManagerTest, commitWrite) {
     uint64_t newOpPtr;
     uint64_t ver;
 
-    WireFormat::TxParticipant participants[1];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op(TxPrepare::WRITE, 1, 10,
-                  1, participants,
+    PreparedOp op(TxPrepare::WRITE, 1, 10, 10,
                   key, "new", 3, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
@@ -2617,14 +2605,8 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
     Buffer oldBuffer;
     bool success = false;
 
-    using WireFormat::TxParticipant;
-    TxParticipant participants[3];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
-    participants[1] = TxParticipant(573U, key.getHash(), 11U);
-    participants[2] = TxParticipant(574U, key.getHash(), 12U);
-
     Buffer value;
-    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 3U, participants,
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 10UL,
                   key, "item1", 5, 0, 0, value);
     op.assembleForLog(oldBuffer);
 
@@ -2668,14 +2650,8 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
     Buffer oldBuffer;
     bool success = false;
 
-    using WireFormat::TxParticipant;
-    TxParticipant participants[3];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
-    participants[1] = TxParticipant(573U, key.getHash(), 11U);
-    participants[2] = TxParticipant(574U, key.getHash(), 12U);
-
     Buffer value;
-    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 3U, participants,
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 10UL,
                   key, "item1", 5, 0, 0, value);
     op.assembleForLog(oldBuffer);
 
@@ -2852,12 +2828,8 @@ TEST_F(ObjectManagerTest, relocatePreparedOpTombstone_relocate) {
     Buffer buffer;
     bool success = false;
 
-    using WireFormat::TxParticipant;
-    TxParticipant participants[1];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
-
     Buffer value;
-    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 1U, participants,
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 10UL,
                   key, "item1", 5, 0, 0, value);
     op.assembleForLog(buffer);
 
@@ -2897,12 +2869,8 @@ TEST_F(ObjectManagerTest, relocatePreparedOpTombstone_clean) {
     Buffer buffer;
     bool success = false;
 
-    using WireFormat::TxParticipant;
-    TxParticipant participants[1];
-    participants[0] = TxParticipant(key.getTableId(), key.getHash(), 10U);
-
     Buffer value;
-    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 1U, participants,
+    PreparedOp op(WireFormat::TxPrepare::WRITE, 1UL, 10UL, 10UL,
                   key, "item1", 5, 0, 0, value);
     PreparedOpTombstone opTomb(op, 0xBAD);
     opTomb.assembleForLog(buffer);

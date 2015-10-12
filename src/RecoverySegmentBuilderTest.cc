@@ -144,7 +144,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Key key(1, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 10UL, 0, NULL,
+                      1UL, 10UL, 10UL,
                       key, "hello", 6, 0, 0, dataBuffer);
 
         Buffer buffer;
@@ -159,7 +159,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Key key(1, "2", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::READ,
-                      1UL, 10UL, 0, NULL,
+                      1UL, 10UL, 10UL,
                       key, "hello", 6, 0, 0, dataBuffer);
 
         Buffer buffer;
@@ -174,7 +174,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Key key(10, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 10UL, 0, NULL,
+                      1UL, 10UL, 10UL,
                       key, "hello", 6, 0, 0, dataBuffer);
 
         Buffer buffer;
@@ -190,7 +190,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         Key key(2, "1", 1);
         Buffer dataBuffer;
         PreparedOp op(WireFormat::TxPrepare::WRITE,
-                      1UL, 10UL, 0U, NULL,
+                      1UL, 10UL, 10UL,
                       key, "hello", 6, 0, 0, dataBuffer);
 
         Buffer buffer;
@@ -248,11 +248,11 @@ TEST_F(RecoverySegmentBuilderTest, build) {
             "tombstone at offset 50, length 33 with tableId 1, key '2' | "
             "rpcResult at offset 85, length 44 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 5, rpcId 3 | "
-            "preparedOp at offset 131, length 62 with tableId 1, key '2', "
+            "preparedOp at offset 131, length 66 with tableId 1, key '2', "
                     "leaseId 1, rpcId 10 | "
-            "preparedOpTombstone at offset 195, length 44 with tableId 1, "
+            "preparedOpTombstone at offset 199, length 44 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 1, rpcId 10 | "
-            "txDecision at offset 241, length 40 with tableId 1, "
+            "txDecision at offset 245, length 40 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 5",
             ObjectManager::dumpSegment(&recoverySegments[0]));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
@@ -260,11 +260,11 @@ TEST_F(RecoverySegmentBuilderTest, build) {
             "tombstone at offset 50, length 33 with tableId 1, key '1' | "
             "rpcResult at offset 85, length 44 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 6, rpcId 4 | "
-            "preparedOp at offset 131, length 62 with tableId 1, key '1', "
+            "preparedOp at offset 131, length 66 with tableId 1, key '1', "
                     "leaseId 1, rpcId 10 | "
-            "preparedOpTombstone at offset 195, length 44 with tableId 1, "
+            "preparedOpTombstone at offset 199, length 44 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 1, rpcId 10 | "
-            "txDecision at offset 241, length 40 with tableId 1, "
+            "txDecision at offset 245, length 40 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 6",
             ObjectManager::dumpSegment(&recoverySegments[1]));
 

@@ -30,15 +30,13 @@ namespace RAMCloud {
  * \param type
  *      Type of the staged operation.
  * \param clientId
- *      leaseId given for this linearizable RPC.
+ *      leaseId given for this linearizable RPC.  First half of this
+ *      transaction's unique identifier.
+ * \param txRpcId
+ *      Second half of this transaction's unique identifier taken from the rpcId
+ *      of the first operation in the participant list.
  * \param rpcId
  *      rpcId given for this linearizable RPC.
- * \param participantCount
- *      Number of objects participating current transaction.
- * \param participants
- *      Pointer to the array of #WireFormat::TxParticipant which contains
- *      all information of objects participating transaction.
- *      Its lifetime must cover the lifetime of this Object.
  * \param tableId
  *      TableId for this object.
  * \param version
@@ -61,17 +59,15 @@ namespace RAMCloud {
  */
 PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
                        uint64_t clientId,
+                       uint64_t txRpcId,
                        uint64_t rpcId,
-                       uint32_t participantCount,
-                       WireFormat::TxParticipant* participants,
                        uint64_t tableId,
                        uint64_t version,
                        uint32_t timestamp,
                        Buffer& keysAndValueBuffer,
                        uint32_t startDataOffset,
                        uint32_t length)
-    : header(type, clientId, rpcId, participantCount)
-    , participants(participants)
+    : header(type, clientId, txRpcId, rpcId)
     , object(tableId, version, timestamp, keysAndValueBuffer,
              startDataOffset, length)
 {
@@ -88,15 +84,13 @@ PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
  * \param type
  *      Type of the staged operation.
  * \param clientId
- *      leaseId given for this linearizable RPC.
+ *      leaseId given for this linearizable RPC.  First half of this
+ *      transaction's unique identifier.
+ * \param txRpcId
+ *      Second half of this transaction's unique identifier taken from the rpcId
+ *      of the first operation in the participant list.
  * \param rpcId
  *      rpcId given for this linearizable RPC.
- * \param participantCount
- *      Number of objects participating current transaction.
- * \param participants
- *      Pointer to the array of #WireFormat::TxParticipant which contains
- *      all information of objects participating transaction.
- *      Its lifetime must cover the lifetime of this Object.
  * \param key
  *      Primary key for this object
  * \param value
@@ -119,9 +113,8 @@ PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
  */
 PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
                        uint64_t clientId,
+                       uint64_t txRpcId,
                        uint64_t rpcId,
-                       uint32_t participantCount,
-                       WireFormat::TxParticipant* participants,
                        Key& key,
                        const void* value,
                        uint32_t valueLength,
@@ -129,8 +122,7 @@ PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
                        uint32_t timestamp,
                        Buffer& buffer,
                        uint32_t *length)
-    : header(type, clientId, rpcId, participantCount)
-    , participants(participants)
+    : header(type, clientId, txRpcId, rpcId)
     , object(key, value, valueLength, version, timestamp, buffer, length)
 {
 }
@@ -155,17 +147,8 @@ PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
  */
 PreparedOp::PreparedOp(Buffer& buffer, uint32_t offset, uint32_t length)
     : header(*buffer.getOffset<Header>(offset))
-    , participants(NULL)
-    , object(buffer,
-             offset + sizeof32(header) +
-               sizeof32(WireFormat::TxParticipant) * header.participantCount,
-             length - sizeof32(header) -
-               sizeof32(WireFormat::TxParticipant) * header.participantCount)
+    , object(buffer, offset + sizeof32(header), length - sizeof32(header))
 {
-    //Fill in participants from buffer data.
-    participants = (WireFormat::TxParticipant*)buffer.getRange(
-            offset + sizeof32(header),
-            sizeof32(WireFormat::TxParticipant) * header.participantCount);
 }
 
 /**
@@ -180,8 +163,6 @@ PreparedOp::assembleForLog(Buffer& buffer)
 {
     header.checksum = computeChecksum();
     buffer.appendCopy(&header, sizeof32(Header));
-    buffer.appendCopy(participants, sizeof32(WireFormat::TxParticipant)
-                                         * header.participantCount);
     object.assembleForLog(buffer);
 }
 
@@ -208,10 +189,6 @@ PreparedOp::computeChecksum()
     crc.update(this,
                downCast<uint32_t>(sizeof(header) -
                sizeof(header.checksum)));
-
-    crc.update(participants,
-               sizeof32(WireFormat::TxParticipant) *
-               header.participantCount);
 
     object.applyChecksum(&crc);
 
@@ -560,11 +537,10 @@ PreparedOps::PreparedItem::handleTimerEvent()
 
     //TODO(seojin): RAM-767. op.participants can be stale while log cleaning.
     //              It is possible to cause invalid memory access.
-    assert(op.header.participantCount >= 1);
 
     ParticipantList::TxId txId =
             std::make_pair<uint64_t, uint64_t>(op.header.clientId,
-                                               op.participants[0].rpcId);
+                                               op.header.txRpcId);
     PListTable* pListTable = &context->masterService->preparedOps.pListTable;
     PListTable::iterator it = pListTable->find(txId);
     if (it != pListTable->end()) {

@@ -2380,11 +2380,11 @@ TEST_F(MasterServiceTest, txDecision_commit) {
     participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op1(TxPrepare::READ, 1, 10, 3, participants,
+    PreparedOp op1(TxPrepare::READ, 1, 10, 10,
                    key1, "", 0, 0, 0, buffer);
-    PreparedOp op2(TxPrepare::REMOVE, 1, 11, 3, participants,
+    PreparedOp op2(TxPrepare::REMOVE, 1, 10, 11,
                    key2, "", 0, 0, 0, buffer);
-    PreparedOp op3(TxPrepare::WRITE, 1, 12, 3, participants,
+    PreparedOp op3(TxPrepare::WRITE, 1, 10, 12,
                    key3, "new", 3, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
@@ -2476,11 +2476,11 @@ TEST_F(MasterServiceTest, txDecision_abort) {
     participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op1(TxPrepare::READ, 1, 10, 3, participants,
+    PreparedOp op1(TxPrepare::READ, 1, 10, 10,
                    key1, "", 0, 0, 0, buffer);
-    PreparedOp op2(TxPrepare::REMOVE, 1, 11, 3, participants,
+    PreparedOp op2(TxPrepare::REMOVE, 1, 10, 11,
                    key2, "", 0, 0, 0, buffer);
-    PreparedOp op3(TxPrepare::WRITE, 1, 12, 3, participants,
+    PreparedOp op3(TxPrepare::WRITE, 1, 10, 12,
                    key3, "new", 3, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
@@ -2554,9 +2554,9 @@ TEST_F(MasterServiceTest, txDecision_unknownTablet) {
     participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op1(TxPrepare::READ, 1, 10, 3, participants,
+    PreparedOp op1(TxPrepare::READ, 1, 10, 10,
                    key1, "", 0, 0, 0, buffer);
-    PreparedOp op3(TxPrepare::WRITE, 1, 12, 3, participants,
+    PreparedOp op3(TxPrepare::WRITE, 1, 10, 12,
                    key3, "new", 3, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;

@@ -37,28 +37,24 @@ class ObjectManager;
  * During RC recovery of preparedOp log, a master should lock the corresponding
  * object.
  *
- * Each preparedOp contains all TxParticipants of current transactions and
- * an instance of Object. When stored in the log, a preparedOp has the following
- * layout:
+ * Each preparedOp contains a header and an instance of Object. When stored in
+ * the log, a preparedOp has the following layout:
  *
- * +-------------------+----------------------+--------+
- * | PreparedOp Header | TxParticipant(s) ... | Object |
- * +-------------------+----------------------+--------+
+ * +-------------------+--------+
+ * | PreparedOp Header | Object |
+ * +-------------------+--------+
+ *
  * Everything except the header is of variable length.
  */
 class PreparedOp {
   public:
     PreparedOp(WireFormat::TxPrepare::OpType type,
-               uint64_t clientId, uint64_t rpcId,
-               uint32_t participantCount,
-               WireFormat::TxParticipant* participants,
+               uint64_t clientId, uint64_t txRpcId, uint64_t rpcId,
                uint64_t tableId, uint64_t version, uint32_t timestamp,
                Buffer& keysAndValueBuffer, uint32_t startDataOffset = 0,
                uint32_t length = 0);
     PreparedOp(WireFormat::TxPrepare::OpType type,
-               uint64_t clientId, uint64_t rpcId,
-               uint32_t participantCount,
-               WireFormat::TxParticipant* participants,
+               uint64_t clientId, uint64_t txRpcId, uint64_t rpcId,
                Key& key, const void* value, uint32_t valueLength,
                uint64_t version, uint32_t timestamp,
                Buffer& buffer, uint32_t *length = NULL);
@@ -72,13 +68,13 @@ class PreparedOp {
       public:
         Header(WireFormat::TxPrepare::OpType type,
                uint64_t clientId,
-               uint64_t rpcId,
-               uint32_t participantCount)
-            : type(type),
-              clientId(clientId),
-              rpcId(rpcId),
-              participantCount(participantCount),
-              checksum(0)
+               uint64_t txRpcId,
+               uint64_t rpcId)
+            : type(type)
+            , clientId(clientId)
+            , txRpcId(txRpcId)
+            , rpcId(rpcId)
+            , checksum(0)
         {
         }
 
@@ -88,11 +84,12 @@ class PreparedOp {
         /// leaseId given for this prepare.
         uint64_t clientId;
 
+        /// Combined with the clientId, the rpcId of the first operation in this
+        /// transaction uniquely identifies the transaction.
+        uint64_t txRpcId;
+
         /// rpcId given for this prepare.
         uint64_t rpcId;
-
-        /// Number of objects participating in the current transaction.
-        uint32_t participantCount;
 
         /// CRC32C checksum covering everything but this field, including the
         /// keys and the value.
@@ -102,12 +99,6 @@ class PreparedOp {
 
     /// Copy of the PreparedOp header.
     Header header;
-
-    /// Pointer to the array of #WireFormat::TxParticipant which contains
-    /// all information of objects participating transaction.
-    /// The actual data reside in RPC payload or in log. This pointer should not
-    /// be passed around outside the lifetime of a single RPC handler.
-    WireFormat::TxParticipant* participants;
 
     /// Object to be written during COMMIT phase.
     /// Its value is empty if OpType is READ or REMOVE; it only contains
