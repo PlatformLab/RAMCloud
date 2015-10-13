@@ -64,7 +64,7 @@ class PreparedOpTest : public ::testing::Test {
 
         preparedOpFromRpc.construct(WireFormat::TxPrepare::WRITE,
                                     1UL,
-                                    10UL,
+                                    9UL,
                                     10UL,
                                     key.getTableId(),
                                     75,
@@ -113,7 +113,7 @@ TEST_F(PreparedOpTest, constructor_fromRpc) {
 
     EXPECT_EQ(WireFormat::TxPrepare::WRITE, record.header.type);
     EXPECT_EQ(1UL, record.header.clientId);
-    EXPECT_EQ(10UL, record.header.txRpcId);
+    EXPECT_EQ(9UL, record.header.txRpcId);
     EXPECT_EQ(10UL, record.header.rpcId);
 
     EXPECT_EQ(572U, record.object.header.tableId);
@@ -156,7 +156,7 @@ TEST_F(PreparedOpTest, constructor_fromBuffer) {
 
     EXPECT_EQ(WireFormat::TxPrepare::WRITE, record.header.type);
     EXPECT_EQ(1UL, record.header.clientId);
-    EXPECT_EQ(10UL, record.header.txRpcId);
+    EXPECT_EQ(9UL, record.header.txRpcId);
     EXPECT_EQ(10UL, record.header.rpcId);
 
     EXPECT_EQ(572U, record.object.header.tableId);
@@ -208,7 +208,7 @@ TEST_F(PreparedOpTest, assembleForLog) {
 
         EXPECT_EQ(WireFormat::TxPrepare::WRITE, header->type);
         EXPECT_EQ(1UL, header->clientId);
-        EXPECT_EQ(10UL, header->txRpcId);
+        EXPECT_EQ(9UL, header->txRpcId);
         EXPECT_EQ(10UL, header->rpcId);
         //EXPECT_EQ(0xE86291D1, op->header.checksum);
 
@@ -271,6 +271,16 @@ TEST_F(PreparedOpTest, checkIntegrity) {
             PreparedOp record2(buffer, 0, buffer.size());
             EXPECT_TRUE(record2.checkIntegrity());
         }
+    }
+}
+
+TEST_F(PreparedOpTest, getTransactionId) {
+    for (uint32_t i = 0; i < arrayLength(records); i++) {
+        PreparedOp& record = *records[i];
+
+        TransactionId txId = record.getTransactionId();
+        EXPECT_EQ(1U, record.header.clientId);
+        EXPECT_EQ(9U, record.header.txRpcId);
     }
 }
 
@@ -465,14 +475,14 @@ TEST_F(PreparedOpsTest, markDeletedAndIsDeleted) {
 }
 
 TEST_F(PreparedOpsTest, hasParticipantListEntry) {
-    ParticipantList::TxId txId(42, 10);
+    TransactionId txId(42, 10);
     EXPECT_FALSE(writes.hasParticipantListEntry(txId));
     writes.pListTable[txId] = 9001;
     EXPECT_TRUE(writes.hasParticipantListEntry(txId));
 }
 
 TEST_F(PreparedOpsTest, updateParticipantListEntry) {
-    ParticipantList::TxId txId(42, 10);
+    TransactionId txId(42, 10);
     EXPECT_FALSE(writes.hasParticipantListEntry(txId));
     writes.updateParticipantListEntry(txId, 9000);
     EXPECT_TRUE(writes.hasParticipantListEntry(txId));
@@ -608,13 +618,13 @@ TEST_F(ParticipantListTest, checkIntegrity) {
     }
 }
 
-TEST_F(ParticipantListTest, getTxId) {
+TEST_F(ParticipantListTest, getTransactionId) {
     for (uint32_t i = 0; i < arrayLength(plists); i++) {
         ParticipantList& plist = *plists[i];
 
-        ParticipantList::TxId txId = plist.getTxId();
-        EXPECT_EQ(clientLeaseId, txId.first);
-        EXPECT_EQ(10U, txId.second);
+        TransactionId txId = plist.getTransactionId();
+        EXPECT_EQ(clientLeaseId, txId.clientLeaseId);
+        EXPECT_EQ(10U, txId.txRpcId);
     }
 }
 
@@ -731,8 +741,8 @@ TEST_F(PreparedItemTest, handleTimerEvent_basic) {
     uint64_t logRef;
     service1->objectManager.logTransactionParticipantList(participantList,
                                                           &logRef);
-    service1->preparedOps.updateParticipantListEntry(participantList.getTxId(),
-                                                     logRef);
+    service1->preparedOps.updateParticipantListEntry(
+            participantList.getTransactionId(), logRef);
 
     Buffer keyAndValBuffer;
 

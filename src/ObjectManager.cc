@@ -1042,16 +1042,18 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 participantList.checkIntegrity();
             });
 
-            ParticipantList::TxId txId = participantList.getTxId();
+            TransactionId txId = participantList.getTransactionId();
 
             if (expect_false(!checksumIsValid)) {
                 LOG(ERROR,
                         "bad ParticipantList checksum! "
                         "(leaseId: %lu, txId: %lu)",
-                        txId.first, txId.second);
+                        txId.clientLeaseId, txId.txRpcId);
                 // TODO(cstlee): Should throw and try another segment replica?
             }
-            if (unackedRpcResults->shouldRecover(txId.first, txId.second, 0)
+            if (unackedRpcResults->shouldRecover(txId.clientLeaseId,
+                                                 txId.txRpcId,
+                                                 0)
                     && !preparedOps->hasParticipantListEntry(txId)) {
                 CycleCounter<uint64_t> _(&segmentAppendTicks);
                 Log::Reference logRef;
@@ -1062,7 +1064,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                     LOG(ERROR,
                             "Could not append ParticipantList! "
                             "(leaseId: %lu, txId: %lu)",
-                            txId.first, txId.second);
+                            txId.clientLeaseId, txId.txRpcId);
                 }
             }
         }
@@ -2539,8 +2541,8 @@ ObjectManager::dumpSegment(Segment* segment)
             result += format("%sparticipantList at offset %u, length %u with "
                     "TxId: (leaseId %lu, rpcId %lu) containing %u entries",
                     separator, it.getOffset(), it.getLength(),
-                    participantList.getTxId().first,
-                    participantList.getTxId().second,
+                    participantList.getTransactionId().clientLeaseId,
+                    participantList.getTransactionId().txRpcId,
                     participantList.header.participantCount);
         }
 
@@ -3216,9 +3218,10 @@ ObjectManager::relocateTxParticipantList(Buffer& oldBuffer,
 
     // See if this transaction is still going on and thus if the participant
     // list should be kept.
-    ParticipantList::TxId txId = participantList.getTxId();
+    TransactionId txId = participantList.getTransactionId();
 
-    bool keep = !unackedRpcResults->isRpcAcked(txId.first, txId.second);
+    bool keep = !unackedRpcResults->isRpcAcked(txId.clientLeaseId,
+                                               txId.txRpcId);
 
     if (keep) {
         // Try to relocate it. If it fails, just return. The cleaner will

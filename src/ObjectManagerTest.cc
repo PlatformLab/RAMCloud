@@ -1527,9 +1527,9 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_basic) {
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
     ParticipantList record(participants, 3, 42);
-    ParticipantList::TxId txId = record.getTxId();
+    TransactionId txId = record.getTransactionId();
 
-    EXPECT_FALSE(unackedRpcResults->clients.find(txId.first) !=
+    EXPECT_FALSE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
             unackedRpcResults->clients.end());
     EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
 
@@ -1542,7 +1542,7 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_basic) {
 
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_TRUE(unackedRpcResults->clients.find(txId.first) !=
+    EXPECT_TRUE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
             unackedRpcResults->clients.end());
     EXPECT_TRUE(preparedOps->hasParticipantListEntry(txId));
 }
@@ -1563,13 +1563,15 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_acked) {
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
     ParticipantList record(participants, 3, 42);
-    ParticipantList::TxId txId = record.getTxId();
+    TransactionId txId = record.getTransactionId();
 
     // pre-insert ack
-    unackedRpcResults->shouldRecover(txId.first, txId.second, txId.second);
-    EXPECT_TRUE(unackedRpcResults->clients.find(txId.first) !=
+    unackedRpcResults->shouldRecover(
+            txId.clientLeaseId, txId.txRpcId, txId.txRpcId);
+    EXPECT_TRUE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
             unackedRpcResults->clients.end());
-    EXPECT_TRUE(unackedRpcResults->isRpcAcked(txId.first, txId.second));
+    EXPECT_TRUE(unackedRpcResults->isRpcAcked(
+                                            txId.clientLeaseId, txId.txRpcId));
     EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
 
     {
@@ -1600,11 +1602,11 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_hasPListEntry) {
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
     ParticipantList record(participants, 3, 42);
-    ParticipantList::TxId txId = record.getTxId();
+    TransactionId txId = record.getTransactionId();
 
     // pre-insert (bad) participant list entry
     preparedOps->pListTable[txId] = 0;
-    EXPECT_FALSE(unackedRpcResults->clients.find(txId.first) !=
+    EXPECT_FALSE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
             unackedRpcResults->clients.end());
     EXPECT_TRUE(preparedOps->hasParticipantListEntry(txId));
 
@@ -3145,7 +3147,7 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_relocate) {
     // Setup its initial existence.
     Buffer pListBuffer;
     participantList.assembleForLog(pListBuffer);
-    ParticipantList::TxId txId = participantList.getTxId();
+    TransactionId txId = participantList.getTransactionId();
 
     Log::Reference oldPListReference;
     bool success = objectManager.log.append(
@@ -3192,7 +3194,7 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_clean) {
     // Setup its initial existence.
     Buffer pListBuffer;
     participantList.assembleForLog(pListBuffer);
-    ParticipantList::TxId txId = participantList.getTxId();
+    TransactionId txId = participantList.getTransactionId();
 
     Log::Reference oldPListReference;
     bool success = objectManager.log.append(

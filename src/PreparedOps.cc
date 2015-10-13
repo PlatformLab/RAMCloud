@@ -196,6 +196,16 @@ PreparedOp::computeChecksum()
 }
 
 /**
+ * Return the unique identifier for the transaction to which this prepare
+ * operations belongs.
+ */
+TransactionId
+PreparedOp::getTransactionId()
+{
+     return TransactionId(header.clientId, header.txRpcId);
+}
+
+/**
  * Construct a new tombstone for a given completed PreparedOp. Use this
  * constructor when generating new tombstones to be written to the log.
  *
@@ -369,12 +379,11 @@ ParticipantList::computeChecksum()
 /**
  * Return the unique identifier for this transaction and participant list.
  */
-ParticipantList::TxId
-ParticipantList::getTxId()
+TransactionId
+ParticipantList::getTransactionId()
 {
     assert(header.participantCount > 0);
-    return std::make_pair<uint64_t, uint64_t>(header.clientLeaseId,
-                                              participants[0].rpcId);
+    return TransactionId(header.clientLeaseId, participants[0].rpcId);
 }
 
 /**
@@ -539,9 +548,7 @@ PreparedOps::PreparedItem::handleTimerEvent()
     //TODO(seojin): RAM-767. op.participants can be stale while log cleaning.
     //              It is possible to cause invalid memory access.
 
-    ParticipantList::TxId txId =
-            std::make_pair<uint64_t, uint64_t>(op.header.clientId,
-                                               op.header.txRpcId);
+    TransactionId txId = op.getTransactionId();
     PListTable* pListTable =
             &context->getMasterService()->preparedOps.pListTable;
     PListTable::iterator it = pListTable->find(txId);
@@ -567,7 +574,7 @@ PreparedOps::PreparedItem::handleTimerEvent()
         RAMCLOUD_LOG(WARNING,
                 "Unable to find participant list record for TxId (%lu, %lu); "
                 "client transaction recovery could not be requested.",
-                txId.first, txId.second);
+                txId.clientLeaseId, txId.txRpcId);
     }
 
     this->start(Cycles::rdtsc() + Cycles::fromMicroseconds(TX_TIMEOUT_US));
@@ -664,7 +671,7 @@ PreparedOps::isDeleted(uint64_t leaseId,
  *      True if the entry is still needed, false otherwise.
  */
 bool
-PreparedOps::hasParticipantListEntry(ParticipantList::TxId txId)
+PreparedOps::hasParticipantListEntry(TransactionId txId)
 {
     Lock lock(mutex);
     return (pListTable.find(txId) != pListTable.end());
@@ -681,7 +688,7 @@ PreparedOps::hasParticipantListEntry(ParticipantList::TxId txId)
  *      form.  ZERO indicates that the reference can be removed.
  */
 void
-PreparedOps::updateParticipantListEntry(ParticipantList::TxId txId,
+PreparedOps::updateParticipantListEntry(TransactionId txId,
                                         uint64_t participantListLogRef)
 {
     Lock lock(mutex);

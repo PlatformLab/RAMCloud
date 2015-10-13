@@ -17,6 +17,7 @@
 #define RAMCLOUD_PREPAREDOPS_H
 
 #include <map>
+#include <unordered_map>
 #include <utility>
 #include "Common.h"
 #include "Object.h"
@@ -27,6 +28,32 @@
 namespace RAMCloud {
 
 class ObjectManager;
+
+/**
+ *
+ */
+struct TransactionId {
+    TransactionId(uint64_t clientLeaseId, uint64_t txRpcId)
+        : clientLeaseId(clientLeaseId)
+        , txRpcId(txRpcId)
+    {}
+
+    bool operator==(const TransactionId &other) const {
+        return (clientLeaseId == other.clientLeaseId
+                && txRpcId == other.txRpcId);
+    }
+
+    struct Hasher {
+        std::size_t operator()(const TransactionId& txId) const {
+            std::size_t h1 = std::hash<uint64_t>()(txId.clientLeaseId);
+            std::size_t h2 = std::hash<uint64_t>()(txId.txRpcId);
+            return h1 ^ (h2 << 1);
+        }
+    };
+
+    uint64_t clientLeaseId;
+    uint64_t txRpcId;
+};
 
 /**
  * This class defines the format of a prepared transaction operation stored in
@@ -108,6 +135,7 @@ class PreparedOp {
     void assembleForLog(Buffer& buffer);
     bool checkIntegrity();
     uint32_t computeChecksum();
+    TransactionId getTransactionId();
 
     DISALLOW_COPY_AND_ASSIGN(PreparedOp);
 };
@@ -214,15 +242,11 @@ class ParticipantList {
                     uint64_t clientLeaseId);
     ParticipantList(Buffer& buffer, uint32_t offset = 0);
 
-    /// Unique identifier for the transaction consisting of
-    /// (ClientLeaseId, first rpcId)
-    typedef std::pair<uint64_t, uint64_t> TxId;
-
     void assembleForLog(Buffer& buffer);
 
     bool checkIntegrity();
     uint32_t computeChecksum();
-    TxId getTxId();
+    TransactionId getTransactionId();
 
     /**
      * This data structure defines the format of a preparedOp header stored in a
@@ -283,8 +307,8 @@ class PreparedOps {
     bool isDeleted(uint64_t leaseId, uint64_t rpcId);
     void regrabLocksAfterRecovery(ObjectManager* objectManager);
 
-    bool hasParticipantListEntry(ParticipantList::TxId txId);
-    void updateParticipantListEntry(ParticipantList::TxId txId,
+    bool hasParticipantListEntry(TransactionId txId);
+    void updateParticipantListEntry(TransactionId txId,
                                     uint64_t participantListLogRef);
 
   PRIVATE:
@@ -351,8 +375,11 @@ class PreparedOps {
     std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> items;
     typedef std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> ItemsMap;
 
-    typedef std::map<ParticipantList::TxId, uint64_t> PListTable;
+    typedef std::unordered_map<TransactionId,
+                               uint64_t,
+                               TransactionId::Hasher> PListTable;
     PListTable pListTable;
+
 
     DISALLOW_COPY_AND_ASSIGN(PreparedOps);
 };

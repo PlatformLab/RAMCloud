@@ -2656,14 +2656,13 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
     ParticipantList participantList(participants,
                                     participantCount,
                                     reqHdr->lease.leaseId);
-    ParticipantList::TxId txId = participantList.getTxId();
+    TransactionId txId = participantList.getTransactionId();
     if (!preparedOps.hasParticipantListEntry(txId)) {
         uint64_t logRef = 0;
         Status status = objectManager.logTransactionParticipantList(
                                                     participantList, &logRef);
         if (status == STATUS_OK) {
-            preparedOps.updateParticipantListEntry(participantList.getTxId(),
-                                                   logRef);
+            preparedOps.updateParticipantListEntry(txId, logRef);
         } else {
             respHdr->common.status = status;
             rpc->sendReply();
@@ -2717,7 +2716,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, txId.first, txId.second, rpcId,
+            op.construct(*type, txId.clientLeaseId, txId.txRpcId, rpcId,
                          tableId, 0, 0,
                          buffer);
 
@@ -2746,7 +2745,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, txId.first, txId.second, rpcId,
+            op.construct(*type, txId.clientLeaseId, txId.txRpcId, rpcId,
                          tableId, 0, 0,
                          buffer);
 
@@ -2767,7 +2766,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             tableId = currentReq->tableId;
             rpcId = currentReq->rpcId;
             rejectRules = currentReq->rejectRules;
-            op.construct(*type, txId.first, txId.second, rpcId,
+            op.construct(*type, txId.clientLeaseId, txId.txRpcId, rpcId,
                          tableId, 0, 0,
                          *(rpc->requestPayload), reqOffset,
                          currentReq->length);
@@ -2796,7 +2795,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, txId.first, txId.second, rpcId,
+            op.construct(*type, txId.clientLeaseId, txId.txRpcId, rpcId,
                          tableId, 0, 0,
                          buffer);
 

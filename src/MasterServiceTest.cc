@@ -2615,7 +2615,7 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
     reqHdr.opCount = 3;
     reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
     reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 4);
-    ParticipantList::TxId txId(1U, 10U);
+    TransactionId txId(1U, 10U);
 
     // 2A. ReadOp
     RejectRules rejectRules;
