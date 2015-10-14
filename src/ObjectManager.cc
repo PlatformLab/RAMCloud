@@ -1380,7 +1380,10 @@ ObjectManager::logTransactionParticipantList(ParticipantList& participantList,
 
     *participantListLogRef = reference.toInteger();
 
-    // TODO(cstlee): do we need to update TableStats here?  If so, which table?
+    // Participant List records are not accounted for in the table stats.  The
+    // assumption is that the Participant List records should occupy a
+    // relatively small fraction of the server's log and thus should not
+    // significantly affect table stats estimate.
 
     return STATUS_OK;
 }
@@ -3235,7 +3238,10 @@ ObjectManager::relocateTxParticipantList(Buffer& oldBuffer,
         // Participant List will be dropped/"cleaned"
         preparedOps->updateParticipantListEntry(txId, 0);
 
-        // TODO(cstlee): Update TableStats here? If so, which table?
+        // Participant List records are not accounted for in the table stats.
+        // The assumption is that the Participant List records should occupy a
+        // relatively small fraction of the server's log and thus should not
+        // significantly affect table stats estimate.
     }
 }
 
