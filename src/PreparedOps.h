@@ -30,19 +30,24 @@ namespace RAMCloud {
 class ObjectManager;
 
 /**
- *
+ * Encapsulates the unique identifier for a specific transaction.
  */
 struct TransactionId {
+    /// Constructor for a TransactionId object.
     TransactionId(uint64_t clientLeaseId, uint64_t txRpcId)
         : clientLeaseId(clientLeaseId)
         , txRpcId(txRpcId)
     {}
 
+    /// Equality operator; implemented to support use of TransactionId objects
+    /// as a key in an std::unordered_map.
     bool operator==(const TransactionId &other) const {
         return (clientLeaseId == other.clientLeaseId
                 && txRpcId == other.txRpcId);
     }
 
+    /// Hash operator; implemented to support use of TransactionId objects
+    /// as a key in an std::unordered_map.
     struct Hasher {
         std::size_t operator()(const TransactionId& txId) const {
             std::size_t h1 = std::hash<uint64_t>()(txId.clientLeaseId);
@@ -51,7 +56,10 @@ struct TransactionId {
         }
     };
 
+    /// Id of the client lease that issued this transaction.
     uint64_t clientLeaseId;
+    /// The rpcId of the first operation in this transaction which with the
+    /// client lease id uniquely identifies the transaction.
     uint64_t txRpcId;
 };
 
