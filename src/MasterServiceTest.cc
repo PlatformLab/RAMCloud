@@ -49,7 +49,7 @@ class MasterServiceRefresher : public ObjectFinder::TableConfigFetcher {
                     ObjectFinder::Indexlet>* tableIndexMap) {
         tableMap->clear();
 
-        Tablet rawEntry({1, 0, ~0, ServerId(),
+        Tablet rawEntry({1, 0, uint64_t(~0), ServerId(),
                             Tablet::NORMAL, LogPosition()});
         TabletWithLocator entry(rawEntry, "mock:host=master");
 
@@ -57,7 +57,7 @@ class MasterServiceRefresher : public ObjectFinder::TableConfigFetcher {
         tableMap->insert(std::make_pair(key, entry));
 
         if (refreshCount > 0) {
-            Tablet rawEntry2({99, 0, ~0, ServerId(),
+            Tablet rawEntry2({99, 0, uint64_t(~0), ServerId(),
                     Tablet::NORMAL, LogPosition()});
             TabletWithLocator entry2(rawEntry2, "mock:host=master");
 
@@ -1421,8 +1421,8 @@ TEST_F(MasterServiceTest, multiWrite_nullAndEmptyValues) {
     EXPECT_EQ(0U, valueLength);
 
     // See if we can transition back to something non-zero length
-    requests = {&request3, &request4};
-    ramcloud->multiWrite(requests, 2);
+    MultiWriteObject* requests2[] = {&request3, &request4};
+    ramcloud->multiWrite(requests2, 2);
 
     EXPECT_EQ(STATUS_OK, request3.status);
     EXPECT_EQ(3U, request3.version);
@@ -2722,7 +2722,6 @@ TEST_F(MasterServiceTest, txPrepare_retriedPrepares) {
     Key key3(1, "key3", 4);
     Key key4(1, "key4", 4);
     Key key5(1, "key5", 4);
-    Buffer buffer, buffer2;
 
     WireFormat::TxParticipant participants[4];
     participants[0] = TxParticipant(key1.getTableId(), key1.getHash(), 10U);

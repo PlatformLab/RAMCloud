@@ -827,11 +827,11 @@ TEST_F(TcpTransportTest, TcpSession_cancelRequest_waitingToSend) {
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     MockWrapper rpc3("request3");
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
-    EXPECT_EQ(3U, rawSession->rpcsWaitingToSend.size());
+    ASSERT_EQ(3U, rawSession->rpcsWaitingToSend.size());
 
     // Now try cancelling them.
     session->cancelRequest(&rpc2);
-    EXPECT_EQ(2U, rawSession->rpcsWaitingToSend.size());
+    ASSERT_EQ(2U, rawSession->rpcsWaitingToSend.size());
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(
             rawSession->rpcsWaitingToSend.front().request, 777777));
     EXPECT_EQ("request3", TestUtil::toString(
@@ -982,8 +982,8 @@ TEST_F(TcpTransportTest, sendRequest_shortAndLongMessages) {
     MockWrapper rpc3("request3");
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
 
-    EXPECT_EQ(2U, rawSession->rpcsWaitingToSend.size());
-    EXPECT_EQ(1U, rawSession->rpcsWaitingForResponse.size());
+    ASSERT_EQ(2U, rawSession->rpcsWaitingToSend.size());
+    ASSERT_EQ(1U, rawSession->rpcsWaitingForResponse.size());
     TcpTransport::TcpClientRpc& r1 =
             rawSession->rpcsWaitingForResponse.front();
     TcpTransport::TcpClientRpc& r2 =
