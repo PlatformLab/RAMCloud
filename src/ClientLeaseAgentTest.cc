@@ -14,115 +14,115 @@
  */
 
 #include "TestUtil.h"       //Has to be first, compiler complains
-#include "ClientLease.h"
+#include "ClientLeaseAgent.h"
 #include "LeaseCommon.h"
 #include "MockCluster.h"
 
 
 namespace RAMCloud {
 
-class ClientLeaseTest : public ::testing::Test {
+class ClientLeaseAgentTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
     RamCloud ramcloud;
-    ClientLease lease;
+    ClientLeaseAgent leaseAgent;
     uint64_t RENEW_THRESHOLD_NS;
     uint64_t DANGER_THRESHOLD_NS;
 
-    ClientLeaseTest()
+    ClientLeaseAgentTest()
         : logEnabler()
         , context()
         , cluster(&context, "mock:host=coordinator")
         , ramcloud(&context, "mock:host=coordinator")
-        , lease(&ramcloud)
+        , leaseAgent(&ramcloud)
         , RENEW_THRESHOLD_NS(LeaseCommon::RENEW_THRESHOLD_NS)
         , DANGER_THRESHOLD_NS(LeaseCommon::DANGER_THRESHOLD_NS)
     {}
 
-    ~ClientLeaseTest()
+    ~ClientLeaseAgentTest()
     {
         // Reset mockTsc so that we don't affect later running tests.
         Cycles::mockTscValue = 0;
     }
 
-    DISALLOW_COPY_AND_ASSIGN(ClientLeaseTest);
+    DISALLOW_COPY_AND_ASSIGN(ClientLeaseAgentTest);
 };
 
-TEST_F(ClientLeaseTest, getLease_basic) {
-    lease.lastRenewalTimeCycles = 0;
+TEST_F(ClientLeaseAgentTest, getLease_basic) {
+    leaseAgent.lastRenewalTimeCycles = 0;
     Cycles::mockTscValue = Cycles::fromNanoseconds(5000);
     WireFormat::ClientLease l = {0, 0, 0};
-    lease.lease = l;
+    leaseAgent.lease = l;
     EXPECT_EQ(0U, l.leaseId);
-    EXPECT_EQ(0U, lease.lease.leaseId);
-    l = lease.getLease();
+    EXPECT_EQ(0U, leaseAgent.lease.leaseId);
+    l = leaseAgent.getLease();
     EXPECT_EQ(1U, l.leaseId);
-    EXPECT_EQ(1U, lease.lease.leaseId);
+    EXPECT_EQ(1U, leaseAgent.lease.leaseId);
 }
 
-TEST_F(ClientLeaseTest, getLease_nonblocking) {
-    lease.lastRenewalTimeCycles = 0;
+TEST_F(ClientLeaseAgentTest, getLease_nonblocking) {
+    leaseAgent.lastRenewalTimeCycles = 0;
     uint64_t leaseExpiration = LeaseCommon::LEASE_TERM_NS;
     uint64_t currentTimeNS = leaseExpiration - RENEW_THRESHOLD_NS + 1;
-    lease.leaseExpirationCycles = Cycles::fromNanoseconds(
+    leaseAgent.leaseExpirationCycles = Cycles::fromNanoseconds(
             leaseExpiration - DANGER_THRESHOLD_NS);
     Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeNS);
     WireFormat::ClientLease l = {0, leaseExpiration, 0};
-    lease.lease = l;
+    leaseAgent.lease = l;
     TestLog::setPredicate("getLease");
     TestLog::reset();
     EXPECT_EQ(0U, l.leaseId);
-    EXPECT_EQ(0U, lease.lease.leaseId);
-    l = lease.getLease();
+    EXPECT_EQ(0U, leaseAgent.lease.leaseId);
+    l = leaseAgent.getLease();
     EXPECT_EQ(0U, l.leaseId);
-    EXPECT_EQ(0U, lease.lease.leaseId);
+    EXPECT_EQ(0U, leaseAgent.lease.leaseId);
     EXPECT_EQ("", TestLog::get());
 }
 
-TEST_F(ClientLeaseTest, getLease_blocking) {
-    lease.lastRenewalTimeCycles = 0;
+TEST_F(ClientLeaseAgentTest, getLease_blocking) {
+    leaseAgent.lastRenewalTimeCycles = 0;
     uint64_t leaseExpiration = LeaseCommon::LEASE_TERM_NS;
     uint64_t currentTimeNS = leaseExpiration - DANGER_THRESHOLD_NS + 1;
-    lease.leaseExpirationCycles = Cycles::fromNanoseconds(
+    leaseAgent.leaseExpirationCycles = Cycles::fromNanoseconds(
             leaseExpiration - DANGER_THRESHOLD_NS);
     Cycles::mockTscValue = Cycles::fromNanoseconds(currentTimeNS);
     WireFormat::ClientLease l = {0, leaseExpiration, 0};
-    lease.lease = l;
+    leaseAgent.lease = l;
     TestLog::setPredicate("getLease");
     TestLog::reset();
     EXPECT_EQ(0U, l.leaseId);
-    EXPECT_EQ(0U, lease.lease.leaseId);
-    l = lease.getLease();
+    EXPECT_EQ(0U, leaseAgent.lease.leaseId);
+    l = leaseAgent.getLease();
     EXPECT_EQ(1U, l.leaseId);
-    EXPECT_EQ(1U, lease.lease.leaseId);
+    EXPECT_EQ(1U, leaseAgent.lease.leaseId);
     EXPECT_NE("", TestLog::get());
 }
 
-TEST_F(ClientLeaseTest, poll) {
-    EXPECT_EQ(0U, lease.lease.leaseId);
-    EXPECT_FALSE(lease.renewLeaseRpc);
-    EXPECT_EQ(0U, lease.nextRenewalTimeCycles);
+TEST_F(ClientLeaseAgentTest, poll) {
+    EXPECT_EQ(0U, leaseAgent.lease.leaseId);
+    EXPECT_FALSE(leaseAgent.renewLeaseRpc);
+    EXPECT_EQ(0U, leaseAgent.nextRenewalTimeCycles);
 
-    lease.poll();
+    leaseAgent.poll();
 
-    EXPECT_EQ(0U, lease.lease.leaseId);
-    EXPECT_TRUE(lease.renewLeaseRpc);
-    EXPECT_EQ(0U, lease.nextRenewalTimeCycles);
-    lease.renewLeaseRpc->state = RpcWrapper::RETRY;
+    EXPECT_EQ(0U, leaseAgent.lease.leaseId);
+    EXPECT_TRUE(leaseAgent.renewLeaseRpc);
+    EXPECT_EQ(0U, leaseAgent.nextRenewalTimeCycles);
+    leaseAgent.renewLeaseRpc->state = RpcWrapper::RETRY;
 
-    lease.poll();
+    leaseAgent.poll();
 
-    EXPECT_EQ(0U, lease.lease.leaseId);
-    EXPECT_TRUE(lease.renewLeaseRpc);
-    EXPECT_EQ(0U, lease.nextRenewalTimeCycles);
+    EXPECT_EQ(0U, leaseAgent.lease.leaseId);
+    EXPECT_TRUE(leaseAgent.renewLeaseRpc);
+    EXPECT_EQ(0U, leaseAgent.nextRenewalTimeCycles);
 
-    lease.poll();
+    leaseAgent.poll();
 
-    EXPECT_EQ(2U, lease.lease.leaseId);
-    EXPECT_FALSE(lease.renewLeaseRpc);
-    EXPECT_NE(0U, lease.nextRenewalTimeCycles);
+    EXPECT_EQ(2U, leaseAgent.lease.leaseId);
+    EXPECT_FALSE(leaseAgent.renewLeaseRpc);
+    EXPECT_NE(0U, leaseAgent.nextRenewalTimeCycles);
 }
 
 } // namespace RAMCloud

@@ -31,7 +31,7 @@ CLIENT_SRCFILES := \
 		   src/CRamCloud.cc \
 		   src/CacheTrace.cc \
 		   src/ClientException.cc \
-		   src/ClientLease.cc \
+		   src/ClientLeaseAgent.cc \
 		   src/ClientTransactionManager.cc \
 		   src/ClientTransactionTask.cc \
 		   src/ClusterMetrics.cc \

@@ -16,7 +16,7 @@
 #include <stdarg.h>
 
 #include "RamCloud.h"
-#include "ClientLease.h"
+#include "ClientLeaseAgent.h"
 #include "ClientTransactionManager.h"
 #include "CoordinatorSession.h"
 #include "Dispatch.h"
@@ -72,7 +72,7 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , realClientContext(new Context(false))
     , clientContext(realClientContext)
     , status(STATUS_OK)
-    , clientLease(new ClientLease(this))
+    , clientLeaseAgent(new ClientLeaseAgent(this))
     , rpcTracker(new RpcTracker())
     , transactionManager(new ClientTransactionManager())
 {
@@ -90,7 +90,7 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , realClientContext(NULL)
     , clientContext(context)
     , status(STATUS_OK)
-    , clientLease(new ClientLease(this))
+    , clientLeaseAgent(new ClientLeaseAgent(this))
     , rpcTracker(new RpcTracker())
     , transactionManager(new ClientTransactionManager())
 {
@@ -103,7 +103,7 @@ RamCloud::RamCloud(Context* context, const char* locator,
 
 RamCloud::~RamCloud()
 {
-    delete clientLease;
+    delete clientLeaseAgent;
 
     delete rpcTracker;
     delete realClientContext;

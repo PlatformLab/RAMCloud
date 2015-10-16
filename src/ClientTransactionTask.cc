@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ClientLease.h"
+#include "ClientLeaseAgent.h"
 #include "ClientTransactionManager.h"
 #include "ClientTransactionTask.h"
 #include "Context.h"
@@ -208,7 +208,7 @@ ClientTransactionTask::performTask()
 void
 ClientTransactionTask::initTask()
 {
-    lease = ramcloud->clientLease->getLease();
+    lease = ramcloud->clientLeaseAgent->getLease();
     txId = ramcloud->rpcTracker->newRpcIdBlock(this, commitCache.size());
 
     nextCacheEntry = commitCache.begin();

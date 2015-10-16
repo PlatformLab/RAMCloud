@@ -47,7 +47,7 @@ namespace po = boost::program_options;
 
 #include "assert.h"
 #include "btreeRamCloud/Btree.h"
-#include "ClientLease.h"
+#include "ClientLeaseAgent.h"
 #include "CycleCounter.h"
 #include "Cycles.h"
 #include "PerfStats.h"
@@ -506,27 +506,27 @@ struct VirtualClient {
     struct Context {
         explicit Context(VirtualClient* virtualClient)
             : virtualClient(virtualClient)
-            , originalLease(cluster->clientLease)
+            , originalLeaseAgent(cluster->clientLeaseAgent)
             , originalTracker(cluster->rpcTracker)
         {
             // Set context variables.
-            cluster->clientLease = &virtualClient->lease;
+            cluster->clientLeaseAgent = &virtualClient->lease;
             cluster->rpcTracker = &virtualClient->rpcTracker;
         }
 
         ~Context() {
-            cluster->clientLease = originalLease;
+            cluster->clientLeaseAgent = originalLeaseAgent;
             cluster->rpcTracker = originalTracker;
         }
 
         VirtualClient* virtualClient;
-        ClientLease* originalLease;
+        ClientLeaseAgent* originalLeaseAgent;
         RpcTracker* originalTracker;
 
         DISALLOW_COPY_AND_ASSIGN(Context);
     };
 
-    ClientLease lease;
+    ClientLeaseAgent lease;
     RpcTracker rpcTracker;
     DISALLOW_COPY_AND_ASSIGN(VirtualClient);
 };

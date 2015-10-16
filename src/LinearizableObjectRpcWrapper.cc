@@ -13,7 +13,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ClientLease.h"
+#include "ClientLeaseAgent.h"
 #include "Logger.h"
 #include "LinearizableObjectRpcWrapper.h"
 #include "RamCloud.h"
@@ -130,7 +130,7 @@ bool
 LinearizableObjectRpcWrapper::isReady()
 {
     // Poke the client lease to keep it valid.
-    ramcloud->clientLease->poll();
+    ramcloud->clientLeaseAgent->poll();
     return RpcWrapper::isReady();
 }
 
@@ -148,7 +148,7 @@ LinearizableObjectRpcWrapper::fillLinearizabilityHeader(RpcRequest* reqHdr)
     if (linearizabilityOn) {
         assignedRpcId = ramcloud->rpcTracker->newRpcId(this);
         assert(assignedRpcId);
-        reqHdr->lease = ramcloud->clientLease->getLease();
+        reqHdr->lease = ramcloud->clientLeaseAgent->getLease();
         reqHdr->rpcId = assignedRpcId;
         reqHdr->ackId = ramcloud->rpcTracker->ackId();
     } else {

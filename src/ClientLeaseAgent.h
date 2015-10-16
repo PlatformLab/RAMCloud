@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_CLIENTLEASE_H
-#define RAMCLOUD_CLIENTLEASE_H
+#ifndef RAMCLOUD_CLIENTLEASEAGENT_H
+#define RAMCLOUD_CLIENTLEASEAGENT_H
 
 #include "Common.h"
 #include "CoordinatorClient.h"
@@ -33,9 +33,9 @@ class RamCloud;
  * This class is thread-safe (if only to allow lease renewal to happen on a
  * background worker thread).
  */
-class ClientLease {
+class ClientLeaseAgent {
   public:
-    explicit ClientLease(RamCloud* ramcloud);
+    explicit ClientLeaseAgent(RamCloud* ramcloud);
     WireFormat::ClientLease getLease();
     void poll();
 
@@ -67,10 +67,10 @@ class ClientLease {
     /// use asynchronous calls to the coordinator to maintain its lease.
     Tub<RenewLeaseRpc> renewLeaseRpc;
 
-    DISALLOW_COPY_AND_ASSIGN(ClientLease);
+    DISALLOW_COPY_AND_ASSIGN(ClientLeaseAgent);
 };
 
 } // namespace RAMCloud
 
-#endif  /* RAMCLOUD_CLIENTLEASE_H */
+#endif  /* RAMCLOUD_CLIENTLEASEAGENT_H */
 

@@ -28,7 +28,7 @@
 #include "ServerStatistics.pb.h"
 
 namespace RAMCloud {
-class ClientLease;
+class ClientLeaseAgent;
 class ClientTransactionManager;
 class MultiIncrementObject;
 class MultiReadObject;
@@ -198,7 +198,7 @@ class RamCloud {
 
     // See "Header Minimization" in designNotes for info on why these
     // are pointers.
-    ClientLease *clientLease;
+    ClientLeaseAgent *clientLeaseAgent;
     RpcTracker *rpcTracker;
     ClientTransactionManager *transactionManager;
 

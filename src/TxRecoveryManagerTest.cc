@@ -14,7 +14,7 @@
  */
 
 #include "TestUtil.h"       //Has to be first, compiler complains
-#include "ClientLease.h"
+#include "ClientLeaseAgent.h"
 #include "MockCluster.h"
 #include "TxRecoveryManager.h"
 
@@ -432,8 +432,8 @@ TEST_F(TxRecoveryManagerTest, RecoveryTask_performTask_abortEarly) {
     // Fake the ack id forward
     ramcloud->rpcTracker->firstMissing = 100;
     ramcloud->rpcTracker->nextRpcId = 100;
-    ramcloud->clientLease->getLease();
-    ramcloud->clientLease->lease.leaseId = task->leaseId;
+    ramcloud->clientLeaseAgent->getLease();
+    ramcloud->clientLeaseAgent->lease.leaseId = task->leaseId;
     ramcloud->write(tableId2, "foo", 3, "bar", 3, NULL, NULL, false, true);
 
     fillPList();
@@ -834,8 +834,8 @@ TEST_F(TxRecoveryManagerTest, processRequestAbortRpcResults_staleRpc) {
     // Fake the ack id forward
     ramcloud->rpcTracker->firstMissing = 100;
     ramcloud->rpcTracker->nextRpcId = 100;
-    ramcloud->clientLease->getLease();
-    ramcloud->clientLease->lease.leaseId = task->leaseId;
+    ramcloud->clientLeaseAgent->getLease();
+    ramcloud->clientLeaseAgent->lease.leaseId = task->leaseId;
     ramcloud->write(tableId1, "foo", 3, "bar", 3, NULL, NULL, false, true);
 
     task->participants.emplace_back(tableId1, 1, 2);

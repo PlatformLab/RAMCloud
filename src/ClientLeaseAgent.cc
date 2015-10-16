@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ClientLease.h"
+#include "ClientLeaseAgent.h"
 #include "Cycles.h"
 #include "LeaseCommon.h"
 #include "RamCloud.h"
@@ -25,7 +25,7 @@ namespace RAMCloud {
 /**
  * Constructor for ClientLease.
  */
-ClientLease::ClientLease(RamCloud* ramcloud)
+ClientLeaseAgent::ClientLeaseAgent(RamCloud* ramcloud)
     : mutex()
     , ramcloud(ramcloud)
     , lease({0, 0, 0})
@@ -41,7 +41,7 @@ ClientLease::ClientLease(RamCloud* ramcloud)
  * return a valid client lease.
  */
 WireFormat::ClientLease
-ClientLease::getLease()
+ClientLeaseAgent::getLease()
 {
     Lock _(mutex);
 
@@ -66,7 +66,7 @@ ClientLease::getLease()
  * called periodically in order to maintain a valid lease.
  */
 void
-ClientLease::poll()
+ClientLeaseAgent::poll()
 {
     Lock _(mutex);
 

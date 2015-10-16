@@ -43,7 +43,7 @@ TESTS_SRCFILES := \
 		  src/CacheTraceTest.cc \
 		  src/CleanableSegmentManagerTest.cc \
 		  src/ClientExceptionTest.cc \
-		  src/ClientLeaseTest.cc \
+		  src/ClientLeaseAgentTest.cc \
 		  src/ClientTransactionManagerTest.cc \
 		  src/ClientTransactionTaskTest.cc \
 		  src/ClusterMetricsTest.cc \
