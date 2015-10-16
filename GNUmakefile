@@ -54,7 +54,7 @@ DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
 BASECFLAGS := -g
 OPTFLAG := -O3
-DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
+DEBUGFLAGS := -DNDEBUG -Wno-unused-variable -Wno-maybe-uninitialized
 endif
 
 COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \

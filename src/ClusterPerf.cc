@@ -2353,17 +2353,14 @@ indexLookupCommon(bool doIndexRange, uint32_t samplesPerOp)
     uint64_t firstPkHash = 0;
     char firstSecondaryKey[keyLength];
 
-    int bytesWritten;
     for (uint32_t i = 0, k = 0; i < maxNumObjects; i++) {
         char primaryKey[keyLength];
-        bytesWritten = snprintf(primaryKey, sizeof(primaryKey), "p%0*d",
+        snprintf(primaryKey, sizeof(primaryKey), "p%0*d",
                 keyLength-2, i);
-        assert(bytesWritten == keyLength-1);
 
         char secondaryKey[keyLength];
-        bytesWritten = snprintf(secondaryKey, sizeof(secondaryKey), "b%ds%0*d",
+        snprintf(secondaryKey, sizeof(secondaryKey), "b%ds%0*d",
                 i, keyLength, 0);
-        assert(bytesWritten == keyLength-1);
 
         if (doIndexRange && i == 0) {
             memcpy(firstSecondaryKey, secondaryKey, keyLength);
@@ -3385,6 +3382,7 @@ indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
         lookupEnd = Cycles::rdtsc();
 
         // Verify data.
+        #if DEBUG_BUILD
         for (int i =0; i < numRequests; i++) {
             Key pk(lookupTable, primaryKey[i], 30);
             uint32_t lookupOffset;
@@ -3394,6 +3392,7 @@ indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
             assert(pk.getHash()==
                     *lookupResp[i].getOffset<uint64_t>(lookupOffset));
         }
+        #endif
 
         uint64_t latency = lookupEnd - lookupStart;
         opCount = opCount + numRequests;
