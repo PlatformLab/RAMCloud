@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_PERFSTATS_H
 #define RAMCLOUD_PERFSTATS_H
 
+#include <unordered_map>
 #include <vector>
 #include "Buffer.h"
 #include "SpinLock.h"
