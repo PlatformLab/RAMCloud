@@ -233,7 +233,8 @@ TEST_F(WorkerManagerTest, poll_scheduleWaitingRpcs) {
     EXPECT_EQ(1U, manager->levels[2].waitingRpcs.size());
 
     // Allow the original requests to complete, and make sure that the
-    // remaining 2 start service in the right order.
+    // remaining 2 start service in the right order (e.g., the level
+    // for rpc2 is determined by the opcode 0 and the levels variable).
     service.gate = 1;
     waitUntilDone(1);
     EXPECT_EQ(1, manager->poll());
@@ -259,6 +260,111 @@ TEST_F(WorkerManagerTest, poll_scheduleWaitingRpcs) {
     EXPECT_EQ(0, manager->levels[1].requestsRunning);
     EXPECT_EQ(0, manager->levels[2].requestsRunning);
     EXPECT_EQ("serverReply: 0x10003 5 | serverReply: 0x10002 4",
+            transport.outputLog);
+
+    // There should be nothing left to do now.
+    EXPECT_EQ(0, manager->poll());
+}
+
+TEST_F(WorkerManagerTest, poll_avoidDeadlock) {
+    // This test ensures that we keep starting low-level threads even
+    // if we're above the core limit.
+    // Start 2 RPCs at level 2 then 1 at level 0
+    service.gate = -1;
+    MockTransport::MockServerRpc* rpc1 = new MockTransport::MockServerRpc(
+            &transport, "0x10002 1");
+    MockTransport::MockServerRpc* rpc2 = new MockTransport::MockServerRpc(
+            &transport, "0x10002 2");
+    MockTransport::MockServerRpc* rpc3 = new MockTransport::MockServerRpc(
+            &transport, "0x10000 3");
+    MockTransport::MockServerRpc* rpc4 = new MockTransport::MockServerRpc(
+            &transport, "0x10001 4");
+    manager->handleRpc(rpc1);
+    manager->handleRpc(rpc2);
+    manager->handleRpc(rpc3);
+    manager->handleRpc(rpc4);
+    EXPECT_EQ(1, manager->levels[0].requestsRunning);
+    EXPECT_EQ(0, manager->levels[1].requestsRunning);
+    EXPECT_EQ(2, manager->levels[2].requestsRunning);
+    EXPECT_EQ(1U, manager->levels[1].waitingRpcs.size());
+
+    // Allow rpc3 (level 0) to complete, and make sure rpc4 (level 1) starts.
+    service.gate = 3;
+    waitUntilDone(1);
+    EXPECT_EQ(1, manager->poll());
+    EXPECT_EQ(0, manager->levels[0].requestsRunning);
+    EXPECT_EQ(1, manager->levels[1].requestsRunning);
+    EXPECT_EQ(0U, manager->levels[1].waitingRpcs.size());
+    EXPECT_EQ("serverReply: 0x10001 4", transport.outputLog);
+    EXPECT_EQ(0, manager->rpcsWaiting);
+
+    // Allow the remaining requests to complete.
+    transport.outputLog.clear();
+    service.gate = 0;
+    waitUntilDone(3);
+    EXPECT_EQ(1, manager->poll());
+    EXPECT_EQ(0, manager->levels[1].requestsRunning);
+    EXPECT_EQ(0, manager->levels[2].requestsRunning);
+    EXPECT_EQ("serverReply: 0x10002 5 | serverReply: 0x10003 3 | "
+            "serverReply: 0x10003 2",
+            transport.outputLog);
+
+    // There should be nothing left to do now.
+    EXPECT_EQ(0, manager->poll());
+}
+
+TEST_F(WorkerManagerTest, poll_coreLimit) {
+    // Don't start a new RPC if we are already over the core limit and
+    // the new RPC isn't lower level than other running RPCs.
+    // Start 2 RPCs at level 2 then 1 at level 0
+    service.gate = -1;
+    MockTransport::MockServerRpc* rpc1 = new MockTransport::MockServerRpc(
+            &transport, "0x10002 1");
+    MockTransport::MockServerRpc* rpc2 = new MockTransport::MockServerRpc(
+            &transport, "0x10002 2");
+    MockTransport::MockServerRpc* rpc3 = new MockTransport::MockServerRpc(
+            &transport, "0x10000 3");
+    MockTransport::MockServerRpc* rpc4 = new MockTransport::MockServerRpc(
+            &transport, "0x10001 4");
+    manager->handleRpc(rpc1);
+    manager->handleRpc(rpc2);
+    manager->handleRpc(rpc3);
+    manager->handleRpc(rpc4);
+    EXPECT_EQ(1, manager->levels[0].requestsRunning);
+    EXPECT_EQ(0, manager->levels[1].requestsRunning);
+    EXPECT_EQ(2, manager->levels[2].requestsRunning);
+    EXPECT_EQ(1U, manager->levels[1].waitingRpcs.size());
+
+    // Allow rpc1 (level 2) to complete, and make sure rpc4 (level 1)
+    // doesn't start.
+    service.gate = 1;
+    waitUntilDone(1);
+    EXPECT_EQ(1, manager->poll());
+    EXPECT_EQ(1, manager->levels[0].requestsRunning);
+    EXPECT_EQ(0, manager->levels[1].requestsRunning);
+    EXPECT_EQ(1U, manager->levels[1].waitingRpcs.size());
+    EXPECT_EQ("serverReply: 0x10003 2", transport.outputLog);
+    EXPECT_EQ(1, manager->rpcsWaiting);
+
+    // Finish rpc2 (level 2): now rpc4 should be able to start.
+    transport.outputLog.clear();
+    service.gate = 2;
+    waitUntilDone(1);
+    EXPECT_EQ(1, manager->poll());
+    EXPECT_EQ(1, manager->levels[0].requestsRunning);
+    EXPECT_EQ(1, manager->levels[1].requestsRunning);
+    EXPECT_EQ(0U, manager->levels[1].waitingRpcs.size());
+    EXPECT_EQ("serverReply: 0x10003 3", transport.outputLog);
+    EXPECT_EQ(0, manager->rpcsWaiting);
+
+    // Allow the remaining requests to complete.
+    transport.outputLog.clear();
+    service.gate = 0;
+    waitUntilDone(2);
+    EXPECT_EQ(1, manager->poll());
+    EXPECT_EQ(0, manager->levels[1].requestsRunning);
+    EXPECT_EQ(0, manager->levels[2].requestsRunning);
+    EXPECT_EQ("serverReply: 0x10002 5 | serverReply: 0x10001 4",
             transport.outputLog);
 
     // There should be nothing left to do now.

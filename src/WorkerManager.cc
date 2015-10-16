@@ -260,21 +260,37 @@ WorkerManager::poll()
         bool startedNewRpc = false;
         if (state != Worker::POSTPROCESSING) {
             levels[worker->level].requestsRunning--;
-            if (rpcsWaiting && (busyThreads.size() <= maxCores)) {
+            if (rpcsWaiting) {
                 // Start an RPC with the lowest level (this is most efficient,
                 // since it's more likely that there are other servers with
                 // resources tied up waiting for this RPC).
+                //
+                // In addition, we must observe the core limits, which means
+                // we don't start another RPC unless we have spare cores, or
+                // unless the RPC we would start is at a level lower than any
+                // other running RPC.
                 for (int i = 0; ; i++) {
                     Level* level = &levels[i];
-                    if (!level->waitingRpcs.empty()) {
-                        rpcsWaiting--;
-                        level->requestsRunning++;
-                        worker->level = i;
-                        worker->handoff(level->waitingRpcs.front());
-                        level->waitingRpcs.pop();
-                        startedNewRpc = true;
+                    if ((level->requestsRunning != 0) &&
+                            // Note: we haven't yet removed the current
+                            // thread from busyThreads, so the number of
+                            // running workers is one less than
+                            // busyThreads.size().
+                            (busyThreads.size() > maxCores)) {
+                        // Can't start another RPC without exceeding core
+                        // limits.
                         break;
                     }
+                    if (level->waitingRpcs.empty()) {
+                        continue;
+                    }
+                    rpcsWaiting--;
+                    level->requestsRunning++;
+                    worker->level = i;
+                    worker->handoff(level->waitingRpcs.front());
+                    level->waitingRpcs.pop();
+                    startedNewRpc = true;
+                    break;
                 }
             }
         }
