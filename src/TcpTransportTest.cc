@@ -24,6 +24,12 @@ namespace RAMCloud {
 
 class TcpTransportTest : public ::testing::Test {
   public:
+    // The purpose of this value is to specify a rpc size that will cause the
+    // underlying sendmsg() to break up the rpc into multiple sends. This value
+    // is determined imperically by increasing it until sendMessage_largeBuffer
+    // test stops mentioning that you have to increase the size of the message.
+    static const uint32_t largeBufferSize = 2540000;
+
     Context context;
     WorkerManager* workerManager;
     ServiceLocator locator;
@@ -264,7 +270,7 @@ TEST_F(TcpTransportTest, Socket_destructor_clearRpcsWaitingToReply) {
     // Receive the requests on the server and respond to each.
     Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 1000000);
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, largeBufferSize);
     serverRpc->sendReply();
     serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
@@ -483,7 +489,7 @@ TEST_F(TcpTransportTest, sendMessage_errorOnSend) {
 TEST_F(TcpTransportTest, sendMessage_largeBuffer) {
     Transport::SessionRef session = client.getSession(locator);
     MockWrapper rpc(NULL);
-    TestUtil::fillLargeBuffer(&rpc.request, 300000);
+    TestUtil::fillLargeBuffer(&rpc.request, largeBufferSize);
     TcpTransport::messageChunks = 0;
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
@@ -492,15 +498,16 @@ TEST_F(TcpTransportTest, sendMessage_largeBuffer) {
         << "The message fit in one chunk. You may have to increase the size "
            "of the message for this test to be effective.";
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&serverRpc->requestPayload,
-            300000));
-    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 350000);
+            largeBufferSize));
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, largeBufferSize + 1);
     TcpTransport::messageChunks = 0;
     serverRpc->sendReply();
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc));
     EXPECT_GT(TcpTransport::messageChunks, 0)
         << "The message fit in one chunk. You may have to increase the size "
            "of the message for this test to be effective.";
-    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc.response, 350000));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc.response,
+            largeBufferSize + 1));
 }
 
 TEST_F(TcpTransportTest, sendMessage_brokenPipe) {
@@ -821,7 +828,7 @@ TEST_F(TcpTransportTest, TcpSession_cancelRequest_waitingToSend) {
     // Send a large request, which will queue on rpcsWaitingToSend,
     // followed by a couple more smaller ones, which will queue behind it.
     MockWrapper rpc1;
-    TestUtil::fillLargeBuffer(&rpc1.request, 777777);
+    TestUtil::fillLargeBuffer(&rpc1.request, largeBufferSize);
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     MockWrapper rpc2("request2");
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
@@ -833,7 +840,7 @@ TEST_F(TcpTransportTest, TcpSession_cancelRequest_waitingToSend) {
     session->cancelRequest(&rpc2);
     ASSERT_EQ(2U, rawSession->rpcsWaitingToSend.size());
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(
-            rawSession->rpcsWaitingToSend.front().request, 777777));
+            rawSession->rpcsWaitingToSend.front().request, largeBufferSize));
     EXPECT_EQ("request3", TestUtil::toString(
             rawSession->rpcsWaitingToSend.back().request));
     session->cancelRequest(&rpc1);
@@ -850,7 +857,7 @@ TEST_F(TcpTransportTest, TcpSession_close_cancelRpcsWaitingToSend) {
     // Queue several requests (make the first one long, so they
     // all block on rpcsWaitingToSend.
     MockWrapper rpc1;
-    TestUtil::fillLargeBuffer(&rpc1.request, 777777);
+    TestUtil::fillLargeBuffer(&rpc1.request, largeBufferSize);
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     MockWrapper rpc2("request2");
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
@@ -933,7 +940,7 @@ TEST_F(TcpTransportTest, TcpSession_getRpcInfo) {
     rpc2.setOpcode(WireFormat::REMOVE);
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     MockWrapper rpc3;
-    TestUtil::fillLargeBuffer(&rpc3.request, 777777);
+    TestUtil::fillLargeBuffer(&rpc3.request, largeBufferSize);
     rpc3.setOpcode(WireFormat::WRITE);
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
     MockWrapper rpc4;
@@ -977,7 +984,7 @@ TEST_F(TcpTransportTest, sendRequest_shortAndLongMessages) {
     MockWrapper rpc1("request1");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     MockWrapper rpc2;
-    TestUtil::fillLargeBuffer(&rpc2.request, 300000);
+    TestUtil::fillLargeBuffer(&rpc2.request, largeBufferSize);
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     MockWrapper rpc3("request3");
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
@@ -991,7 +998,7 @@ TEST_F(TcpTransportTest, sendRequest_shortAndLongMessages) {
     TcpTransport::TcpClientRpc& r3 =
             rawSession->rpcsWaitingToSend.back();
     EXPECT_EQ("request1", TestUtil::toString(r1.request));
-    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(r2.request, 300000));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(r2.request, largeBufferSize));
     EXPECT_EQ("request3", TestUtil::toString(r3.request));
     EXPECT_TRUE(r1.sent);
     EXPECT_FALSE(r2.sent);
@@ -1042,7 +1049,7 @@ TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_sendRequests) {
     // Send a long request (to fill up the socket) followed by 2
     // short requests.
     MockWrapper rpc1;
-    TestUtil::fillLargeBuffer(&rpc1.request, 300000);
+    TestUtil::fillLargeBuffer(&rpc1.request, largeBufferSize);
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     MockWrapper rpc2("request2");
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
@@ -1054,7 +1061,7 @@ TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_sendRequests) {
     Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&serverRpc->requestPayload,
-            300000));
+            largeBufferSize));
     server.serverRpcPool.destroy(
         static_cast<TcpTransport::TcpServerRpc*>(serverRpc));
 
@@ -1185,7 +1192,7 @@ TEST_F(TcpTransportTest, sendReply) {
     serverRpc->sendReply();
     serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 200000);
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, largeBufferSize);
     serverRpc->sendReply();
     serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
@@ -1205,7 +1212,8 @@ TEST_F(TcpTransportTest, sendReply) {
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc1));
     EXPECT_EQ("response1/0", TestUtil::toString(&rpc1.response));
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc2));
-    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc2.response, 200000));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc2.response,
+                largeBufferSize));
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc3));
     EXPECT_EQ("response3/0", TestUtil::toString(&rpc3.response));
     EXPECT_EQ("~TcpServerRpc: deleted | ~TcpServerRpc: deleted",
