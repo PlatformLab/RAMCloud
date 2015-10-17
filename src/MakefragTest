@@ -44,6 +44,7 @@ TESTS_SRCFILES := \
 		  src/CleanableSegmentManagerTest.cc \
 		  src/ClientExceptionTest.cc \
 		  src/ClientLeaseAgentTest.cc \
+		  src/ClientLeaseAuthorityTest.cc \
 		  src/ClientTransactionManagerTest.cc \
 		  src/ClientTransactionTaskTest.cc \
 		  src/ClusterMetricsTest.cc \
@@ -75,7 +76,6 @@ TESTS_SRCFILES := \
 		  src/InMemoryStorageTest.cc \
 		  src/IpAddressTest.cc \
 		  src/KeyTest.cc \
-		  src/LeaseManagerTest.cc \
 		  src/LinearizableObjectRpcWrapperTest.cc \
 		  src/LockTableTest.cc \
 		  src/LogCabinStorageTest.cc \

@@ -15,7 +15,7 @@
 
 #include <string>
 
-#include "LeaseManager.h"
+#include "ClientLeaseAuthority.h"
 
 #include "ExternalStorage.h"
 #include "LeaseCommon.h"
@@ -36,9 +36,9 @@ const uint64_t RESERVATION_LIMIT = 1000;
 const uint64_t RESERVATIONS_LOW = 250;
 
 /// Defines the prefix for objects stored in external storage by this module.
-const std::string STORAGE_PREFIX = "leaseManager";
+const std::string STORAGE_PREFIX = "clientLeaseAuthority";
 
-LeaseManager::LeaseManager(Context* context)
+ClientLeaseAuthority::ClientLeaseAuthority(Context* context)
     : mutex()
     , context(context)
     , clock(context)
@@ -62,7 +62,7 @@ LeaseManager::LeaseManager(Context* context)
  *      the requested lease has already expired or possibly never existed.
  */
 WireFormat::ClientLease
-LeaseManager::getLeaseInfo(uint64_t leaseId)
+ClientLeaseAuthority::getLeaseInfo(uint64_t leaseId)
 {
     Lock lock(mutex);
     WireFormat::ClientLease clientLease;
@@ -87,7 +87,7 @@ LeaseManager::getLeaseInfo(uint64_t leaseId)
  * once after the construction of the Lease Manager.
  */
 void
-LeaseManager::recover()
+ClientLeaseAuthority::recover()
 {
     Lock lock(mutex);
 
@@ -140,7 +140,7 @@ LeaseManager::recover()
  *      leaseId and leaseExpiration for the renewed lease or new lease.
  */
 WireFormat::ClientLease
-LeaseManager::renewLease(uint64_t leaseId)
+ClientLeaseAuthority::renewLease(uint64_t leaseId)
 {
     Lock lock(mutex);
     WireFormat::ClientLease clientLease = renewLeaseInternal(leaseId, lock);
@@ -158,7 +158,7 @@ LeaseManager::renewLease(uint64_t leaseId)
  * start the cluster clock updater.
  */
 void
-LeaseManager::startUpdaters()
+ClientLeaseAuthority::startUpdaters()
 {
     reservationAgent.start(0);
     cleaner.start(0);
@@ -170,13 +170,13 @@ LeaseManager::startUpdaters()
  * \param context
  *      Overall information about the RAMCloud server and provides access to
  *      the dispatcher.
- * \param leaseManager
- *      Provides access to the leaseManager to perform reservation.
+ * \param leaseAuthority
+ *      Provides access to the leaseAuthority to perform reservation.
  */
-LeaseManager::LeaseReservationAgent::LeaseReservationAgent(Context* context,
-                                                  LeaseManager* leaseManager)
+ClientLeaseAuthority::LeaseReservationAgent::LeaseReservationAgent(
+        Context* context, ClientLeaseAuthority* leaseAuthority)
     : WorkerTimer(context->dispatch)
-    , leaseManager(leaseManager)
+    , leaseAuthority(leaseAuthority)
 {}
 
 /**
@@ -186,12 +186,12 @@ LeaseManager::LeaseReservationAgent::LeaseReservationAgent(Context* context,
  * reserved leases reaches a comfortable level (RESERVATION_LIMIT).
  */
 void
-LeaseManager::LeaseReservationAgent::handleTimerEvent()
+ClientLeaseAuthority::LeaseReservationAgent::handleTimerEvent()
 {
-    LeaseManager::Lock lock(leaseManager->mutex);
-    leaseManager->reserveNextLease(lock);
-    uint64_t reservationCount = leaseManager->maxReservedLeaseId -
-                                leaseManager->lastIssuedLeaseId;
+    ClientLeaseAuthority::Lock lock(leaseAuthority->mutex);
+    leaseAuthority->reserveNextLease(lock);
+    uint64_t reservationCount = leaseAuthority->maxReservedLeaseId -
+                                leaseAuthority->lastIssuedLeaseId;
     if (reservationCount < RESERVATION_LIMIT) {
             this->start(0);
     }
@@ -202,23 +202,23 @@ LeaseManager::LeaseReservationAgent::handleTimerEvent()
  * \param context
  *      Overall information about the RAMCloud server and provides access to
  *      the dispatcher.
- * \param leaseManager
- *      Provides access to the leaseManager to perform cleaning.
+ * \param leaseAuthority
+ *      Provides access to the leaseAuthority to perform cleaning.
  */
-LeaseManager::LeaseCleaner::LeaseCleaner(Context* context,
-                                         LeaseManager* leaseManager)
+ClientLeaseAuthority::LeaseCleaner::LeaseCleaner(Context* context,
+                                         ClientLeaseAuthority* leaseAuthority)
     : WorkerTimer(context->dispatch)
-    , leaseManager(leaseManager)
+    , leaseAuthority(leaseAuthority)
 {}
 
 /**
- * This handler performs a cleaning pass on leaseManager incrementally; will
+ * This handler performs a cleaning pass on leaseAuthority incrementally; will
  * reschedule itself as necessary.
  */
 void
-LeaseManager::LeaseCleaner::handleTimerEvent()
+ClientLeaseAuthority::LeaseCleaner::handleTimerEvent()
 {
-    if (leaseManager->cleanNextLease()) {
+    if (leaseAuthority->cleanNextLease()) {
         // Cleaning pass not complete; reschedule for immediate execution.
         this->start(0);
     } else {
@@ -239,7 +239,7 @@ LeaseManager::LeaseCleaner::handleTimerEvent()
  *      there are no more leases that can be cleaned at this moment.
  */
 bool
-LeaseManager::cleanNextLease()
+ClientLeaseAuthority::cleanNextLease()
 {
     Lock lock(mutex);
     ExpirationOrderSet::iterator it = expirationOrder.begin();
@@ -258,7 +258,7 @@ LeaseManager::cleanNextLease()
  * represents a lease with the given leaseId.
  */
 std::string
-LeaseManager::getLeaseObjName(uint64_t leaseId)
+ClientLeaseAuthority::getLeaseObjName(uint64_t leaseId)
 {
     std::string leaseObjName = STORAGE_PREFIX + "/" + format("%lu", leaseId);
     return leaseObjName;
@@ -275,7 +275,7 @@ LeaseManager::getLeaseObjName(uint64_t leaseId)
  *      See "renewLease".
  */
 WireFormat::ClientLease
-LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
+ClientLeaseAuthority::renewLeaseInternal(uint64_t leaseId, Lock &lock)
 {
     WireFormat::ClientLease clientLease;
 
@@ -317,7 +317,7 @@ LeaseManager::renewLeaseInternal(uint64_t leaseId, Lock &lock)
  *      Ensures that caller has acquired mutex; not actually used here.
  */
 void
-LeaseManager::reserveNextLease(Lock &lock)
+ClientLeaseAuthority::reserveNextLease(Lock &lock)
 {
     uint64_t nextLeaseId = maxReservedLeaseId + 1;
     context->externalStorage->set(ExternalStorage::Hint::CREATE,

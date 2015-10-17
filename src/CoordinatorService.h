@@ -22,9 +22,9 @@
 
 #include "Common.h"
 #include "ClientException.h"
+#include "ClientLeaseAuthority.h"
 #include "CoordinatorServerList.h"
 #include "CoordinatorUpdateManager.h"
-#include "LeaseManager.h"
 #include "MasterRecoveryManager.h"
 #include "PingClient.h"
 #include "RawMetrics.h"
@@ -183,7 +183,7 @@ class CoordinatorService : public Service {
      * Manages all client lease and serves requests for new leases and checks
      * for lease validity.
      */
-    LeaseManager leaseManager;
+    ClientLeaseAuthority leaseAuthority;
 
   PRIVATE:
     /**

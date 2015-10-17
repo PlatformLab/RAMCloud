@@ -20,7 +20,7 @@ namespace RAMCloud {
 
 /**
  * Provides a common place to define related constants for lease related modules
- * such as ClientLease and LeaseManager.
+ * such as ClientLease and ClientLeaseAuthority.
  */
 namespace LeaseCommon {
 
@@ -31,7 +31,7 @@ const uint64_t LEASE_TERM_NS = 1800*1e9;      // 30 min = 1,800,000,000,000 ns
 /// Defines the remaining lease time below which a module should start trying
 /// to renew the lease.  During this period, the lease has probably not expired
 /// so it is safe to perform the renewals asynchronously.  This value should
-/// be set conservatively to around half the LeaseManager::LEASE_TERM_NS.
+/// be set conservatively to around half the LeaseCommon::LEASE_TERM_NS.
 static const uint64_t RENEW_THRESHOLD_NS = LEASE_TERM_NS / 2;       // 15 min
 
 /// Defines the remaining lease time below which the lease should be considered

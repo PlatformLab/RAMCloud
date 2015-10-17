@@ -97,7 +97,7 @@ ClientLeaseAgent::poll()
             // if the lease is not renewed.
             //
             // If any of the asserts fail, an assumption about the behavior of
-            // LeaseManager::renewLease must have been violated.
+            // ClientLeaseAuthority::renewLease must have been violated.
             assert(lease.leaseExpiration >= lease.timestamp);
             uint64_t leaseTermLenNS = lease.leaseExpiration - lease.timestamp;
 

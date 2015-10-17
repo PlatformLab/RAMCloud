@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_LEASEMANAGER_H
-#define RAMCLOUD_LEASEMANAGER_H
+#ifndef RAMCLOUD_CLIENTLEASEAUTHORITY_H
+#define RAMCLOUD_CLIENTLEASEAUTHORITY_H
 
 #include <set>
 #include <unordered_map>
@@ -26,20 +26,20 @@
 namespace RAMCloud {
 
 /**
- * The LeaseManager, which resides on the coordinator, manages and acts as the
- * central authority on the liveness of a client lease.  Client leases are used
- * to track the liveness of any given client.  When a client holds a valid
- * lease, it is considered active and various pieces of state (e.g.
+ * The ClientLeaseAuthority, which resides on the coordinator, manages and acts
+ * as the central authority on the liveness of a client lease.  Client leases
+ * are used to track the liveness of any given client.  When a client holds a
+ * valid lease, it is considered active and various pieces of state (e.g.
  * linearizability information) must be kept throughout the cluster.
  *
  * Clients must ensure they have an valid lease by periodically contacting this
- * module.  Servers in their part must contact this module to check the validity
- * of client leases. The module LeaseManager that no leaseId will be issued more
- * than once.
+ * module (this is managed by the ClientLeaseAgent).  Servers in their part must
+ * contact this module to check the validity of client leases. This module
+ * ensures that no leaseId will be issued more than once.
  */
-class LeaseManager {
+class ClientLeaseAuthority {
   PUBLIC:
-    explicit LeaseManager(Context *context);
+    explicit ClientLeaseAuthority(Context *context);
     WireFormat::ClientLease getLeaseInfo(uint64_t leaseId);
     void recover();
     WireFormat::ClientLease renewLease(uint64_t leaseId);
@@ -62,10 +62,10 @@ class LeaseManager {
     class LeaseReservationAgent : public WorkerTimer {
       public:
         explicit LeaseReservationAgent(Context* context,
-                                       LeaseManager* leaseManager);
+                                       ClientLeaseAuthority* leaseAuthority);
         virtual void handleTimerEvent();
 
-        LeaseManager* leaseManager;
+        ClientLeaseAuthority* leaseAuthority;
       private:
         DISALLOW_COPY_AND_ASSIGN(LeaseReservationAgent);
     };
@@ -76,10 +76,10 @@ class LeaseManager {
     class LeaseCleaner : public WorkerTimer {
       public:
         explicit LeaseCleaner(Context* context,
-                              LeaseManager* leaseManager);
+                              ClientLeaseAuthority* leaseAuthority);
         virtual void handleTimerEvent();
 
-        LeaseManager* leaseManager;
+        ClientLeaseAuthority* leaseAuthority;
       private:
         DISALLOW_COPY_AND_ASSIGN(LeaseCleaner);
     };
@@ -144,10 +144,10 @@ class LeaseManager {
     WireFormat::ClientLease renewLeaseInternal(uint64_t leaseId, Lock &lock);
     void reserveNextLease(Lock &lock);
 
-    DISALLOW_COPY_AND_ASSIGN(LeaseManager);
+    DISALLOW_COPY_AND_ASSIGN(ClientLeaseAuthority);
 };
 
 } // namespace RAMCloud
 
-#endif  /* RAMCLOUD_LEASEMANAGER_H */
+#endif  /* RAMCLOUD_CLIENTLEASEAUTHORITY_H */
 
