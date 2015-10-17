@@ -52,7 +52,8 @@ TEST_F(InMemoryStorageTest, Frame_append) {
 
     char* replica = bytes(frame->load());
     EXPECT_STREQ(test, replica);
-    char* metadata = bytes(frame->getMetadata());
+    char* metadata = static_cast<bytes>(const_cast<void*>(
+                                                frame->getMetadata()));
     EXPECT_STREQ(test, metadata);
 }
 

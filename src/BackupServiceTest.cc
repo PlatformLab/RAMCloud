@@ -287,9 +287,9 @@ TEST_F(BackupServiceTest, getRecoveryData) {
     EXPECT_EQ(1lu, backup->recoveries.size());
 
     Buffer recoverySegment;
-    auto certificate = BackupClient::getRecoveryData(&context, backupId,
-                                                     456lu, {99, 0}, 88, 0,
-                                                     &recoverySegment);
+    BackupClient::getRecoveryData(&context, backupId,
+                                  456lu, {99, 0}, 88, 0,
+                                  &recoverySegment);
     EXPECT_THROW(BackupClient::getRecoveryData(&context, backupId,
                                                457lu, {99, 0}, 88, 0,
                                                &recoverySegment),

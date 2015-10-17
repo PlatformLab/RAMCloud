@@ -313,7 +313,7 @@ TEST_F(RecoverySegmentBuilderTest, build_participantList) {
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
     ParticipantList record(participants, 3, 42);
-    TransactionId txId = record.getTransactionId();
+    record.getTransactionId();
     Buffer buffer;
     record.assembleForLog(buffer);
 

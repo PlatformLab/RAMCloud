@@ -70,7 +70,8 @@ TEST_F(UpdateReplicationEpochTaskTest, isAtLeast) {
 }
 
 TEST_F(UpdateReplicationEpochTaskTest, updateToAtLeast) {
-    auto coordRecoveryInfo = &(*serverList)[serverId].masterRecoveryInfo;
+    CoordinatorServerList::Entry entry = (*serverList)[serverId];
+    auto coordRecoveryInfo = &entry.masterRecoveryInfo;
     typedef UpdateReplicationEpochTask::ReplicationEpoch Epoch;
     epoch->updateToAtLeast(1, 0); // first request
     EXPECT_EQ(Epoch(1, 0), epoch->requested);
@@ -84,7 +85,8 @@ TEST_F(UpdateReplicationEpochTaskTest, updateToAtLeast) {
     EXPECT_EQ(Epoch(1, 1), epoch->requested);
     EXPECT_EQ(Epoch(1, 0), epoch->sent);
     EXPECT_EQ(Epoch(0, 0), epoch->current);
-    coordRecoveryInfo = &(*serverList)[serverId].masterRecoveryInfo;
+    entry = (*serverList)[serverId];
+    coordRecoveryInfo = &entry.masterRecoveryInfo;
     EXPECT_EQ(1lu, coordRecoveryInfo->min_open_segment_id());
     EXPECT_EQ(0lu, coordRecoveryInfo->min_open_segment_epoch());
     EXPECT_TRUE(epoch->rpc);
@@ -93,7 +95,8 @@ TEST_F(UpdateReplicationEpochTaskTest, updateToAtLeast) {
     EXPECT_EQ(Epoch(1, 1), epoch->requested);
     EXPECT_EQ(Epoch(1, 0), epoch->sent);
     EXPECT_EQ(Epoch(1, 0), epoch->current);
-    coordRecoveryInfo = &(*serverList)[serverId].masterRecoveryInfo;
+    entry = (*serverList)[serverId];
+    coordRecoveryInfo = &entry.masterRecoveryInfo;
     EXPECT_EQ(1lu, coordRecoveryInfo->min_open_segment_id());
     EXPECT_EQ(0lu, coordRecoveryInfo->min_open_segment_epoch());
     EXPECT_FALSE(epoch->rpc);
@@ -103,7 +106,8 @@ TEST_F(UpdateReplicationEpochTaskTest, updateToAtLeast) {
     EXPECT_EQ(Epoch(1, 1), epoch->requested);
     EXPECT_EQ(Epoch(1, 1), epoch->sent);
     EXPECT_EQ(Epoch(1, 1), epoch->current);
-    coordRecoveryInfo = &(*serverList)[serverId].masterRecoveryInfo;
+    entry = (*serverList)[serverId];
+    coordRecoveryInfo = &entry.masterRecoveryInfo;
     EXPECT_EQ(1lu, coordRecoveryInfo->min_open_segment_id());
     EXPECT_EQ(1lu, coordRecoveryInfo->min_open_segment_epoch());
     EXPECT_FALSE(epoch->rpc);

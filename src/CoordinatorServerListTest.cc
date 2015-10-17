@@ -373,9 +373,11 @@ TEST_F(CoordinatorServerListTest, enlistServer_preferredIndexNotAvailable) {
 TEST_F(CoordinatorServerListTest, enlistServer_reuseSlot) {
     ServerId id1 = sl->enlistServer({WireFormat::BACKUP_SERVICE},
             0, 140, "mock:host=node1");
+    EXPECT_EQ("1.0", id1.toString());
     ServerId id2 = sl->enlistServer(
             {WireFormat::BACKUP_SERVICE, WireFormat::MASTER_SERVICE},
             0, 87, "mock:host=node2");
+    EXPECT_EQ("2.0", id2.toString());
     sl->serverList[2].entry.destroy();
     ServerId id3 = sl->enlistServer(
             {WireFormat::BACKUP_SERVICE, WireFormat::MASTER_SERVICE},
@@ -408,7 +410,7 @@ TEST_F(CoordinatorServerListTest, masterCount) {
 }
 
 TEST_F(CoordinatorServerListTest, indexWithId) {
-    ServerId id1 = sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=node1");
     ServerId id2 = sl->enlistServer(
             {WireFormat::BACKUP_SERVICE, WireFormat::MASTER_SERVICE},
@@ -429,9 +431,9 @@ TEST_F(CoordinatorServerListTest, indexWithId) {
 }
 
 TEST_F(CoordinatorServerListTest, indexWithSlotNum) {
-    ServerId id1 = sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=node1");
-    ServerId id2 = sl->enlistServer(
+    sl->enlistServer(
             {WireFormat::BACKUP_SERVICE, WireFormat::MASTER_SERVICE},
             0, 0, "mock:host=node2");
 
@@ -1448,7 +1450,7 @@ TEST_F(CoordinatorServerListTest, getWork_emptyServerList) {
 }
 
 TEST_F(CoordinatorServerListTest, getWork_noWorkFoundForEpoch) {
-    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
             "mock:host=server1");
     EXPECT_TRUE(sl->getWork(&rpc));
     EXPECT_EQ(1UL, sl->numUpdatingServers);
@@ -1470,7 +1472,7 @@ TEST_F(CoordinatorServerListTest, getWork_serverCrashed) {
 }
 
 TEST_F(CoordinatorServerListTest, getWork_noMembershipService) {
-    ServerId id1 = sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=server1");
     EXPECT_FALSE(sl->getWork(&rpc));
 }
@@ -1494,7 +1496,7 @@ TEST_F(CoordinatorServerListTest, getWork_fullListUpdate) {
 
 TEST_F(CoordinatorServerListTest, getWork_incrementalUpdates) {
     // Create a bunch of servers.
-    ServerId id1 = sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=server1");
     ServerId id2 = sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=server2");

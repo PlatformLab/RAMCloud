@@ -110,7 +110,7 @@ TEST_F(SingleFileStorageTest, Frame_loadMetadata) {
     frame->append(testSource, 0, 0, 0, test, testLength + 1);
     frame->free();
     frame->loadMetadata();
-    char* metadata = bytes(frame->getMetadata());
+    char* metadata = bytes(const_cast<void*>(frame->getMetadata()));
     EXPECT_STREQ(test, metadata);
 }
 
@@ -142,7 +142,7 @@ TEST_F(SingleFileStorageTest, Frame_load) {
     EXPECT_FALSE(frame->testingHadToWaitForSyncOnLoad);
     EXPECT_STREQ(test, replica);
     // Make sure metadata wasn't loaded, should be as tweaked before load.
-    char* metadata = bytes(frame->getMetadata());
+    char* metadata = bytes(const_cast<void*>(frame->getMetadata()));
     EXPECT_STREQ("", metadata);
 }
 
@@ -191,7 +191,7 @@ TEST_F(SingleFileStorageTest, Frame_append) {
     }
     char* replica = bytes(frame->load());
     EXPECT_STREQ(test, replica);
-    char* metadata = bytes(frame->getMetadata());
+    char* metadata = bytes(const_cast<void*>(frame->getMetadata()));
     EXPECT_STREQ(test, metadata);
 }
 
@@ -259,7 +259,7 @@ TEST_F(SingleFileStorageTest, Frame_appendSync) {
     }
     char* replica = bytes(frame->load());
     EXPECT_STREQ(test, replica);
-    char* metadata = bytes(frame->getMetadata());
+    char* metadata = bytes(const_cast<void*>(frame->getMetadata()));
     EXPECT_STREQ(test, metadata);
 }
 

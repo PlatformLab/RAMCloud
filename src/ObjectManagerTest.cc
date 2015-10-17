@@ -1674,7 +1674,7 @@ TEST_F(ObjectManagerTest, writeObject) {
               , verifyMetadata(1));
 
     // object overwrite (hashtable contains tombstone)
-    Log::Reference reference = storeTombstone(key, 0);
+    storeTombstone(key, 0);
     EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
 
     // Verify RetryException  when overwriting with no space
@@ -2960,10 +2960,8 @@ TEST_F(ObjectManagerTest, relocateTombstone_basics) {
               , verifyMetadata(0));
 
 
-    LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
-    oldTypeInLog = objectManager.log.getEntry(oldTombstoneReference,
-                                          oldBufferInLog);
+    objectManager.log.getEntry(oldTombstoneReference, oldBufferInLog);
 
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
@@ -3084,10 +3082,8 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_relocateRecord) {
     EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=1"
               , verifyMetadata(1));
 
-    LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
-    oldTypeInLog = objectManager.log.getEntry(oldRecordReference,
-                                          oldBufferInLog);
+    objectManager.log.getEntry(oldRecordReference, oldBufferInLog);
 
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
@@ -3120,9 +3116,8 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
     EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=1"
               , verifyMetadata(1));
 
-    LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
-    oldTypeInLog = objectManager.log.getEntry(oldRecordReference,
+    objectManager.log.getEntry(oldRecordReference,
                                           oldBufferInLog);
 
     LogEntryRelocator relocator(

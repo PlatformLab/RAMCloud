@@ -64,7 +64,7 @@ class MockTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
                                     ObjectFinder::Indexlet>* tableIndexMap) {
 
         tableMap->clear();
-        Tablet rawEntry({tableId, 0, ~0, ServerId(),
+        Tablet rawEntry({tableId, 0, uint64_t(~0), ServerId(),
                     Tablet::NORMAL, LogPosition()});
         TabletWithLocator entry(rawEntry, locator);
 

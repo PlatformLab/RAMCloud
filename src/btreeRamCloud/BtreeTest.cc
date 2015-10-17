@@ -714,7 +714,7 @@ TEST_F(BtreeTest, inner_node_setRightMostLeafKey) {
     BtreeEntry entry3 = {"zzcccsdf", 33};
     BtreeEntry rightMost1 = {"zzzzzzzzzJLKDJFj", 55};
     BtreeEntry rightMost2 = {"zzzzzzzzzzzzzJLKDJFj", 556};
-    BtreeEntry rightMost3 = {"zzzzzzzzzzzzzzzzzzLKDJFj", 755};
+    // BtreeEntry rightMost3 = {"zzzzzzzzzzzzzzzzzzLKDJFj", 755};
 
     // Try a bunch of operations to see if the key gets overwritten
     n->setRightMostLeafKey(rightMost1);
@@ -957,7 +957,7 @@ TEST_F(BtreeTest, writeReadFreeNode) {
   bt.flush();
 
   const void *ptr = bt.readNode(1000, &buffer_out);
-  checkNodeEquals(n, (IndexBtree::LeafNode*) ptr);
+  checkNodeEquals(n, (const IndexBtree::LeafNode*) ptr);
 
   bt.freeNode(1000);
   bt.flush();

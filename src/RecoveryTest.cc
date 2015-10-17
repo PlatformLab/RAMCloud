@@ -615,7 +615,7 @@ TEST_F(RecoveryTest, partitionTablets_basic) {
     Lock lock(mutex);     // To trick TableManager internal calls.
     Tub<Recovery> recovery;
     Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
-    for (int i = 1; i <= 250; i++) {
+    for (uint64_t i = 1; i <= 250; i++) {
         tableManager.testCreateTable(TestUtil::toString(i).c_str(), i);
         tableManager.testAddTablet(
             {i,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
@@ -646,7 +646,7 @@ TEST_F(RecoveryTest, partitionTablets_all_partitions_open) {
     Lock lock(mutex);     // To trick TableManager internal calls.
     Tub<Recovery> recovery;
     Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
-    for (int i = 1; i <= 20; i++) {
+    for (uint64_t i = 1; i <= 20; i++) {
         tableManager.testCreateTable(TestUtil::toString(i).c_str(), i);
         tableManager.testAddTablet(
             {i,  0,  9, {99, 0}, Tablet::RECOVERING, {}});
@@ -677,12 +677,12 @@ TEST_F(RecoveryTest, partitionTablets_mixed) {
     Lock lock(mutex);     // To trick TableManager internal calls.
     Tub<Recovery> recovery;
     Recovery::Owner* own = static_cast<Recovery::Owner*>(NULL);
-    for (int i = 1; i <= 6; i++) {
+    for (uint64_t i = 1; i <= 6; i++) {
         tableManager.testCreateTable(TestUtil::toString(i).c_str(), i);
         tableManager.testAddTablet(
             {i,  0,  599, {99, 0}, Tablet::RECOVERING, {}});
     }
-    for (int i = 1; i <= 180; i++) {
+    for (uint64_t i = 1; i <= 180; i++) {
         tableManager.testCreateTable(TestUtil::toString(i+100).c_str(), i+100);
         tableManager.testAddTablet(
             {i + 100,  0,  9, {99, 0}, Tablet::RECOVERING, {}});

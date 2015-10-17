@@ -278,7 +278,7 @@ TEST_F(PreparedOpTest, getTransactionId) {
     for (uint32_t i = 0; i < arrayLength(records); i++) {
         PreparedOp& record = *records[i];
 
-        TransactionId txId = record.getTransactionId();
+        record.getTransactionId();
         EXPECT_EQ(1U, record.header.clientId);
         EXPECT_EQ(9U, record.header.txRpcId);
     }

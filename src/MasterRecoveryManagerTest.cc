@@ -239,7 +239,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
     const ProtoBuf::RecoveryPartition recoveryPartition;
     TestLog::Enable _;
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
-                       std::ref(*mgr),
+                       mgr,
                        0lu, serverId, recoveryPartition, false);
     while (!mgr->taskQueue.performTask()); // Do RecoveryMasterFinishedTask.
     thread.join();
@@ -292,7 +292,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
 
     TestLog::Enable _;
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
-                       std::ref(*mgr),
+                       mgr,
                        recovery->recoveryId,
                        ServerId{2, 0}, recoveryPartition, true);
     while (!mgr->taskQueue.performTask()); // Do RecoveryMasterFinishedTask.
@@ -366,7 +366,7 @@ TEST_F(MasterRecoveryManagerTest,
 
     TestLog::Enable _;
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
-                       std::ref(*mgr),
+                       mgr,
                        recovery->recoveryId,
                        ServerId{2, 0}, recoveryPartition, false);
     while (!mgr->taskQueue.performTask());
