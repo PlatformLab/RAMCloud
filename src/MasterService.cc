@@ -850,6 +850,9 @@ MasterService::migrateSingleLogEntry(
     LogEntryType type = it.getType();
     if (type != LOG_ENTRY_TYPE_OBJ &&
         type != LOG_ENTRY_TYPE_OBJTOMB &&
+        type != LOG_ENTRY_TYPE_RPCRESULT &&
+        type != LOG_ENTRY_TYPE_PREP &&
+        type != LOG_ENTRY_TYPE_PREPTOMB &&
         type != LOG_ENTRY_TYPE_TXDECISION &&
         type != LOG_ENTRY_TYPE_TXPLIST)
     {
@@ -868,6 +871,20 @@ MasterService::migrateSingleLogEntry(
         Key key(type, buffer);
         entryTableId = key.getTableId();
         entryKeyHash = key.getHash();
+    } else if (type == LOG_ENTRY_TYPE_RPCRESULT) {
+        RpcResult rpcResult(buffer);
+        entryTableId = rpcResult.getTableId();
+        entryKeyHash = rpcResult.getKeyHash();
+    } else if (type == LOG_ENTRY_TYPE_PREP) {
+        PreparedOp op(buffer, 0, buffer.size());
+        entryTableId = op.object.getTableId();
+        entryKeyHash = Key::getHash(tableId,
+                                    op.object.getKey(),
+                                    op.object.getKeyLength());
+    } else if (type == LOG_ENTRY_TYPE_PREPTOMB) {
+        PreparedOpTombstone opTomb(buffer, 0);
+        entryTableId = opTomb.header.tableId;
+        entryKeyHash = opTomb.header.keyHash;
     } else if (type == LOG_ENTRY_TYPE_TXDECISION) {
         TxDecisionRecord record(buffer);
         entryTableId = record.getTableId();

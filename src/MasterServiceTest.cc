@@ -858,6 +858,161 @@ TEST_F(MasterServiceTest, migrateSingleLogEntry_wrongKeyHash) {
     EXPECT_EQ(0U, entryTotals[LOG_ENTRY_TYPE_OBJ]);
 }
 
+TEST_F(MasterServiceTest, migrateSingleLogEntry_rpcResult) {
+    // Populate segment
+    Segment segment;
+
+    { // Migrate
+        uint64_t response = 1;
+        Buffer dataBuffer;
+        dataBuffer.append(&response, sizeof(response));
+        RpcResult rpcResult(1, 0, 6, 4, 2, dataBuffer);
+        Buffer buffer;
+        rpcResult.assembleForLog(buffer);
+        ASSERT_TRUE(segment.append(LOG_ENTRY_TYPE_RPCRESULT, buffer));
+    }{ // Bad key hash
+        Buffer dataBuffer;
+        RpcResult rpcResult(1, 1, 5, 3, 1, dataBuffer);
+        Buffer buffer;
+        rpcResult.assembleForLog(buffer);
+        ASSERT_TRUE(segment.append(LOG_ENTRY_TYPE_RPCRESULT, buffer));
+    }{ // Bad table
+        service->tabletManager.addTablet(10, 0, ~0UL, TabletManager::NORMAL);
+        Buffer dataBuffer;
+        RpcResult rpcResult(10, 0, 10, 5, 2, dataBuffer);
+        Buffer buffer;
+        rpcResult.assembleForLog(buffer);
+        ASSERT_TRUE(segment.append(LOG_ENTRY_TYPE_RPCRESULT, buffer));
+    }
+
+    Tub<Segment> transferSeg;
+
+    uint64_t entryTotals[TOTAL_LOG_ENTRY_TYPES] = {0};
+    uint64_t totalBytes = 0;
+    uint64_t tableId = 1;
+    uint64_t firstKeyHash = 0x0;
+    uint64_t lastKeyHash = 0x0;
+    ServerId receiver(1);
+
+    TestLog::reset();
+    Status error;
+
+    for (SegmentIterator it(segment); !it.isDone(); it.next()) {
+        error = service->migrateSingleLogEntry(
+                it,
+                transferSeg, entryTotals, totalBytes,
+                tableId, firstKeyHash, lastKeyHash,
+                receiver);
+        if (error) break;
+    }
+
+    EXPECT_EQ(STATUS_OK, error);
+    EXPECT_EQ("migrateSingleLogEntry: Migrated log entry type "
+                    "Linearizable Rpc Record | "
+              "migrateSingleLogEntry: Linearizable Rpc Record not "
+                    "migrated; keyHash not in range | "
+              "migrateSingleLogEntry: Linearizable Rpc Record not "
+                    "migrated; tableId doesn't match",
+            TestLog::get());
+    EXPECT_EQ(52U, totalBytes);
+    EXPECT_EQ(1U, entryTotals[LOG_ENTRY_TYPE_RPCRESULT]);
+}
+
+TEST_F(MasterServiceTest, migrateSingleLogEntry_prepAndprepTomb) {
+    // Populate segment
+    Segment segment;
+
+    Key keyToMigrate(1, "1", 1);
+    Key keyBadHash(1, "2", 1);
+    assert(keyToMigrate.getHash() != keyBadHash.getHash());
+    Key keyBadTable(10, "1", 1);
+
+    { // Migrate
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 10UL, 10UL,
+                      keyToMigrate, "hello", 6, 0, 0, dataBuffer);
+
+        Buffer buffer;
+        op.assembleForLog(buffer);
+        ASSERT_TRUE(segment.append(LOG_ENTRY_TYPE_PREP, buffer));
+
+        PreparedOpTombstone opTomb(op, 0);
+        buffer.reset();
+        opTomb.assembleForLog(buffer);
+        ASSERT_TRUE(segment.append(LOG_ENTRY_TYPE_PREPTOMB, buffer));
+    }{ // Bad key hash
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::READ,
+                      1UL, 10UL, 10UL,
+                      keyBadHash, "hello", 6, 0, 0, dataBuffer);
+
+        Buffer buffer;
+        op.assembleForLog(buffer);
+        ASSERT_TRUE(segment.append(LOG_ENTRY_TYPE_PREP, buffer));
+
+        PreparedOpTombstone opTomb(op, 0);
+        buffer.reset();
+        opTomb.assembleForLog(buffer);
+        ASSERT_TRUE(segment.append(LOG_ENTRY_TYPE_PREPTOMB, buffer));
+    }{ // Bad table
+        service->tabletManager.addTablet(keyBadTable.getTableId(), 0, ~0UL,
+                                         TabletManager::NORMAL);
+        Buffer dataBuffer;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      1UL, 10UL, 10UL,
+                      keyBadTable, "hello", 6, 0, 0, dataBuffer);
+
+        Buffer buffer;
+        op.assembleForLog(buffer);
+        ASSERT_TRUE(segment.append(LOG_ENTRY_TYPE_PREP, buffer));
+
+        PreparedOpTombstone opTomb(op, 0);
+        buffer.reset();
+        opTomb.assembleForLog(buffer);
+        ASSERT_TRUE(segment.append(LOG_ENTRY_TYPE_PREPTOMB, buffer));
+    }
+
+    Tub<Segment> transferSeg;
+
+    uint64_t entryTotals[TOTAL_LOG_ENTRY_TYPES] = {0};
+    uint64_t totalBytes = 0;
+    uint64_t tableId = keyToMigrate.getTableId();
+    uint64_t firstKeyHash = keyToMigrate.getHash();
+    uint64_t lastKeyHash = keyToMigrate.getHash();
+    ServerId receiver(1);
+
+    TestLog::reset();
+    Status error;
+
+    for (SegmentIterator it(segment); !it.isDone(); it.next()) {
+        error = service->migrateSingleLogEntry(
+                it,
+                transferSeg, entryTotals, totalBytes,
+                tableId, firstKeyHash, lastKeyHash,
+                receiver);
+        if (error) break;
+    }
+
+    EXPECT_EQ(STATUS_OK, error);
+    EXPECT_EQ("migrateSingleLogEntry: Migrated log entry type "
+                    "Transaction Prepare Record | "
+              "migrateSingleLogEntry: Migrated log entry type "
+                    "Transaction Prepare Tombstone | "
+              "migrateSingleLogEntry: Transaction Prepare Record not "
+                    "migrated; keyHash not in range | "
+              "migrateSingleLogEntry: Transaction Prepare Tombstone not "
+                    "migrated; keyHash not in range | "
+              "migrateSingleLogEntry: Transaction Prepare Record not "
+                    "migrated; tableId doesn't match | "
+              "migrateSingleLogEntry: Transaction Prepare Tombstone not "
+                    "migrated; tableId doesn't match",
+            TestLog::get());
+    EXPECT_EQ(110U, totalBytes);
+    EXPECT_EQ(1U, entryTotals[LOG_ENTRY_TYPE_PREP]);
+    EXPECT_EQ(1U, entryTotals[LOG_ENTRY_TYPE_PREPTOMB]);
+}
+
 TEST_F(MasterServiceTest, migrateSingleLogEntry_decisionRecord) {
     // Populate segment
     {
