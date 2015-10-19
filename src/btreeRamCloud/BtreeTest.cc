@@ -54,7 +54,7 @@ class BtreeTest: public ::testing::Test {
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults(&context)
+        , unackedRpcResults(&context, NULL)
         , preparedOps(&context)
         , txRecoveryManager(&context)
         , tabletManager()
@@ -70,6 +70,7 @@ class BtreeTest: public ::testing::Test {
     {
         objectManager.initOnceEnlisted();
         tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+        unackedRpcResults.resetFreer(&objectManager);
     }
 
     DISALLOW_COPY_AND_ASSIGN(BtreeTest);

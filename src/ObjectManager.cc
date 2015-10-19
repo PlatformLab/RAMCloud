@@ -110,6 +110,22 @@ ObjectManager::~ObjectManager()
 }
 
 /**
+ * Implementation of AbstractLog::ReferenceFreer. This method will be used
+ * by default on regular linearizable RPC handling.
+ * Linearizable RPC handler should pass "this" objectManager to the constructor
+ * of UnackedRpcResults.
+ *
+ * \param ref
+ *      Log reference for log entry to be freed.
+ */
+void
+ObjectManager::freeLogEntry(Log::Reference ref)
+{
+    assert(ref.toInteger());
+    log.free(ref);
+}
+
+/**
  * Perform any initialization that needed to wait until after the server has
  * enlisted. This must be called only once.
  *

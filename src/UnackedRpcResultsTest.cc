@@ -20,6 +20,16 @@
 
 namespace RAMCloud {
 
+/**
+ * Fake log reference freer for testing. This freer does nothing on free
+ * request.
+ */
+class DummyReferenceFreer : public AbstractLog::ReferenceFreer {
+    virtual void freeLogEntry(Log::Reference ref) {
+        TEST_LOG("freed <%" PRIu64 ">", ref.toInteger());
+    }
+};
+
 class UnackedRpcResultsTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
@@ -33,6 +43,7 @@ class UnackedRpcResultsTest : public ::testing::Test {
     MasterService* service;
     Server* masterServer;
 
+    DummyReferenceFreer freer;
     UnackedRpcResults results;
 
     UnackedRpcResultsTest()
@@ -45,7 +56,8 @@ class UnackedRpcResultsTest : public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , service()
         , masterServer()
-        , results(&context)
+        , freer()
+        , results(&context, &freer)
     {
         /////////////////////////////////
         // MasterService Initialization
@@ -80,7 +92,7 @@ class UnackedRpcResultsTest : public ::testing::Test {
 
         void* result;
         results.checkDuplicate(1, 10, 5, 1, &result);
-        results.recordCompletion(1, 10, reinterpret_cast<void*>(1010));
+        results.recordCompletion(1, 10, reinterpret_cast<void*>(1010), &freer);
     }
 
     DISALLOW_COPY_AND_ASSIGN(UnackedRpcResultsTest);
@@ -152,7 +164,10 @@ TEST_F(UnackedRpcResultsTest, recordCompletion) {
     results.recordCompletion(1, 13, reinterpret_cast<void*>(1013));
     results.checkDuplicate(1, 14, 10, 1, &result);
     results.recordCompletion(1, 14, reinterpret_cast<void*>(1014));
+
+    TestLog::Enable _;
     results.checkDuplicate(1, 15, 11, 1, &result);   //Ack up to rpcId = 11.
+    EXPECT_EQ("freeLogEntry: freed <1011>", TestLog::get());
     results.recordCompletion(1, 15, reinterpret_cast<void*>(1015));
     results.checkDuplicate(1, 16, 5, 1, &result);
     results.recordCompletion(1, 16, reinterpret_cast<void*>(1016));
@@ -180,6 +195,14 @@ TEST_F(UnackedRpcResultsTest, recordCompletion) {
     results.recordCompletion(1, 17, reinterpret_cast<void*>(1017));
     EXPECT_TRUE(results.checkDuplicate(1, 17, 5, 1, &result));
     EXPECT_EQ(1017UL, (uint64_t)result);
+
+    // Ack all RPCs appeared so far.
+    TestLog::reset();
+    results.checkDuplicate(1, 18, 17, 2, &result);
+    EXPECT_EQ("freeLogEntry: freed <1012> | freeLogEntry: freed <1013> | "
+              "freeLogEntry: freed <1014> | freeLogEntry: freed <1015> | "
+              "freeLogEntry: freed <1016> | freeLogEntry: freed <1017>",
+              TestLog::get());
 }
 
 TEST_F(UnackedRpcResultsTest, recoverRecord) {
@@ -247,7 +270,11 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout) {
     results.cleanByTimeout();
     EXPECT_EQ(3U, results.clients.size());
 
+    TestLog::Enable _;
+    TestLog::reset();
     results.checkDuplicate(2, 11, 10, 2, &result);
+    EXPECT_EQ("processAck: client acked unfinished RPC with rpcId <10>",
+              TestLog::get());
 
     service->updateClusterTime(1);
 

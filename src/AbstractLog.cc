@@ -197,6 +197,7 @@ AbstractLog::free(Reference reference)
                                            &lengthWithMetadata);
     segment->trackDeadEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ ||
+        type == LOG_ENTRY_TYPE_RPCRESULT ||
         type == LOG_ENTRY_TYPE_PREP)
         totalLiveBytes -= lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.
@@ -388,6 +389,7 @@ AbstractLog::append(Lock& appendLock,
     // when trying to reclaim memory.
     head->trackNewEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ ||
+        type == LOG_ENTRY_TYPE_RPCRESULT ||
         type == LOG_ENTRY_TYPE_PREP)
         totalLiveBytes += lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.
@@ -476,6 +478,7 @@ AbstractLog::append(Lock& appendLock,
     // when trying to reclaim memory.
     head->trackNewEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ ||
+        type == LOG_ENTRY_TYPE_RPCRESULT ||
         type == LOG_ENTRY_TYPE_PREP)
         totalLiveBytes += lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.

@@ -52,7 +52,8 @@ namespace RAMCloud {
  * ObjectManager is thread-safe. Multiple worker threads in MasterService may
  * call into it simultaneously.
  */
-class ObjectManager : public LogEntryHandlers {
+class ObjectManager : public LogEntryHandlers,
+                      public AbstractLog::ReferenceFreer {
   public:
 
     ObjectManager(Context* context, ServerId* serverId,
@@ -63,6 +64,7 @@ class ObjectManager : public LogEntryHandlers {
                 PreparedOps* preparedOps,
                 TxRecoveryManager* txRecoveryManager);
     virtual ~ObjectManager();
+    virtual void freeLogEntry(Log::Reference ref);
     void initOnceEnlisted();
 
     void readHashes(const uint64_t tableId, uint32_t reqNumHashes,

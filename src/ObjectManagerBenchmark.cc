@@ -46,7 +46,7 @@ class ObjectManagerBenchmark {
         , serverList(&context)
         , tabletManager()
         , masterTableMetadata()
-        , unackedRpcResults(&context)
+        , unackedRpcResults(&context, NULL)
         , preparedOps(&context)
         , txRecoveryManager(&context)
         , serverId(1, 1)
@@ -69,6 +69,7 @@ class ObjectManagerBenchmark {
                                           &unackedRpcResults,
                                           &preparedOps,
                                           &txRecoveryManager);
+        unackedRpcResults.resetFreer(objectManager);
     }
 
     ~ObjectManagerBenchmark()

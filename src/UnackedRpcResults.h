@@ -17,6 +17,7 @@
 #define RAMCLOUD_UNACKEDRPCRESULTS_H
 
 #include <unordered_map>
+#include "AbstractLog.h"
 #include "Common.h"
 #include "SpinLock.h"
 #include "WorkerTimer.h"
@@ -33,10 +34,11 @@ namespace RAMCloud {
  */
 class UnackedRpcResults {
   PUBLIC:
-    explicit UnackedRpcResults(Context* context);
+    explicit UnackedRpcResults(Context* context,
+                               AbstractLog::ReferenceFreer* freer);
     ~UnackedRpcResults();
-
     void startCleaner();
+    void resetFreer(AbstractLog::ReferenceFreer* freer);
     bool checkDuplicate(uint64_t clientId,
                         uint64_t rpcId,
                         uint64_t ackId,
@@ -133,6 +135,7 @@ class UnackedRpcResults {
         void* result(uint64_t rpcId);
         void recordNewRpc(uint64_t rpcId);
         void updateResult(uint64_t rpcId, void* result);
+        void processAck(uint64_t ackId, AbstractLog::ReferenceFreer* freer);
 
         /**
          * Keeps the largest RpcId from the client seen in this master.
@@ -215,6 +218,13 @@ class UnackedRpcResults {
     Context* context;
 
     Cleaner cleaner;
+
+    /**
+     * Pointer to reference freer. During garbage collection by ackId,
+     * this freer should be used to designate specific log entry as
+     * cleanable.
+     */
+    AbstractLog::ReferenceFreer* freer;
 
     DISALLOW_COPY_AND_ASSIGN(UnackedRpcResults);
 };

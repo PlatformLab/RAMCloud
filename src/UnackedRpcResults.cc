@@ -157,14 +157,20 @@ UnackedRpcHandle::recordCompletion(uint64_t result)
  * \param context
  *      Overall information about the RAMCloud server and provides access to
  *      the dispatcher and masterService.
+ * \param freer
+ *      Pointer to reference freer. During garbage collection by ackId,
+ *      this freer should be used to designate specific log entry as cleanable.
  */
-UnackedRpcResults::UnackedRpcResults(Context* context)
+UnackedRpcResults::UnackedRpcResults(Context* context,
+                                     AbstractLog::ReferenceFreer* freer)
     : clients(20)
     , mutex()
     , default_rpclist_size(50)
     , context(context)
     , cleaner(this)
-{}
+    , freer(freer)
+{
+}
 
 /**
  * Default destructor
@@ -184,6 +190,15 @@ void
 UnackedRpcResults::startCleaner()
 {
     cleaner.start(0);
+}
+
+/**
+ * Resets log entry freer.
+ */
+void
+UnackedRpcResults::resetFreer(AbstractLog::ReferenceFreer* freer)
+{
+    freer = freer;
 }
 
 /**
@@ -251,8 +266,9 @@ UnackedRpcResults::checkDuplicate(uint64_t clientId,
     //1. Update leaseExpiration and ack.
     if (client->leaseExpiration < leaseExpiration)
         client->leaseExpiration = leaseExpiration;
-    if (client->maxAckId < ackId)
-        client->maxAckId = ackId;
+    if (client->maxAckId < ackId) {
+        client->processAck(ackId, freer);
+    }
 
     //2. Check if the same RPC has been started.
     //   There are four cases to handle.
@@ -311,7 +327,7 @@ UnackedRpcResults::shouldRecover(uint64_t clientId,
     }
     Client* client = it->second;
     if (client->maxAckId < ackId)
-        client->maxAckId = ackId;
+        client->processAck(ackId, freer);
 
     return rpcId > client->maxAckId;
 }
@@ -388,7 +404,7 @@ UnackedRpcResults::recoverRecord(uint64_t clientId,
 
     //1. Handle Ack.
     if (client->maxAckId < ackId)
-        client->maxAckId = ackId;
+        client->processAck(ackId, freer);
 
     //2. Check if the same RPC has been started.
     //   There are four cases to handle.
@@ -578,6 +594,33 @@ UnackedRpcResults::Client::recordNewRpc(uint64_t rpcId) {
     if (rpcs[rpcId % len].id > maxAckId)
         resizeRpcs(10);
     rpcs[rpcId % len] = UnackedRpc(rpcId, NULL);
+}
+
+/**
+ * Processes ack provided by the client. Frees log entries for RpcResult up to
+ * ackId, and bumps maxAckId.
+ * \param ackId
+ *      The ack number transmitted with the RPC whose id number is rpcId.
+ * \param freer
+ *      Pointer to reference freer. This freer should be used to set
+ *      log entries used for RpcResult as free.
+ */
+void
+UnackedRpcResults::Client::processAck(uint64_t ackId,
+                                      AbstractLog::ReferenceFreer* freer) {
+    for (uint64_t id = maxAckId + 1; id <= ackId; id++) {
+        if (rpcs[id % len].id == id) {
+            uint64_t resPtr = reinterpret_cast<uint64_t>(rpcs[id % len].result);
+            if (resPtr) {
+                Log::Reference reference(resPtr);
+                freer->freeLogEntry(reference);
+            } else {
+                LOG(WARNING, "client acked unfinished RPC with "
+                             "rpcId <%" PRIu64 ">", id);
+            }
+        }
+    }
+    maxAckId = ackId;
 }
 
 /**

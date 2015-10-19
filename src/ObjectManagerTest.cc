@@ -34,7 +34,8 @@
 
 namespace RAMCloud {
 
-class ObjectManagerTest : public ::testing::Test {
+class ObjectManagerTest : public ::testing::Test,
+                          public AbstractLog::ReferenceFreer{
   public:
     Context context;
     ServerId serverId;
@@ -53,7 +54,7 @@ class ObjectManagerTest : public ::testing::Test {
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults(&context)
+        , unackedRpcResults(&context, this)
         , preparedOps(&context)
         , txRecoveryManager(&context)
         , tabletManager()
@@ -288,6 +289,10 @@ class ObjectManagerTest : public ::testing::Test {
         s.getAppendedLength(outCertificate);
 
         return buffer.size();
+    }
+
+    virtual void freeLogEntry(Log::Reference ref) {
+        objectManager.getLog()->free(ref);
     }
 
     /**
@@ -2733,7 +2738,8 @@ TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
     uint64_t rpcResultPtr = oldRpcResultReference.toInteger();
     unackedRpcResults.recordCompletion(leaseId,
                                        rpcId,
-                                       reinterpret_cast<void*>(rpcResultPtr));
+                                       reinterpret_cast<void*>(rpcResultPtr),
+                                       this);
 
     unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
                                      &result);
@@ -2799,7 +2805,8 @@ TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
     uint64_t rpcResultPtr = oldRpcResultReference.toInteger();
     unackedRpcResults.recordCompletion(leaseId,
                                        rpcId,
-                                       reinterpret_cast<void*>(rpcResultPtr));
+                                       reinterpret_cast<void*>(rpcResultPtr),
+                                       this);
 
     unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
                                      &result);

@@ -88,7 +88,7 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
     , tabletManager()
     , txRecoveryManager(context)
     , indexletManager(context, &objectManager)
-    , unackedRpcResults(context)
+    , unackedRpcResults(context, &objectManager)
     , preparedOps(context)
     , clusterTime(0)
     , mutex_updateClusterTime()
@@ -3016,8 +3016,9 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 
     if (linearizable) {
         unackedRpcResults.recordCompletion(reqHdr->lease.leaseId,
-                                    reqHdr->rpcId,
-                                    reinterpret_cast<void*>(rpcResultPtr));
+                                reqHdr->rpcId,
+                                reinterpret_cast<void*>(rpcResultPtr),
+                                this);
     }
 
     // If this is a overwrite, delete old index entries if any (this can
