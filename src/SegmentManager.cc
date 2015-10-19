@@ -24,6 +24,7 @@
 #include "ServerRpcPool.h"
 #include "TableStats.h"
 #include "MasterTableMetadata.h"
+#include "WorkerTimer.h"
 
 namespace RAMCloud {
 
@@ -1137,6 +1138,8 @@ SegmentManager::freeUnreferencedSegments()
     uint64_t earliestEpoch =
         ServerRpcPool<>::getEarliestOutstandingEpoch(context,
                 Transport::ServerRpc::READ_ACTIVITY);
+    earliestEpoch = std::min(earliestEpoch,
+                        WorkerTimer::getEarliestOutstandingEpoch());
     SegmentList::iterator it = freeablePending.begin();
 
     int skippedCount = 0;

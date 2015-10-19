@@ -124,6 +124,13 @@ class WorkerTimer {
         INTRUSIVE_LIST_TYPEDEF(WorkerTimer, links) TimerList;
         TimerList activeTimers;
 
+        /// The epoch when a WorkerTimer handler starts. Manager::checkTimers
+        /// will set this value automatically. This number can be used later
+        /// to prevent any WorkerTimer's timerEventHandler dereference a pointer
+        /// in log unsafely.
+        /// If no handler is running, this value is reset back to ~0UL.
+        uint64_t epoch;
+
         /// Used to link Managers together in WorkerTimer::managers.
         IntrusiveListHook links;
 
@@ -152,6 +159,9 @@ class WorkerTimer {
     static int workerThreadProgressCount;
 
     static Manager* findManager(Dispatch* dispatch, Lock& lock);
+
+  PUBLIC:
+    static uint64_t getEarliestOutstandingEpoch();
 
     DISALLOW_COPY_AND_ASSIGN(WorkerTimer);
 };

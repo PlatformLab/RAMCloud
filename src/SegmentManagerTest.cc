@@ -22,6 +22,7 @@
 #include "ServerConfig.h"
 #include "ServerRpcPool.h"
 #include "MasterTableMetadata.h"
+#include "WorkerTimer.h"
 
 namespace RAMCloud {
 
@@ -51,6 +52,28 @@ class SegmentManagerTest : public ::testing::Test {
                          allocator, replicaManager, &masterTableMetadata)
     {
     }
+
+    // The following class is used for testing: it generates a log message
+    // identifying this timer whenever it is invoked.
+    class DummyWorkerTimer : public WorkerTimer {
+      public:
+        explicit DummyWorkerTimer(Dispatch* dispatch)
+            : WorkerTimer(dispatch)
+            , sleepMicroseconds(0)
+        { }
+        void handleTimerEvent() {
+            if (sleepMicroseconds != 0) {
+                usleep(sleepMicroseconds);
+            }
+        }
+
+        // If non-zero, then handler will delayed for this long before
+        // returning.
+        int sleepMicroseconds;
+
+      private:
+        DISALLOW_COPY_AND_ASSIGN(DummyWorkerTimer);
+    };
 
   private:
     DISALLOW_COPY_AND_ASSIGN(SegmentManagerTest);
@@ -610,6 +633,67 @@ TEST_F(SegmentManagerTest, freeUnreferencedSegments) {
         SegmentManager::FREEABLE_PENDING_REFERENCES].size());
 
     pool.destroy(rpc);
+}
+
+// Helper function that invokes Dispatch::poll in a separate thread.
+static void testPoll(Dispatch* dispatch) {
+    dispatch->poll();
+}
+
+TEST_F(SegmentManagerTest, freeUnreferencedSegments_blockByWorkerTimer) {
+    LogSegment* freeable = segmentManager.allocHeadSegment();
+    segmentManager.allocHeadSegment();
+
+    ServerRpcPool<TestServerRpc> pool;
+    TestServerRpc* rpc = pool.construct();
+    rpc->epoch = 8;
+
+    segmentManager.changeState(*freeable,
+        SegmentManager::FREEABLE_PENDING_REFERENCES);
+
+    Tub<SegmentManagerTest::DummyWorkerTimer> timer;
+    Dispatch dispatch(false);
+    timer.construct(&dispatch);
+    for (int i = 1; i < 1000; i++) {
+        if (timer->handlerRunning) {
+            break;
+        }
+        usleep(100);
+    }
+
+    timer->start(1000);
+    timer->sleepMicroseconds = 10000;
+    Cycles::mockTscValue = 2000;
+    std::thread thread(testPoll, &dispatch);
+
+    // Wait for the handler to start executing (see "Timing-Dependent Tests"
+    // in designNotes).
+    for (int i = 1; i < 1000; i++) {
+        if (timer->handlerRunning) {
+            break;
+        }
+        usleep(1000);
+    }
+    EXPECT_TRUE(timer->handlerRunning);
+    timer->manager->epoch = 7;
+    EXPECT_EQ(7U, WorkerTimer::getEarliestOutstandingEpoch());
+
+    // Ongoing WorkerTimer handler prevents cleaning.
+    freeable->cleanedEpoch = 7;
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+
+    // WorkerTimer handler is finished.
+    timer.destroy();
+    EXPECT_EQ(~0UL, WorkerTimer::getEarliestOutstandingEpoch());
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(0U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+
+    pool.destroy(rpc);
+    thread.join();
+    Cycles::mockTscValue = 0;              // We need to measure real time!
 }
 
 TEST_F(SegmentManagerTest, freeUnreferencedSegments_logWhenStuck) {

@@ -1065,6 +1065,8 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
             uint64_t earliestEpoch =
                 ServerRpcPool<>::getEarliestOutstandingEpoch(context,
                         Transport::ServerRpc::APPEND_ACTIVITY);
+            earliestEpoch = std::min(earliestEpoch,
+                        WorkerTimer::getEarliestOutstandingEpoch());
             if (earliestEpoch > epoch)
                 break;
         }
@@ -2209,6 +2211,8 @@ MasterService::splitAndMigrateIndexlet(
             uint64_t earliestEpoch =
                 ServerRpcPool<>::getEarliestOutstandingEpoch(context,
                         Transport::ServerRpc::APPEND_ACTIVITY);
+            earliestEpoch = std::min(earliestEpoch,
+                        WorkerTimer::getEarliestOutstandingEpoch());
             if (earliestEpoch > epoch)
                 break;
         }
