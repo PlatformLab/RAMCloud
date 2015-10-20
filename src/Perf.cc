@@ -1289,6 +1289,34 @@ double timeTrace()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the time to lookup a random element in a small unordered_map.
+double unorderedMap()
+{
+    std::unordered_map<uint64_t, uint64_t> map;
+
+    // Generate an array of random keys that will be used to lookup
+    // entries in the map.
+    int numKeys = 10;
+    uint64_t keys[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+        keys[i] = generateRandom();
+        map[keys[i]] = 12345;
+        // printf("Key %d is 0x%lx\n", i, keys[i]);
+    }
+
+    int count = 10000;
+    uint64_t sum = 0;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        for (int j = 0; j < numKeys; j++) {
+            sum += map[keys[j]];
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    // printf("Sum is %ld\n", sum);
+    return Cycles::toSeconds(stop - start)/(count*numKeys);
+}
+
 // Measure the cost of pushing a new element on a std::vector, copying
 // from the end to an internal element, and popping the end element.
 double vectorPushPop()
@@ -1478,6 +1506,8 @@ TestInfo tests[] = {
      "Throw an Exception using ClientException::throwException"},
     {"timeTrace", timeTrace,
      "Record an event using TimeTrace"},
+    {"unorderedMap", unorderedMap,
+     "Lookup in std::unordered_map<uint64_t, uint64_t>"},
     {"vectorPushPop", vectorPushPop,
      "Push and pop a std::vector"},
 };
