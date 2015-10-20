@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -159,7 +159,7 @@ TEST_F(PerfCounterTest, backgroundWriter_wakeupNoName) {
         TestCounter.recordTime(10U);
         while (TestLog::get().find("No serverName, clearing the diskQueue!")
                 == std::string::npos)
-            usleep(100);
+            Cycles::sleep(100);
         EXPECT_EQ(TestCounter.ramQueue.size(), 0U);
         EXPECT_EQ(TestCounter.diskQueue.size(), 0U);
         TestLog::reset();
@@ -183,13 +183,13 @@ TEST_F(PerfCounterTest, backgroundWriter_sleepOnCountersAccumulated) {
     EXPECT_EQ(TestCounter.diskQueue.size(), 0U);
 
     while (TestLog::get().empty())
-        usleep(100);
+        Cycles::sleep(100);
     EXPECT_EQ(TestLog::get(),
             "backgroundWriter: Not enough counters, going to sleep!");
     TestLog::reset();
     TestCounter.recordTime(10U);
     while (TestLog::get().empty())
-        usleep(100);
+        Cycles::sleep(100);
     EXPECT_EQ(TestLog::get(), "backgroundWriter: backgroundWriter awakening!");
 }
 
@@ -224,7 +224,7 @@ TEST_F(PerfCounterTest, EnabledInterval) {
     EnabledCounter TestCounter("TestCounter");
     {
         EnabledInterval TestInterval(&TestCounter);
-        usleep(1000);
+        Cycles::sleep(1000);
     }
     EXPECT_GE(Cycles::toSeconds(TestCounter.ramQueue[0])*1.0e06, 1000U);
     EXPECT_LT(Cycles::toSeconds(TestCounter.ramQueue[0])*1.0e06, 1200U);
@@ -247,17 +247,17 @@ TEST_F(PerfCounterTest, stop) {
     EnabledCounter TestCounter("TestCounter");
     {
         EnabledInterval TestInterval(&TestCounter, false);
-        usleep(1000);
+        Cycles::sleep(1000);
         TestInterval.start();
-        usleep(1000);
+        Cycles::sleep(1000);
         TestInterval.stop();
 
         uint64_t tempTime = Cycles::rdtsc();
         TestInterval.start(tempTime);
-        usleep(1000);
+        Cycles::sleep(1000);
         TestInterval.stop();
 
-        usleep(1000);
+        Cycles::sleep(1000);
         TestInterval.start(tempTime);
         tempTime = Cycles::rdtsc();
         TestInterval.stop(tempTime);
@@ -273,9 +273,9 @@ TEST_F(PerfCounterTest, stop) {
 TEST_F(PerfCounterTest, double_stop) {
     EnabledCounter TestCounter("TestCounter");
     EnabledInterval TestInterval(&TestCounter);
-    usleep(1000);
+    Cycles::sleep(1000);
     TestInterval.stop();
-    usleep(1000);
+    Cycles::sleep(1000);
     TestInterval.stop();
     EXPECT_EQ(TestCounter.ramQueue.size(), 1U);
 }
