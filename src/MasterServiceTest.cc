@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <algorithm>
+
 #include "TestUtil.h"
 
 #include "BackupStorage.h"
@@ -339,6 +341,21 @@ class MasterServiceTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(MasterServiceTest);
 };
 
+/**
+ * Used to std::sort tablets by first their tableId then their start hash.
+ *
+ * \param a - tablet 1
+ * \param b - tablet 2
+ * \return  - true if a < b
+ */
+bool tabletCompare(const TabletManager::Tablet &a,
+                          const TabletManager::Tablet &b) {
+    if (a.tableId != b.tableId)
+        return a.tableId < b.tableId;
+    else
+        return a.startKeyHash < b.startKeyHash;
+}
+
 TEST_F(MasterServiceTest, dispatch_initializationNotFinished) {
     Buffer request, response;
     Service::Rpc rpc(NULL, &request, &response);
@@ -434,7 +451,6 @@ TEST_F(MasterServiceTest, dropIndexletOwnership) {
     EXPECT_EQ("dropIndexletOwnership: Dropped ownership of (or did not own) "
             "indexlet in tableId 2, indexId 1", TestLog::get());
 }
-
 
 TEST_F(MasterServiceTest, takeIndexletOwnership) {
 
@@ -615,13 +631,29 @@ TEST_F(MasterServiceTest, getServerStatistics) {
     MasterClient::splitMasterTablet(&context, masterServer->serverId, 1,
             (~0UL/2));
     ramcloud->getServerStatistics("mock:host=master", serverStats);
-    EXPECT_TRUE(StringUtil::startsWith(serverStats.ShortDebugString(),
-            "tabletentry { table_id: 1 "
-            "start_key_hash: 0 "
-            "end_key_hash: 9223372036854775806 } "
-            "tabletentry { table_id: 1 start_key_hash: 9223372036854775807 "
-            "end_key_hash: 18446744073709551615 } "
-            "spin_lock_stats { locks { name:"));
+    ASSERT_EQ(2, serverStats.tabletentry_size());
+
+    auto& entry0 = serverStats.tabletentry(0);
+    auto& entry1 = serverStats.tabletentry(1);
+
+    // The tablets are unordered so we need an order agnostic test
+    if (entry0.start_key_hash() < entry1.start_key_hash()) {
+        EXPECT_EQ(1U, entry0.table_id());
+        EXPECT_EQ(0U, entry0.start_key_hash());
+        EXPECT_EQ(9223372036854775806UL, entry0.end_key_hash());
+
+        EXPECT_EQ(1U, entry1.table_id());
+        EXPECT_EQ(9223372036854775807UL, entry1.start_key_hash());
+        EXPECT_EQ(18446744073709551615UL, entry1.end_key_hash());
+    } else {
+        EXPECT_EQ(1U, entry1.table_id());
+        EXPECT_EQ(0U, entry1.start_key_hash());
+        EXPECT_EQ(9223372036854775806UL, entry1.end_key_hash());
+
+        EXPECT_EQ(1U, entry0.table_id());
+        EXPECT_EQ(9223372036854775807UL, entry0.start_key_hash());
+        EXPECT_EQ(18446744073709551615UL, entry0.end_key_hash());
+    }
 }
 
 TEST_F(MasterServiceTest, increment_basic) {
@@ -2428,10 +2460,10 @@ TEST_F(MasterServiceTest, takeTabletOwnership_newTablet) {
                 "endKeyHash: 1 state: 0 reads: 0 writes: 0 }\n"
                 "{ tableId: 2 startKeyHash: 0 "
                 "endKeyHash: 1 state: 0 reads: 0 writes: 0 }\n"
-                "{ tableId: 2 startKeyHash: 4 "
-                "endKeyHash: 5 state: 0 reads: 0 writes: 0 }\n"
                 "{ tableId: 2 startKeyHash: 2 "
                 "endKeyHash: 3 state: 0 reads: 0 writes: 0 }\n"
+                "{ tableId: 2 startKeyHash: 4 "
+                "endKeyHash: 5 state: 0 reads: 0 writes: 0 }\n"
                 "{ tableId: 3 startKeyHash: 0 "
                 "endKeyHash: 1 state: 0 reads: 0 writes: 0 }",
                 service->tabletManager.toString());
