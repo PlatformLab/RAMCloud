@@ -798,6 +798,38 @@ double lockNonDispThrd()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the time to create and delete an entry in a small
+// map.
+double mapCreate()
+{
+    // Generate an array of random keys that will be used to lookup
+    // entries in the map.
+    int numKeys = 20;
+    uint64_t keys[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+        keys[i] = generateRandom();
+        // printf("Key %d is 0x%lx\n", i, keys[i]);
+    }
+
+    int count = 10000;
+    size_t size = 0;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i += 5) {
+        std::map<uint64_t, uint64_t> map;
+        for (int j = 0; j < numKeys; j++) {
+            map[keys[j]] = 1000+j;
+        }
+        size = map.size();
+        for (int j = 0; j < numKeys; j++) {
+            map.erase(keys[j]);
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    // printf("Map size is %ld\n", size);
+    // printf("sizeof(map): %ld\n", sizeof(std::map<uint64_t, uint64_t>));
+    return Cycles::toSeconds(stop - start)/(count * numKeys);
+}
+
 // Measure the cost of copying a given number of bytes with memcpy.
 double memcpyShared(int cpySize, bool coldSrc = false, bool coldDst = false)
 {
@@ -1289,8 +1321,33 @@ double timeTrace()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the time to create and delete an entry in a small
+// unordered_map.
+double unorderedMapCreate()
+{
+    std::unordered_map<uint64_t, uint64_t> map;
+
+    int count = 100000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i += 5) {
+        map[i] = 100;
+        map[i+1] = 200;
+        map[i+2] = 300;
+        map[i+3] = 400;
+        map[i+4] = 500;
+        map.erase(i);
+        map.erase(i+1);
+        map.erase(i+2);
+        map.erase(i+3);
+        map.erase(i+4);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    // printf("Map size is %ld\n", map.size());
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the time to lookup a random element in a small unordered_map.
-double unorderedMap()
+double unorderedMapLookup()
 {
     std::unordered_map<uint64_t, uint64_t> map;
 
@@ -1446,6 +1503,8 @@ TestInfo tests[] = {
      "Acquire/release Dispatch::Lock (in dispatch thread)"},
     {"lockNonDispThrd", lockNonDispThrd,
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
+    {"mapCreate", mapCreate,
+     "Create+delete entry in std::map"},
     {"memcpyCached100", memcpyCached100,
      "memcpy 100 bytes with hot/fixed dst and src"},
     {"memcpyCached1000", memcpyCached1000,
@@ -1506,7 +1565,9 @@ TestInfo tests[] = {
      "Throw an Exception using ClientException::throwException"},
     {"timeTrace", timeTrace,
      "Record an event using TimeTrace"},
-    {"unorderedMap", unorderedMap,
+    {"unorderedMapCreate", unorderedMapCreate,
+     "Create+delete entry in unordered_map"},
+    {"unorderedMapLookup", unorderedMapLookup,
      "Lookup in std::unordered_map<uint64_t, uint64_t>"},
     {"vectorPushPop", vectorPushPop,
      "Push and pop a std::vector"},
