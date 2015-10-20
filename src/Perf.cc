@@ -830,6 +830,34 @@ double mapCreate()
     return Cycles::toSeconds(stop - start)/(count * numKeys);
 }
 
+// Measure the time to lookup a random element in a small map.
+double mapLookup()
+{
+    std::map<uint64_t, uint64_t> map;
+
+    // Generate an array of random keys that will be used to lookup
+    // entries in the map.
+    int numKeys = 20;
+    uint64_t keys[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+        keys[i] = generateRandom();
+        map[keys[i]] = 12345;
+        // printf("Key %d is 0x%lx\n", i, keys[i]);
+    }
+
+    int count = 100000;
+    uint64_t sum = 0;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        for (int j = 0; j < numKeys; j++) {
+            sum += map[keys[j]];
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    // printf("Sum is %ld\n", sum);
+    return Cycles::toSeconds(stop - start)/(count*numKeys);
+}
+
 // Measure the cost of copying a given number of bytes with memcpy.
 double memcpyShared(int cpySize, bool coldSrc = false, bool coldDst = false)
 {
@@ -1361,7 +1389,7 @@ double unorderedMapLookup()
         // printf("Key %d is 0x%lx\n", i, keys[i]);
     }
 
-    int count = 10000;
+    int count = 100000;
     uint64_t sum = 0;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
@@ -1505,6 +1533,8 @@ TestInfo tests[] = {
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
     {"mapCreate", mapCreate,
      "Create+delete entry in std::map"},
+    {"mapLookup", mapLookup,
+     "Lookup in std::map<uint64_t, uint64_t>"},
     {"memcpyCached100", memcpyCached100,
      "memcpy 100 bytes with hot/fixed dst and src"},
     {"memcpyCached1000", memcpyCached1000,
