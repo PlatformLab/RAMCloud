@@ -1698,6 +1698,7 @@ TEST_F(ClientSessionTest, getRpcInfo) {
 }
 
 TEST_F(ClientSessionTest, init) {
+    double prevCyclesPerSec = Cycles::cyclesPerSec;
     Cycles::cyclesPerSec = 1000000000.0;
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=0x3742");
     session->init(serviceLocator, 0);
@@ -1705,6 +1706,9 @@ TEST_F(ClientSessionTest, init) {
     EXPECT_EQ(100000000UL, session->timeoutCycles);
     session->init(serviceLocator, 20000);
     EXPECT_EQ(1000000000UL*4UL, session->timeoutCycles);
+
+    // Restore the original value, otherwise other tests will fail.
+    Cycles::cyclesPerSec = prevCyclesPerSec;
 }
 
 TEST_F(ClientSessionTest, processInboundPacket_sessionOpen) {
