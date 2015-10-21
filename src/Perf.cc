@@ -808,25 +808,20 @@ double mapCreate()
     uint64_t keys[numKeys];
     for (int i = 0; i < numKeys; i++) {
         keys[i] = generateRandom();
-        // printf("Key %d is 0x%lx\n", i, keys[i]);
     }
 
     int count = 10000;
-    size_t size = 0;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i += 5) {
         std::map<uint64_t, uint64_t> map;
         for (int j = 0; j < numKeys; j++) {
             map[keys[j]] = 1000+j;
         }
-        size = map.size();
         for (int j = 0; j < numKeys; j++) {
             map.erase(keys[j]);
         }
     }
     uint64_t stop = Cycles::rdtsc();
-    // printf("Map size is %ld\n", size);
-    // printf("sizeof(map): %ld\n", sizeof(std::map<uint64_t, uint64_t>));
     return Cycles::toSeconds(stop - start)/(count * numKeys);
 }
 
@@ -842,7 +837,6 @@ double mapLookup()
     for (int i = 0; i < numKeys; i++) {
         keys[i] = generateRandom();
         map[keys[i]] = 12345;
-        // printf("Key %d is 0x%lx\n", i, keys[i]);
     }
 
     int count = 100000;
@@ -854,7 +848,6 @@ double mapLookup()
         }
     }
     uint64_t stop = Cycles::rdtsc();
-    // printf("Sum is %ld\n", sum);
     return Cycles::toSeconds(stop - start)/(count*numKeys);
 }
 
@@ -1370,7 +1363,6 @@ double unorderedMapCreate()
         map.erase(i+4);
     }
     uint64_t stop = Cycles::rdtsc();
-    // printf("Map size is %ld\n", map.size());
     return Cycles::toSeconds(stop - start)/count;
 }
 
@@ -1386,7 +1378,6 @@ double unorderedMapLookup()
     for (int i = 0; i < numKeys; i++) {
         keys[i] = generateRandom();
         map[keys[i]] = 12345;
-        // printf("Key %d is 0x%lx\n", i, keys[i]);
     }
 
     int count = 100000;
@@ -1398,7 +1389,6 @@ double unorderedMapLookup()
         }
     }
     uint64_t stop = Cycles::rdtsc();
-    // printf("Sum is %ld\n", sum);
     return Cycles::toSeconds(stop - start)/(count*numKeys);
 }
 
