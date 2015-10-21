@@ -45,6 +45,15 @@ class TableStatsTest : public ::testing::Test {
         TableStats::increment(&mtm, 66, TableStats::threshold + 2, 66000);
     }
 
+    const TableStats::DigestEntry*
+    findDigestWithTabletId(uint64_t tableId, const TableStats::Digest* digest) {
+        for (size_t i = 0; i < digest->header.entryCount; ++i)
+            if (digest->entries[i].tableId == tableId)
+                return &(digest->entries[i]);
+
+        return NULL;
+    }
+
     const TableStats::Digest* getDigest() {
         digestBuffer.reset();
         TableStats::serialize(&digestBuffer, &mtm);
@@ -275,36 +284,40 @@ TEST_F(TableStatsTest, estimator_constructor) {
               e.otherStats.recordsPerKeyHash);
 
     MasterTableMetadata::Entry* entry;
+    const TableStats::DigestEntry* digestEntry;
 
     entry = mtm.find(64);
+    digestEntry = findDigestWithTabletId(64, digest);
     EXPECT_TRUE(entry != NULL);
     {
         TableStats::Lock guard(entry->stats.lock);
-        EXPECT_EQ(digest->entries[1].bytesPerKeyHash,
+        EXPECT_EQ(digestEntry->bytesPerKeyHash,
                   e.tableStats[64].bytesPerKeyHash);
-        EXPECT_EQ(digest->entries[1].recordsPerKeyHash,
+        EXPECT_EQ(digestEntry->recordsPerKeyHash,
                   e.tableStats[64].recordsPerKeyHash);
     }
     entry = NULL;
 
     entry = mtm.find(65);
+    digestEntry = findDigestWithTabletId(65, digest);
     EXPECT_TRUE(entry != NULL);
     {
         TableStats::Lock guard(entry->stats.lock);
-        EXPECT_EQ(digest->entries[2].bytesPerKeyHash,
+        EXPECT_EQ(digestEntry->bytesPerKeyHash,
                   e.tableStats[65].bytesPerKeyHash);
-        EXPECT_EQ(digest->entries[2].recordsPerKeyHash,
+        EXPECT_EQ(digestEntry->recordsPerKeyHash,
                   e.tableStats[65].recordsPerKeyHash);
     }
     entry = NULL;
 
     entry = mtm.find(66);
+    digestEntry = findDigestWithTabletId(66, digest);
     EXPECT_TRUE(entry != NULL);
     {
         TableStats::Lock guard(entry->stats.lock);
-        EXPECT_EQ(digest->entries[0].bytesPerKeyHash,
+        EXPECT_EQ(digestEntry->bytesPerKeyHash,
                   e.tableStats[66].bytesPerKeyHash);
-        EXPECT_EQ(digest->entries[0].recordsPerKeyHash,
+        EXPECT_EQ(digestEntry->recordsPerKeyHash,
                   e.tableStats[66].recordsPerKeyHash);
     }
     entry = NULL;
