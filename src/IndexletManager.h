@@ -137,7 +137,7 @@ class IndexletManager {
     size_t getNumIndexlets();
     bool hasIndexlet(uint64_t tableId, uint8_t indexId,
             const void *key, uint16_t keyLength);
-    bool isGreaterOrEqual(Key& treeNodeKey,  uint64_t tableId, uint8_t indexId,
+    bool isGreaterOrEqual(Buffer* nodeObjectValue,
             const void* compareKey, uint16_t compareKeyLength);
     void truncateIndexlet(uint64_t tableId, uint8_t indexId,
             const void* truncateKey, uint16_t truncateKeyLength);

@@ -1567,6 +1567,8 @@ PUBLIC:
 
     inline ~IndexBtree() { }
 
+  PUBLIC:
+
     /// Returns the NodeId that will be assigned to the next new node written.
     /// The value will be equal to ROOT_ID when the tree is empty.
     NodeId
@@ -1583,35 +1585,40 @@ PUBLIC:
     }
 
     /**
-     * Returns true if the node specified by the nodeKey contains any
-     * BtreeEntry's (or in the case of InnerNodes, have a path to BtreeEntry's)
-     * that are greater than or equal to compare key; otherwise false.
+     * Given the value for the RAMCloud object encapsulating an indexlet
+     * tree node, check if the node contains (or points to nodes containing)
+     * any entries whose key is greater than or equal to compareKey.
      *
-     * \param nodeKey
-     *      Key Object that contains the NodeId of the node to check
-     *
-     * \param compareKey
-     *      BtreeEntry to compare against
+     * \param nodeObjectValue
+     *      Buffer holding the value of the RAMCloud object encapsulating
+     *      this node. The caller must ensure the lifetime of this buffer.
+     * \param compareEntry
+     *      BtreeEntry to compare against.
      *
      * \return
-     *      true if the LeafNode/InnerNode contains any BtreeEntry's/paths to
-     *      BtreeEntry's that are greater than or equal to the compareKey
+     *      true if the node (leaf or inner) contains any BtreeEntry's or
+     *      paths to BtreeEntry's that are greater than or equal to the
+     *      compareKey; false otherwise.
      */
-    bool
-    isGreaterOrEqual(Key& nodeKey, BtreeEntry compareKey) {
-        Buffer b;
-        const NodeId nodeId =
-            *(static_cast<const NodeId*>(nodeKey.getStringKey()));
-        Node *n = readNode(nodeId, &b);
+    static bool
+    isGreaterOrEqual(Buffer* nodeObjectValue, BtreeEntry compareEntry) {
 
-        if (n->isLeaf())
-            return key_greaterequal(n->back(), compareKey);
+        Node *n = readNodeFromObjectValue(nodeObjectValue);
+
+        if (n->isLeaf()) {
+            RAMCLOUD_LOG(DEBUG, "Checking leaf node entry %s.",
+                    (n->back()).toString().c_str());
+            return key_greaterequal_static(n->back(), compareEntry);
+        }
 
         InnerNode *inner = static_cast<InnerNode*>(n);
         if (inner->rightMostLeafKeyIsInfinite)
             return true;
 
-        return key_greaterequal(inner->getRightMostLeafKey(), compareKey);
+        RAMCLOUD_LOG(DEBUG, "Checking inner node entry %s.",
+                (inner->getRightMostLeafKey()).toString().c_str());
+        return key_greaterequal_static(
+                inner->getRightMostLeafKey(), compareEntry);
     }
 
     PUBLIC:
@@ -1972,11 +1979,21 @@ PRIVATE:
         return (keyComparison == 0) ? (a.pKHash < b.pKHash) : keyComparison < 0;
     }
 
+    /// Static version of key_less().
+    static bool
+    key_less_static(const BtreeEntry a, const BtreeEntry b)
+    {
+        int keyComparison = IndexKey::keyCompare(a.key, a.keyLength,
+                                                 b.key, b.keyLength);
+        return (keyComparison == 0) ? (a.pKHash < b.pKHash) : keyComparison < 0;
+    }
+
     // *** Convenient Key Comparison Functions Generated From key_less
 
     /// True if a <= b ? constructed from key_less()
     inline bool
-    key_lessequal(const BtreeEntry a, const BtreeEntry b) const {
+    key_lessequal(const BtreeEntry a, const BtreeEntry b) const
+    {
         return !key_less(b, a);
     }
 
@@ -1989,8 +2006,16 @@ PRIVATE:
 
     /// True if a >= b ? constructed from key_less()
     inline bool
-    key_greaterequal(const BtreeEntry a, const BtreeEntry b) const {
+    key_greaterequal(const BtreeEntry a, const BtreeEntry b) const
+    {
         return !key_less(a, b);
+    }
+
+    // Static version of key_greaterequal().
+    static bool
+    key_greaterequal_static(const BtreeEntry a, const BtreeEntry b)
+    {
+        return !key_less_static(a, b);
     }
 
     /// True if a == b ? constructed from key_less(). This requires the <
@@ -2122,19 +2147,19 @@ PRIVATE:
     }
 
     /**
-     * Read the node(RamCloud object) corresponding to a given nodeId
+     * Read the node (RAMCloud object) corresponding to a given nodeId
      * and return a pointer to a contiguous copy of the node in memory.
      *
      * \param nodeId
-     *      This will be the primary key for the RamCloud object corresponding
-     *      to a B+ tree node.
+     *      The primary key for the RAMCloud object corresponding
+     *      to the B+ tree node to be read.
      *
      * \param[out] outBuffer
      *      Buffer to hold the contents of the object. The caller must ensure
      *      that this is NOT NULL.
      *
      * \return
-     *      A pointer the Node
+     *      A pointer the Node read.
      */
     inline Node*
     readNode(NodeId nodeId, Buffer* outBuffer) const {
@@ -2154,7 +2179,8 @@ PRIVATE:
         Node *ptr;
         uint32_t peekSize = outBuffer->peek(sizeBeforeRead, ((void**)&ptr));
         if (peekSize < sizeof(Node)) {
-            ptr = static_cast<Node*>(outBuffer->getRange(sizeBeforeRead, sizeof(Node)));
+            ptr = static_cast<Node*>(outBuffer->getRange(sizeBeforeRead,
+                    sizeof(Node)));
         }
 
         uint32_t nodeSize =
@@ -2169,6 +2195,44 @@ PRIVATE:
                      nodeId, ptr->serializedLength());
 
         ptr->reinitFromRead(outBuffer, sizeBeforeRead);
+        return ptr;
+    }
+
+    /**
+     * Given a buffer encapsulating the node (i.e., value of the RAMCloud
+     * object corresponding to this node), return a pointer to a contiguous
+     * copy of the node in memory.
+     *
+     * \param nodeObjectValue
+     *      Buffer holding the value of the RAMCloud object encapsulating
+     *      this node. The caller must ensure the lifetime of this buffer.
+     *
+     * \return
+     *      A pointer the Node read.
+     */
+    static Node*
+    readNodeFromObjectValue(Buffer* nodeObjectValue) {
+        // The trickiness here is that an inner node has more metadata
+        // than the other nodes types. Hence, we first read it back as a Node
+        // object, which is contains enough metadata to determine its real type.
+        // Then read it out in full.
+        Node *ptr;
+        uint32_t peekSize = nodeObjectValue->peek(0, ((void**)&ptr));
+        if (peekSize < sizeof(Node)) {
+            ptr = static_cast<Node*>(
+                    nodeObjectValue->getRange(0, sizeof(Node)));
+        }
+
+        uint32_t nodeSize =
+                (ptr->isLeaf() ? sizeof32(LeafNode) : sizeof32(InnerNode));
+
+        if (peekSize < nodeSize) {
+            ptr = static_cast<Node*>(nodeObjectValue->alloc(nodeSize));
+            memmove(ptr, nodeObjectValue->getRange(0, nodeSize),
+                    nodeSize);
+        }
+
+        ptr->reinitFromRead(nodeObjectValue, 0);
         return ptr;
     }
 

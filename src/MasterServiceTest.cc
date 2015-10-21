@@ -2339,27 +2339,23 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_wrongPartition) {
                     TestLog::get());
 }
 
-#if 0
-// This test is disabled because it fails due to bug RAM-788. It should be
-// re-enabled once the bug is fixed.
 TEST_F(MasterServiceTest, splitAndMigrateIndexlet_moveData) {
     uint64_t dataTableId = ramcloud->createTable("dataTable");
     uint64_t backingTableId = ramcloud->createTable("backingTable");
 
     uint8_t indexId = 1;
-    string firstKey = "abc";
+    string firstKey = "aaa";
     string splitKey = "pqr";
-    string firstNotOwnedKey = "xyz";
+    string firstNotOwnedKey = "zzz";
 
     service->indexletManager.addIndexlet(dataTableId, indexId, backingTableId,
             firstKey.c_str(), (uint16_t)firstKey.length(),
             firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
 
-    service->indexletManager.insertEntry(dataTableId, indexId,
-            "queen", 5, 12345U);
-    service->objectManager.log.sync();
-    service->indexletManager.insertEntry(dataTableId, indexId,
-            "queeN", 5, 1234U);
+    service->indexletManager.insertEntry(
+            dataTableId, indexId, "abcd", 4, 2581U);
+    service->indexletManager.insertEntry(
+            dataTableId, indexId, "tuvw", 4, 9213U);
     service->objectManager.log.sync();
 
     // Add new server after creating the data table and the backing table for
@@ -2368,32 +2364,41 @@ TEST_F(MasterServiceTest, splitAndMigrateIndexlet_moveData) {
     master2Config.master.numReplicas = 0;
     master2Config.localLocator = "mock:host=master2";
     Server* master2 = cluster.addServer(master2Config);
-    Log* master2Log = &master2->master->objectManager.log;
-    master2Log->sync();
+    MasterService* service2 = master2->master.get();
+    service2->objectManager.log.sync();
 
-    uint64_t newBackingTableId = ramcloud->createTable("newBackingTable");
+    uint64_t newBackingTableId = cluster.coordinator->tableManager.createTable(
+            "newBackingTable", 1, master2->serverId);
     MasterClient::prepForIndexletMigration(
             &context, master2->serverId, dataTableId, indexId,
             newBackingTableId,
             splitKey.c_str(), (uint16_t)splitKey.length(),
             firstNotOwnedKey.c_str(), (uint16_t)firstNotOwnedKey.length());
 
-    TestLog::Enable _("splitAndMigrateIndexlet");
+    TestLog::Enable _("splitAndMigrateIndexlet",
+            "migrateSingleIndexObject", "isGreaterOrEqual", NULL);
     EXPECT_NO_THROW(MasterClient::splitAndMigrateIndexlet(
             &context, masterServer->serverId, master2->serverId,
             dataTableId, indexId,
             backingTableId, newBackingTableId,
             splitKey.c_str(), (uint16_t)splitKey.length()));
-    EXPECT_EQ("splitAndMigrateIndexlet: Migrating a partition of an indexlet "
-            "in indexId 1 in tableId 1 "
-            "from server 2.0 at mock:host=master "
-            "(this server) to server 3.0 at mock:host=master2. | "
+
+    EXPECT_EQ("splitAndMigrateIndexlet: Migrating a partition of "
+            "an indexlet in indexId 1 in tableId 1 "
+            "from server 2.0 at mock:host=master (this server) "
+            "to server 3.0 at mock:host=master2. | "
+            "isGreaterOrEqual: Checking leaf node entry  "
+            "( pKHash: 2581 keyLength: 4 key: abcd ). | "
+            "migrateSingleIndexObject: Found entry that doesn't belong to the "
+            "partition being migrated. Continuing to the next. | "
+            "isGreaterOrEqual: Checking leaf node entry  "
+            "( pKHash: 9213 keyLength: 4 key: tuvw ). | "
+            "migrateSingleIndexObject: Migrating an index entry. | "
             "splitAndMigrateIndexlet: Sending last migration segment | "
             "splitAndMigrateIndexlet: Sent 1 total objects, "
-            "1 total tombstones, 261 total bytes.",
+            "1 total tombstones, 259 total bytes.",
                     TestLog::get());
 }
-#endif
 
 TEST_F(MasterServiceTest, splitMasterTablet) {
 
