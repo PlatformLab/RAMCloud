@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -25,9 +25,10 @@ class InfAddressTest : public ::testing::Test {
 
     string tryLocator(const char *locator) {
         try {
+            ServiceLocator sl(locator);
             // dangerous cast!
             Infiniband::Address(*reinterpret_cast<Infiniband*>(x), 0,
-                       ServiceLocator(locator));
+                       &sl);
         } catch (Infiniband::Address::BadAddressException& e) {
             return e.message;
         }
@@ -65,9 +66,10 @@ TEST_F(InfAddressTest, constructor) {
 }
 
 TEST_F(InfAddressTest, toString) {
+    ServiceLocator sl("fast+infud: lid=721, qpn=23472");
     // dangerous cast!
     Infiniband::Address a(*reinterpret_cast<Infiniband*>(x), 0,
-                        ServiceLocator("fast+infud: lid=721, qpn=23472"));
+                        &sl);
     EXPECT_EQ("721:23472", a.toString());
 }
 

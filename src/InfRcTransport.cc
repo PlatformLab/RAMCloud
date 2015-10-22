@@ -218,7 +218,7 @@ InfRcTransport::InfRcTransport(Context* context,
 
     // If this is a server, create a server setup socket and bind it.
     if (sl != NULL) {
-        IpAddress address(*sl);
+        IpAddress address(sl);
 
         serverSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
         if (serverSetupSocket == -1) {
@@ -358,14 +358,14 @@ InfRcTransport::setNonBlocking(int fd)
  *      There was a problem that prevented us from creating the session.
  */
 InfRcTransport::InfRcSession::InfRcSession(
-    InfRcTransport *transport, const ServiceLocator& sl, uint32_t timeoutMs)
+    InfRcTransport *transport, const ServiceLocator* sl, uint32_t timeoutMs)
     : transport(transport)
     , serverAddress()
     , qp(NULL)
     , sessionAlarm(transport->context->sessionAlarmTimer, this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
-    setServiceLocator(sl.getOriginalString());
+    setServiceLocator(sl->getOriginalString());
     IpAddress address(sl);
     serverAddress = reinterpret_cast<struct sockaddr_in*>(
             &address.address)->sin_addr;

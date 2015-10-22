@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -50,13 +50,13 @@ class IpAddress : public Driver::Address {
          */
         explicit BadIpAddressException(const CodeLocation& where,
                                        std::string msg,
-                const ServiceLocator& serviceLocator) : Exception(where,
-                "Service locator '" + serviceLocator.getOriginalString() +
+                const ServiceLocator* serviceLocator) : Exception(where,
+                "Service locator '" + serviceLocator->getOriginalString() +
                 "' couldn't be converted to IP address: " + msg) {}
     };
 
     IpAddress() : address() {}
-    explicit IpAddress(const ServiceLocator& serviceLocator);
+    explicit IpAddress(const ServiceLocator* serviceLocator);
     explicit IpAddress(const sockaddr *address);
     explicit IpAddress(const uint32_t ip, const uint16_t port);
     IpAddress(const IpAddress& other)

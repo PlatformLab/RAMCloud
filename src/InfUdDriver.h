@@ -59,10 +59,10 @@ class InfUdDriver : public Driver {
                             Buffer::Iterator *payload);
     virtual string getServiceLocator();
 
-    virtual Driver::Address* newAddress(const ServiceLocator& serviceLocator) {
+    virtual Driver::Address* newAddress(const ServiceLocator* serviceLocator) {
         if (localMac) {
             return new MacAddress(
-                serviceLocator.getOption<const char*>("mac"));
+                serviceLocator->getOption<const char*>("mac"));
         } else {
             return new Address(*infiniband, ibPhysicalPort, serviceLocator);
         }

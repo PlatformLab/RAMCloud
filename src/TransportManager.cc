@@ -388,7 +388,7 @@ TransportManager::openSessionInternal(const string& serviceLocator)
 
             try {
                 Transport::SessionRef session = transports[i]->getSession(
-                        locator, sessionTimeoutMs);
+                        &locator, sessionTimeoutMs);
                 if (isServer) {
                     return new WorkerSession(context, session);
                 }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -29,7 +29,8 @@ class IpAddressTest : public ::testing::Test {
 
     string tryLocator(const char *locator) {
         try {
-            IpAddress(ServiceLocator(locator));
+            ServiceLocator sl(locator);
+            IpAddress a(&sl);
         } catch (IpAddress::BadIpAddressException& e) {
             return e.message;
         }
@@ -68,7 +69,8 @@ TEST_F(IpAddressTest, constructor) {
 }
 
 TEST_F(IpAddressTest, toString) {
-    IpAddress a(ServiceLocator("fast+udp: host=171.67.64.21, port=80"));
+    ServiceLocator sl("fast+udp: host=171.67.64.21, port=80");
+    IpAddress a(&sl);
     EXPECT_EQ("171.67.64.21:80", a.toString());
 }
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,13 +22,13 @@ namespace RAMCloud
  * \param serviceLocator
  *      The "host" and "port" options describe the desired address.
  */
-MacIpAddress::MacIpAddress(const ServiceLocator& serviceLocator)
+MacIpAddress::MacIpAddress(const ServiceLocator* serviceLocator)
     : ipAddress()
     , macAddress()
     , macProvided(false)
 {
     ipAddress.construct(serviceLocator);
-    macAddress.construct(serviceLocator.getOption<const char*>("mac",
+    macAddress.construct(serviceLocator->getOption<const char*>("mac",
         "00:00:00:00:00:00"));
     const uint8_t* macAddr = macAddress->address;
     uint8_t sum = 0;

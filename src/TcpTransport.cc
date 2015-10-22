@@ -67,7 +67,7 @@ TcpTransport::TcpTransport(Context* context,
 {
     if (serviceLocator == NULL)
         return;
-    IpAddress address(*serviceLocator);
+    IpAddress address(serviceLocator);
     locatorString = serviceLocator->getOriginalString();
 
     listenSocket = sys->socket(PF_INET, SOCK_STREAM, 0);
@@ -600,7 +600,7 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
  *      There was a problem that prevented us from creating the session.
  */
 TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
-        const ServiceLocator& serviceLocator,
+        const ServiceLocator* serviceLocator,
         uint32_t timeoutMs)
     : transport(transport)
     , address(serviceLocator)
@@ -614,7 +614,7 @@ TcpTransport::TcpSession::TcpSession(TcpTransport& transport,
     , alarm(transport.context->sessionAlarmTimer, this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
-    setServiceLocator(serviceLocator.getOriginalString());
+    setServiceLocator(serviceLocator->getOriginalString());
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
         LOG(WARNING, "TcpTransport couldn't open socket for session: %s",

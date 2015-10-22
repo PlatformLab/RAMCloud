@@ -76,9 +76,9 @@ class DpdkDriver : public Driver
         PacketBuf() : dpdkAddress(), payload() { }
     };
 
-    virtual Address* newAddress(const ServiceLocator& serviceLocator)
+    virtual Address* newAddress(const ServiceLocator* serviceLocator)
     {
-        return new MacAddress(serviceLocator.getOption<const char*>("mac"));
+        return new MacAddress(serviceLocator->getOption<const char*>("mac"));
     }
 
     Context* context;

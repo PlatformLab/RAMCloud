@@ -289,7 +289,7 @@ class Transport {
      * An RpcNotifier is an object that transports use to notify higher-level
      * software when an RPC has completed.  The RpcNotifier also serves as a
      * unique identifier for the RPC, which can be used to cancel it.
-     * 
+     *
      */
     class RpcNotifier {
       public:
@@ -329,7 +329,7 @@ class Transport {
      * \throw TransportException
      *      The transport can't open a session for \a serviceLocator.
      */
-    virtual SessionRef getSession(const ServiceLocator& serviceLocator,
+    virtual SessionRef getSession(const ServiceLocator* serviceLocator,
             uint32_t timeoutMs = 0) = 0;
 
     /**
@@ -371,7 +371,7 @@ class Transport {
     static const uint32_t DEFAULT_TIMEOUT_MS = 500;
 
     /**
-     * One ServerPort instance is created for a lissen port 
+     * One ServerPort instance is created for a listen port
      * of the transport on the server.
      * It keeps track the port liveness with watchdog timer,
      *

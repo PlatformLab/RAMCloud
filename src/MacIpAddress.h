@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,7 +30,7 @@ namespace RAMCloud {
  */
 class MacIpAddress : public Driver::Address {
   public:
-    explicit MacIpAddress(const ServiceLocator& serviceLocator);
+    explicit MacIpAddress(const ServiceLocator* serviceLocator);
     explicit MacIpAddress(const uint32_t ip,
                                const uint16_t port,
                                const uint8_t mac[6] = NULL);

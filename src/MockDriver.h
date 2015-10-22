@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -30,8 +30,8 @@ namespace RAMCloud {
 class MockDriver : public Driver {
   public:
     struct MockAddress : public Address {
-        explicit MockAddress(const ServiceLocator& serviceLocator)
-            : serviceLocator(serviceLocator) {}
+        explicit MockAddress(const ServiceLocator* serviceLocator)
+            : serviceLocator(*serviceLocator) {}
         MockAddress(const MockAddress& other)
             : Address(other), serviceLocator(other.serviceLocator) {}
         MockAddress* clone() const {
@@ -64,7 +64,7 @@ class MockDriver : public Driver {
                             Buffer::Iterator *payload);
     virtual string getServiceLocator();
 
-    virtual Address* newAddress(const ServiceLocator& serviceLocator) {
+    virtual Address* newAddress(const ServiceLocator* serviceLocator) {
         return new MockAddress(serviceLocator);
     }
 

@@ -71,7 +71,7 @@ UdpDriver::UdpDriver(Context* context,
     }
 
     if (localServiceLocator != NULL) {
-        IpAddress ipAddress(*localServiceLocator);
+        IpAddress ipAddress(localServiceLocator);
         int r = sys->bind(fd, &ipAddress.address, sizeof(ipAddress.address));
         if (r == -1) {
             int e = errno;

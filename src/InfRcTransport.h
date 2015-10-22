@@ -66,7 +66,7 @@ class InfRcTransport : public Transport {
   public:
     explicit InfRcTransport(Context* context, const ServiceLocator* sl = NULL);
     ~InfRcTransport();
-    SessionRef getSession(const ServiceLocator& sl, uint32_t timeoutMs = 0) {
+    SessionRef getSession(const ServiceLocator* sl, uint32_t timeoutMs = 0) {
         return new InfRcSession(this, sl, timeoutMs);
     }
     string getServiceLocator();
@@ -192,7 +192,7 @@ class InfRcTransport : public Transport {
     class InfRcSession : public Session {
       public:
         explicit InfRcSession(InfRcTransport *transport,
-            const ServiceLocator& sl, uint32_t timeoutMs);
+            const ServiceLocator* sl, uint32_t timeoutMs);
         ~InfRcSession();
         virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
@@ -220,7 +220,7 @@ class InfRcTransport : public Transport {
      * maintain the port liveness watchdog information.
      *
      * When associated client queue pair is destroyed, eg. through
-     * deletion of RamCloud instance, the other side of queue 
+     * deletion of RamCloud instance, the other side of queue
      * pair on server and its resource need to be deleted.
      * The liveness watchdog cleans up the server side queue pair.
      *

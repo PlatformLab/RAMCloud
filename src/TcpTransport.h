@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -42,7 +42,7 @@ class TcpTransport : public Transport {
     explicit TcpTransport(Context* context,
             const ServiceLocator* serviceLocator = NULL);
     ~TcpTransport();
-    SessionRef getSession(const ServiceLocator& serviceLocator,
+    SessionRef getSession(const ServiceLocator* serviceLocator,
             uint32_t timeoutMs = 0) {
         return new TcpSession(*this, serviceLocator, timeoutMs);
     }
@@ -247,7 +247,7 @@ class TcpTransport : public Transport {
       friend class ClientSocketHandler;
       public:
         explicit TcpSession(TcpTransport& transport,
-                const ServiceLocator& serviceLocator,
+                const ServiceLocator* serviceLocator,
                 uint32_t timeoutMs = 0);
         ~TcpSession();
         virtual void abort();

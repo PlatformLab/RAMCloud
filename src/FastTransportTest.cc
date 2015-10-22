@@ -166,7 +166,7 @@ TEST_F(FastTransportTest, sanityCheck) {
     FastTransport server(&context, serverDriver);
     UdpDriver* clientDriver = new UdpDriver(&context);
     FastTransport client(&context, clientDriver);
-    Transport::SessionRef session = client.getSession(serverLocator);
+    Transport::SessionRef session = client.getSession(&serverLocator);
 
     MockWrapper rpc1("abcdefg");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
@@ -198,7 +198,7 @@ TEST_F(FastTransportTest, sanityCheck) {
 TEST_F(FastTransportTest, getSession_noneExpirable) {
     EXPECT_EQ(0U, transport->clientSessions.size());
     FastTransport::SessionRef session =
-            transport->getSession(serviceLocator);
+            transport->getSession(&serviceLocator);
     EXPECT_TRUE(NULL != session.get());
     EXPECT_EQ(1U, transport->clientSessions.size());
     FastTransport::ClientSession* clientSession =
@@ -210,11 +210,11 @@ TEST_F(FastTransportTest, getSession_reuseExpired) {
     context.dispatch->currentTime = 0;
     EXPECT_EQ(0U, transport->clientSessions.size());
     Transport::Session* firstSession =
-        transport->getSession(serviceLocator).get();
+        transport->getSession(&serviceLocator).get();
     FastTransport::sessionExpireCyclesOverride = 10000U;
     context.dispatch->currentTime = 10000U;
     Transport::Session* lastSession =
-        transport->getSession(serviceLocator).get();
+        transport->getSession(&serviceLocator).get();
     EXPECT_EQ(firstSession, lastSession);
     EXPECT_EQ(1U, transport->clientSessions.size());
 }
@@ -291,7 +291,7 @@ TEST_F(FastTransportTest, handleIncomingPacket_c2sBadHintOpenSession) {
             FastTransport::ClientSession::INVALID_HINT;
     recvd.getHeader()->payloadType = FastTransport::Header::SESSION_OPEN;
     ServiceLocator sl("mock:");
-    recvd.sender = driver->newAddress(sl);
+    recvd.sender = driver->newAddress(&sl);
 
     transport->handleIncomingPacket(&recvd);
     EXPECT_EQ(
@@ -359,7 +359,7 @@ TEST_F(FastTransportTest, handleIncomingPacket_s2cGoodHint) {
     TestLog::Enable _(&tppPred);
 
     FastTransport::SessionRef session =
-            transport->getSession(serviceLocator);
+            transport->getSession(&serviceLocator);
     FastTransport::ClientSession* clientSession =
         static_cast<FastTransport::ClientSession*>(session.get());
 
@@ -376,7 +376,7 @@ TEST_F(FastTransportTest, handleIncomingPacket_s2cGoodHint) {
 TEST_F(FastTransportTest, handleIncomingPacket_s2cGoodHintBadToken) {
     TestLog::Enable _(&tppPred);
 
-    transport->getSession(serviceLocator);
+    transport->getSession(&serviceLocator);
 
     MockReceived recvd(0, 1, "");
     recvd.getHeader()->direction =
@@ -411,7 +411,7 @@ TEST_F(FastTransportTest, ServerRpc_getClientServiceLocator) {
     FastTransport server(&context, serverDriver);
     UdpDriver* clientDriver = new UdpDriver(&context);
     FastTransport client(&context, clientDriver);
-    Transport::SessionRef session = client.getSession(serverLocator);
+    Transport::SessionRef session = client.getSession(&serverLocator);
 
     MockWrapper rpc("acdefg");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
@@ -461,7 +461,7 @@ class InboundMessageTest : public ::testing::Test {
         msg = new FastTransport::InboundMessage();
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=1234");
-        session = transport->getSession(serviceLocator);
+        session = transport->getSession(&serviceLocator);
 
         clientSession =
              static_cast<FastTransport::ClientSession*>(session.get());
@@ -837,7 +837,7 @@ class OutboundMessageTest: public ::testing::Test {
         uint32_t channelId = 5;
 
         ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=1234");
-        session = transport->getSession(serviceLocator);
+        session = transport->getSession(&serviceLocator);
         clientSession =
             static_cast<FastTransport::ClientSession*>(session.get());
         clientSession->numChannels =
@@ -1197,7 +1197,7 @@ class ServerSessionTest: public ::testing::Test {
         transport = new FastTransport(&context, driver);
         session = new FastTransport::ServerSession(transport, sessionId);
         ServiceLocator sl("mock: host=1.2.3.4, port=12345");
-        driverAddress = driver->newAddress(sl);
+        driverAddress = driver->newAddress(&sl);
     }
 
     ~ServerSessionTest()
@@ -1595,7 +1595,7 @@ TEST_F(ClientSessionTest, cancelRequest) {
 
 TEST_F(ClientSessionTest, connect) {
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
-    session->init(serviceLocator, 0);
+    session->init(&serviceLocator, 0);
 
     session->connect();
     EXPECT_EQ(1, session->sessionOpenAttempts);
@@ -1701,10 +1701,10 @@ TEST_F(ClientSessionTest, init) {
     double prevCyclesPerSec = Cycles::cyclesPerSec;
     Cycles::cyclesPerSec = 1000000000.0;
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=0x3742");
-    session->init(serviceLocator, 0);
+    session->init(&serviceLocator, 0);
     EXPECT_TRUE(NULL != session->serverAddress.get());
     EXPECT_EQ(100000000UL, session->timeoutCycles);
-    session->init(serviceLocator, 20000);
+    session->init(&serviceLocator, 20000);
     EXPECT_EQ(1000000000UL*4UL, session->timeoutCycles);
 
     // Restore the original value, otherwise other tests will fail.
@@ -1916,7 +1916,7 @@ TEST_F(ClientSessionTest, sendRequest_availableChannel) {
 
 TEST_F(ClientSessionTest, sendSessionOpenRequest) {
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
-    session->init(serviceLocator, 0);
+    session->init(&serviceLocator, 0);
     session->sendSessionOpenRequest();
     EXPECT_EQ(
         "{ sessionToken:cccccccccccccccc rpcId:0 "
@@ -2084,7 +2084,7 @@ TEST_F(ClientSessionTest, processSessionOpenResponse_tooManyChannelsOnServer) {
 TEST_F(ClientSessionTest, handleTimerEvent) {
     TestLog::Enable _;
     ServiceLocator serviceLocator("fast+udp: host=1.2.3.4, port=12345");
-    session->init(serviceLocator, 0);
+    session->init(&serviceLocator, 0);
     session->connect();
     EXPECT_EQ(1, session->sessionOpenAttempts);
 

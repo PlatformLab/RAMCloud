@@ -246,8 +246,8 @@ class Infiniband {
              */
             explicit BadAddressException(const CodeLocation& where,
                                             std::string msg,
-                    const ServiceLocator& serviceLocator) : Exception(where,
-                    "Service locator '" + serviceLocator.getOriginalString() +
+                    const ServiceLocator* serviceLocator) : Exception(where,
+                    "Service locator '" + serviceLocator->getOriginalString() +
                     "' couldn't be converted to Infiniband address: " + msg) {}
         };
         Address* clone() const {
@@ -256,7 +256,7 @@ class Infiniband {
         string toString() const;
 
         Address(Infiniband& infiniband, int physicalPort,
-                   const ServiceLocator& serviceLocator);
+                   const ServiceLocator* serviceLocator);
         Address(Infiniband& infiniband, int physicalPort,
                    uint16_t lid, uint32_t qpn)
             : Driver::Address()

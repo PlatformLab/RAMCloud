@@ -73,8 +73,8 @@ struct BindTransport : public Transport {
     }
 
     Transport::SessionRef
-    getSession(const ServiceLocator& serviceLocator, uint32_t timeoutMs = 0) {
-        const string& locator = serviceLocator.getOriginalString();
+    getSession(const ServiceLocator* serviceLocator, uint32_t timeoutMs = 0) {
+        const string& locator = serviceLocator->getOriginalString();
         ServerMap::iterator it = servers.find(locator);
         if (it == servers.end()) {
             throw TransportException(HERE, format("Unknown mock host: %s",

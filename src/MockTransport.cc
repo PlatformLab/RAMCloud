@@ -57,18 +57,18 @@ MockTransport::getServiceLocator()
 }
 
 Transport::SessionRef
-MockTransport::getSession(const ServiceLocator& serviceLocator,
+MockTransport::getSession(const ServiceLocator* serviceLocator,
         uint32_t timeoutMs)
 {
     sessionCreateCount++;
 
     // magic hook to invoke failed getSession in testing
-    if (strstr(serviceLocator.getOriginalString().c_str(),
+    if (strstr(serviceLocator->getOriginalString().c_str(),
             "host=error") != NULL)
         throw TransportException(HERE, "Failed to open session");
 
     MockSession* session = new MockSession(this, serviceLocator);
-    session->setServiceLocator(serviceLocator.getOriginalString());
+    session->setServiceLocator(serviceLocator->getOriginalString());
     return session;
 }
 

@@ -47,7 +47,7 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     // Verify that we can send a request, receive it, send a reply,
     // and receive it. Then try a second request with bigger chunks
     // of data.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc("abcdefg");
     // Put junk in the response buffer to make sure it gets cleared properly.
     rpc.response.fillFromString("abcde");
@@ -83,7 +83,7 @@ bool sendZeroCopyFilter(string s) {
 }
 
 TEST_F(InfRcTransportTest, ClientRpc_sendZeroCopy) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     client.testingDontReallySend = true;
     MockWrapper rpc1("r1");
     MockWrapper rpc2("r2");
@@ -132,7 +132,7 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
     TestLog::Enable _;
 
     // Arrange for 2 messages on clientSendQueue.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     InfRcTransport::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
     MockWrapper rpc1("r1");
@@ -154,7 +154,7 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onOutstandingRpcs) {
     TestLog::Enable _;
 
     // Arrange for 2 messages on outstandingRpcs.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc1("r1");
     MockWrapper rpc2("r2");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
@@ -171,7 +171,7 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcPending) {
     TestLog::Enable _;
 
     // Send a message, then cancel before the response is received.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     InfRcTransport::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
     MockWrapper rpc("abcdefg");
@@ -190,7 +190,7 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     TestLog::Enable _;
 
     // Send a message, then cancel before the response is received.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     InfRcTransport::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
     MockWrapper rpc("abcdefg");
@@ -238,7 +238,7 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
 
 TEST_F(InfRcTransportTest, getRpcInfo) {
     TestLog::Enable _;
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     InfRcTransport::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
 
@@ -267,7 +267,7 @@ TEST_F(InfRcTransportTest, getRpcInfo) {
 }
 
 TEST_F(InfRcTransportTest, ClientRpc_sendRequest_sessionAborted) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc;
     session->abort();
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
@@ -275,7 +275,7 @@ TEST_F(InfRcTransportTest, ClientRpc_sendRequest_sessionAborted) {
 }
 
 TEST_F(InfRcTransportTest, ServerRpc_getClientServiceLocator) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc("request");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =

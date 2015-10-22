@@ -60,8 +60,8 @@ TEST_F(InfUdDriverTest, basics) {
     InfUdDriver *client =
             new InfUdDriver(&context, NULL, false);
     MockFastTransport clientTransport(&context, client);
-    Driver::Address* serverAddress =
-            client->newAddress(ServiceLocator(server->getServiceLocator()));
+    ServiceLocator sl(server->getServiceLocator());
+    Driver::Address* serverAddress = client->newAddress(&sl);
 
     Buffer message;
     const char *testString = "This is a sample message";

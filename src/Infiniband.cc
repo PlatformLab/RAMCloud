@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -877,7 +877,7 @@ Infiniband::QueuePair::getSinName() const
  */
 Infiniband::Address::Address(Infiniband& infiniband,
                              int physicalPort,
-                             const ServiceLocator& serviceLocator)
+                             const ServiceLocator* serviceLocator)
     : infiniband(infiniband)
     , physicalPort(physicalPort)
     , lid()
@@ -885,7 +885,7 @@ Infiniband::Address::Address(Infiniband& infiniband,
     , ah(NULL)
 {
     try {
-        lid = serviceLocator.getOption<uint16_t>("lid");
+        lid = serviceLocator->getOption<uint16_t>("lid");
     } catch (NoSuchKeyException &e) {
         throw BadAddressException(HERE,
             "Mandatory option ``lid'' missing from infiniband ServiceLocator.",
@@ -897,7 +897,7 @@ Infiniband::Address::Address(Infiniband& infiniband,
     }
 
     try {
-        qpn = serviceLocator.getOption<uint32_t>("qpn");
+        qpn = serviceLocator->getOption<uint32_t>("qpn");
     } catch (NoSuchKeyException &e) {
         throw BadAddressException(HERE,
             "Mandatory option ``qpn'' missing from infiniband "
