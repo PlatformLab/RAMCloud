@@ -30,6 +30,7 @@ class SegmentIteratorTest : public ::testing::Test {
         : s()
         , certificate()
     {
+        bzero(s.segletBlocks[0], s.segletSize); // Needed due to RAM-794
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
         s.getAppendedLength(&certificate);
     }
@@ -138,9 +139,9 @@ TEST_F(SegmentIteratorTest, next) {
     EXPECT_EQ(0U, it.currentOffset);
     EXPECT_EQ(s.getEntryHeader(0), it.currentHeader);
     it.getLength();
-    EXPECT_TRUE(it.currentLength);
+    EXPECT_FALSE(it.currentLength);
     it.next();
-    EXPECT_TRUE(it.currentLength);  // isDone() is true, so noop
+    EXPECT_FALSE(it.currentLength);  // isDone() is true, so noop
     EXPECT_EQ(0U, it.currentOffset);
     EXPECT_EQ(s.getEntryHeader(0), it.currentHeader);
 

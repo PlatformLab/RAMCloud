@@ -670,6 +670,22 @@ TEST_F(RecoveryTest, partitionTablets_all_partitions_open) {
     EXPECT_EQ(20lu, recovery->numPartitions);
 }
 
+/**
+ * Used to sort tablets first by their tableId then start keyhash.
+ *
+ * \param a - tablet 1
+ * \param b - tablet 2
+ * \return  - true if a < b
+ */
+bool
+tabletComp(const Tablet &a,
+              const Tablet &b) {
+    if (a.tableId != b.tableId)
+        return a.tableId < b.tableId;
+    else
+        return a.startKeyHash < b.startKeyHash;
+}
+
 TEST_F(RecoveryTest, partitionTablets_mixed) {
     // Covers the addtional case where partitions will contain one large tablet
     // and filled by many smaller ones.  Case covers selecting from multiple
@@ -689,7 +705,8 @@ TEST_F(RecoveryTest, partitionTablets_mixed) {
     }
     recovery.construct(&context, taskQueue, &tableManager, &tracker, own,
                        ServerId(99), recoveryInfo);
-    auto tablets = tableManager.markAllTabletsRecovering(ServerId(99));
+    vector<Tablet> tablets =
+                        tableManager.markAllTabletsRecovering(ServerId(99));
 
     char buffer[sizeof(TableStats::DigestHeader) +
                 0 * sizeof(TableStats::DigestEntry)];
@@ -701,6 +718,11 @@ TEST_F(RecoveryTest, partitionTablets_mixed) {
                                             * Recovery::PARTITION_MAX_RECORDS;
 
     TableStats::Estimator e(digest);
+
+    // Tablets need to be sorted because the list returned from
+    // markAllTabletsRecovering is built from unordered_map::iterator, which
+    // means that the ordering can change from version to version of gcc.
+    std::sort(tablets.begin(), tablets.end(), tabletComp);
 
     recovery->partitionTablets(tablets, &e);
     EXPECT_EQ(6lu, recovery->numPartitions);

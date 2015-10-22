@@ -924,7 +924,7 @@ MasterService::migrateSingleLogEntry(
         // dead. However, this doesn't work in the presence of concurrent
         // cleaning: the cleaner may have moved an object to a side segment
         // that is not yet visible. Thus, we must send objects even if they
-        // ddon't appear to be alive. If an object really is dead, we will
+        // don't appear to be alive. If an object really is dead, we will
         // also send a tombstone, which will allow the object to be filtered at
         // the destination.
 
@@ -1701,7 +1701,6 @@ MasterService::receiveMigrationData(
         WireFormat::ReceiveMigrationData::Response* respHdr,
         Rpc* rpc)
 {
-    // TODO(ankitak)
     uint64_t tableId = reqHdr->tableId;
     uint64_t firstKeyHash = reqHdr->firstKeyHash;
     uint32_t segmentBytes = reqHdr->segmentBytes;
@@ -2017,13 +2016,6 @@ MasterService::migrateSingleIndexObject(
         return 0;
     }
 
-    if (!indexletManager.isGreaterOrEqual(indexNodeKey, tableId, indexId,
-            splitKey, splitKeyLength)) {
-        LOG(DEBUG, "Found entry that doesn't belong to "
-                "the partition being migrated. Continuing to the next.");
-        return 0;
-    }
-
     // TODO(ankitak): See if I can get away with only logEntryBuffer.
     Buffer dataBufferToTransfer;
 
@@ -2037,11 +2029,22 @@ MasterService::migrateSingleIndexObject(
         // also send a tombstone, which will allow the object to be filtered at
         // the destination.
 
-        totalObjects++;
-
         Object object(logEntryBuffer);
+        Buffer nodeObjectValue;
+        object.appendValueToBuffer(&nodeObjectValue);
+
+        if (!indexletManager.isGreaterOrEqual(
+                &nodeObjectValue, splitKey, splitKeyLength)) {
+            LOG(DEBUG, "Found entry that doesn't belong to "
+                    "the partition being migrated. Continuing to the next.");
+            return 0;
+        }
+
+        LOG(DEBUG, "Migrating an index entry.");
         object.changeTableId(newBackingTableId);
         object.assembleForLog(dataBufferToTransfer);
+
+        totalObjects++;
 
     } else {
         // We must always send tombstones, since an object we may have sent
@@ -2054,12 +2057,11 @@ MasterService::migrateSingleIndexObject(
         // way is to just record the LogPosition when we started
         // iterating and only send newer tombstones.
 
-        totalTombstones++;
-
         ObjectTombstone tombstone(logEntryBuffer);
         tombstone.changeTableId(newBackingTableId);
         tombstone.assembleForLog(dataBufferToTransfer);
 
+        totalTombstones++;
     }
 
     totalBytes += dataBufferToTransfer.size();
