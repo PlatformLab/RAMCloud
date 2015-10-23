@@ -538,9 +538,6 @@ void
 Logger::printMessage(struct timespec t, const char* message, int skipCount)
 {
     FILE* f = getStream();
-    if (strncmp(message, "src/AbstractLog.cc:280", 22) == 0) {
-        printf("****** Found offending message!\n");
-    }
     if (skipCount > 0) {
         fprintf(f, "%010lu.%09lu (%d duplicates of the following message "
                 "were suppressed)\n", t.tv_sec, t.tv_nsec, skipCount);
