@@ -43,6 +43,17 @@
 
 namespace RAMCloud {
 
+/**
+ * GCC 4.6 and above require const double's to be declared as constexpr double,
+ * so this macro was created to allow you to create const double's in a version
+ * agnostic manner.
+ */
+#if __cpp_constexpr
+    #define CONST_DOUBLE constexpr double
+#else
+    #define CONST_DOUBLE const double
+#endif
+
 // htons, ntohs cause warnings
 #define HTONS(x) \
     static_cast<uint16_t>((((x) >> 8) & 0xff) | (((x) & 0xff) << 8))
