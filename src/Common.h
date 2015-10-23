@@ -44,14 +44,16 @@
 namespace RAMCloud {
 
 /**
- * GCC 4.6 and above require const double's to be declared as constexpr double,
- * so this macro was created to allow you to create const double's in a version
- * agnostic manner.
+ * GCC 4.6 and above introduced the constexpr keyword, but it's not backward
+ * compatible with earlier versions. This macro changes constexpr's to const's
+ * for the incompatible versions. Additionally, 4.6 and above requires (in the
+ * form of warnings) that const double's be constexpr double's and this
+ * achieves the forward compatibility.
  */
 #if __cpp_constexpr
-    #define CONST_DOUBLE constexpr double
+    #define CONSTEXPR constexpr
 #else
-    #define CONST_DOUBLE const double
+    #define CONSTEXPR const
 #endif
 
 // htons, ntohs cause warnings

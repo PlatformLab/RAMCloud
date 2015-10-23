@@ -68,7 +68,7 @@ class CoordinatorClusterClock {
     /// Amount of time (in seconds) between updates of the safeClusterTime to
     /// externalStorage.  This time should be less than the safeTimeIntervalMs;
     /// we recommend a value equivalent to half the safeTimeIntervalMs.
-    static CONST_DOUBLE updateIntervalS = 1.5;
+    static CONSTEXPR double updateIntervalS = 1.5;
 
     /// System time of the coordinator when the clock is initialized.  Used to
     /// calculate current cluster time.
