@@ -13,7 +13,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ClientLease.h"
+#include "ClientLeaseAgent.h"
+
+#include "ClusterTime.h"
 #include "Cycles.h"
 #include "LeaseCommon.h"
 #include "RamCloud.h"
@@ -25,7 +27,7 @@ namespace RAMCloud {
 /**
  * Constructor for ClientLease.
  */
-ClientLease::ClientLease(RamCloud* ramcloud)
+ClientLeaseAgent::ClientLeaseAgent(RamCloud* ramcloud)
     : mutex()
     , ramcloud(ramcloud)
     , lease({0, 0, 0})
@@ -41,7 +43,7 @@ ClientLease::ClientLease(RamCloud* ramcloud)
  * return a valid client lease.
  */
 WireFormat::ClientLease
-ClientLease::getLease()
+ClientLeaseAgent::getLease()
 {
     Lock _(mutex);
 
@@ -66,7 +68,7 @@ ClientLease::getLease()
  * called periodically in order to maintain a valid lease.
  */
 void
-ClientLease::poll()
+ClientLeaseAgent::poll()
 {
     Lock _(mutex);
 
@@ -86,7 +88,8 @@ ClientLease::poll()
      */
     if (!renewLeaseRpc) {
         lastRenewalTimeCycles = Cycles::rdtsc();
-        renewLeaseRpc.construct(ramcloud->clientContext, lease.leaseId);
+        uint64_t leaseId = lease.leaseId;
+        renewLeaseRpc.construct(ramcloud->clientContext, leaseId);
     } else {
         if (!renewLeaseRpc->isReady()) {
             // Wait for rpc to become ready.
@@ -97,19 +100,24 @@ ClientLease::poll()
             // if the lease is not renewed.
             //
             // If any of the asserts fail, an assumption about the behavior of
-            // LeaseManager::renewLease must have been violated.
-            assert(lease.leaseExpiration >= lease.timestamp);
-            uint64_t leaseTermLenNS = lease.leaseExpiration - lease.timestamp;
+            // ClientLeaseAuthority::renewLease must have been violated.
+            ClusterTime timestamp(lease.timestamp);
+            ClusterTime leaseExpiration(lease.leaseExpiration);
+            assert(leaseExpiration >= timestamp);
+            ClusterTimeDuration leaseTermLen = leaseExpiration - timestamp;
 
-            assert(leaseTermLenNS >= LeaseCommon::DANGER_THRESHOLD_NS);
-            leaseExpirationCycles = lastRenewalTimeCycles +
-                                    Cycles::fromNanoseconds(
-                                            leaseTermLenNS -
-                                            LeaseCommon::DANGER_THRESHOLD_NS);
+            assert(leaseTermLen >= LeaseCommon::DANGER_THRESHOLD);
+            leaseExpirationCycles =
+                    lastRenewalTimeCycles +
+                    Cycles::fromNanoseconds(
+                            (leaseTermLen -
+                            LeaseCommon::DANGER_THRESHOLD).toNanoseconds());
 
-            assert(leaseTermLenNS >= LeaseCommon::RENEW_THRESHOLD_NS);
-            uint64_t renewCycleTime = Cycles::fromNanoseconds(
-                        leaseTermLenNS - LeaseCommon::RENEW_THRESHOLD_NS);
+            assert(leaseTermLen >= LeaseCommon::RENEW_THRESHOLD);
+            uint64_t renewCycleTime =
+                    Cycles::fromNanoseconds(
+                            (leaseTermLen -
+                            LeaseCommon::RENEW_THRESHOLD).toNanoseconds());
             nextRenewalTimeCycles = lastRenewalTimeCycles + renewCycleTime;
         }
     }

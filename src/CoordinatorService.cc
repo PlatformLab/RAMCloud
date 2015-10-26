@@ -51,7 +51,7 @@ CoordinatorService::CoordinatorService(Context* context,
     , deadServerTimeout(deadServerTimeout)
     , updateManager(context->externalStorage)
     , tableManager(context, &updateManager)
-    , leaseManager(context)
+    , leaseAuthority(context)
     , runtimeOptions()
     , recoveryManager(context, tableManager, &runtimeOptions)
     , forceServerDownForTesting(false)
@@ -101,7 +101,7 @@ CoordinatorService::init(CoordinatorService* service,
     // exceptions.
     try {
         // Recover state (and incomplete operations) from external storage.
-        service->leaseManager.recover();
+        service->leaseAuthority.recover();
         uint64_t lastCompletedUpdate = service->updateManager.init();
         service->serverList->recover(lastCompletedUpdate);
         service->tableManager.recover(lastCompletedUpdate);
@@ -115,7 +115,7 @@ CoordinatorService::init(CoordinatorService* service,
         service->serverList->startUpdater();
 
         if (!unitTesting) {
-            service->leaseManager.startUpdaters();
+            service->leaseAuthority.startUpdaters();
             // When the recovery manager starts up below, it will resume
             // recovery for crashed nodes; it isn't safe to do that until
             // after the server list and table manager have recovered (e.g.
@@ -399,7 +399,7 @@ CoordinatorService::getLeaseInfo(
     WireFormat::GetLeaseInfo::Response* respHdr,
     Rpc* rpc)
 {
-    respHdr->lease = leaseManager.getLeaseInfo(reqHdr->leaseId);
+    respHdr->lease = leaseAuthority.getLeaseInfo(reqHdr->leaseId);
 }
 
 /**
@@ -601,7 +601,7 @@ CoordinatorService::renewLease(
     WireFormat::RenewLease::Response* respHdr,
     Rpc* rpc)
 {
-    respHdr->lease = leaseManager.renewLease(reqHdr->leaseId);
+    respHdr->lease = leaseAuthority.renewLease(reqHdr->leaseId);
 }
 
 /**

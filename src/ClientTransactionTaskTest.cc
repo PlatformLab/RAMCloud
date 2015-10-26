@@ -15,7 +15,7 @@
 
 #include "TestUtil.h"       //Has to be first, compiler complains
 #include "ClientTransactionTask.h"
-#include "ClientLease.h"
+#include "ClientLeaseAgent.h"
 #include "MockCluster.h"
 #include "RpcTracker.h"
 
@@ -109,7 +109,7 @@ class ClientTransactionTaskTest : public ::testing::Test {
         session3 = static_cast<BindTransport::BindSession*>(session.get());
 
         transactionTask.construct(ramcloud.get());
-        transactionTask->lease = ramcloud->clientLease->getLease();
+        transactionTask->lease = ramcloud->clientLeaseAgent->getLease();
 
         mockTransactionRpc.construct(ramcloud.get(),
                                      session,

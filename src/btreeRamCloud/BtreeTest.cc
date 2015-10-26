@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -37,6 +37,7 @@ namespace RAMCloud {
 class BtreeTest: public ::testing::Test {
   public:
     Context context;
+    ClusterClock clusterClock;
     ServerId serverId;
     ServerList serverList;
     ServerConfig masterConfig;
@@ -50,11 +51,12 @@ class BtreeTest: public ::testing::Test {
 
     BtreeTest()
         : context()
+        , clusterClock()
         , serverId(5)
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults(&context, NULL)
+        , unackedRpcResults(&context, NULL, &clusterClock)
         , preparedOps(&context)
         , txRecoveryManager(&context)
         , tabletManager()

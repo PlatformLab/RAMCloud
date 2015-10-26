@@ -88,10 +88,9 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
     , tabletManager()
     , txRecoveryManager(context)
     , indexletManager(context, &objectManager)
-    , unackedRpcResults(context, &objectManager)
+    , clusterClock()
+    , unackedRpcResults(context, &objectManager, &clusterClock)
     , preparedOps(context)
-    , clusterTime(0)
-    , mutex_updateClusterTime()
     , disableCount(0)
     , initCalled(false)
     , logEverSynced(false)
@@ -2571,11 +2570,13 @@ MasterService::txRequestAbort(
             return;
         }
 
+        WireFormat::ClientLease clientLease = {reqHdr->leaseId,
+                                               0,       // No expiration info.
+                                               0};      // No timestamp info.
         rpcHandles.emplace_back(&unackedRpcResults,
-                                reqHdr->leaseId,
+                                clientLease,
                                 rpcId,
-                                0 /* No info about AckId */,
-                                0 /* No info about leaseTerm */);
+                                0 /* No info about AckId */);
         //TODO(seojin): what is best for the temporary leaseTerm?
         UnackedRpcHandle* rh = &rpcHandles.back();
         if (rh->isDuplicate()) {
@@ -2697,7 +2698,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
     uint32_t numRequests = reqHdr->opCount;
     uint32_t numReadOnly = 0;
 
-    updateClusterTime(reqHdr->lease.timestamp);
+    clusterClock.updateClock(ClusterTime(reqHdr->lease.timestamp));
 
     // log should be synced with backup before destruction of handles.
     std::vector<UnackedRpcHandle> rpcHandles;
@@ -2842,10 +2843,9 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
         }
 
         rpcHandles.emplace_back(&unackedRpcResults,
-                                reqHdr->lease.leaseId,
+                                reqHdr->lease,
                                 rpcId,
-                                reqHdr->ackId,
-                                reqHdr->lease.leaseExpiration);
+                                reqHdr->ackId);
         UnackedRpcHandle* rh = &rpcHandles.back();
         if (rh->isDuplicate()) {
             respHdr->vote = parsePrepRpcResult(rh->resultLoc());
@@ -2963,13 +2963,10 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 {
     const bool linearizable = reqHdr->rpcId > 0;
     if (linearizable) {
-        updateClusterTime(reqHdr->lease.timestamp);
-
         void* result;
-        if (unackedRpcResults.checkDuplicate(reqHdr->lease.leaseId,
+        if (unackedRpcResults.checkDuplicate(reqHdr->lease,
                                              reqHdr->rpcId,
                                              reqHdr->ackId,
-                                             reqHdr->lease.leaseExpiration,
                                              &result)) {
             *respHdr = parseRpcResult<WireFormat::Write>(result);
             rpc->sendReply();
@@ -3566,11 +3563,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     // Update the cluster time.  To guarantee the safety of linearizable rpcs,
     // this update must occur before requests for recovered data are serviced.
     WireFormat::ClientLease clientLease = getLeaseInfoRpc.wait();
-    uint64_t currentClusterTime = clusterTime;
-    while (currentClusterTime < clientLease.timestamp) {
-        currentClusterTime = clusterTime.compareExchange(currentClusterTime,
-                                                         clientLease.timestamp);
-    }
+    clusterClock.updateClock(ClusterTime(clientLease.timestamp));
 
     // Record the log position before recovery started.
     LogPosition headOfLog = objectManager.getLog()->rollHeadOver();

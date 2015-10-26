@@ -22,6 +22,17 @@
 
 namespace RAMCloud {
 
+/// Duration to advance the safeClusterTime stored in external storage.  This
+/// value should be much larger than the time to perform the external storage
+/// write (~10ms) but much much less than the max value (2^64 - 1).
+const ClusterTimeDuration CoordinatorClusterClock::safeTimeInterval =
+        ClusterTimeDuration::fromNanoseconds(3 * 1e9);          // 3 seconds
+
+/// Amount of time (in seconds) between updates of the safeClusterTime to
+/// externalStorage.  This time should be less than the safeTimeIntervalMs;
+/// we recommend a value equivalent to half the safeTimeIntervalMs.
+const double CoordinatorClusterClock::updateIntervalS = 1.5;    // 1.5 seconds
+
 /**
  * Constructor for the CoordinatorClusterClock.
  *
@@ -31,8 +42,8 @@ namespace RAMCloud {
  */
 CoordinatorClusterClock::CoordinatorClusterClock(Context *context)
     : startingSysTimeNS(Cycles::toNanoseconds(Cycles::rdtsc()))
-    , startingClusterTimeNS(recoverClusterTime(context->externalStorage))
-    , safeClusterTimeNS(startingClusterTimeNS)
+    , startingClusterTime(recoverClusterTime(context->externalStorage))
+    , safeClusterTime(startingClusterTime)
     , updater(context, this)
 {}
 
@@ -46,20 +57,21 @@ CoordinatorClusterClock::CoordinatorClusterClock(Context *context)
  *
  * This method is thread-safe.
  */
-uint64_t
+ClusterTime
 CoordinatorClusterClock::getTime()
 {
-    uint64_t time = getInternal();
+    ClusterTime time = getInternal();
+
     // Cache current safe time for isolation; we want to avoid a time of check
     // vs time of use problem since the safe cluster time may change while this
     // method executes.
-    uint64_t currentSafeTimeNS = safeClusterTimeNS.load();
+    ClusterTime currentSafeTime = safeClusterTime;
     // In the unlikely event that the current time exceeds the safe time,
     // return the safe time so that an unsafe time can never be observed.
-    if (expect_false(time > currentSafeTimeNS)) {// Not sure predictor helps.
+    if (expect_false(time > currentSafeTime)) {// Not sure predictor helps.
         RAMCLOUD_CLOG(WARNING, "Returning stale time. "
                                "SafeTimeUpdater may be running behind.");
-        return currentSafeTimeNS;
+        return currentSafeTime;
     }
     return time;
 }
@@ -100,9 +112,9 @@ void
 CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
 {
     uint64_t startTimeCycles = Cycles::rdtsc();
-    uint64_t nextSafeTimeNS = clock->getInternal() + clock->safeTimeIntervalNS;
+    ClusterTime nextSafeTime = clock->getInternal() + clock->safeTimeInterval;
     ProtoBuf::CoordinatorClusterClock info;
-    info.set_next_safe_time(nextSafeTimeNS);
+    info.set_next_safe_time(nextSafeTime.getEncoded());
     std::string str;
     info.SerializeToString(&str);
     externalStorage->set(ExternalStorage::Hint::UPDATE,
@@ -110,7 +122,7 @@ CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
                          str.c_str(),
                          downCast<int>(str.length()));
 
-    clock->safeClusterTimeNS.store(nextSafeTimeNS);
+    clock->safeClusterTime = nextSafeTime;
     this->start(startTimeCycles + Cycles::fromSeconds(clock->updateIntervalS));
 }
 
@@ -118,11 +130,14 @@ CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
  * Returns the raw, calculated, unprotected cluster time.  Should not be used
  * by external methods.
  */
-uint64_t
+ClusterTime
 CoordinatorClusterClock::getInternal()
 {
     uint64_t currentSysTimeNS = Cycles::toNanoseconds(Cycles::rdtsc());
-    return (currentSysTimeNS - startingSysTimeNS) + startingClusterTimeNS;
+    ClusterTimeDuration duration =
+            ClusterTimeDuration::fromNanoseconds(currentSysTimeNS
+                                                 - startingSysTimeNS);
+    return startingClusterTime + duration;
 }
 
 /**

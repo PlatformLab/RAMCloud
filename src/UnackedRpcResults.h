@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include "AbstractLog.h"
 #include "Common.h"
+#include "ClusterClock.h"
 #include "SpinLock.h"
 #include "WorkerTimer.h"
 
@@ -35,14 +36,14 @@ namespace RAMCloud {
 class UnackedRpcResults {
   PUBLIC:
     explicit UnackedRpcResults(Context* context,
-                               AbstractLog::ReferenceFreer* freer);
+                               AbstractLog::ReferenceFreer* freer,
+                               ClusterClock* clusterClock);
     ~UnackedRpcResults();
     void startCleaner();
     void resetFreer(AbstractLog::ReferenceFreer* freer);
-    bool checkDuplicate(uint64_t clientId,
+    bool checkDuplicate(WireFormat::ClientLease clientLease,
                         uint64_t rpcId,
                         uint64_t ackId,
-                        uint64_t leaseExpiration,
                         void** result);
     bool shouldRecover(uint64_t clientId, uint64_t rpcId, uint64_t ackId);
     void recordCompletion(uint64_t clientId,
@@ -122,7 +123,7 @@ class UnackedRpcResults {
          */
         explicit Client(int size) : maxRpcId(0),
                                     maxAckId(0),
-                                    leaseExpiration(0),
+                                    leaseExpiration(),
                                     numRpcsInProgress(0),
                                     rpcs(new UnackedRpc[size]()),
                                     len(size) {
@@ -156,7 +157,7 @@ class UnackedRpcResults {
          * but the lease may have been extended since this value was written).
          * Used in Cleaner for GC.
          */
-        uint64_t leaseExpiration;
+        ClusterTime leaseExpiration;
 
         /**
          * The count for rpcIds in stage between checkDuplicate and
@@ -217,6 +218,8 @@ class UnackedRpcResults {
 
     Context* context;
 
+    ClusterClock* clusterClock;
+
     Cleaner cleaner;
 
     /**
@@ -241,10 +244,9 @@ class UnackedRpcResults {
 class UnackedRpcHandle {
   PUBLIC:
     UnackedRpcHandle(UnackedRpcResults* unackedRpcResults,
-                     uint64_t clientId,
+                     WireFormat::ClientLease clientLease,
                      uint64_t rpcId,
-                     uint64_t ackId,
-                     uint64_t leaseExpiration);
+                     uint64_t ackId);
     UnackedRpcHandle(const UnackedRpcHandle& origin);
     UnackedRpcHandle& operator= (const UnackedRpcHandle& origin);
     ~UnackedRpcHandle();
