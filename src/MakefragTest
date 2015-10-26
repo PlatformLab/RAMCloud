@@ -47,6 +47,7 @@ TESTS_SRCFILES := \
 		  src/ClientLeaseAuthorityTest.cc \
 		  src/ClientTransactionManagerTest.cc \
 		  src/ClientTransactionTaskTest.cc \
+		  src/ClusterClockTest.cc \
 		  src/ClusterMetricsTest.cc \
 		  src/ClusterTimeTest.cc \
 		  src/CRamCloudTest.cc \
