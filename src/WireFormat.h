@@ -164,7 +164,7 @@ struct ClientLease {
                                 /// become invalid.
     uint64_t timestamp;         /// Cluster time when this lease information was
                                 /// provided by the coordinator.
-};
+} __attribute__((packed));
 
 /**
  * Each RPC request starts with this structure.

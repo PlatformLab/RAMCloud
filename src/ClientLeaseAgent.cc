@@ -88,7 +88,8 @@ ClientLeaseAgent::poll()
      */
     if (!renewLeaseRpc) {
         lastRenewalTimeCycles = Cycles::rdtsc();
-        renewLeaseRpc.construct(ramcloud->clientContext, lease.leaseId);
+        uint64_t leaseId = lease.leaseId;
+        renewLeaseRpc.construct(ramcloud->clientContext, leaseId);
     } else {
         if (!renewLeaseRpc->isReady()) {
             // Wait for rpc to become ready.

@@ -17,6 +17,7 @@
 #define RAMCLOUD_MASTERSERVICE_H
 
 #include "Common.h"
+#include "ClusterClock.h"
 #include "CoordinatorClient.h"
 #include "Log.h"
 #include "LogCleaner.h"
@@ -110,6 +111,12 @@ class MasterService : public Service {
     IndexletManager indexletManager;
 
     /**
+     * Keeps track of the logically most recent cluster-time that this master
+     * service either directly or indirectly received from the coordinator.
+     */
+    ClusterClock clusterClock;
+
+    /**
      * The UnackedRpcResults keeps track of those linearizable rpcs that have
      * not yet been acknowledged by the client.
      */
@@ -120,28 +127,6 @@ class MasterService : public Service {
      * transactions.
      */
     PreparedOps preparedOps;
-
-    /**
-     * Largest cluster time that this master service either directly or
-     * indirectly received from the coordinator.
-     */
-    Atomic<uint64_t> clusterTime;
-
-    /**
-     * Protecting concurrent updates on clusterTime.
-     */
-    std::mutex mutex_updateClusterTime;
-
-    /**
-     * Advances clusterTime if provided value is larger than current.
-     * \param newVal
-     *      A observed value of clusterTime.
-     */
-    void updateClusterTime(uint64_t newVal) {
-        std::lock_guard<std::mutex> lock(mutex_updateClusterTime);
-        if (clusterTime < newVal)
-            clusterTime = newVal;
-    }
 
 #ifdef TESTING
     /// Used to pause the read-increment-write cycle in incrementObject

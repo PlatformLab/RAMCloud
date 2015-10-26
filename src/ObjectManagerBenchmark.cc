@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,6 +30,7 @@ namespace RAMCloud {
 class ObjectManagerBenchmark {
   public:
     Context context;
+    ClusterClock clusterClock;
     ServerConfig config;
     ServerList serverList;
     TabletManager tabletManager;
@@ -42,11 +43,12 @@ class ObjectManagerBenchmark {
 
     ObjectManagerBenchmark(string logSize, string hashTableSize)
         : context()
+        , clusterClock()
         , config(ServerConfig::forTesting())
         , serverList(&context)
         , tabletManager()
         , masterTableMetadata()
-        , unackedRpcResults(&context)
+        , unackedRpcResults(&context, &clusterClock)
         , preparedOps(&context)
         , txRecoveryManager(&context)
         , serverId(1, 1)

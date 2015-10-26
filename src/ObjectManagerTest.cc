@@ -37,6 +37,7 @@ namespace RAMCloud {
 class ObjectManagerTest : public ::testing::Test {
   public:
     Context context;
+    ClusterClock clusterClock;
     ServerId serverId;
     ServerList serverList;
     ServerConfig masterConfig;
@@ -49,11 +50,12 @@ class ObjectManagerTest : public ::testing::Test {
 
     ObjectManagerTest()
         : context()
+        , clusterClock()
         , serverId(5)
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults(&context)
+        , unackedRpcResults(&context, &clusterClock)
         , preparedOps(&context)
         , txRecoveryManager(&context)
         , tabletManager()
@@ -2704,14 +2706,13 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
 }
 
 TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
-    uint64_t leaseId = 1;
+    WireFormat::ClientLease clientLease = {1, 0, 0};
+    uint64_t &leaseId = clientLease.leaseId;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
-    uint64_t leaseExpiration = 0;
 
     void* result;
-    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
-                                     &result);
+    unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
     Buffer respBuff;
     RpcResult rpcResult(
             1,
@@ -2735,8 +2736,7 @@ TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
                                        rpcId,
                                        reinterpret_cast<void*>(rpcResultPtr));
 
-    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
-                                     &result);
+    unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
 
     EXPECT_EQ(rpcResultPtr, reinterpret_cast<uint64_t>(result));
 
@@ -2761,8 +2761,7 @@ TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
                            relocator);
     EXPECT_TRUE(relocator.didAppend);
 
-    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
-                                     &result);
+    unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
 
     EXPECT_NE(rpcResultPtr, reinterpret_cast<uint64_t>(result));
     EXPECT_EQ(relocator.getNewReference().toInteger(),
@@ -2770,14 +2769,13 @@ TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
 }
 
 TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
-    uint64_t leaseId = 1;
+    WireFormat::ClientLease clientLease = {1, 0, 0};
+    uint64_t &leaseId = clientLease.leaseId;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
-    uint64_t leaseExpiration = 0;
 
     void* result;
-    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
-                                     &result);
+    unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
     Buffer respBuff;
     RpcResult rpcResult(
             1,
@@ -2801,8 +2799,7 @@ TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
                                        rpcId,
                                        reinterpret_cast<void*>(rpcResultPtr));
 
-    unackedRpcResults.checkDuplicate(leaseId, rpcId, ackId, leaseExpiration,
-                                     &result);
+    unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
 
     EXPECT_EQ(rpcResultPtr, reinterpret_cast<uint64_t>(result));
 
@@ -2818,8 +2815,7 @@ TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
 
     EXPECT_FALSE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
     // Ack the rpc to make it available for cleaning.
-    unackedRpcResults.checkDuplicate(leaseId, rpcId + 1, rpcId, leaseExpiration,
-                                     &result);
+    unackedRpcResults.checkDuplicate(clientLease, rpcId + 1, rpcId, &result);
     EXPECT_TRUE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
 
     bool keepRpcResult = !unackedRpcResults.isRpcAcked(
