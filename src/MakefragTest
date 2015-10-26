@@ -48,6 +48,7 @@ TESTS_SRCFILES := \
 		  src/ClientTransactionManagerTest.cc \
 		  src/ClientTransactionTaskTest.cc \
 		  src/ClusterMetricsTest.cc \
+		  src/ClusterTimeTest.cc \
 		  src/CRamCloudTest.cc \
 		  src/CommonTest.cc \
 		  src/ContextTest.cc \
