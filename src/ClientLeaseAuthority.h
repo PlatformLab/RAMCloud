@@ -110,12 +110,12 @@ class ClientLeaseAuthority {
     /// Maps from leaseId to its leaseExpiration.  This is used to quickly
     /// service requests about a lease's liveness.  This structure is updated
     /// whenever a lease is added, renewed, or removed.
-    typedef std::unordered_map<uint64_t, uint64_t> LeaseMap;
+    typedef std::unordered_map<uint64_t, ClusterTime> LeaseMap;
     LeaseMap leaseMap;
 
     /// Structure to define the entries in the ExpirationOrderSet.
     struct ExpirationOrderElem {
-        uint64_t leaseExpiration;   // ClusterTime of possible lease expiration.
+        ClusterTime leaseExpiration;// ClusterTime of possible lease expiration.
         uint64_t leaseId;           // Id of the lease.
 
         /**

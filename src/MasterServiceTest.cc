@@ -3587,7 +3587,8 @@ TEST_F(MasterServiceTest, recover_basics) {
     };
 
     EXPECT_EQ(0lu, masterServer->master->clusterTime.load());
-    cluster.coordinator->leaseAuthority.clock.safeClusterTimeNS = 1000000000;
+    cluster.coordinator->leaseAuthority.clock.safeClusterTime =
+                                                        ClusterTime(1000000000);
 
     TestLog::Enable __("replaySegment", "recover", "recoveryMasterFinished",
             "addKeyHashRange", NULL);

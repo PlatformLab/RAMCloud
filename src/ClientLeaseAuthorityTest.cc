@@ -56,7 +56,7 @@ TEST_F(ClientLeaseAuthorityTest, getLeaseInfo) {
     EXPECT_EQ(0U, lease.leaseId);
     EXPECT_EQ(0U, lease.leaseExpiration);
 
-    leaseAuthority->leaseMap[25] = 8888;
+    leaseAuthority->leaseMap[25] = ClusterTime(8888);
 
     lease = leaseAuthority->getLeaseInfo(25);
     EXPECT_EQ(25U, lease.leaseId);
@@ -137,14 +137,14 @@ TEST_F(ClientLeaseAuthorityTest, leaseReservationAgent_handleTimerEvent) {
 }
 
 TEST_F(ClientLeaseAuthorityTest, leaseCleaner_handleTimerEvent) {
-    leaseAuthority->leaseMap[25] = 0;
-    leaseAuthority->expirationOrder.insert({0, 25});
-    leaseAuthority->leaseMap[52] = 0;
-    leaseAuthority->expirationOrder.insert({0, 52});
-    leaseAuthority->leaseMap[88] = 3;
-    leaseAuthority->expirationOrder.insert({3, 88});
-    leaseAuthority->leaseMap[99] = 60000;
-    leaseAuthority->expirationOrder.insert({60000, 99});
+    leaseAuthority->leaseMap[25] = ClusterTime(0);
+    leaseAuthority->expirationOrder.insert({ClusterTime(0), 25});
+    leaseAuthority->leaseMap[52] = ClusterTime(0);
+    leaseAuthority->expirationOrder.insert({ClusterTime(0), 52});
+    leaseAuthority->leaseMap[88] = ClusterTime(3);
+    leaseAuthority->expirationOrder.insert({ClusterTime(3), 88});
+    leaseAuthority->leaseMap[99] = ClusterTime(60000);
+    leaseAuthority->expirationOrder.insert({ClusterTime(60000), 99});
 
     leaseAuthority->cleaner.handleTimerEvent();
     while (leaseAuthority->cleaner.triggerTime == 0U) {
@@ -157,32 +157,32 @@ TEST_F(ClientLeaseAuthorityTest, leaseCleaner_handleTimerEvent) {
 
 TEST_F(ClientLeaseAuthorityTest, expirationOrder) {
     EXPECT_EQ(0UL, leaseAuthority->expirationOrder.size());
-    leaseAuthority->expirationOrder.insert({1, 1});
+    leaseAuthority->expirationOrder.insert({ClusterTime(1), 1});
     EXPECT_EQ(1UL, leaseAuthority->expirationOrder.size());
-    leaseAuthority->expirationOrder.insert({3, 1});
+    leaseAuthority->expirationOrder.insert({ClusterTime(3), 1});
     EXPECT_EQ(2UL, leaseAuthority->expirationOrder.size());
-    leaseAuthority->expirationOrder.insert({1, 3});
+    leaseAuthority->expirationOrder.insert({ClusterTime(1), 3});
     EXPECT_EQ(3UL, leaseAuthority->expirationOrder.size());
-    leaseAuthority->expirationOrder.insert({2, 1});
+    leaseAuthority->expirationOrder.insert({ClusterTime(2), 1});
     EXPECT_EQ(4UL, leaseAuthority->expirationOrder.size());
-    leaseAuthority->expirationOrder.insert({1, 2});
+    leaseAuthority->expirationOrder.insert({ClusterTime(1), 2});
     EXPECT_EQ(5UL, leaseAuthority->expirationOrder.size());
 
     ClientLeaseAuthority::ExpirationOrderSet::iterator it =
             leaseAuthority->expirationOrder.begin();
-    EXPECT_EQ(1UL, it->leaseExpiration);
+    EXPECT_EQ(ClusterTime(1UL), it->leaseExpiration);
     EXPECT_EQ(1UL, it->leaseId);
     it++;
-    EXPECT_EQ(1UL, it->leaseExpiration);
+    EXPECT_EQ(ClusterTime(1UL), it->leaseExpiration);
     EXPECT_EQ(2UL, it->leaseId);
     it++;
-    EXPECT_EQ(1UL, it->leaseExpiration);
+    EXPECT_EQ(ClusterTime(1UL), it->leaseExpiration);
     EXPECT_EQ(3UL, it->leaseId);
     it++;
-    EXPECT_EQ(2UL, it->leaseExpiration);
+    EXPECT_EQ(ClusterTime(2UL), it->leaseExpiration);
     EXPECT_EQ(1UL, it->leaseId);
     it++;
-    EXPECT_EQ(3UL, it->leaseExpiration);
+    EXPECT_EQ(ClusterTime(3UL), it->leaseExpiration);
     EXPECT_EQ(1UL, it->leaseId);
     it++;
     EXPECT_TRUE(it == leaseAuthority->expirationOrder.end());
@@ -190,10 +190,10 @@ TEST_F(ClientLeaseAuthorityTest, expirationOrder) {
 
 TEST_F(ClientLeaseAuthorityTest, cleanNextLease) {
     // Time dependent test.
-    leaseAuthority->leaseMap[25] = 0;
-    leaseAuthority->expirationOrder.insert({0, 25});
-    leaseAuthority->leaseMap[4294967297] = 0;
-    leaseAuthority->expirationOrder.insert({0, 4294967297});
+    leaseAuthority->leaseMap[25] = ClusterTime(0);
+    leaseAuthority->expirationOrder.insert({ClusterTime(0), 25});
+    leaseAuthority->leaseMap[4294967297] = ClusterTime(0);
+    leaseAuthority->expirationOrder.insert({ClusterTime(0), 4294967297});
 
     EXPECT_EQ(2U, leaseAuthority->leaseMap.size());
     EXPECT_EQ(2U, leaseAuthority->expirationOrder.size());
@@ -214,10 +214,10 @@ TEST_F(ClientLeaseAuthorityTest, cleanNextLease) {
     EXPECT_EQ(0U, leaseAuthority->leaseMap.size());
     EXPECT_EQ(0U, leaseAuthority->expirationOrder.size());
 
-    leaseAuthority->leaseMap[88] = 3;
-    leaseAuthority->expirationOrder.insert({3, 88});
-    leaseAuthority->leaseMap[99] = 60000;
-    leaseAuthority->expirationOrder.insert({60000, 99});
+    leaseAuthority->leaseMap[88] = ClusterTime(3);
+    leaseAuthority->expirationOrder.insert({ClusterTime(3), 88});
+    leaseAuthority->leaseMap[99] = ClusterTime(60000);
+    leaseAuthority->expirationOrder.insert({ClusterTime(60000), 99});
 
     EXPECT_EQ(2U, leaseAuthority->leaseMap.size());
     EXPECT_EQ(2U, leaseAuthority->expirationOrder.size());
@@ -240,8 +240,8 @@ TEST_F(ClientLeaseAuthorityTest, getLeaseObjName) {
 
 TEST_F(ClientLeaseAuthorityTest, renewLeaseInternal_renew) {
     ClientLeaseAuthority::Lock lock(leaseAuthority->mutex);
-    leaseAuthority->leaseMap[1] = 1;
-    leaseAuthority->expirationOrder.insert({1, 1});
+    leaseAuthority->leaseMap[1] = ClusterTime(1);
+    leaseAuthority->expirationOrder.insert({ClusterTime(1), 1});
     EXPECT_EQ(1U, leaseAuthority->leaseMap.size());
     EXPECT_EQ(1U, leaseAuthority->expirationOrder.size());
     WireFormat::ClientLease clientLease =
@@ -249,12 +249,13 @@ TEST_F(ClientLeaseAuthorityTest, renewLeaseInternal_renew) {
     EXPECT_EQ(1U, leaseAuthority->leaseMap.size());
     EXPECT_EQ(1U, leaseAuthority->expirationOrder.size());
     EXPECT_TRUE(leaseAuthority->expirationOrder.end() ==
-                leaseAuthority->expirationOrder.find({1, 1}));
+                leaseAuthority->expirationOrder.find({ClusterTime(1), 1}));
     EXPECT_EQ(1U, clientLease.leaseId);
-    EXPECT_EQ(clientLease.leaseExpiration, leaseAuthority->leaseMap[1]);
+    EXPECT_EQ(ClusterTime(clientLease.leaseExpiration),
+              leaseAuthority->leaseMap[1]);
     EXPECT_TRUE(leaseAuthority->expirationOrder.end() !=
                 leaseAuthority->expirationOrder.find(
-                        {clientLease.leaseExpiration, 1}));
+                        {ClusterTime(clientLease.leaseExpiration), 1}));
 }
 
 TEST_F(ClientLeaseAuthorityTest, renewLeaseInternal_new) {

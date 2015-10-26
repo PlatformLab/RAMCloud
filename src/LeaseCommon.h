@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_LEASECOMMON_H
 #define RAMCLOUD_LEASECOMMON_H
 
+#include "ClusterTime.h"
+
 namespace RAMCloud {
 
 /**
@@ -24,15 +26,18 @@ namespace RAMCloud {
  */
 namespace LeaseCommon {
 
-/// Defines the length of time (in nanoseconds) that a lease will be extended
-/// upon renewal.
-const uint64_t LEASE_TERM_NS = 1800*1e9;      // 30 min = 1,800,000,000,000 ns
+/// Defines the length of time that a lease will be extended upon renewal.
+/// Currently set to 30 min (1,800,000,000,000 ns).
+static const ClusterTimeDuration LEASE_TERM =
+                                ClusterTimeDuration::fromNanoseconds(1800*1e9);
 
 /// Defines the remaining lease time below which a module should start trying
 /// to renew the lease.  During this period, the lease has probably not expired
 /// so it is safe to perform the renewals asynchronously.  This value should
-/// be set conservatively to around half the LeaseCommon::LEASE_TERM_NS.
-static const uint64_t RENEW_THRESHOLD_NS = LEASE_TERM_NS / 2;       // 15 min
+/// be set conservatively to around half the LeaseCommon::LEASE_TERM.
+/// Currently set to 15 min (900,000,000,000 ns).
+static const ClusterTimeDuration RENEW_THRESHOLD =
+                                ClusterTimeDuration::fromNanoseconds(900*1e9);
 
 /// Defines the remaining lease time below which the lease should be considered
 /// possibly invalid; no new linearizable RPCs should be issued with this lease
@@ -43,7 +48,9 @@ static const uint64_t RENEW_THRESHOLD_NS = LEASE_TERM_NS / 2;       // 15 min
 /// coordinator's clocks are loosely synchronized.  However, the value should
 /// also be small enough so that this DANGER threshold is not normally reached
 /// if the lease is renewed when the RENEW threshold is reached.
-static const uint64_t DANGER_THRESHOLD_NS = 60*1e9;                 // 1 min
+/// Currently set to 1 min (60,000,000,000 ns).
+static const ClusterTimeDuration DANGER_THRESHOLD =
+                                ClusterTimeDuration::fromNanoseconds(60*1e9);
 
 } // namespace LeaseCommon
 

@@ -14,6 +14,8 @@
  */
 
 #include "ClientLeaseAgent.h"
+
+#include "ClusterTime.h"
 #include "Cycles.h"
 #include "LeaseCommon.h"
 #include "RamCloud.h"
@@ -98,18 +100,23 @@ ClientLeaseAgent::poll()
             //
             // If any of the asserts fail, an assumption about the behavior of
             // ClientLeaseAuthority::renewLease must have been violated.
-            assert(lease.leaseExpiration >= lease.timestamp);
-            uint64_t leaseTermLenNS = lease.leaseExpiration - lease.timestamp;
+            ClusterTime timestamp(lease.timestamp);
+            ClusterTime leaseExpiration(lease.leaseExpiration);
+            assert(leaseExpiration >= timestamp);
+            ClusterTimeDuration leaseTermLen = leaseExpiration - timestamp;
 
-            assert(leaseTermLenNS >= LeaseCommon::DANGER_THRESHOLD_NS);
-            leaseExpirationCycles = lastRenewalTimeCycles +
-                                    Cycles::fromNanoseconds(
-                                            leaseTermLenNS -
-                                            LeaseCommon::DANGER_THRESHOLD_NS);
+            assert(leaseTermLen >= LeaseCommon::DANGER_THRESHOLD);
+            leaseExpirationCycles =
+                    lastRenewalTimeCycles +
+                    Cycles::fromNanoseconds(
+                            (leaseTermLen -
+                            LeaseCommon::DANGER_THRESHOLD).toNanoseconds());
 
-            assert(leaseTermLenNS >= LeaseCommon::RENEW_THRESHOLD_NS);
-            uint64_t renewCycleTime = Cycles::fromNanoseconds(
-                        leaseTermLenNS - LeaseCommon::RENEW_THRESHOLD_NS);
+            assert(leaseTermLen >= LeaseCommon::RENEW_THRESHOLD);
+            uint64_t renewCycleTime =
+                    Cycles::fromNanoseconds(
+                            (leaseTermLen -
+                            LeaseCommon::RENEW_THRESHOLD).toNanoseconds());
             nextRenewalTimeCycles = lastRenewalTimeCycles + renewCycleTime;
         }
     }

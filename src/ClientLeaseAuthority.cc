@@ -71,13 +71,13 @@ ClientLeaseAuthority::getLeaseInfo(uint64_t leaseId)
     LeaseMap::iterator leaseEntry = leaseMap.find(leaseId);
     if (leaseEntry != leaseMap.end()) {
         clientLease.leaseId = leaseId;
-        clientLease.leaseExpiration = leaseEntry->second;
+        clientLease.leaseExpiration = leaseEntry->second.getEncoded();
     } else {
         clientLease.leaseId = 0;
         clientLease.leaseExpiration = 0;
     }
 
-    clientLease.timestamp = clock.getTime();
+    clientLease.timestamp = clock.getTime().getEncoded();
 
     return clientLease;
 }
@@ -113,8 +113,8 @@ ClientLeaseAuthority::recover()
                 leaseId = temp;
             }
 
-            uint64_t leaseExpiration = clock.getTime() +
-                                       LeaseCommon::LEASE_TERM_NS;
+            ClusterTime leaseExpiration = clock.getTime() +
+                                          LeaseCommon::LEASE_TERM;
             leaseMap[leaseId] = leaseExpiration;
             expirationOrder.insert({leaseExpiration, leaseId});
         } catch (std::invalid_argument& e) {
@@ -226,7 +226,8 @@ ClientLeaseAuthority::LeaseCleaner::handleTimerEvent()
         // aggressive garbage collection but waiting long enough for a bunch
         // of leases to expire.
         this->start(Cycles::rdtsc() +
-                    Cycles::fromNanoseconds(LeaseCommon::LEASE_TERM_NS / 10) );
+                    Cycles::fromNanoseconds(
+                            LeaseCommon::LEASE_TERM.toNanoseconds() / 10) );
     }
 }
 
@@ -301,11 +302,12 @@ ClientLeaseAuthority::renewLeaseInternal(uint64_t leaseId, Lock &lock)
         }
     }
 
-    clientLease.timestamp = clock.getTime();
-    clientLease.leaseExpiration = clientLease.timestamp
-                                  + LeaseCommon::LEASE_TERM_NS;
-    leaseMap[clientLease.leaseId] = clientLease.leaseExpiration;
-    expirationOrder.insert({clientLease.leaseExpiration, clientLease.leaseId});
+    ClusterTime now = clock.getTime();
+    ClusterTime leaseExpiration = now + LeaseCommon::LEASE_TERM;
+    clientLease.timestamp = now.getEncoded();
+    clientLease.leaseExpiration = leaseExpiration.getEncoded();
+    leaseMap[clientLease.leaseId] = leaseExpiration;
+    expirationOrder.insert({leaseExpiration, clientLease.leaseId});
 
     return clientLease;
 }
