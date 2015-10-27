@@ -19,7 +19,7 @@
 #include <unordered_map>
 #include "AbstractLog.h"
 #include "Common.h"
-#include "ClusterClock.h"
+#include "ClientLeaseValidator.h"
 #include "SpinLock.h"
 #include "WorkerTimer.h"
 
@@ -37,7 +37,7 @@ class UnackedRpcResults {
   PUBLIC:
     explicit UnackedRpcResults(Context* context,
                                AbstractLog::ReferenceFreer* freer,
-                               ClusterClock* clusterClock);
+                               ClientLeaseValidator* leaseValidator);
     ~UnackedRpcResults();
     void startCleaner();
     void resetFreer(AbstractLog::ReferenceFreer* freer);
@@ -218,7 +218,10 @@ class UnackedRpcResults {
 
     Context* context;
 
-    ClusterClock* clusterClock;
+    /**
+     * Allows this module to determine if a lease is still valid.
+     */
+    ClientLeaseValidator* leaseValidator;
 
     Cleaner cleaner;
 

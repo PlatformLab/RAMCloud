@@ -32,6 +32,7 @@ class CleanerCompactionBenchmark {
   public:
     Context context;
     ClusterClock clusterClock;
+    ClientLeaseValidator clientLeaseValidator;
     ServerConfig config;
     ServerList serverList;
     TabletManager tabletManager;
@@ -46,11 +47,12 @@ class CleanerCompactionBenchmark {
         int numSegments)
         : context()
         , clusterClock()
+        , clientLeaseValidator(&context, &clusterClock)
         , config(ServerConfig::forTesting())
         , serverList(&context)
         , tabletManager()
         , masterTableMetadata()
-        , unackedRpcResults(&context, NULL, &clusterClock)
+        , unackedRpcResults(&context, NULL, &clientLeaseValidator)
         , preparedOps(&context)
         , txRecoveryManager(&context)
         , serverId(1, 1)

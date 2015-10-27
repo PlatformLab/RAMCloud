@@ -31,6 +31,7 @@ class ObjectManagerBenchmark {
   public:
     Context context;
     ClusterClock clusterClock;
+    ClientLeaseValidator clientLeaseValidator;
     ServerConfig config;
     ServerList serverList;
     TabletManager tabletManager;
@@ -44,11 +45,12 @@ class ObjectManagerBenchmark {
     ObjectManagerBenchmark(string logSize, string hashTableSize)
         : context()
         , clusterClock()
+        , clientLeaseValidator(&context, &clusterClock)
         , config(ServerConfig::forTesting())
         , serverList(&context)
         , tabletManager()
         , masterTableMetadata()
-        , unackedRpcResults(&context, NULL, &clusterClock)
+        , unackedRpcResults(&context, NULL, &clientLeaseValidator)
         , preparedOps(&context)
         , txRecoveryManager(&context)
         , serverId(1, 1)

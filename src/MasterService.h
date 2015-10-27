@@ -17,6 +17,7 @@
 #define RAMCLOUD_MASTERSERVICE_H
 
 #include "Common.h"
+#include "ClientLeaseValidator.h"
 #include "ClusterClock.h"
 #include "CoordinatorClient.h"
 #include "Log.h"
@@ -115,6 +116,11 @@ class MasterService : public Service {
      * service either directly or indirectly received from the coordinator.
      */
     ClusterClock clusterClock;
+
+    /**
+     * Allows modules to check if a given client lease is still valid.
+     */
+    ClientLeaseValidator clientLeaseValidator;
 
     /**
      * The UnackedRpcResults keeps track of those linearizable rpcs that have

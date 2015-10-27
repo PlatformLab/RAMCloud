@@ -39,6 +39,7 @@ class ObjectManagerTest : public ::testing::Test,
   public:
     Context context;
     ClusterClock clusterClock;
+    ClientLeaseValidator clientLeaseValidator;
     ServerId serverId;
     ServerList serverList;
     ServerConfig masterConfig;
@@ -52,11 +53,12 @@ class ObjectManagerTest : public ::testing::Test,
     ObjectManagerTest()
         : context()
         , clusterClock()
+        , clientLeaseValidator(&context, &clusterClock)
         , serverId(5)
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults(&context, this, &clusterClock)
+        , unackedRpcResults(&context, this, &clientLeaseValidator)
         , preparedOps(&context)
         , txRecoveryManager(&context)
         , tabletManager()

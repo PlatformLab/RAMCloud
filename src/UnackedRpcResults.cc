@@ -157,17 +157,17 @@ UnackedRpcHandle::recordCompletion(uint64_t result)
  * \param freer
  *      Pointer to reference freer. During garbage collection by ackId,
  *      this freer should be used to designate specific log entry as cleanable.
- * \param clusterClock
- *      Provides access to the current cluster-time.
+ * \param leaseValidator
+ *      Allows this module to determine if a given lease is still valid.
  */
 UnackedRpcResults::UnackedRpcResults(Context* context,
                                      AbstractLog::ReferenceFreer* freer,
-                                     ClusterClock* clusterClock)
+                                     ClientLeaseValidator* leaseValidator)
     : clients(20)
     , mutex()
     , default_rpclist_size(50)
     , context(context)
-    , clusterClock(clusterClock)
+    , leaseValidator(leaseValidator)
     , cleaner(this)
     , freer(freer)
 {
@@ -245,17 +245,10 @@ UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
 
     uint64_t clientId = clientLease.leaseId;
     ClusterTime leaseExpiration(clientLease.leaseExpiration);
-    clusterClock->updateClock(ClusterTime(clientLease.timestamp));
 
-
-    if (leaseExpiration < clusterClock->getTime()) {
-        //contact coordinator for lease expiration and clusterTime.
-        WireFormat::ClientLease lease =
-            CoordinatorClient::getLeaseInfo(context, clientId);
-        clusterClock->updateClock(ClusterTime(lease.timestamp));
-        if (lease.leaseId == 0) {
-            throw ExpiredLeaseException(HERE);
-        }
+    // Make sure lease is valid.
+    if (!leaseValidator->validate(clientLease)) {
+        throw ExpiredLeaseException(HERE);
     }
 
     ClientMap::iterator it = clients.find(clientId);
@@ -481,7 +474,7 @@ UnackedRpcResults::isRpcAcked(uint64_t clientId, uint64_t rpcId)
 void
 UnackedRpcResults::cleanByTimeout()
 {
-    vector<uint64_t> victims;
+    vector<ClientLease> victims;
     {
         Lock lock(mutex);
 
@@ -498,8 +491,12 @@ UnackedRpcResults::cleanByTimeout()
                         //&& victims.size() < Cleaner::maxCheckPerPeriod;
              ++i, ++it) {
             Client* client = it->second;
-            if (client->leaseExpiration <= clusterClock->getTime()) {
-                victims.push_back(it->first);
+
+            ClientLease lease = {it->first,
+                                 client->leaseExpiration.getEncoded(),
+                                 0};
+            if (leaseValidator->needsValidation(lease)) {
+                victims.push_back(lease);
             }
         }
     }
@@ -509,23 +506,17 @@ UnackedRpcResults::cleanByTimeout()
     ClusterTime maxClusterTime;
     for (uint32_t i = 0; i < victims.size(); ++i) {
         Lock lock(mutex);
-        if (clients[victims[i]]->numRpcsInProgress)
+        if (clients[victims[i].leaseId]->numRpcsInProgress)
             continue;
 
-        WireFormat::ClientLease lease =
-            CoordinatorClient::getLeaseInfo(context, victims[i]);
-        if (lease.leaseId == 0) {
-            clients.erase(victims[i]);
+        ClientLease lease = victims[i];
+        if (leaseValidator->validate(lease, &lease)) {
+            clients[victims[i].leaseId]->leaseExpiration =
+                                            ClusterTime(lease.leaseExpiration);
         } else {
-            clients[victims[i]]->leaseExpiration =
-                    ClusterTime(lease.leaseExpiration);
+            clients.erase(victims[i].leaseId);
         }
-
-        if (maxClusterTime < ClusterTime(lease.timestamp))
-            maxClusterTime = ClusterTime(lease.timestamp);
     }
-
-    clusterClock->updateClock(maxClusterTime);
 }
 
 /**

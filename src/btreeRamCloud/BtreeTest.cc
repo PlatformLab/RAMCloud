@@ -38,6 +38,7 @@ class BtreeTest: public ::testing::Test {
   public:
     Context context;
     ClusterClock clusterClock;
+    ClientLeaseValidator clientLeaseValidator;
     ServerId serverId;
     ServerList serverList;
     ServerConfig masterConfig;
@@ -52,11 +53,12 @@ class BtreeTest: public ::testing::Test {
     BtreeTest()
         : context()
         , clusterClock()
+        , clientLeaseValidator(&context, &clusterClock)
         , serverId(5)
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults(&context, NULL, &clusterClock)
+        , unackedRpcResults(&context, NULL, &clientLeaseValidator)
         , preparedOps(&context)
         , txRecoveryManager(&context)
         , tabletManager()

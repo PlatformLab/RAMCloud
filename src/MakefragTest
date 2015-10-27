@@ -45,6 +45,7 @@ TESTS_SRCFILES := \
 		  src/ClientExceptionTest.cc \
 		  src/ClientLeaseAgentTest.cc \
 		  src/ClientLeaseAuthorityTest.cc \
+		  src/ClientLeaseValidatorTest.cc \
 		  src/ClientTransactionManagerTest.cc \
 		  src/ClientTransactionTaskTest.cc \
 		  src/ClusterClockTest.cc \

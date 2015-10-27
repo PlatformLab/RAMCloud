@@ -92,7 +92,7 @@ class UnackedRpcResultsTest : public ::testing::Test {
         // End of MasterService Initialization
         ////////////////////////////////////////
 
-        results.clusterClock = &service->clusterClock;
+        results.leaseValidator = &service->clientLeaseValidator;
 
         void* result;
         ClientLease clientLease = {1, 1, 0};
@@ -291,7 +291,7 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout) {
     EXPECT_EQ("processAck: client acked unfinished RPC with rpcId <10>",
               TestLog::get());
 
-    service->clusterClock.updateClock(ClusterTime(1));
+    service->clusterClock.updateClock(ClusterTime(2));
 
     results.cleanByTimeout();
     EXPECT_EQ(2U, results.clients.size());
@@ -301,7 +301,7 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout) {
     results.cleanByTimeout();
     EXPECT_EQ(1U, results.clients.size());
 
-    EXPECT_EQ(ClusterTime(1U), service->clusterClock.getTime());
+    EXPECT_EQ(ClusterTime(2U), service->clusterClock.getTime());
 
     //TODO(seojin): test with mock coordinator which returns
     //              valid lease and we just update leaseExpiration.
