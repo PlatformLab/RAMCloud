@@ -624,6 +624,7 @@ ClientTransactionTask::PrepareRpc::PrepareRpc(RamCloud* ramcloud,
     , reqHdr(allocHeader<WireFormat::TxPrepare>())
 {
     reqHdr->lease = task->lease;
+    reqHdr->clientTxId = task->txId;
     reqHdr->ackId = ramcloud->rpcTracker->ackId();
     reqHdr->participantCount = task->participantCount;
     reqHdr->opCount = 0;
