@@ -1061,6 +1061,8 @@ TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
  *      Served as a locator for transaction recovery coordinator.
  * \param leaseId
  *      identification for client lease used for transaction.
+ * \param clientTransactionId
+ *      Identifies the transaction uniquely among a client's transactions.
  * \param participantCount
  *      Number of objects participating in transaction.
  * \param participants
@@ -1068,10 +1070,10 @@ TakeIndexletOwnershipRpc::TakeIndexletOwnershipRpc(
  */
 void
 MasterClient::txHintFailed(Context* context, uint64_t tableId,
-            uint64_t keyHash, uint64_t leaseId, uint32_t participantCount,
-            WireFormat::TxParticipant *participants)
+        uint64_t keyHash, uint64_t leaseId, uint64_t clientTransactionId,
+        uint32_t participantCount, WireFormat::TxParticipant *participants)
 {
-    TxHintFailedRpc rpc(context, tableId, keyHash, leaseId,
+    TxHintFailedRpc rpc(context, tableId, keyHash, leaseId, clientTransactionId,
                         participantCount, participants);
     rpc.wait();
 }
@@ -1091,6 +1093,8 @@ MasterClient::txHintFailed(Context* context, uint64_t tableId,
  *      Served as a locator for transaction recovery coordinator.
  * \param leaseId
  *      identification for client lease used for transaction.
+ * \param clientTransactionId
+ *      Identifies the transaction uniquely among a client's transactions.
  * \param participantCount
  *      Number of objects participating in transaction.
  * \param participants
@@ -1098,13 +1102,15 @@ MasterClient::txHintFailed(Context* context, uint64_t tableId,
  */
 TxHintFailedRpc::TxHintFailedRpc(
         Context* context, uint64_t tableId, uint64_t keyHash, uint64_t leaseId,
-        uint32_t participantCount, WireFormat::TxParticipant *participants)
+        uint64_t clientTransactionId, uint32_t participantCount,
+        WireFormat::TxParticipant *participants)
     : ObjectRpcWrapper(context, tableId, keyHash,
         sizeof(WireFormat::TxHintFailed::Response))
 {
     WireFormat::TxHintFailed::Request* reqHdr(
             allocHeader<WireFormat::TxHintFailed>());
     reqHdr->leaseId = leaseId;
+    reqHdr->clientTxId = clientTransactionId;
     reqHdr->participantCount = participantCount;
     request.append(participants, sizeof32(WireFormat::TxParticipant)
                                  * participantCount);

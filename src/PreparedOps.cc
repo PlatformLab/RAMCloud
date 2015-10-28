@@ -568,6 +568,7 @@ PreparedOps::PreparedItem::handleTimerEvent()
                 participantList.participants[0].tableId,
                 participantList.participants[0].keyHash,
                 participantList.header.clientLeaseId,
+                txId.txRpcId,
                 participantList.header.participantCount,
                 participantList.participants);
     } else {
