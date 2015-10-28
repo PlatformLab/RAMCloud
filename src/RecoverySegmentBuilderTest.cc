@@ -203,28 +203,28 @@ TEST_F(RecoverySegmentBuilderTest, build) {
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_PREPTOMB, buffer));
     }{ // TxDecisionRecord should go in partition 1.
         Key key(1, "1", 1);
-        TxDecisionRecord decisionRecord(1, key.getHash(), 6,
+        TxDecisionRecord decisionRecord(1, key.getHash(), 6, 1,
                 WireFormat::TxDecision::ABORT, 100);
         Buffer buffer;
         decisionRecord.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_TXDECISION, buffer));
     }{ // TxDecisionRecord should go in partition 0.
         Key key(1, "2", 1);
-        TxDecisionRecord decisionRecord(1, key.getHash(), 5,
+        TxDecisionRecord decisionRecord(1, key.getHash(), 5, 1,
                 WireFormat::TxDecision::ABORT, 100);
         Buffer buffer;
         decisionRecord.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_TXDECISION, buffer));
     }{ // TxDecisionRecord not in any partition.
         Key key(10, "1", 1);
-        TxDecisionRecord decisionRecord(10, key.getHash(), 10,
+        TxDecisionRecord decisionRecord(10, key.getHash(), 10, 1,
                 WireFormat::TxDecision::ABORT, 100);
         Buffer buffer;
         decisionRecord.assembleForLog(buffer);
         ASSERT_TRUE(segment->append(LOG_ENTRY_TYPE_TXDECISION, buffer));
     }{ // TxDecisionRecord not written before the tablet existed.
         Key key(2, "1", 1);
-        TxDecisionRecord decisionRecord(2, key.getHash(), 2,
+        TxDecisionRecord decisionRecord(2, key.getHash(), 2, 1,
                 WireFormat::TxDecision::ABORT, 100);
         Buffer buffer;
         decisionRecord.assembleForLog(buffer);
@@ -252,7 +252,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
                     "leaseId 1, rpcId 10 | "
             "preparedOpTombstone at offset 199, length 44 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 1, rpcId 10 | "
-            "txDecision at offset 245, length 40 with tableId 1, "
+            "txDecision at offset 245, length 48 with tableId 1, "
                     "keyHash 0x3554F985FBED3C16, leaseId 5",
             ObjectManager::dumpSegment(&recoverySegments[0]));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
@@ -264,7 +264,7 @@ TEST_F(RecoverySegmentBuilderTest, build) {
                     "leaseId 1, rpcId 10 | "
             "preparedOpTombstone at offset 199, length 44 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 1, rpcId 10 | "
-            "txDecision at offset 245, length 40 with tableId 1, "
+            "txDecision at offset 245, length 48 with tableId 1, "
                     "keyHash 0xDD5D9F7F60D5B056, leaseId 6",
             ObjectManager::dumpSegment(&recoverySegments[1]));
 
@@ -312,7 +312,7 @@ TEST_F(RecoverySegmentBuilderTest, build_participantList) {
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList record(participants, 3, 42);
+    ParticipantList record(participants, 3, 42, 9);
     record.getTransactionId();
     Buffer buffer;
     record.assembleForLog(buffer);
@@ -327,16 +327,16 @@ TEST_F(RecoverySegmentBuilderTest, build_participantList) {
     build(buf, length, certificate, 3, partitions, recoverySegments.get());
 
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
-            "participantList at offset 14, length 88 with "
-            "TxId: (leaseId 42, rpcId 10) containing 3 entries",
+            "participantList at offset 14, length 96 with "
+            "TxId: (leaseId 42, rpcId 9) containing 3 entries",
             ObjectManager::dumpSegment(&recoverySegments[0]));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
-            "participantList at offset 14, length 88 with "
-            "TxId: (leaseId 42, rpcId 10) containing 3 entries",
+            "participantList at offset 14, length 96 with "
+            "TxId: (leaseId 42, rpcId 9) containing 3 entries",
             ObjectManager::dumpSegment(&recoverySegments[1]));
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
-            "participantList at offset 14, length 88 with "
-            "TxId: (leaseId 42, rpcId 10) containing 3 entries",
+            "participantList at offset 14, length 96 with "
+            "TxId: (leaseId 42, rpcId 9) containing 3 entries",
             ObjectManager::dumpSegment(&recoverySegments[2]));
 }
 

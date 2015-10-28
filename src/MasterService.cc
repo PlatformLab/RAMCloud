@@ -2680,7 +2680,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
     ParticipantList participantList(participants,
                                     participantCount,
-                                    reqHdr->lease.leaseId);
+                                    reqHdr->lease.leaseId,
+                                    reqHdr->clientTxId);
     TransactionId txId = participantList.getTransactionId();
     if (!preparedOps.hasParticipantListEntry(txId)) {
         uint64_t logRef = 0;
@@ -2741,7 +2742,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, txId.clientLeaseId, txId.txRpcId, rpcId,
+            op.construct(*type, txId.clientLeaseId, txId.clientTransactionId,
+                         rpcId,
                          tableId, 0, 0,
                          buffer);
 
@@ -2770,7 +2772,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, txId.clientLeaseId, txId.txRpcId, rpcId,
+            op.construct(*type, txId.clientLeaseId, txId.clientTransactionId,
+                         rpcId,
                          tableId, 0, 0,
                          buffer);
 
@@ -2791,7 +2794,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             tableId = currentReq->tableId;
             rpcId = currentReq->rpcId;
             rejectRules = currentReq->rejectRules;
-            op.construct(*type, txId.clientLeaseId, txId.txRpcId, rpcId,
+            op.construct(*type, txId.clientLeaseId, txId.clientTransactionId,
+                         rpcId,
                          tableId, 0, 0,
                          *(rpc->requestPayload), reqOffset,
                          currentReq->length);
@@ -2820,7 +2824,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             buffer.appendExternal(rpc->requestPayload, reqOffset,
                                   currentReq->keyLength);
 
-            op.construct(*type, txId.clientLeaseId, txId.txRpcId, rpcId,
+            op.construct(*type, txId.clientLeaseId, txId.clientTransactionId,
+                         rpcId,
                          tableId, 0, 0,
                          buffer);
 

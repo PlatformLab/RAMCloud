@@ -30,7 +30,7 @@ class TxDecisionRecordTest : public ::testing::Test {
         , recordFromBuffer()
     {
         recordFromScratch.construct(
-                32, 42, 21, WireFormat::TxDecision::ABORT, 100);
+                32, 42, 21, 2, WireFormat::TxDecision::ABORT, 100);
         recordFromScratch->addParticipant(1, 2, 3);
         recordFromScratch->addParticipant(123, 234, 345);
 
@@ -55,7 +55,7 @@ class TxDecisionRecordTest : public ::testing::Test {
 };
 
 TEST_F(TxDecisionRecordTest, constructor_fromScratch) {
-    TxDecisionRecord record(32, 42, 21, WireFormat::TxDecision::ABORT, 100);
+    TxDecisionRecord record(32, 42, 21, 1, WireFormat::TxDecision::ABORT, 100);
     EXPECT_EQ(32U, record.header.tableId);
     EXPECT_EQ(42U, record.header.keyHash);
     EXPECT_EQ(21U, record.header.leaseId);
@@ -83,7 +83,7 @@ TEST_F(TxDecisionRecordTest, constuctor_fromBuffer) {
 
 TEST_F(TxDecisionRecordTest, addParticipant) {
     WireFormat::TxParticipant entry;
-    TxDecisionRecord record(32, 42, 21, WireFormat::TxDecision::ABORT, 100);
+    TxDecisionRecord record(32, 42, 21, 2, WireFormat::TxDecision::ABORT, 100);
 
     record.addParticipant(1, 2, 3);
     EXPECT_EQ(1U, record.header.participantCount);
@@ -111,6 +111,7 @@ TEST_F(TxDecisionRecordTest, assembleForLog) {
         EXPECT_EQ(32U, header->tableId);
         EXPECT_EQ(42U, header->keyHash);
         EXPECT_EQ(21U, header->leaseId);
+        EXPECT_EQ(2U, header->transactionId);
         EXPECT_EQ(WireFormat::TxDecision::ABORT, header->decision);
         EXPECT_EQ(2U, header->participantCount);
         EXPECT_EQ(100U, header->timestamp);
@@ -147,6 +148,13 @@ TEST_F(TxDecisionRecordTest, getLeaseId) {
     for (uint32_t i = 0; i < arrayLength(records); i++) {
         TxDecisionRecord& record = *records[i];
         EXPECT_EQ(21U, record.getLeaseId());
+    }
+}
+
+TEST_F(TxDecisionRecordTest, getTransactionId) {
+    for (uint32_t i = 0; i < arrayLength(records); i++) {
+        TxDecisionRecord& record = *records[i];
+        EXPECT_EQ(2U, record.getTransactionId());
     }
 }
 

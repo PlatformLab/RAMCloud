@@ -1064,11 +1064,11 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 LOG(ERROR,
                         "bad ParticipantList checksum! "
                         "(leaseId: %lu, txId: %lu)",
-                        txId.clientLeaseId, txId.txRpcId);
+                        txId.clientLeaseId, txId.clientTransactionId);
                 // TODO(cstlee): Should throw and try another segment replica?
             }
             if (unackedRpcResults->shouldRecover(txId.clientLeaseId,
-                                                 txId.txRpcId,
+                                                 txId.clientTransactionId,
                                                  0)
                     && !preparedOps->hasParticipantListEntry(txId)) {
                 CycleCounter<uint64_t> _(&segmentAppendTicks);
@@ -1080,7 +1080,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                     LOG(ERROR,
                             "Could not append ParticipantList! "
                             "(leaseId: %lu, txId: %lu)",
-                            txId.clientLeaseId, txId.txRpcId);
+                            txId.clientLeaseId, txId.clientTransactionId);
                 }
             }
         }
@@ -2561,7 +2561,7 @@ ObjectManager::dumpSegment(Segment* segment)
                     "TxId: (leaseId %lu, rpcId %lu) containing %u entries",
                     separator, it.getOffset(), it.getLength(),
                     participantList.getTransactionId().clientLeaseId,
-                    participantList.getTransactionId().txRpcId,
+                    participantList.getTransactionId().clientTransactionId,
                     participantList.header.participantCount);
         }
 
@@ -3240,7 +3240,7 @@ ObjectManager::relocateTxParticipantList(Buffer& oldBuffer,
     TransactionId txId = participantList.getTransactionId();
 
     bool keep = !unackedRpcResults->isRpcAcked(txId.clientLeaseId,
-                                               txId.txRpcId);
+                                               txId.clientTransactionId);
 
     if (keep) {
         // Try to relocate it. If it fails, just return. The cleaner will

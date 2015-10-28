@@ -116,7 +116,7 @@ class TxRecoveryManagerTest : public ::testing::Test {
         tableId3 = ramcloud->createTable("table3");
 
         Buffer dummy;
-        task.construct(&context, 42, dummy, 0);
+        task.construct(&context, 42, 1, dummy, 0);
         txRecoveryRpc.construct(&context, session, task.get());
         decisionRpc.construct(&context, session, task.get());
         raRpc.construct(&context, session, task.get());
@@ -139,19 +139,19 @@ class TxRecoveryManagerTest : public ::testing::Test {
     }
 
     void insertRecovery(uint64_t leaseId,
-                        uint64_t rpcId,
+                        uint64_t transactionId,
                         uint32_t participantCount) {
         Buffer buffer;
-        TxRecoveryManager::RecoveryId recoveryId = {leaseId, rpcId};
-        for (uint32_t i = 0; i < participantCount; ++i) {
+        TxRecoveryManager::RecoveryId recoveryId = {leaseId, transactionId};
+        for (uint32_t i = 1; i <= participantCount; ++i) {
             buffer.emplaceAppend<WireFormat::TxParticipant>(tableId1,
-                                                            rpcId + i,
-                                                            rpcId + i);
+                                                            transactionId + i,
+                                                            transactionId + i);
         }
 
         txRecoveryManager.recoveringIds.insert(recoveryId);
         txRecoveryManager.recoveries.emplace_back(
-                &context, leaseId, buffer, participantCount);
+                &context, leaseId, transactionId, buffer, participantCount);
     }
 
     string rpcToString(
@@ -293,12 +293,13 @@ TEST_F(TxRecoveryManagerTest, handleTxHintFailed_duplicate) {
     Buffer buffer;
     WireFormat::TxHintFailed::Request req;
     req.leaseId = 42;
+    req.clientTxId = 1;
     req.participantCount = 2;
     buffer.appendCopy<WireFormat::TxHintFailed::Request>(&req);
     buffer.emplaceAppend<WireFormat::TxParticipant>(tableId1, 2, 3);
     buffer.emplaceAppend<WireFormat::TxParticipant>(tableId2, 5, 6);
 
-    txRecoveryManager.recoveringIds.insert({42, 3});
+    txRecoveryManager.recoveringIds.insert({42, 1});
 
     EXPECT_EQ(1U, txRecoveryManager.recoveringIds.size());
     EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
@@ -311,9 +312,9 @@ TEST_F(TxRecoveryManagerTest, handleTxHintFailed_duplicate) {
     EXPECT_FALSE(txRecoveryManager.isRunning());
 }
 
-TEST_F(TxRecoveryManagerTest, isTxDecisionRecordNeeded_basic) {
-    TxDecisionRecord record(1, 2, 3, WireFormat::TxDecision::ABORT, 100);
-    record.addParticipant(1, 2, 4);
+TEST_F(TxRecoveryManagerTest, isTxDecisionRecordNeeded) {
+    TxDecisionRecord record(1, 2, 3, 4, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 5);
 
     EXPECT_FALSE(txRecoveryManager.isTxDecisionRecordNeeded(record));
 
@@ -322,19 +323,10 @@ TEST_F(TxRecoveryManagerTest, isTxDecisionRecordNeeded_basic) {
     EXPECT_TRUE(txRecoveryManager.isTxDecisionRecordNeeded(record));
 }
 
-TEST_F(TxRecoveryManagerTest, isTxDecisionRecordNeeded_badRecord) {
-    TxDecisionRecord record(1, 2, 3, WireFormat::TxDecision::ABORT, 100);
-    TestLog::reset();
-    EXPECT_FALSE(txRecoveryManager.isTxDecisionRecordNeeded(record));
-    EXPECT_EQ("isTxDecisionRecordNeeded: "
-              "TxDecisionRecord missing participant information",
-              TestLog::get());
-}
-
 TEST_F(TxRecoveryManagerTest, recoverRecovery_basic) {
-    TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
-    record.addParticipant(1, 2, 3);
-    record.addParticipant(4, 5, 6);
+    TxDecisionRecord record(1, 2, 42, 4, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 5);
+    record.addParticipant(4, 5, 7);
 
     EXPECT_EQ(0U, txRecoveryManager.recoveringIds.size());
     EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
@@ -347,26 +339,12 @@ TEST_F(TxRecoveryManagerTest, recoverRecovery_basic) {
     EXPECT_TRUE(txRecoveryManager.isRunning());
 }
 
-TEST_F(TxRecoveryManagerTest, recoverRecovery_badRecord) {
-    TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
-
-    EXPECT_EQ(0U, txRecoveryManager.recoveringIds.size());
-    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
-    EXPECT_FALSE(txRecoveryManager.isRunning());
-
-    EXPECT_FALSE(txRecoveryManager.recoverRecovery(record));
-
-    EXPECT_EQ(0U, txRecoveryManager.recoveringIds.size());
-    EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
-    EXPECT_FALSE(txRecoveryManager.isRunning());
-}
-
 TEST_F(TxRecoveryManagerTest, recoverRecovery_duplicate) {
-    TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
-    record.addParticipant(1, 2, 3);
-    record.addParticipant(4, 5, 6);
+    TxDecisionRecord record(1, 2, 42, 4, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 5);
+    record.addParticipant(4, 5, 7);
 
-    txRecoveryManager.recoveringIds.insert({42, 3});
+    txRecoveryManager.recoveringIds.insert({42, 4});
 
     EXPECT_EQ(1U, txRecoveryManager.recoveringIds.size());
     EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
@@ -385,23 +363,23 @@ TEST_F(TxRecoveryManagerTest, RecoveryTask_constructor_initial) {
     participantBuffer.emplaceAppend<WireFormat::TxParticipant>(4, 5, 6);
     participantBuffer.emplaceAppend<WireFormat::TxParticipant>(7, 8, 9);
 
-    TxRecoveryManager::RecoveryTask task(&context, 21, participantBuffer, 3);
+    TxRecoveryManager::RecoveryTask task(&context, 21, 2, participantBuffer, 3);
     EXPECT_TRUE(&context == task.context);
-    EXPECT_EQ("RecoveryTask :: lease{21} state{REQUEST_ABORT} "
+    EXPECT_EQ("RecoveryTask :: lease{21} transaction{2} state{REQUEST_ABORT} "
               "decision{INVALID} participants[ {1, 2, 3} {4, 5, 6} {7, 8, 9} ]",
               task.toString());
 }
 
 TEST_F(TxRecoveryManagerTest, RecoveryTask_constructor_recovered) {
-    TxDecisionRecord record(1, 2, 21, WireFormat::TxDecision::ABORT, 100);
+    TxDecisionRecord record(1, 2, 21, 2, WireFormat::TxDecision::ABORT, 100);
     record.addParticipant(1, 2, 3);
     record.addParticipant(4, 5, 6);
     record.addParticipant(7, 8, 9);
 
     TxRecoveryManager::RecoveryTask task(&context, record);
     EXPECT_TRUE(&context == task.context);
-    EXPECT_EQ("RecoveryTask :: lease{21} state{DECIDE} decision{ABORT} "
-              "participants[ {1, 2, 3} {4, 5, 6} {7, 8, 9} ]",
+    EXPECT_EQ("RecoveryTask :: lease{21} transaction{2} state{DECIDE} "
+              "decision{ABORT} participants[ {1, 2, 3} {4, 5, 6} {7, 8, 9} ]",
               task.toString());
 }
 

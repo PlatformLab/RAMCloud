@@ -32,9 +32,8 @@ namespace RAMCloud {
  * \param clientId
  *      leaseId given for this linearizable RPC.  First half of this
  *      transaction's unique identifier.
- * \param txRpcId
- *      Second half of this transaction's unique identifier taken from the rpcId
- *      of the first operation in the participant list.
+ * \param clientTxId
+ *      Second half of this transaction's unique identifier.
  * \param rpcId
  *      rpcId given for this linearizable RPC.
  * \param tableId
@@ -59,7 +58,7 @@ namespace RAMCloud {
  */
 PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
                        uint64_t clientId,
-                       uint64_t txRpcId,
+                       uint64_t clientTxId,
                        uint64_t rpcId,
                        uint64_t tableId,
                        uint64_t version,
@@ -67,7 +66,7 @@ PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
                        Buffer& keysAndValueBuffer,
                        uint32_t startDataOffset,
                        uint32_t length)
-    : header(type, clientId, txRpcId, rpcId)
+    : header(type, clientId, clientTxId, rpcId)
     , object(tableId, version, timestamp, keysAndValueBuffer,
              startDataOffset, length)
 {
@@ -86,9 +85,8 @@ PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
  * \param clientId
  *      leaseId given for this linearizable RPC.  First half of this
  *      transaction's unique identifier.
- * \param txRpcId
- *      Second half of this transaction's unique identifier taken from the rpcId
- *      of the first operation in the participant list.
+ * \param clientTxId
+ *      Second half of this transaction's unique identifier.
  * \param rpcId
  *      rpcId given for this linearizable RPC.
  * \param key
@@ -113,7 +111,7 @@ PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
  */
 PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
                        uint64_t clientId,
-                       uint64_t txRpcId,
+                       uint64_t clientTxId,
                        uint64_t rpcId,
                        Key& key,
                        const void* value,
@@ -122,7 +120,7 @@ PreparedOp::PreparedOp(WireFormat::TxPrepare::OpType type,
                        uint32_t timestamp,
                        Buffer& buffer,
                        uint32_t *length)
-    : header(type, clientId, txRpcId, rpcId)
+    : header(type, clientId, clientTxId, rpcId)
     , object(key, value, valueLength, version, timestamp, buffer, length)
 {
 }
@@ -202,7 +200,7 @@ PreparedOp::computeChecksum()
 TransactionId
 PreparedOp::getTransactionId()
 {
-     return TransactionId(header.clientId, header.txRpcId);
+     return TransactionId(header.clientId, header.clientTxId);
 }
 
 /**
@@ -297,11 +295,14 @@ PreparedOpTombstone::computeChecksum()
  *      Number of participants in the list.
  * \param clientLeaseId
  *      Id of the client lease associated with this transaction.
+ * \param clientTransactionId
+ *      Client provided identifier for this transaction.
  */
 ParticipantList::ParticipantList(WireFormat::TxParticipant* participants,
                                  uint32_t participantCount,
-                                 uint64_t clientLeaseId)
-    : header(clientLeaseId, participantCount)
+                                 uint64_t clientLeaseId,
+                                 uint64_t clientTransactionId)
+    : header(clientLeaseId, clientTransactionId, participantCount)
     , participants(participants)
 {
 }
@@ -382,8 +383,7 @@ ParticipantList::computeChecksum()
 TransactionId
 ParticipantList::getTransactionId()
 {
-    assert(header.participantCount > 0);
-    return TransactionId(header.clientLeaseId, participants[0].rpcId);
+    return TransactionId(header.clientLeaseId, header.clientTransactionId);
 }
 
 /**
@@ -568,14 +568,14 @@ PreparedOps::PreparedItem::handleTimerEvent()
                 participantList.participants[0].tableId,
                 participantList.participants[0].keyHash,
                 participantList.header.clientLeaseId,
-                txId.txRpcId,
+                participantList.header.clientTransactionId,
                 participantList.header.participantCount,
                 participantList.participants);
     } else {
         RAMCLOUD_LOG(WARNING,
                 "Unable to find participant list record for TxId (%lu, %lu); "
                 "client transaction recovery could not be requested.",
-                txId.clientLeaseId, txId.txRpcId);
+                txId.clientLeaseId, txId.clientTransactionId);
     }
 
     this->start(Cycles::rdtsc() + Cycles::fromMicroseconds(TX_TIMEOUT_US));

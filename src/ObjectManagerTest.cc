@@ -1372,7 +1372,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     PreparedOp savedOp(preparedOpBuffer, 0, preparedOpBuffer.size());
 
     EXPECT_EQ(1UL, savedOp.header.clientId);
-    EXPECT_EQ(10UL, savedOp.header.txRpcId);
+    EXPECT_EQ(10UL, savedOp.header.clientTxId);
     EXPECT_EQ(11UL, savedOp.header.rpcId);
     EXPECT_EQ(10UL, savedOp.object.getTableId());
     EXPECT_EQ(3UL, savedOp.object.header.version);
@@ -1476,7 +1476,7 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_basic) {
     {
         SegmentCertificate certificate;
         Buffer buf;
-        TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
+        TxDecisionRecord record(1, 2, 42, 1, WireFormat::TxDecision::ABORT, 50);
         record.addParticipant(1, 2, 3);
         len = buildRecoverySegment(seg, segLen, record, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1498,7 +1498,7 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
 
     TxRecoveryManager* txRecoveryManager = objectManager.txRecoveryManager;
 
-    txRecoveryManager->recoveringIds.insert({42, 3});
+    txRecoveryManager->recoveringIds.insert({42, 1});
 
     EXPECT_EQ(1U, txRecoveryManager->recoveringIds.size());
     EXPECT_EQ(0U, txRecoveryManager->recoveries.size());
@@ -1507,7 +1507,7 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
     {
         SegmentCertificate certificate;
         Buffer buf;
-        TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
+        TxDecisionRecord record(1, 2, 42, 1, WireFormat::TxDecision::ABORT, 50);
         record.addParticipant(1, 2, 3);
         len = buildRecoverySegment(seg, segLen, record, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1535,7 +1535,7 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_basic) {
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList record(participants, 3, 42);
+    ParticipantList record(participants, 3, 42, 9);
     TransactionId txId = record.getTransactionId();
 
     EXPECT_FALSE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
@@ -1571,16 +1571,17 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_acked) {
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList record(participants, 3, 42);
+    ParticipantList record(participants, 3, 42, 9);
     TransactionId txId = record.getTransactionId();
 
     // pre-insert ack
-    unackedRpcResults->shouldRecover(
-            txId.clientLeaseId, txId.txRpcId, txId.txRpcId);
+    unackedRpcResults->shouldRecover(txId.clientLeaseId,
+                                     txId.clientTransactionId,
+                                     txId.clientTransactionId);
     EXPECT_TRUE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
             unackedRpcResults->clients.end());
-    EXPECT_TRUE(unackedRpcResults->isRpcAcked(
-                                            txId.clientLeaseId, txId.txRpcId));
+    EXPECT_TRUE(unackedRpcResults->isRpcAcked(txId.clientLeaseId,
+                                              txId.clientTransactionId));
     EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
 
     {
@@ -1610,7 +1611,7 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_hasPListEntry) {
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList record(participants, 3, 42);
+    ParticipantList record(participants, 3, 42, 9);
     TransactionId txId = record.getTransactionId();
 
     // pre-insert (bad) participant list entry
@@ -1736,7 +1737,7 @@ TEST_F(ObjectManagerTest, logTransactionParticipantList) {
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList participantList(participants, 3, 42);
+    ParticipantList participantList(participants, 3, 42, 9);
     uint64_t logRefNum;
 
     objectManager.logTransactionParticipantList(participantList, &logRefNum);
@@ -1837,8 +1838,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
 }
 
 TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
-
-    TxDecisionRecord record(1, 2, 21, WireFormat::TxDecision::ABORT, 100);
+    TxDecisionRecord record(1, 2, 21, 1, WireFormat::TxDecision::ABORT, 50);
     record.addParticipant(1, 2, 3);
     record.addParticipant(123, 234, 345);
 
@@ -1859,9 +1859,9 @@ TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
     tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
     EXPECT_EQ(STATUS_OK, objectManager.writeTxDecisionRecord(record));
-    EXPECT_EQ("writeTxDecisionRecord: tansactionDecisionRecord: 88 bytes",
+    EXPECT_EQ("writeTxDecisionRecord: tansactionDecisionRecord: 96 bytes",
               TestLog::get());
-    EXPECT_EQ("found=true tableId=1 byteCount=88 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=96 recordCount=1"
               , verifyMetadata(1));
 }
 
@@ -3066,8 +3066,8 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_hashTableRefUpdate) {
 }
 
 TEST_F(ObjectManagerTest, relocateTxDecisionRecord_relocateRecord) {
-    TxDecisionRecord record(1, 2, 3, WireFormat::TxDecision::ABORT, 100);
-    record.addParticipant(1, 2, 4);
+    TxDecisionRecord record(1, 2, 3, 4, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 5);
     // Make it look like we still need the record.
     txRecoveryManager.recoveringIds.insert({3, 4});
 
@@ -3084,7 +3084,7 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_relocateRecord) {
                           record.getTableId(),
                           recordBuffer.size(),
                           1);
-    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=72 recordCount=1"
               , verifyMetadata(1));
 
     Buffer oldBufferInLog;
@@ -3097,13 +3097,13 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_relocateRecord) {
                            oldRecordReference,
                            relocator);
     EXPECT_TRUE(relocator.didAppend);
-    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=72 recordCount=1"
               , verifyMetadata(1));
 }
 
 TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
-    TxDecisionRecord record(1, 2, 3, WireFormat::TxDecision::ABORT, 100);
-    record.addParticipant(1, 2, 4);
+    TxDecisionRecord record(1, 2, 3, 4, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 5);
 
     Buffer recordBuffer;
     record.assembleForLog(recordBuffer);
@@ -3118,7 +3118,7 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
                           record.getTableId(),
                           recordBuffer.size(),
                           1);
-    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=72 recordCount=1"
               , verifyMetadata(1));
 
     Buffer oldBufferInLog;
@@ -3142,7 +3142,7 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_relocate) {
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList participantList(participants, 3, 42);
+    ParticipantList participantList(participants, 3, 42, 9);
 
     // Setup its initial existence.
     Buffer pListBuffer;
@@ -3189,7 +3189,7 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_clean) {
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList participantList(participants, 3, 42);
+    ParticipantList participantList(participants, 3, 42, 9);
 
     // Setup its initial existence.
     Buffer pListBuffer;
