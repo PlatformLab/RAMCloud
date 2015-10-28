@@ -103,7 +103,7 @@ class UnackedRpcResultsTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(UnackedRpcResultsTest);
 };
 
-TEST_F(UnackedRpcResultsTest, checkDuplicate) {
+TEST_F(UnackedRpcResultsTest, checkDuplicate_basic) {
     void* result;
     ClientLease clientLease = {0, 0, 0};
 
@@ -138,6 +138,22 @@ TEST_F(UnackedRpcResultsTest, checkDuplicate) {
 
     EXPECT_TRUE(results.checkDuplicate(clientLease, 9, 7, &result));
     EXPECT_EQ(0UL, (uint64_t)result);
+}
+
+TEST_F(UnackedRpcResultsTest, checkDuplicate_expiredLease) {
+    void* result;
+    ClientLease clientLease = {1, 1, 10};
+    EXPECT_THROW(results.checkDuplicate(clientLease, 11, 5, &result),
+                 ExpiredLeaseException);
+}
+
+TEST_F(UnackedRpcResultsTest, checkDuplicate_validateWithUpdatedLease) {
+    void* result;
+    ClientLease clientLease = {1, 50, 1};
+    EXPECT_FALSE(results.checkDuplicate(clientLease, 11, 5, &result));
+
+    clientLease = {1, 1, 10};
+    EXPECT_FALSE(results.checkDuplicate(clientLease, 12, 5, &result));
 }
 
 TEST_F(UnackedRpcResultsTest, shouldRecover) {

@@ -244,12 +244,6 @@ UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
     Client* client;
 
     uint64_t clientId = clientLease.leaseId;
-    ClusterTime leaseExpiration(clientLease.leaseExpiration);
-
-    // Make sure lease is valid.
-    if (!leaseValidator->validate(clientLease)) {
-        throw ExpiredLeaseException(HERE);
-    }
 
     ClientMap::iterator it = clients.find(clientId);
     if (it == clients.end()) {
@@ -258,6 +252,18 @@ UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
     } else {
         client = it->second;
     }
+
+    // Update lease with more up-to-date information if available to avoid
+    // unnecessary lease validation.
+    if (ClusterTime(clientLease.leaseExpiration) < client->leaseExpiration) {
+        clientLease.leaseExpiration = client->leaseExpiration.getEncoded();
+    }
+    // Make sure lease is valid.
+    if (!leaseValidator->validate(clientLease, &clientLease)) {
+        throw ExpiredLeaseException(HERE);
+    }
+
+    ClusterTime leaseExpiration(clientLease.leaseExpiration);
 
     //1. Update leaseExpiration and ack.
     if (client->leaseExpiration < leaseExpiration)
@@ -577,7 +583,7 @@ UnackedRpcResults::Client::result(uint64_t rpcId) {
 }
 
 /**
- * Mark the start of processing a new RPC on Client's internal data strucutre.
+ * Mark the start of processing a new RPC on Client's internal data structure.
  *
  * \param rpcId
  *      The id of new Rpc.
