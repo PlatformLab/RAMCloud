@@ -158,9 +158,16 @@ TEST_F(UnackedRpcResultsTest, checkDuplicate_validateWithUpdatedLease) {
 
 TEST_F(UnackedRpcResultsTest, shouldRecover) {
     //Basic Function
-    EXPECT_TRUE(results.shouldRecover(1, 10, 5));
     EXPECT_TRUE(results.shouldRecover(1, 11, 5));
     EXPECT_FALSE(results.shouldRecover(1, 5, 4));
+
+    //Duplicate
+    TestLog::reset();
+    EXPECT_FALSE(results.shouldRecover(1, 10, 5));
+    EXPECT_EQ("shouldRecover: "
+              "Duplicate RpcResult or ParticipantList found during recovery. "
+              "<clientID, rpcID, ackId> = <1, 10, 5>",
+            TestLog::get());
 
     //Auto client insertion
     EXPECT_TRUE(results.shouldRecover(2, 4, 2)); //ClientId = 2 inserted.
@@ -273,7 +280,8 @@ TEST_F(UnackedRpcResultsTest, recoverRecord) {
     // Duplicate record.
 //    TestLog::reset();
     results.recoverRecord(leaseId, 15, 5, &result);
-    EXPECT_EQ("recoverRecord: Duplicate RpcResult found during recovery. "
+    EXPECT_EQ("recoverRecord: "
+              "Duplicate RpcResult or ParticipantList found during recovery. "
               "<clientID, rpcID, ackId> = <10, 15, 5>",
             TestLog::get());
 }

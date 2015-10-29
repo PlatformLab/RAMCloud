@@ -331,6 +331,15 @@ UnackedRpcResults::shouldRecover(uint64_t clientId,
     if (client->maxAckId < ackId)
         client->processAck(ackId, freer);
 
+    if (client->hasRecord(rpcId)) {
+        LOG(WARNING,
+                "Duplicate RpcResult or ParticipantList found during recovery. "
+                "<clientID, rpcID, ackId> = <"
+                "%" PRIu64 ", " "%" PRIu64 ", " "%" PRIu64 ">",
+                clientId, rpcId, ackId);
+        return false;
+    }
+
     return rpcId > client->maxAckId;
 }
 
@@ -418,7 +427,8 @@ UnackedRpcResults::recoverRecord(uint64_t clientId,
         client->recordNewRpc(rpcId);
         client->updateResult(rpcId, result);
     } else if (client->hasRecord(rpcId)) {
-        LOG(WARNING, "Duplicate RpcResult found during recovery. "
+        LOG(WARNING,
+                "Duplicate RpcResult or ParticipantList found during recovery. "
                 "<clientID, rpcID, ackId> = <"
                 "%" PRIu64 ", " "%" PRIu64 ", " "%" PRIu64 ">",
                 clientId, rpcId, ackId);
