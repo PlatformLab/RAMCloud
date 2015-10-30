@@ -77,7 +77,8 @@ TEST_F(CoordinatorClusterClockTest, handleTimerEvent) {
     EXPECT_EQ("set(UPDATE, coordinatorClusterClock)", storage.log);
     storage.getResults.push(storage.setData);
     uint64_t storedTime = clock->recoverClusterTime(context.externalStorage);
-    EXPECT_GT(storedTime, safeTimeInterval.toNanoseconds());
+    EXPECT_GT(static_cast<int64_t>(storedTime),
+              safeTimeInterval.toNanoseconds());
     EXPECT_EQ(storedTime, clock->safeClusterTime.getEncoded());
 }
 

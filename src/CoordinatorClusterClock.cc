@@ -24,7 +24,7 @@ namespace RAMCloud {
 
 /// Duration to advance the safeClusterTime stored in external storage.  This
 /// value should be much larger than the time to perform the external storage
-/// write (~10ms) but much much less than the max value (2^64 - 1).
+/// write (~10ms) but much much less than the max value (2^63 - 1).
 const ClusterTimeDuration CoordinatorClusterClock::safeTimeInterval =
         ClusterTimeDuration::fromNanoseconds(3 * 1e9);          // 3 seconds
 
@@ -154,7 +154,7 @@ CoordinatorClusterClock::getInternal()
 uint64_t
 CoordinatorClusterClock::recoverClusterTime(ExternalStorage* externalStorage)
 {
-    uint64_t startingClusterTime = 0;
+    uint64_t startingClusterTime = ClusterTime().getEncoded();
     // Recover any previously persisted safe cluster time. Cluster time starts
     // at zero if no persisted time is found.
     ProtoBuf::CoordinatorClusterClock info;

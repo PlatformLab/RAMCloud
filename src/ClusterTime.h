@@ -30,10 +30,6 @@ class ClusterTime;
  * ClusterTime, this class allows some basic "arithmetic" to be performed on the
  * logical notion of cluster-time and also provides approximate conversions
  * between elapsed cluster-time and elapsed of wall-clock-time (real time).
- *
- * Note: for perforamnce and simplicity, the duration is an unsigned value and
- * no over/underflow checking is done.  If unsafe operations are possible, this
- * module may need to be redesigned.
  */
 class ClusterTimeDuration {
     friend class ClusterTime;
@@ -58,7 +54,7 @@ class ClusterTimeDuration {
     /**
      * Return the approximate length of this ClusterTimeDuration in nanoseconds.
      */
-    uint64_t toNanoseconds() const {
+    int64_t toNanoseconds() const {
         return length;
     }
 
@@ -67,7 +63,7 @@ class ClusterTimeDuration {
      * cluster-time.  This method does not check for underflow.
      */
     ClusterTimeDuration operator-(const ClusterTimeDuration &other) const {
-        uint64_t duration = length - other.length;
+        int64_t duration = length - other.length;
         return ClusterTimeDuration(duration);
     }
 
@@ -106,12 +102,12 @@ class ClusterTimeDuration {
      * Private constructor used to construct a ClusterTimeDuration given a
      * duration in cluster-time units.
      */
-    explicit ClusterTimeDuration(uint64_t duration)
+    explicit ClusterTimeDuration(int64_t duration)
         : length(duration)
     {}
 
     /// Internal representation of cluster-time duration in cluster-time units.
-    uint64_t length;
+    int64_t length;
 };
 
 
@@ -125,10 +121,6 @@ class ClusterTimeDuration {
  *
  * This class provides certain atomic operations to facilitate its use in
  * thread-safe modules like CoordinatorClusterClock and ClusterClock.
- *
- * Note: for performance and simplicity, cluster-time is an unsigned value and
- * no over/underflow checking is done.  If unsafe operations are possible, this
- * module may need to be redesigned.
  */
 class ClusterTime {
   PUBLIC:
@@ -149,7 +141,7 @@ class ClusterTime {
      *      The encoding of a ClusterTime object the is to be reconstructed.
      */
     explicit ClusterTime(uint64_t encodedClusterTime)
-        : timestamp(encodedClusterTime)
+        : timestamp(static_cast<int64_t>(encodedClusterTime))
     {}
 
     /**
@@ -157,7 +149,7 @@ class ClusterTime {
      * serialize a ClusterTime object into an RPC or onto ExternalStorage.
      */
     uint64_t getEncoded() const {
-        return timestamp.load();
+        return static_cast<uint64_t>(timestamp.load());
     }
 
     /**
@@ -179,7 +171,7 @@ class ClusterTime {
      * cluster-time.  This method does not check for underflow.
      */
     ClusterTimeDuration operator-(const ClusterTime &other) const {
-        uint64_t duration = timestamp.load() - other.timestamp.load();
+        int64_t duration = timestamp.load() - other.timestamp.load();
         return ClusterTimeDuration(duration);
     }
 
@@ -227,7 +219,7 @@ class ClusterTime {
   PRIVATE:
 
     /// Internal representation of cluster-time in cluster-time units.
-    Atomic<uint64_t> timestamp;
+    Atomic<int64_t> timestamp;
 };
 
 } // namespace RAMCloud

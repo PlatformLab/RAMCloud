@@ -35,12 +35,6 @@ class ClientLeaseValidatorTest : public ::testing::Test {
         , clusterClock()
         , validator(&context, &clusterClock)
     {
-        Cycles::mockTscValue = Cycles::fromNanoseconds(1000000000);
-    }
-
-    ~ClientLeaseValidatorTest()
-    {
-        Cycles::mockTscValue = 0;
     }
 
     DISALLOW_COPY_AND_ASSIGN(ClientLeaseValidatorTest);
@@ -99,27 +93,29 @@ TEST_F(ClientLeaseValidatorTest, validate_validAfterCheck) {
     cluster.coordinator->leaseAuthority.lastIssuedLeaseId = 41;
     CoordinatorClusterClock* coordinatorClusterClock =
             &cluster.coordinator->leaseAuthority.clock;
-    coordinatorClusterClock->safeClusterTime = ClusterTime(0);
+    coordinatorClusterClock->safeClusterTime = ClusterTime();
     EXPECT_FALSE(cluster.coordinator->leaseAuthority.clock.updater.isRunning());
-    ClusterTime expirationTime = ClusterTime(0) + LeaseCommon::LEASE_TERM;
+    ClusterTime expirationTime = ClusterTime() + LeaseCommon::LEASE_TERM;
     ClientLease lease =  cluster.coordinator->leaseAuthority.renewLease(0);
     cluster.coordinator->leaseAuthority.reservationAgent.stop();
 
     EXPECT_EQ(42U, lease.leaseId);
     EXPECT_EQ(expirationTime, ClusterTime(lease.leaseExpiration));
-    EXPECT_EQ(ClusterTime(0U), ClusterTime(lease.timestamp));
+    EXPECT_EQ(ClusterTime(), ClusterTime(lease.timestamp));
 
     // Test
     lease.leaseExpiration = 25U;
     lease.timestamp = 50U;
 
-    coordinatorClusterClock->safeClusterTime = ClusterTime(100);
+    ClusterTime currentClusterTime =
+            ClusterTime() + ClusterTimeDuration::fromNanoseconds(100);
+    coordinatorClusterClock->safeClusterTime = currentClusterTime;
 
     EXPECT_TRUE(validator.validate(lease, &lease));
-    EXPECT_EQ(ClusterTime(100U), clusterClock.getTime());
+    EXPECT_EQ(currentClusterTime, clusterClock.getTime());
     EXPECT_EQ(42U, lease.leaseId);
     EXPECT_EQ(expirationTime, ClusterTime(lease.leaseExpiration));
-    EXPECT_EQ(ClusterTime(100U), ClusterTime(lease.timestamp));
+    EXPECT_EQ(currentClusterTime, ClusterTime(lease.timestamp));
 
     clusterClock.updateClock(ClusterTime(200U));
     lease.leaseExpiration = 25U;

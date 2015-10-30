@@ -20,12 +20,12 @@ namespace RAMCloud {
 
 TEST(ClusterTimeDurationTest, fromNanoseconds) {
     ClusterTimeDuration duration = ClusterTimeDuration::fromNanoseconds(42);
-    EXPECT_EQ(42U, duration.length);
+    EXPECT_EQ(42, duration.length);
 }
 
 TEST(ClusterTimeDurationTest, toNanoseconds) {
     ClusterTimeDuration duration = ClusterTimeDuration::fromNanoseconds(42);
-    EXPECT_EQ(42U, duration.toNanoseconds());
+    EXPECT_EQ(42, duration.toNanoseconds());
 }
 
 TEST(ClusterTimeDurationTest, sub) {
@@ -33,7 +33,7 @@ TEST(ClusterTimeDurationTest, sub) {
     ClusterTimeDuration durationLonger(3);
 
     ClusterTimeDuration newDuration = durationLonger - durationShorter;
-    EXPECT_EQ(2U, newDuration.toNanoseconds());
+    EXPECT_EQ(2, newDuration.toNanoseconds());
 }
 
 TEST(ClusterTimeDurationTest, relational) {
@@ -68,17 +68,17 @@ TEST(ClusterTimeDurationTest, relational) {
 
 TEST(ClusterTimeDurationTest, constructor) {
     ClusterTimeDuration duration(42);
-    EXPECT_EQ(42U, duration.length);
+    EXPECT_EQ(42, duration.length);
 }
 
 TEST(ClusterTimeTest, constructor) {
     ClusterTime clusterTime;
-    EXPECT_EQ(0U, clusterTime.timestamp.load());
+    EXPECT_EQ(0, clusterTime.timestamp.load());
 }
 
 TEST(ClusterTimeTest, constructor_fromEncoded) {
     ClusterTime clusterTime(42);
-    EXPECT_EQ(42U, clusterTime.timestamp.load());
+    EXPECT_EQ(42, clusterTime.timestamp.load());
 }
 
 TEST(ClusterTimeTest, getEncoded) {
@@ -91,7 +91,7 @@ TEST(ClusterTimeTest, add) {
     ClusterTimeDuration duration(21);
 
     ClusterTime newClusterTime = clusterTime + duration;
-    EXPECT_EQ(42U, newClusterTime.timestamp.load());
+    EXPECT_EQ(42, newClusterTime.timestamp.load());
 }
 
 TEST(ClusterTimeTest, sub) {
@@ -99,7 +99,7 @@ TEST(ClusterTimeTest, sub) {
     ClusterTime clusterTimeLater(45);
 
     ClusterTimeDuration duration = clusterTimeLater - clusterTime;
-    EXPECT_EQ(42U, duration.length);
+    EXPECT_EQ(42, duration.length);
 }
 
 TEST(ClusterTimeTest, relational) {
