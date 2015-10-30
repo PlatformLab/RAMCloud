@@ -45,7 +45,8 @@ class ClusterTimeDuration {
      *      ClusterTimeDuration object with a cluster-time duration
      *      approximately as long as the provided nanosecond duration.
      */
-    static ClusterTimeDuration fromNanoseconds(int64_t nanoseconds) {
+    static CONSTEXPR_FUNC ClusterTimeDuration fromNanoseconds(
+            int64_t nanoseconds) {
         // Do conversion from nanoseconds to internal length representation
         // (currently not necessary as nanoseconds to length is 1-to-1).
         return ClusterTimeDuration(nanoseconds);
@@ -102,7 +103,7 @@ class ClusterTimeDuration {
      * Private constructor used to construct a ClusterTimeDuration given a
      * duration in cluster-time units.
      */
-    explicit ClusterTimeDuration(int64_t duration)
+    CONSTEXPR_FUNC explicit ClusterTimeDuration(int64_t duration)
         : length(duration)
     {}
 

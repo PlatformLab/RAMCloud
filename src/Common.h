@@ -45,15 +45,22 @@ namespace RAMCloud {
 
 /**
  * GCC 4.6 and above introduced the constexpr keyword, but it's not backward
- * compatible with earlier versions. This macro changes constexpr's to const's
- * for the incompatible versions. Additionally, 4.6 and above requires (in the
- * form of warnings) that const double's be constexpr double's and this
- * achieves the forward compatibility.
+ * compatible with earlier versions. The CONSTEXPR_VAR and CONSTEXPR_FUNC
+ * macros allow us to support both newer and older versions of GCC by providing
+ * backward compatible and sematicaically correct conversions of the constexpr
+ * keyword for variables and fucntions respectively.  GCC 4.6 and above requires
+ * some uses of constexpr (in the form of warnings); for instance const double's
+ * must be constexpr double's.
  */
 #if __cpp_constexpr
-    #define CONSTEXPR constexpr
+    #define CONSTEXPR_VAR constexpr
 #else
-    #define CONSTEXPR const
+    #define CONSTEXPR_VAR const
+#endif
+#if __cpp_constexpr
+    #define CONSTEXPR_FUNC constexpr
+#else
+    #define CONSTEXPR_FUNC
 #endif
 
 // htons, ntohs cause warnings
