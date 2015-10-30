@@ -22,10 +22,9 @@
 namespace RAMCloud {
 
 /**
- * The ClusterClock is used by masters to keep track of its observed "current"
+ * The ClusterClock is used by masters to keep track of this observed "current"
  * cluster-time.  A master's observed "current" cluster-time is defined as the
- * most logically recent cluster-time observed by the master.  Here a time A is
- * logically more recent than a time B if A > B.  The "current" cluster-time is
+ * largest cluster-time observed by the master.  The "current" cluster-time is
  * used to logically serialize lease expiration with lease information removal.
  */
 class ClusterClock {
@@ -45,14 +44,15 @@ class ClusterClock {
     }
 
     /**
-     * Update the ClusterClock to keep the "current" cluster-time updated.  This
-     * method should be called every time a master receives a cluster-time.
+     * Provide an observed cluster-time to the ClusterClock to keep the
+     * "current" cluster-time updated.  This method should be called every time
+     * a master receives a cluster-time.
      *
      * \param observedTime
      *      A cluster-time from a client, a different master, or the coordinator
      *      providing a lower bound on the "current" cluster-time.  When this
      *      method returns, all subsequent calls to getTime will return a
-     *      time at least as recent as this observedTime.
+     *      time at least as large this observedTime.
      */
     void updateClock(ClusterTime observedTime) {
         ClusterTime currentClusterTime = clusterTime;
@@ -64,7 +64,7 @@ class ClusterClock {
     }
 
   PRIVATE:
-    /// The most logically recent cluster-time observed by this module.
+    /// The largest cluster-time observed by this module.
     ClusterTime clusterTime;
 
     DISALLOW_COPY_AND_ASSIGN(ClusterClock);
