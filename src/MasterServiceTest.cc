@@ -2844,8 +2844,9 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
     EXPECT_FALSE(isObjectLocked(key1));
     EXPECT_FALSE(isObjectLocked(key2));
     EXPECT_FALSE(isObjectLocked(key3));
-    EXPECT_FALSE(
-            service->objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_FALSE(service->objectManager.unackedRpcResults->hasRecord(
+                        txId.clientLeaseId,
+                        txId.clientTransactionId));
     {
         Buffer value;
         ramcloud->read(1, "key1", 4, &value, NULL, &version);
@@ -2876,8 +2877,9 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
     EXPECT_TRUE(isObjectLocked(key1));
     EXPECT_TRUE(isObjectLocked(key2));
     EXPECT_TRUE(isObjectLocked(key3));
-    EXPECT_TRUE(
-            service->objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_TRUE(service->objectManager.unackedRpcResults->hasRecord(
+                        txId.clientLeaseId,
+                        txId.clientTransactionId));
 
     Buffer value;
     ramcloud->read(1, "key1", 4, &value, NULL, &version);

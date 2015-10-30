@@ -1069,13 +1069,20 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             }
             if (unackedRpcResults->shouldRecover(txId.clientLeaseId,
                                                  txId.clientTransactionId,
-                                                 0)
-                    && !preparedOps->hasParticipantListEntry(txId)) {
+                                                 0)) {
                 CycleCounter<uint64_t> _(&segmentAppendTicks);
                 Log::Reference logRef;
                 if (sideLog->append(LOG_ENTRY_TYPE_TXPLIST, buffer, &logRef)) {
-                    preparedOps->updateParticipantListEntry(
-                            txId, logRef.toInteger());
+                    unackedRpcResults->recoverRecord(
+                            txId.clientLeaseId,
+                            txId.clientTransactionId,
+                            0,
+                            reinterpret_cast<void*>(logRef.toInteger()));
+                    // Participant List records are not accounted for in the
+                    // table stats. The assumption is that the Participant List
+                    // records should occupy a relatively small fraction of the
+                    // server's log and thus should not significantly affect
+                    // table stats estimate.
                 } else {
                     LOG(ERROR,
                             "Could not append ParticipantList! "
@@ -3248,11 +3255,14 @@ ObjectManager::relocateTxParticipantList(Buffer& oldBuffer,
         if (!relocator.append(LOG_ENTRY_TYPE_TXPLIST, oldBuffer))
             return;
 
-        preparedOps->updateParticipantListEntry(
-                txId, relocator.getNewReference().toInteger());
+        unackedRpcResults->recordCompletion(
+                txId.clientLeaseId,
+                txId.clientTransactionId,
+                reinterpret_cast<void*>(
+                        relocator.getNewReference().toInteger()),
+                true);
     } else {
         // Participant List will be dropped/"cleaned"
-        preparedOps->updateParticipantListEntry(txId, 0);
 
         // Participant List records are not accounted for in the table stats.
         // The assumption is that the Participant List records should occupy a

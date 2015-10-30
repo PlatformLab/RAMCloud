@@ -536,6 +536,27 @@ UnackedRpcResults::cleanByTimeout()
 }
 
 /**
+ * Returns true if a record exists for the given client id and RPC id; false,
+ * otherwise.  This method is used only for unit testing.
+ */
+bool
+UnackedRpcResults::hasRecord(uint64_t clientId, uint64_t rpcId) {
+    Client* client;
+    ClientMap::iterator it = clients.find(clientId);
+    if (it == clients.end()) {
+        return false;
+    }
+
+    client = it->second;
+
+    if (rpcId <= client->maxAckId) {
+        return false;
+    }
+
+    return client->hasRecord(rpcId);
+}
+
+/**
  * Constructor for the UnackedRpcResults' Cleaner.
  *
  * \param unackedRpcResults

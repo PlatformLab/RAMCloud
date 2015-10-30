@@ -2683,16 +2683,25 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                                     reqHdr->lease.leaseId,
                                     reqHdr->clientTxId);
     TransactionId txId = participantList.getTransactionId();
-    if (!preparedOps.hasParticipantListEntry(txId)) {
-        uint64_t logRef = 0;
-        Status status = objectManager.logTransactionParticipantList(
+    {
+        // Scope to ensure the paricipantList is tracked before processing
+        // the prepareOps.
+        UnackedRpcHandle participantListHandle(&unackedRpcResults,
+                                               reqHdr->lease,
+                                               reqHdr->clientTxId,
+                                               reqHdr->ackId);
+        if (!participantListHandle.isDuplicate()) {
+            uint64_t logRef = 0;
+            Status status =
+                    objectManager.logTransactionParticipantList(
                                                     participantList, &logRef);
-        if (status == STATUS_OK) {
-            preparedOps.updateParticipantListEntry(txId, logRef);
-        } else {
-            respHdr->common.status = status;
-            rpc->sendReply();
-            return;
+            if (status == STATUS_OK) {
+                participantListHandle.recordCompletion(logRef);
+            } else {
+                respHdr->common.status = status;
+                rpc->sendReply();
+                return;
+            }
         }
     }
 

@@ -474,28 +474,6 @@ TEST_F(PreparedOpsTest, markDeletedAndIsDeleted) {
     EXPECT_FALSE(writes.isDeleted(2, 9));
 }
 
-TEST_F(PreparedOpsTest, hasParticipantListEntry) {
-    TransactionId txId(42, 10);
-    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
-    writes.pListTable[txId] = 9001;
-    EXPECT_TRUE(writes.hasParticipantListEntry(txId));
-}
-
-TEST_F(PreparedOpsTest, updateParticipantListEntry) {
-    TransactionId txId(42, 10);
-    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
-    writes.updateParticipantListEntry(txId, 9000);
-    EXPECT_TRUE(writes.hasParticipantListEntry(txId));
-    EXPECT_EQ(9000U, writes.pListTable[txId]);
-    writes.updateParticipantListEntry(txId, 9001);
-    EXPECT_TRUE(writes.hasParticipantListEntry(txId));
-    EXPECT_EQ(9001U, writes.pListTable[txId]);
-    writes.updateParticipantListEntry(txId, 0);
-    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
-    writes.updateParticipantListEntry(txId, 0);
-    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
-}
-
 /**
  * Unit tests for ParticipantList.
  */
@@ -743,8 +721,11 @@ TEST_F(PreparedItemTest, handleTimerEvent_basic) {
     uint64_t logRef;
     service1->objectManager.logTransactionParticipantList(participantList,
                                                           &logRef);
-    service1->preparedOps.updateParticipantListEntry(
-            participantList.getTransactionId(), logRef);
+    service1->unackedRpcResults.recoverRecord(
+            participantList.header.clientLeaseId,
+            participantList.header.clientTransactionId,
+            0,
+            reinterpret_cast<void*>(logRef));
 
     Buffer keyAndValBuffer;
 

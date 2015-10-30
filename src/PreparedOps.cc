@@ -18,6 +18,7 @@
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "ObjectManager.h"
+#include "UnackedRpcResults.h"
 
 namespace RAMCloud {
 
@@ -393,7 +394,6 @@ PreparedOps::PreparedOps(Context* context)
     : context(context)
     , mutex()
     , items()
-    , pListTable()
 {
 }
 
@@ -549,12 +549,16 @@ PreparedOps::PreparedItem::handleTimerEvent()
     //              It is possible to cause invalid memory access.
 
     TransactionId txId = op.getTransactionId();
-    PListTable* pListTable =
-            &context->getMasterService()->preparedOps.pListTable;
-    PListTable::iterator it = pListTable->find(txId);
-    if (it != pListTable->end()) {
+
+    UnackedRpcHandle participantListLocator(
+            &context->getMasterService()->unackedRpcResults,
+            {txId.clientLeaseId, 0, 0},
+            txId.clientTransactionId,
+            0);
+
+    if (participantListLocator.isDuplicate()) {
         Buffer pListBuf;
-        Log::Reference pListRef(it->second);
+        Log::Reference pListRef(participantListLocator.resultLoc());
         context->getMasterService()->objectManager.getLog()->getEntry(pListRef,
                                                                       pListBuf);
         ParticipantList participantList(pListBuf);
@@ -662,44 +666,6 @@ PreparedOps::isDeleted(uint64_t leaseId,
         } else {
             return false;
         }
-    }
-}
-
-/**
- * Check if the ParticipantList entry for the provided txId is still active.
- *
- * \return
- *      True if the entry is still needed, false otherwise.
- */
-bool
-PreparedOps::hasParticipantListEntry(TransactionId txId)
-{
-    Lock lock(mutex);
-    return (pListTable.find(txId) != pListTable.end());
-}
-
-/**
- * Update tracking information for a ParticipantList entry in the log.  There
- * should only be one per transaction per server.
- *
- * \param txId
- *      Unique identifier for this transaction and participant list.
- * \param participantListLogRef
- *      Log reference to the ParticipantList entry to be tracked in integer
- *      form.  ZERO indicates that the reference can be removed.
- */
-void
-PreparedOps::updateParticipantListEntry(TransactionId txId,
-                                        uint64_t participantListLogRef)
-{
-    Lock lock(mutex);
-    if (participantListLogRef == 0) {
-        PListTable::iterator it = pListTable.find(txId);
-        if (it != pListTable.end()) {
-            pListTable.erase(it);
-        }
-    } else {
-        pListTable[txId] = participantListLogRef;
     }
 }
 
