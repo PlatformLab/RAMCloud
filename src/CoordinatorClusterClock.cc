@@ -22,17 +22,6 @@
 
 namespace RAMCloud {
 
-/// Duration to advance the safeClusterTime stored in external storage.  This
-/// value should be much larger than the time to perform the external storage
-/// write (~10ms) but much much less than the max value (2^63 - 1).
-const ClusterTimeDuration CoordinatorClusterClock::safeTimeInterval =
-        ClusterTimeDuration::fromNanoseconds(3 * 1e9);          // 3 seconds
-
-/// Amount of time (in seconds) between updates of the safeClusterTime to
-/// externalStorage.  This time should be less than the safeTimeIntervalMs;
-/// we recommend a value equivalent to half the safeTimeIntervalMs.
-const double CoordinatorClusterClock::updateIntervalS = 1.5;    // 1.5 seconds
-
 /**
  * Constructor for the CoordinatorClusterClock.
  *
@@ -111,8 +100,11 @@ CoordinatorClusterClock::SafeTimeUpdater::SafeTimeUpdater(
 void
 CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
 {
+    using CoordinatorClusterClockConstants::safeTimeInterval;
+    using CoordinatorClusterClockConstants::updateIntervalS;
+
     uint64_t startTimeCycles = Cycles::rdtsc();
-    ClusterTime nextSafeTime = clock->getInternal() + clock->safeTimeInterval;
+    ClusterTime nextSafeTime = clock->getInternal() + safeTimeInterval;
     ProtoBuf::CoordinatorClusterClock info;
     info.set_next_safe_time(nextSafeTime.getEncoded());
     std::string str;
@@ -123,7 +115,7 @@ CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
                          downCast<int>(str.length()));
 
     clock->safeClusterTime = nextSafeTime;
-    this->start(startTimeCycles + Cycles::fromSeconds(clock->updateIntervalS));
+    this->start(startTimeCycles + Cycles::fromSeconds(updateIntervalS));
 }
 
 /**

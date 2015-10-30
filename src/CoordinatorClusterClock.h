@@ -61,13 +61,6 @@ class CoordinatorClusterClock {
         DISALLOW_COPY_AND_ASSIGN(SafeTimeUpdater);
     };
 
-    /// Duration to advance the safeClusterTime stored in external storage.
-    static const ClusterTimeDuration safeTimeInterval;
-
-    /// Amount of time (in seconds) between updates of the safeClusterTime to
-    /// externalStorage.
-    static CONSTEXPR double updateIntervalS;
-
     /// System time of the coordinator when the clock is initialized.  Used to
     /// calculate current cluster time.
     const uint64_t startingSysTimeNS;
@@ -88,6 +81,22 @@ class CoordinatorClusterClock {
 
     DISALLOW_COPY_AND_ASSIGN(CoordinatorClusterClock);
 };
+
+/**
+ * Constants used by the CoordinatorClusterClock
+ */
+namespace CoordinatorClusterClockConstants {
+/// Duration to advance the safeClusterTime stored in external storage.
+/// This value should be much larger than the time to perform the external
+/// storage  write (~10ms) but much much less than the max value (2^63 - 1).
+static const ClusterTimeDuration safeTimeInterval =
+        ClusterTimeDuration::fromNanoseconds(3 * 1*9);  // 3 seconds
+
+/// Amount of time (in seconds) between updates of the safeClusterTime to
+/// externalStorage.  This time should be less than the safeTimeIntervalMs;
+/// we recommend a value equivalent to half the safeTimeIntervalMs.
+static CONSTEXPR double updateIntervalS = 1.5;          // 1.5 seconds
+}
 
 } // namespace RAMCloud
 

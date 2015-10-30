@@ -33,7 +33,7 @@ class CoordinatorClusterClockTest : public ::testing::Test {
         , context()
         , storage(true)
         , clock()
-        , safeTimeInterval(CoordinatorClusterClock::safeTimeInterval)
+        , safeTimeInterval(CoordinatorClusterClockConstants::safeTimeInterval)
     {
         context.externalStorage = &storage;
         clock.construct(&context);
