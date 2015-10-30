@@ -2727,7 +2727,7 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
 
 TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
     WireFormat::ClientLease clientLease = {1, 0, 0};
-    uint64_t &leaseId = clientLease.leaseId;
+    uint64_t leaseId = clientLease.leaseId;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
 
@@ -2791,7 +2791,7 @@ TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
 
 TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
     WireFormat::ClientLease clientLease = {1, 0, 0};
-    uint64_t &leaseId = clientLease.leaseId;
+    uint64_t leaseId = clientLease.leaseId;
     uint64_t rpcId = 10;
     uint64_t ackId = 1;
 
