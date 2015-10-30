@@ -39,7 +39,7 @@ class TxDecisionRecord {
   PUBLIC:
     TxDecisionRecord(
             uint64_t tableId, KeyHash keyHash, uint64_t leaseId,
-            WireFormat::TxDecision::Decision decision,
+            uint64_t transactionId, WireFormat::TxDecision::Decision decision,
             uint32_t timestamp);
     explicit TxDecisionRecord(Buffer& buffer, uint32_t offset = 0);
 
@@ -50,6 +50,7 @@ class TxDecisionRecord {
     WireFormat::TxDecision::Decision getDecision();
     KeyHash getKeyHash();
     uint64_t getLeaseId();
+    uint64_t getTransactionId();
     uint64_t getTableId();
     uint32_t getTimestamp();
     bool checkIntegrity();
@@ -72,6 +73,8 @@ class TxDecisionRecord {
          *      responsible for this object and its recovery.
          * \param leaseId
          *      Id of the lease associated with the recovering transaction.
+         * \param transactionId
+         *      Id of the recovering transaction.
          * \param decision
          *      The decision of whether to commit or abort the transaction
          *      stored in this record.
@@ -83,12 +86,14 @@ class TxDecisionRecord {
         Header(uint64_t tableId,
                KeyHash keyHash,
                uint64_t leaseId,
+               uint64_t transactionId,
                WireFormat::TxDecision::Decision decision,
                uint32_t timestamp
                )
             : tableId(tableId)
             , keyHash(keyHash)
             , leaseId(leaseId)
+            , transactionId(transactionId)
             , decision(decision)
             , participantCount(0)
             , timestamp(timestamp)
@@ -108,6 +113,11 @@ class TxDecisionRecord {
         /// as part of the transaction's unique identifier.
         uint64_t leaseId;
 
+        /// Transaction Id given to this transaction by the client that started
+        /// the transaction.  Combining this value with the leaseId will provide
+        /// a system wide unique transaction identifier.
+        uint64_t transactionId;
+
         /// Decision of the transaction recovery manager of whether the
         /// recovering transaction should be committed or aborted.
         WireFormat::TxDecision::Decision decision;
@@ -126,7 +136,7 @@ class TxDecisionRecord {
         /// is here to denote this.
         WireFormat::TxParticipant participants[0];
     } __attribute__((__packed__));
-    static_assert(sizeof(Header) == 40,
+    static_assert(sizeof(Header) == 48,
         "Unexpected serialized TxDecisionRecord size");
 
     uint32_t computeChecksum();

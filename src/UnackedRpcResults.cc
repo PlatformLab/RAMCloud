@@ -244,12 +244,6 @@ UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
     Client* client;
 
     uint64_t clientId = clientLease.leaseId;
-    ClusterTime leaseExpiration(clientLease.leaseExpiration);
-
-    // Make sure lease is valid.
-    if (!leaseValidator->validate(clientLease)) {
-        throw ExpiredLeaseException(HERE);
-    }
 
     ClientMap::iterator it = clients.find(clientId);
     if (it == clients.end()) {
@@ -258,6 +252,18 @@ UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
     } else {
         client = it->second;
     }
+
+    // Update lease with more up-to-date information if available to avoid
+    // unnecessary lease validation.
+    if (ClusterTime(clientLease.leaseExpiration) < client->leaseExpiration) {
+        clientLease.leaseExpiration = client->leaseExpiration.getEncoded();
+    }
+    // Make sure lease is valid.
+    if (!leaseValidator->validate(clientLease, &clientLease)) {
+        throw ExpiredLeaseException(HERE);
+    }
+
+    ClusterTime leaseExpiration(clientLease.leaseExpiration);
 
     //1. Update leaseExpiration and ack.
     if (client->leaseExpiration < leaseExpiration)
@@ -324,6 +330,15 @@ UnackedRpcResults::shouldRecover(uint64_t clientId,
     Client* client = it->second;
     if (client->maxAckId < ackId)
         client->processAck(ackId, freer);
+
+    if (client->hasRecord(rpcId)) {
+        LOG(WARNING,
+                "Duplicate RpcResult or ParticipantList found during recovery. "
+                "<clientID, rpcID, ackId> = <"
+                "%" PRIu64 ", " "%" PRIu64 ", " "%" PRIu64 ">",
+                clientId, rpcId, ackId);
+        return false;
+    }
 
     return rpcId > client->maxAckId;
 }
@@ -412,7 +427,8 @@ UnackedRpcResults::recoverRecord(uint64_t clientId,
         client->recordNewRpc(rpcId);
         client->updateResult(rpcId, result);
     } else if (client->hasRecord(rpcId)) {
-        LOG(WARNING, "Duplicate RpcResult found during recovery. "
+        LOG(WARNING,
+                "Duplicate RpcResult or ParticipantList found during recovery. "
                 "<clientID, rpcID, ackId> = <"
                 "%" PRIu64 ", " "%" PRIu64 ", " "%" PRIu64 ">",
                 clientId, rpcId, ackId);
@@ -520,6 +536,27 @@ UnackedRpcResults::cleanByTimeout()
 }
 
 /**
+ * Returns true if a record exists for the given client id and RPC id; false,
+ * otherwise.  This method is used only for unit testing.
+ */
+bool
+UnackedRpcResults::hasRecord(uint64_t clientId, uint64_t rpcId) {
+    Client* client;
+    ClientMap::iterator it = clients.find(clientId);
+    if (it == clients.end()) {
+        return false;
+    }
+
+    client = it->second;
+
+    if (rpcId <= client->maxAckId) {
+        return false;
+    }
+
+    return client->hasRecord(rpcId);
+}
+
+/**
  * Constructor for the UnackedRpcResults' Cleaner.
  *
  * \param unackedRpcResults
@@ -577,7 +614,7 @@ UnackedRpcResults::Client::result(uint64_t rpcId) {
 }
 
 /**
- * Mark the start of processing a new RPC on Client's internal data strucutre.
+ * Mark the start of processing a new RPC on Client's internal data structure.
  *
  * \param rpcId
  *      The id of new Rpc.

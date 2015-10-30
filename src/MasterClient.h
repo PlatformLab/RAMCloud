@@ -90,8 +90,8 @@ class MasterClient {
             const void *firstKey, uint16_t firstKeyLength,
             const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength);
     static void txHintFailed(Context* context, uint64_t tableId,
-            uint64_t keyHash, uint64_t leaseId, uint32_t participantCount,
-            WireFormat::TxParticipant *participants);
+            uint64_t keyHash, uint64_t leaseId, uint64_t clientTransactionId,
+            uint32_t participantCount, WireFormat::TxParticipant *participants);
 
   private:
     MasterClient();
@@ -344,8 +344,8 @@ class TakeIndexletOwnershipRpc : public ServerIdRpcWrapper {
 class TxHintFailedRpc : public ObjectRpcWrapper {
   public:
     TxHintFailedRpc(Context* context, uint64_t tableId, uint64_t keyHash,
-            uint64_t leaseId, uint32_t participantCount,
-            WireFormat::TxParticipant *participants);
+            uint64_t leaseId, uint64_t clientTransactionId,
+            uint32_t participantCount, WireFormat::TxParticipant *participants);
     ~TxHintFailedRpc() {}
     /// \copydoc RpcWrapper::docForWait
     void wait() {simpleWait(context);}

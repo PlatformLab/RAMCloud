@@ -1064,23 +1064,30 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 LOG(ERROR,
                         "bad ParticipantList checksum! "
                         "(leaseId: %lu, txId: %lu)",
-                        txId.clientLeaseId, txId.txRpcId);
+                        txId.clientLeaseId, txId.clientTransactionId);
                 // TODO(cstlee): Should throw and try another segment replica?
             }
             if (unackedRpcResults->shouldRecover(txId.clientLeaseId,
-                                                 txId.txRpcId,
-                                                 0)
-                    && !preparedOps->hasParticipantListEntry(txId)) {
+                                                 txId.clientTransactionId,
+                                                 0)) {
                 CycleCounter<uint64_t> _(&segmentAppendTicks);
                 Log::Reference logRef;
                 if (sideLog->append(LOG_ENTRY_TYPE_TXPLIST, buffer, &logRef)) {
-                    preparedOps->updateParticipantListEntry(
-                            txId, logRef.toInteger());
+                    unackedRpcResults->recoverRecord(
+                            txId.clientLeaseId,
+                            txId.clientTransactionId,
+                            0,
+                            reinterpret_cast<void*>(logRef.toInteger()));
+                    // Participant List records are not accounted for in the
+                    // table stats. The assumption is that the Participant List
+                    // records should occupy a relatively small fraction of the
+                    // server's log and thus should not significantly affect
+                    // table stats estimate.
                 } else {
                     LOG(ERROR,
                             "Could not append ParticipantList! "
                             "(leaseId: %lu, txId: %lu)",
-                            txId.clientLeaseId, txId.txRpcId);
+                            txId.clientLeaseId, txId.clientTransactionId);
                 }
             }
         }
@@ -2561,7 +2568,7 @@ ObjectManager::dumpSegment(Segment* segment)
                     "TxId: (leaseId %lu, rpcId %lu) containing %u entries",
                     separator, it.getOffset(), it.getLength(),
                     participantList.getTransactionId().clientLeaseId,
-                    participantList.getTransactionId().txRpcId,
+                    participantList.getTransactionId().clientTransactionId,
                     participantList.header.participantCount);
         }
 
@@ -3240,7 +3247,7 @@ ObjectManager::relocateTxParticipantList(Buffer& oldBuffer,
     TransactionId txId = participantList.getTransactionId();
 
     bool keep = !unackedRpcResults->isRpcAcked(txId.clientLeaseId,
-                                               txId.txRpcId);
+                                               txId.clientTransactionId);
 
     if (keep) {
         // Try to relocate it. If it fails, just return. The cleaner will
@@ -3248,11 +3255,14 @@ ObjectManager::relocateTxParticipantList(Buffer& oldBuffer,
         if (!relocator.append(LOG_ENTRY_TYPE_TXPLIST, oldBuffer))
             return;
 
-        preparedOps->updateParticipantListEntry(
-                txId, relocator.getNewReference().toInteger());
+        unackedRpcResults->recordCompletion(
+                txId.clientLeaseId,
+                txId.clientTransactionId,
+                reinterpret_cast<void*>(
+                        relocator.getNewReference().toInteger()),
+                true);
     } else {
         // Participant List will be dropped/"cleaned"
-        preparedOps->updateParticipantListEntry(txId, 0);
 
         // Participant List records are not accounted for in the table stats.
         // The assumption is that the Participant List records should occupy a

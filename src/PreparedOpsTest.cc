@@ -113,7 +113,7 @@ TEST_F(PreparedOpTest, constructor_fromRpc) {
 
     EXPECT_EQ(WireFormat::TxPrepare::WRITE, record.header.type);
     EXPECT_EQ(1UL, record.header.clientId);
-    EXPECT_EQ(9UL, record.header.txRpcId);
+    EXPECT_EQ(9UL, record.header.clientTxId);
     EXPECT_EQ(10UL, record.header.rpcId);
 
     EXPECT_EQ(572U, record.object.header.tableId);
@@ -156,7 +156,7 @@ TEST_F(PreparedOpTest, constructor_fromBuffer) {
 
     EXPECT_EQ(WireFormat::TxPrepare::WRITE, record.header.type);
     EXPECT_EQ(1UL, record.header.clientId);
-    EXPECT_EQ(9UL, record.header.txRpcId);
+    EXPECT_EQ(9UL, record.header.clientTxId);
     EXPECT_EQ(10UL, record.header.rpcId);
 
     EXPECT_EQ(572U, record.object.header.tableId);
@@ -208,7 +208,7 @@ TEST_F(PreparedOpTest, assembleForLog) {
 
         EXPECT_EQ(WireFormat::TxPrepare::WRITE, header->type);
         EXPECT_EQ(1UL, header->clientId);
-        EXPECT_EQ(9UL, header->txRpcId);
+        EXPECT_EQ(9UL, header->clientTxId);
         EXPECT_EQ(10UL, header->rpcId);
         //EXPECT_EQ(0xE86291D1, op->header.checksum);
 
@@ -280,7 +280,7 @@ TEST_F(PreparedOpTest, getTransactionId) {
 
         record.getTransactionId();
         EXPECT_EQ(1U, record.header.clientId);
-        EXPECT_EQ(9U, record.header.txRpcId);
+        EXPECT_EQ(9U, record.header.clientTxId);
     }
 }
 
@@ -474,28 +474,6 @@ TEST_F(PreparedOpsTest, markDeletedAndIsDeleted) {
     EXPECT_FALSE(writes.isDeleted(2, 9));
 }
 
-TEST_F(PreparedOpsTest, hasParticipantListEntry) {
-    TransactionId txId(42, 10);
-    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
-    writes.pListTable[txId] = 9001;
-    EXPECT_TRUE(writes.hasParticipantListEntry(txId));
-}
-
-TEST_F(PreparedOpsTest, updateParticipantListEntry) {
-    TransactionId txId(42, 10);
-    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
-    writes.updateParticipantListEntry(txId, 9000);
-    EXPECT_TRUE(writes.hasParticipantListEntry(txId));
-    EXPECT_EQ(9000U, writes.pListTable[txId]);
-    writes.updateParticipantListEntry(txId, 9001);
-    EXPECT_TRUE(writes.hasParticipantListEntry(txId));
-    EXPECT_EQ(9001U, writes.pListTable[txId]);
-    writes.updateParticipantListEntry(txId, 0);
-    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
-    writes.updateParticipantListEntry(txId, 0);
-    EXPECT_FALSE(writes.hasParticipantListEntry(txId));
-}
-
 /**
  * Unit tests for ParticipantList.
  */
@@ -506,13 +484,14 @@ class ParticipantListTest : public ::testing::Test {
         , plistFromScratch()
         , plistFromBuffer()
         , clientLeaseId(42)
+        , clientTxId(9)
     {
         // construct participant list.
         participants[0] = WireFormat::TxParticipant(1, 2, 10);
         participants[1] = WireFormat::TxParticipant(123, 234, 11);
         participants[2] = WireFormat::TxParticipant(111, 222, 12);
 
-        plistFromScratch.construct(participants, 3, clientLeaseId);
+        plistFromScratch.construct(participants, 3, clientLeaseId, clientTxId);
 
         // Add some junk to the front.
         Buffer temp;
@@ -534,6 +513,7 @@ class ParticipantListTest : public ::testing::Test {
     Tub<ParticipantList> plistFromScratch;
     Tub<ParticipantList> plistFromBuffer;
     uint64_t clientLeaseId;
+    uint64_t clientTxId;
 
     ParticipantList* plists[2];
 
@@ -541,7 +521,7 @@ class ParticipantListTest : public ::testing::Test {
 };
 
 TEST_F(ParticipantListTest, constructor_fromRpc) {
-    ParticipantList localPList(participants, 3, clientLeaseId);
+    ParticipantList localPList(participants, 3, clientLeaseId, clientTxId);
     EXPECT_EQ(3U, localPList.header.participantCount);
     EXPECT_EQ(clientLeaseId, localPList.header.clientLeaseId);
     EXPECT_TRUE(localPList.participants == participants);
@@ -624,7 +604,7 @@ TEST_F(ParticipantListTest, getTransactionId) {
 
         TransactionId txId = plist.getTransactionId();
         EXPECT_EQ(clientLeaseId, txId.clientLeaseId);
-        EXPECT_EQ(10U, txId.txRpcId);
+        EXPECT_EQ(clientTxId, txId.clientTransactionId);
     }
 }
 
@@ -737,18 +717,21 @@ TEST_F(PreparedItemTest, handleTimerEvent_basic) {
     participants[1] = {tableId2, key2.getHash(), 12};
     participants[2] = {tableId1, key3.getHash(), 13};
 
-    ParticipantList participantList(participants, 3, 1);
+    ParticipantList participantList(participants, 3, 1, 10);
     uint64_t logRef;
     service1->objectManager.logTransactionParticipantList(participantList,
                                                           &logRef);
-    service1->preparedOps.updateParticipantListEntry(
-            participantList.getTransactionId(), logRef);
+    service1->unackedRpcResults.recoverRecord(
+            participantList.header.clientLeaseId,
+            participantList.header.clientTransactionId,
+            0,
+            reinterpret_cast<void*>(logRef));
 
     Buffer keyAndValBuffer;
 
     Object::appendKeysAndValueToBuffer(key3, "val", 3, &keyAndValBuffer);
 
-    PreparedOp op(WireFormat::TxPrepare::OpType::READ, 1, 11, 13,
+    PreparedOp op(WireFormat::TxPrepare::OpType::READ, 1, 10, 13,
                   tableId1, 0, 0, keyAndValBuffer);
     Buffer buf;
     op.assembleForLog(buf);

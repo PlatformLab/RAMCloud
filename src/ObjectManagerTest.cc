@@ -1372,7 +1372,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     PreparedOp savedOp(preparedOpBuffer, 0, preparedOpBuffer.size());
 
     EXPECT_EQ(1UL, savedOp.header.clientId);
-    EXPECT_EQ(10UL, savedOp.header.txRpcId);
+    EXPECT_EQ(10UL, savedOp.header.clientTxId);
     EXPECT_EQ(11UL, savedOp.header.rpcId);
     EXPECT_EQ(10UL, savedOp.object.getTableId());
     EXPECT_EQ(3UL, savedOp.object.header.version);
@@ -1476,7 +1476,7 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_basic) {
     {
         SegmentCertificate certificate;
         Buffer buf;
-        TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
+        TxDecisionRecord record(1, 2, 42, 1, WireFormat::TxDecision::ABORT, 50);
         record.addParticipant(1, 2, 3);
         len = buildRecoverySegment(seg, segLen, record, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1498,7 +1498,7 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
 
     TxRecoveryManager* txRecoveryManager = objectManager.txRecoveryManager;
 
-    txRecoveryManager->recoveringIds.insert({42, 3});
+    txRecoveryManager->recoveringIds.insert({42, 1});
 
     EXPECT_EQ(1U, txRecoveryManager->recoveringIds.size());
     EXPECT_EQ(0U, txRecoveryManager->recoveries.size());
@@ -1507,7 +1507,7 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
     {
         SegmentCertificate certificate;
         Buffer buf;
-        TxDecisionRecord record(1, 2, 42, WireFormat::TxDecision::ABORT, 100);
+        TxDecisionRecord record(1, 2, 42, 1, WireFormat::TxDecision::ABORT, 50);
         record.addParticipant(1, 2, 3);
         len = buildRecoverySegment(seg, segLen, record, &certificate);
         it.construct(&seg[0], len, certificate);
@@ -1528,19 +1528,19 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_basic) {
     Tub<SegmentIterator> it;
 
     UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
-    PreparedOps* preparedOps = objectManager.preparedOps;
 
     WireFormat::TxParticipant participants[3];
     // construct participant list.
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList record(participants, 3, 42);
+    ParticipantList record(participants, 3, 42, 9);
     TransactionId txId = record.getTransactionId();
 
     EXPECT_FALSE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
             unackedRpcResults->clients.end());
-    EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
+    EXPECT_FALSE(unackedRpcResults->hasRecord(txId.clientLeaseId,
+                                              txId.clientTransactionId));
 
     {
         SegmentCertificate certificate;
@@ -1553,7 +1553,8 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_basic) {
 
     EXPECT_TRUE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
             unackedRpcResults->clients.end());
-    EXPECT_TRUE(preparedOps->hasParticipantListEntry(txId));
+    EXPECT_TRUE(unackedRpcResults->hasRecord(txId.clientLeaseId,
+                                              txId.clientTransactionId));
 }
 
 TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_acked) {
@@ -1564,24 +1565,25 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_acked) {
     Tub<SegmentIterator> it;
 
     UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
-    PreparedOps* preparedOps = objectManager.preparedOps;
 
     WireFormat::TxParticipant participants[3];
     // construct participant list.
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList record(participants, 3, 42);
+    ParticipantList record(participants, 3, 42, 9);
     TransactionId txId = record.getTransactionId();
 
     // pre-insert ack
-    unackedRpcResults->shouldRecover(
-            txId.clientLeaseId, txId.txRpcId, txId.txRpcId);
+    unackedRpcResults->shouldRecover(txId.clientLeaseId,
+                                     txId.clientTransactionId,
+                                     txId.clientTransactionId);
     EXPECT_TRUE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
             unackedRpcResults->clients.end());
-    EXPECT_TRUE(unackedRpcResults->isRpcAcked(
-                                            txId.clientLeaseId, txId.txRpcId));
-    EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
+    EXPECT_TRUE(unackedRpcResults->isRpcAcked(txId.clientLeaseId,
+                                              txId.clientTransactionId));
+    EXPECT_FALSE(unackedRpcResults->hasRecord(txId.clientLeaseId,
+                                              txId.clientTransactionId));
 
     {
         SegmentCertificate certificate;
@@ -1592,10 +1594,12 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_acked) {
 
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_FALSE(preparedOps->hasParticipantListEntry(txId));
+    EXPECT_FALSE(unackedRpcResults->hasRecord(txId.clientLeaseId,
+                                              txId.clientTransactionId));
 }
 
 TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_hasPListEntry) {
+    TestLog::Enable _;
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
@@ -1603,21 +1607,23 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_hasPListEntry) {
     Tub<SegmentIterator> it;
 
     UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
-    PreparedOps* preparedOps = objectManager.preparedOps;
+
 
     WireFormat::TxParticipant participants[3];
     // construct participant list.
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList record(participants, 3, 42);
+    ParticipantList record(participants, 3, 42, 9);
     TransactionId txId = record.getTransactionId();
 
     // pre-insert (bad) participant list entry
-    preparedOps->pListTable[txId] = 0;
-    EXPECT_FALSE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
-            unackedRpcResults->clients.end());
-    EXPECT_TRUE(preparedOps->hasParticipantListEntry(txId));
+    unackedRpcResults->recoverRecord(txId.clientLeaseId,
+                                     txId.clientTransactionId,
+                                     0,
+                                     reinterpret_cast<void*>(0));
+    EXPECT_TRUE(unackedRpcResults->hasRecord(txId.clientLeaseId,
+                                             txId.clientTransactionId));
 
     {
         SegmentCertificate certificate;
@@ -1626,10 +1632,18 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_hasPListEntry) {
         it.construct(&seg[0], len, certificate);
     }
 
+    TestLog::reset();
     objectManager.replaySegment(&sl, *it);
+    EXPECT_EQ("shouldRecover: Duplicate RpcResult or ParticipantList found "
+                    "during recovery. <clientID, rpcID, ackId> = <42, 9, 0>",
+              TestLog::get());
 
-    EXPECT_TRUE(preparedOps->hasParticipantListEntry(txId));
-    EXPECT_EQ(0U, preparedOps->pListTable[txId]);
+    EXPECT_TRUE(unackedRpcResults->hasRecord(txId.clientLeaseId,
+                                             txId.clientTransactionId));
+    EXPECT_EQ(0U,
+            reinterpret_cast<uint64_t>(
+                    unackedRpcResults->clients[txId.clientLeaseId]->result(
+                            txId.clientTransactionId)));
 }
 
 static bool
@@ -1736,7 +1750,7 @@ TEST_F(ObjectManagerTest, logTransactionParticipantList) {
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList participantList(participants, 3, 42);
+    ParticipantList participantList(participants, 3, 42, 9);
     uint64_t logRefNum;
 
     objectManager.logTransactionParticipantList(participantList, &logRefNum);
@@ -1837,8 +1851,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
 }
 
 TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
-
-    TxDecisionRecord record(1, 2, 21, WireFormat::TxDecision::ABORT, 100);
+    TxDecisionRecord record(1, 2, 21, 1, WireFormat::TxDecision::ABORT, 50);
     record.addParticipant(1, 2, 3);
     record.addParticipant(123, 234, 345);
 
@@ -1859,9 +1872,9 @@ TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
     tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
     EXPECT_EQ(STATUS_OK, objectManager.writeTxDecisionRecord(record));
-    EXPECT_EQ("writeTxDecisionRecord: tansactionDecisionRecord: 88 bytes",
+    EXPECT_EQ("writeTxDecisionRecord: tansactionDecisionRecord: 96 bytes",
               TestLog::get());
-    EXPECT_EQ("found=true tableId=1 byteCount=88 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=96 recordCount=1"
               , verifyMetadata(1));
 }
 
@@ -3066,8 +3079,8 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_hashTableRefUpdate) {
 }
 
 TEST_F(ObjectManagerTest, relocateTxDecisionRecord_relocateRecord) {
-    TxDecisionRecord record(1, 2, 3, WireFormat::TxDecision::ABORT, 100);
-    record.addParticipant(1, 2, 4);
+    TxDecisionRecord record(1, 2, 3, 4, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 5);
     // Make it look like we still need the record.
     txRecoveryManager.recoveringIds.insert({3, 4});
 
@@ -3084,7 +3097,7 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_relocateRecord) {
                           record.getTableId(),
                           recordBuffer.size(),
                           1);
-    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=72 recordCount=1"
               , verifyMetadata(1));
 
     Buffer oldBufferInLog;
@@ -3097,13 +3110,13 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_relocateRecord) {
                            oldRecordReference,
                            relocator);
     EXPECT_TRUE(relocator.didAppend);
-    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=72 recordCount=1"
               , verifyMetadata(1));
 }
 
 TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
-    TxDecisionRecord record(1, 2, 3, WireFormat::TxDecision::ABORT, 100);
-    record.addParticipant(1, 2, 4);
+    TxDecisionRecord record(1, 2, 3, 4, WireFormat::TxDecision::ABORT, 100);
+    record.addParticipant(1, 2, 5);
 
     Buffer recordBuffer;
     record.assembleForLog(recordBuffer);
@@ -3118,7 +3131,7 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
                           record.getTableId(),
                           recordBuffer.size(),
                           1);
-    EXPECT_EQ("found=true tableId=1 byteCount=64 recordCount=1"
+    EXPECT_EQ("found=true tableId=1 byteCount=72 recordCount=1"
               , verifyMetadata(1));
 
     Buffer oldBufferInLog;
@@ -3142,7 +3155,7 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_relocate) {
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList participantList(participants, 3, 42);
+    ParticipantList participantList(participants, 3, 42, 9);
 
     // Setup its initial existence.
     Buffer pListBuffer;
@@ -3153,12 +3166,18 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_relocate) {
     bool success = objectManager.log.append(
             LOG_ENTRY_TYPE_TXPLIST, pListBuffer, &oldPListReference);
     objectManager.log.sync();
-    objectManager.preparedOps->updateParticipantListEntry(
-            txId, oldPListReference.toInteger());
+    unackedRpcResults.recoverRecord(txId.clientLeaseId,
+                                    txId.clientTransactionId,
+                                    0,
+                                    reinterpret_cast<void*>(
+                                            oldPListReference.toInteger()));
     EXPECT_TRUE(success);
-    EXPECT_TRUE(objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_TRUE(unackedRpcResults.hasRecord(txId.clientLeaseId,
+                                            txId.clientTransactionId));
     EXPECT_EQ(oldPListReference.toInteger(),
-              objectManager.preparedOps->pListTable[txId]);
+              reinterpret_cast<uint64_t>(
+                    unackedRpcResults.clients[txId.clientLeaseId]->result(
+                            txId.clientTransactionId)));
 
     // Make sure the PariticipantList is considered live.
     objectManager.unackedRpcResults->shouldRecover(42, 10, 0);
@@ -3178,9 +3197,12 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_relocate) {
                            oldPListReference,
                            relocator);
     EXPECT_TRUE(relocator.didAppend);
-    EXPECT_TRUE(objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_TRUE(unackedRpcResults.hasRecord(txId.clientLeaseId,
+                                            txId.clientTransactionId));
     EXPECT_NE(oldPListReference.toInteger(),
-              objectManager.preparedOps->pListTable[txId]);
+              reinterpret_cast<uint64_t>(
+                    unackedRpcResults.clients[txId.clientLeaseId]->result(
+                            txId.clientTransactionId)));
 }
 
 TEST_F(ObjectManagerTest, relocateTxParticipantList_clean) {
@@ -3189,7 +3211,7 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_clean) {
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList participantList(participants, 3, 42);
+    ParticipantList participantList(participants, 3, 42, 9);
 
     // Setup its initial existence.
     Buffer pListBuffer;
@@ -3200,16 +3222,22 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_clean) {
     bool success = objectManager.log.append(
             LOG_ENTRY_TYPE_TXPLIST, pListBuffer, &oldPListReference);
     objectManager.log.sync();
-    objectManager.preparedOps->updateParticipantListEntry(
-            txId, oldPListReference.toInteger());
+    unackedRpcResults.recoverRecord(txId.clientLeaseId,
+                                    txId.clientTransactionId,
+                                    0,
+                                    reinterpret_cast<void*>(
+                                            oldPListReference.toInteger()));
     EXPECT_TRUE(success);
-    EXPECT_TRUE(objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_TRUE(unackedRpcResults.hasRecord(txId.clientLeaseId,
+                                            txId.clientTransactionId));
     EXPECT_EQ(oldPListReference.toInteger(),
-              objectManager.preparedOps->pListTable[txId]);
+              reinterpret_cast<uint64_t>(
+                    unackedRpcResults.clients[txId.clientLeaseId]->result(
+                            txId.clientTransactionId)));
 
     // Make sure the PariticipantList is not considered live.
     objectManager.unackedRpcResults->shouldRecover(42, 10, 11);
-    EXPECT_TRUE(objectManager.unackedRpcResults->isRpcAcked(42, 10));
+    EXPECT_TRUE(objectManager.unackedRpcResults->isRpcAcked(42, 9));
 
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
@@ -3225,7 +3253,8 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_clean) {
                            oldPListReference,
                            relocator);
     EXPECT_FALSE(relocator.didAppend);
-    EXPECT_FALSE(objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_FALSE(unackedRpcResults.hasRecord(txId.clientLeaseId,
+                                             txId.clientTransactionId));
 }
 
 TEST_F(ObjectManagerTest, replace_noPriorVersion) {

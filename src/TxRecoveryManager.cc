@@ -88,9 +88,9 @@ TxRecoveryManager::handleTxHintFailed(Buffer* rpcReq)
         throw UnknownTabletException(HERE);
     }
     uint64_t leaseId = reqHdr->leaseId;
-    uint64_t rpcId = participant->rpcId;
+    uint64_t txId = reqHdr->clientTxId;
     uint32_t participantCount = reqHdr->participantCount;
-    RecoveryId recoveryId = {leaseId, rpcId};
+    RecoveryId recoveryId = {leaseId, txId};
 
     /*** Make sure we did not already receive this request. ***/
     Lock _(lock);
@@ -102,7 +102,7 @@ TxRecoveryManager::handleTxHintFailed(Buffer* rpcReq)
     /*** Schedule a new recovery. ***/
     recoveringIds.insert(recoveryId);
     recoveries.emplace_back(
-            context, leaseId, *rpcReq, participantCount, offset);
+            context, leaseId, txId, *rpcReq, participantCount, offset);
     this->start(0);
 }
 
@@ -120,15 +120,10 @@ bool
 TxRecoveryManager::isTxDecisionRecordNeeded(TxDecisionRecord& record)
 {
     Lock _(lock);
-    if (record.getParticipantCount() < 1) {
-        RAMCLOUD_LOG(ERROR, "TxDecisionRecord missing participant information");
-        return false;
-    }
 
-    WireFormat::TxParticipant participant = record.getParticipant(0);
     uint64_t leaseId = record.getLeaseId();
-    uint64_t rpcId = participant.rpcId;
-    RecoveryId recoveryId = {leaseId, rpcId};
+    uint64_t transactionId = record.getTransactionId();
+    RecoveryId recoveryId = {leaseId, transactionId};
     if (recoveringIds.find(recoveryId) == recoveringIds.end()) {
         // This transaction is still recovering.
         return false;
@@ -150,13 +145,8 @@ TxRecoveryManager::isTxDecisionRecordNeeded(TxDecisionRecord& record)
 bool
 TxRecoveryManager::recoverRecovery(TxDecisionRecord& record)
 {
-    if (expect_false(record.getParticipantCount() < 1)) {
-        RAMCLOUD_LOG(ERROR, "TxDecisionRecord missing participant information");
-        return false;
-    }
-
     RecoveryId recoveryId = {record.getLeaseId(),
-                             record.getParticipant(0).rpcId};
+                             record.getTransactionId()};
 
     /*** Make sure we did not already receive this request. ***/
     Lock _(lock);
@@ -179,7 +169,9 @@ TxRecoveryManager::recoverRecovery(TxDecisionRecord& record)
  * \param context
  *      Overall information about this server.
  * \param leaseId
- *      If of the lease associated with the transaction to be recovered.
+ *      Id of the lease associated with the transaction to be recovered.
+ * \param transactionId
+ *      Id of the recovering transaction.
  * \param participantBuffer
  *      Buffer containing the WireFormat list of the participants that arrived
  *      as a part of a TxHintFailed request that initiated this recovery.  This
@@ -193,11 +185,12 @@ TxRecoveryManager::recoverRecovery(TxDecisionRecord& record)
  *      start.
  */
 TxRecoveryManager::RecoveryTask::RecoveryTask(
-        Context* context, uint64_t leaseId,
+        Context* context, uint64_t leaseId, uint64_t transactionId,
         Buffer& participantBuffer, uint32_t participantCount,
         uint32_t offset)
     : context(context)
     , leaseId(leaseId)
+    , transactionId(transactionId)
     , state(State::REQUEST_ABORT)
     , decision(WireFormat::TxDecision::UNDECIDED)
     , participants()
@@ -237,6 +230,7 @@ TxRecoveryManager::RecoveryTask::RecoveryTask(
         Context* context, TxDecisionRecord& record)
     : context(context)
     , leaseId(record.getLeaseId())
+    , transactionId(record.getTransactionId())
     , state(State::DECIDE)
     , decision(record.getDecision())
     , participants()
@@ -252,8 +246,8 @@ TxRecoveryManager::RecoveryTask::RecoveryTask(
         uint64_t keyHash = participant.keyHash;
         uint64_t rpcId = participant.rpcId;
         participants.emplace_back(tableId,
-                                     keyHash,
-                                     rpcId);
+                                  keyHash,
+                                  rpcId);
     }
     nextParticipantEntry = participants.begin();
 }
@@ -289,6 +283,7 @@ TxRecoveryManager::RecoveryTask::performTask()
                     participant->tableId,
                     participant->keyHash,
                     leaseId,
+                    transactionId,
                     decision,
                     WallTime::secondsTimestamp());
             for (; it != participants.end(); it++) {
@@ -731,7 +726,8 @@ string
 TxRecoveryManager::RecoveryTask::toString()
 {
     string s;
-    s.append(format("RecoveryTask :: lease{%lu}", leaseId));
+    s.append(format("RecoveryTask :: lease{%lu} transaction{%lu}",
+                    leaseId, transactionId));
     switch (state) {
         case State::REQUEST_ABORT:
             s.append(" state{REQUEST_ABORT}");

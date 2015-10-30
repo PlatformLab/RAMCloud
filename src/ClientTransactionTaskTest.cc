@@ -229,7 +229,8 @@ class ClientTransactionTaskTest : public ::testing::Test {
     string rpcToString(ClientTransactionTask::PrepareRpc* rpc) {
         string s;
         s.append(
-                format("PrepareRpc :: lease{%lu}", rpc->reqHdr->lease.leaseId));
+                format("PrepareRpc :: id{%lu, %lu}",
+                       rpc->reqHdr->lease.leaseId, rpc->reqHdr->clientTxId));
         s.append(format(" ackId{%lu} ", rpc->reqHdr->ackId));
         s.append(
                 format("participantCount{%u}", rpc->reqHdr->participantCount));
@@ -586,9 +587,9 @@ TEST_F(ClientTransactionTaskTest, initTask) {
 
     transactionTask->initTask();
     EXPECT_EQ(1U, transactionTask->txId);
-    EXPECT_EQ("ParticipantList[ {1, 14087593745509316690, 1}"
-                              " {2, 2793085152624492990, 2}"
-                              " {3, 17667676865770333572, 3} ]",
+    EXPECT_EQ("ParticipantList[ {1, 14087593745509316690, 2}"
+                              " {2, 2793085152624492990, 3}"
+                              " {3, 17667676865770333572, 4} ]",
               participantListToString(transactionTask.get()));
 }
 
@@ -895,15 +896,15 @@ TEST_F(ClientTransactionTaskTest, sendPrepareRpc_basic) {
     rpc = &transactionTask->prepareRpcs.back();
     EXPECT_EQ(3U, rpc->reqHdr->opCount);
     EXPECT_EQ("mock:host=master1", rpc->session.get()->serviceLocator);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{7} opCount{3} "
-                    "ParticipantList[ {1, 2318870434438256899, 1} "
-                                     "{1, 5620473113711160829, 2} "
-                                     "{1, 8393261455223623089, 3} "
-                                     "{1, 9099387403658286820, 4} "
-                                     "{1, 17025739677450802839, 5} "
-                                     "{2, 8137432257469122462, 6} "
-                                     "{3, 17123020360203364791, 7} ] "
-                    "OpSet[ WRITE{1, 1} WRITE{1, 2} WRITE{1, 3} ]",
+    EXPECT_EQ("PrepareRpc :: id{1, 1} ackId{0} participantCount{7} opCount{3} "
+                    "ParticipantList[ {1, 2318870434438256899, 2} "
+                                     "{1, 5620473113711160829, 3} "
+                                     "{1, 8393261455223623089, 4} "
+                                     "{1, 9099387403658286820, 5} "
+                                     "{1, 17025739677450802839, 6} "
+                                     "{2, 8137432257469122462, 7} "
+                                     "{3, 17123020360203364791, 8} ] "
+                    "OpSet[ WRITE{1, 2} WRITE{1, 3} WRITE{1, 4} ]",
               rpcToString(rpc));
 
     // Rest nextCacheEntry to make see if processed ops will be skipped.
@@ -915,15 +916,15 @@ TEST_F(ClientTransactionTaskTest, sendPrepareRpc_basic) {
     rpc = &transactionTask->prepareRpcs.back();
     EXPECT_EQ(2U, rpc->reqHdr->opCount);
     EXPECT_EQ("mock:host=master1", rpc->session.get()->serviceLocator);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{7} opCount{2} "
-                    "ParticipantList[ {1, 2318870434438256899, 1} "
-                                     "{1, 5620473113711160829, 2} "
-                                     "{1, 8393261455223623089, 3} "
-                                     "{1, 9099387403658286820, 4} "
-                                     "{1, 17025739677450802839, 5} "
-                                     "{2, 8137432257469122462, 6} "
-                                     "{3, 17123020360203364791, 7} ] "
-                    "OpSet[ WRITE{1, 4} WRITE{1, 5} ]",
+    EXPECT_EQ("PrepareRpc :: id{1, 1} ackId{0} participantCount{7} opCount{2} "
+                    "ParticipantList[ {1, 2318870434438256899, 2} "
+                                     "{1, 5620473113711160829, 3} "
+                                     "{1, 8393261455223623089, 4} "
+                                     "{1, 9099387403658286820, 5} "
+                                     "{1, 17025739677450802839, 6} "
+                                     "{2, 8137432257469122462, 7} "
+                                     "{3, 17123020360203364791, 8} ] "
+                    "OpSet[ WRITE{1, 5} WRITE{1, 6} ]",
               rpcToString(rpc));
 
     // Should issue 1 rpc to master 2 with 1 objects in it.
@@ -932,15 +933,15 @@ TEST_F(ClientTransactionTaskTest, sendPrepareRpc_basic) {
     rpc = &transactionTask->prepareRpcs.back();
     EXPECT_EQ(1U, rpc->reqHdr->opCount);
     EXPECT_EQ("mock:host=master2", rpc->session.get()->serviceLocator);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{7} opCount{1} "
-                    "ParticipantList[ {1, 2318870434438256899, 1} "
-                                     "{1, 5620473113711160829, 2} "
-                                     "{1, 8393261455223623089, 3} "
-                                     "{1, 9099387403658286820, 4} "
-                                     "{1, 17025739677450802839, 5} "
-                                     "{2, 8137432257469122462, 6} "
-                                     "{3, 17123020360203364791, 7} ] "
-                    "OpSet[ WRITE{2, 6} ]",
+    EXPECT_EQ("PrepareRpc :: id{1, 1} ackId{0} participantCount{7} opCount{1} "
+                    "ParticipantList[ {1, 2318870434438256899, 2} "
+                                     "{1, 5620473113711160829, 3} "
+                                     "{1, 8393261455223623089, 4} "
+                                     "{1, 9099387403658286820, 5} "
+                                     "{1, 17025739677450802839, 6} "
+                                     "{2, 8137432257469122462, 7} "
+                                     "{3, 17123020360203364791, 8} ] "
+                    "OpSet[ WRITE{2, 7} ]",
               rpcToString(rpc));
 
     // Should issue 1 rpc to master 3 with 1 objects in it.
@@ -949,15 +950,15 @@ TEST_F(ClientTransactionTaskTest, sendPrepareRpc_basic) {
     rpc = &transactionTask->prepareRpcs.back();
     EXPECT_EQ(1U, rpc->reqHdr->opCount);
     EXPECT_EQ("mock:host=master3", rpc->session.get()->serviceLocator);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{7} opCount{1} "
-                    "ParticipantList[ {1, 2318870434438256899, 1} "
-                                     "{1, 5620473113711160829, 2} "
-                                     "{1, 8393261455223623089, 3} "
-                                     "{1, 9099387403658286820, 4} "
-                                     "{1, 17025739677450802839, 5} "
-                                     "{2, 8137432257469122462, 6} "
-                                     "{3, 17123020360203364791, 7} ] "
-                    "OpSet[ WRITE{3, 7} ]",
+    EXPECT_EQ("PrepareRpc :: id{1, 1} ackId{0} participantCount{7} opCount{1} "
+                    "ParticipantList[ {1, 2318870434438256899, 2} "
+                                     "{1, 5620473113711160829, 3} "
+                                     "{1, 8393261455223623089, 4} "
+                                     "{1, 9099387403658286820, 5} "
+                                     "{1, 17025739677450802839, 6} "
+                                     "{2, 8137432257469122462, 7} "
+                                     "{3, 17123020360203364791, 8} ] "
+                    "OpSet[ WRITE{3, 8} ]",
               rpcToString(rpc));
 
     // Should issue nothing.
@@ -1094,7 +1095,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_constructor) {
     EXPECT_EQ(transactionTask->lease.leaseId, rpc.reqHdr->lease.leaseId);
     EXPECT_EQ(1U, rpc.reqHdr->ackId);
     EXPECT_EQ(transactionTask->participantCount, rpc.reqHdr->participantCount);
-    EXPECT_EQ("PrepareRpc :: lease{42} ackId{1} participantCount{2} opCount{0}"
+    EXPECT_EQ("PrepareRpc :: id{42, 0} ackId{1} participantCount{2} opCount{0}"
               " ParticipantList[ {1, 2, 3} {4, 5, 6} ] OpSet[ ]",
               rpcToString(&rpc));
 }
@@ -1110,7 +1111,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_read) {
     EXPECT_TRUE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
     EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
+    EXPECT_EQ("PrepareRpc :: id{1, 0} ackId{0} participantCount{0} opCount{1} "
               "ParticipantList[ ] OpSet[ READ{1, 42} ]",
               rpcToString(prepareRpc.get()));
 }
@@ -1125,7 +1126,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_readOnly) {
     EXPECT_TRUE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
     EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
+    EXPECT_EQ("PrepareRpc :: id{1, 0} ackId{0} participantCount{0} opCount{1} "
               "ParticipantList[ ] OpSet[ READONLY{1, 42} ]",
               rpcToString(prepareRpc.get()));
 }
@@ -1141,7 +1142,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_remove) {
     EXPECT_TRUE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
     EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
+    EXPECT_EQ("PrepareRpc :: id{1, 0} ackId{0} participantCount{0} opCount{1} "
               "ParticipantList[ ] OpSet[ REMOVE{2, 42} ]",
               rpcToString(prepareRpc.get()));
 }
@@ -1157,7 +1158,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_write) {
     EXPECT_TRUE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
     EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
+    EXPECT_EQ("PrepareRpc :: id{1, 0} ackId{0} participantCount{0} opCount{1} "
               "ParticipantList[ ] OpSet[ WRITE{3, 42} ]",
               rpcToString(prepareRpc.get()));
 }
@@ -1174,7 +1175,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_invalid) {
     EXPECT_FALSE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING, it->second.state);
     EXPECT_EQ(0U, prepareRpc->reqHdr->opCount);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{0} "
+    EXPECT_EQ("PrepareRpc :: id{1, 0} ackId{0} participantCount{0} opCount{0} "
               "ParticipantList[ ] OpSet[ ]", rpcToString(prepareRpc.get()));
     EXPECT_EQ("appendOp: Unknown transaction op type.", TestLog::get());
 }

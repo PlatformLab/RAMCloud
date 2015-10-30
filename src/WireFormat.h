@@ -1715,6 +1715,12 @@ struct TxPrepare {
         ClientLease lease;          // Lease information for the requested
                                     // transaction.  To ensure prepare requests
                                     // are linearizable.
+        uint64_t clientTxId;        // Client provided transaction identifier
+                                    // which uniquely identifies transaction
+                                    // among transactions from the same client.
+                                    // Paired with the lease identifier, the
+                                    // clientTxId provides a system-wide unique
+                                    // identifier for this transaction.
         uint64_t ackId;             // Id of the largest RPC id whose metadata
                                     // can be garbage-collected.  Used for
                                     // linearizability.
@@ -1827,6 +1833,12 @@ struct TxHintFailed {
         RequestCommon common;
         uint64_t leaseId;           // Id of the client lease associated with
                                     // this transaction.
+        uint64_t clientTxId;        // Client provided transaction identifier
+                                    // which uniquely identifies transaction
+                                    // among transactions from the same client.
+                                    // Paired with the lease identifier, the
+                                    // clientTxId provides a system-wide unique
+                                    // identifier for this transaction.
         uint32_t participantCount;  // Number of local objects participating TX
                                     // for this server.
         // List of local Participants

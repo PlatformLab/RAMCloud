@@ -103,7 +103,7 @@ class UnackedRpcResultsTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(UnackedRpcResultsTest);
 };
 
-TEST_F(UnackedRpcResultsTest, checkDuplicate) {
+TEST_F(UnackedRpcResultsTest, checkDuplicate_basic) {
     void* result;
     ClientLease clientLease = {0, 0, 0};
 
@@ -140,11 +140,34 @@ TEST_F(UnackedRpcResultsTest, checkDuplicate) {
     EXPECT_EQ(0UL, (uint64_t)result);
 }
 
+TEST_F(UnackedRpcResultsTest, checkDuplicate_expiredLease) {
+    void* result;
+    ClientLease clientLease = {1, 1, 10};
+    EXPECT_THROW(results.checkDuplicate(clientLease, 11, 5, &result),
+                 ExpiredLeaseException);
+}
+
+TEST_F(UnackedRpcResultsTest, checkDuplicate_validateWithUpdatedLease) {
+    void* result;
+    ClientLease clientLease = {1, 50, 1};
+    EXPECT_FALSE(results.checkDuplicate(clientLease, 11, 5, &result));
+
+    clientLease = {1, 1, 10};
+    EXPECT_FALSE(results.checkDuplicate(clientLease, 12, 5, &result));
+}
+
 TEST_F(UnackedRpcResultsTest, shouldRecover) {
     //Basic Function
-    EXPECT_TRUE(results.shouldRecover(1, 10, 5));
     EXPECT_TRUE(results.shouldRecover(1, 11, 5));
     EXPECT_FALSE(results.shouldRecover(1, 5, 4));
+
+    //Duplicate
+    TestLog::reset();
+    EXPECT_FALSE(results.shouldRecover(1, 10, 5));
+    EXPECT_EQ("shouldRecover: "
+              "Duplicate RpcResult or ParticipantList found during recovery. "
+              "<clientID, rpcID, ackId> = <1, 10, 5>",
+            TestLog::get());
 
     //Auto client insertion
     EXPECT_TRUE(results.shouldRecover(2, 4, 2)); //ClientId = 2 inserted.
@@ -257,7 +280,8 @@ TEST_F(UnackedRpcResultsTest, recoverRecord) {
     // Duplicate record.
 //    TestLog::reset();
     results.recoverRecord(leaseId, 15, 5, &result);
-    EXPECT_EQ("recoverRecord: Duplicate RpcResult found during recovery. "
+    EXPECT_EQ("recoverRecord: "
+              "Duplicate RpcResult or ParticipantList found during recovery. "
               "<clientID, rpcID, ackId> = <10, 15, 5>",
             TestLog::get());
 }

@@ -209,7 +209,9 @@ void
 ClientTransactionTask::initTask()
 {
     lease = ramcloud->clientLeaseAgent->getLease();
-    txId = ramcloud->rpcTracker->newRpcIdBlock(this, commitCache.size());
+    // First RPC id is used to identify the transaction.  One additional RPC
+    // id is needed for each operation in the transation.
+    txId = ramcloud->rpcTracker->newRpcIdBlock(this, commitCache.size() + 1);
 
     nextCacheEntry = commitCache.begin();
     uint64_t i = 0;
@@ -217,7 +219,7 @@ ClientTransactionTask::initTask()
         const CacheKey* key = &nextCacheEntry->first;
         CacheEntry* entry = &nextCacheEntry->second;
 
-        entry->rpcId = txId + i++;
+        entry->rpcId = txId + (++i);
         participantList.emplaceAppend<WireFormat::TxParticipant>(
                 key->tableId,
                 static_cast<uint64_t>(key->keyHash),
@@ -622,6 +624,7 @@ ClientTransactionTask::PrepareRpc::PrepareRpc(RamCloud* ramcloud,
     , reqHdr(allocHeader<WireFormat::TxPrepare>())
 {
     reqHdr->lease = task->lease;
+    reqHdr->clientTxId = task->txId;
     reqHdr->ackId = ramcloud->rpcTracker->ackId();
     reqHdr->participantCount = task->participantCount;
     reqHdr->opCount = 0;

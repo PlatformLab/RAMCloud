@@ -1049,18 +1049,18 @@ TEST_F(MasterServiceTest, migrateSingleLogEntry_decisionRecord) {
     // Populate segment
     {
         // Migrate
-        TxDecisionRecord record(1, 0, 2, WireFormat::TxDecision::COMMIT, 1);
+        TxDecisionRecord record(1, 0, 2, 1, WireFormat::TxDecision::COMMIT, 1);
         service->objectManager.writeTxDecisionRecord(record);
     }
     {
         // Bad table
         service->tabletManager.addTablet(2, 0, ~0UL, TabletManager::NORMAL);
-        TxDecisionRecord record(2, 0, 2, WireFormat::TxDecision::COMMIT, 1);
+        TxDecisionRecord record(2, 0, 2, 1, WireFormat::TxDecision::COMMIT, 1);
         service->objectManager.writeTxDecisionRecord(record);
     }
     {
         // Bad key hash
-        TxDecisionRecord record(1, 1, 2, WireFormat::TxDecision::COMMIT, 1);
+        TxDecisionRecord record(1, 1, 2, 1, WireFormat::TxDecision::COMMIT, 1);
         service->objectManager.writeTxDecisionRecord(record);
     }
 
@@ -1099,7 +1099,7 @@ TEST_F(MasterServiceTest, migrateSingleLogEntry_decisionRecord) {
               "migrateSingleLogEntry: Transaction Decision Record not "
                     "migrated; keyHash not in range",
             TestLog::get());
-    EXPECT_EQ(40U, totalBytes);
+    EXPECT_EQ(48U, totalBytes);
     EXPECT_EQ(1U, entryTotals[LOG_ENTRY_TYPE_TXDECISION]);
 }
 
@@ -1112,7 +1112,7 @@ TEST_F(MasterServiceTest, migrateSingleLogEntry_participantList) {
         participants[1] = WireFormat::TxParticipant(1, 2, 11);
         participants[2] = WireFormat::TxParticipant(1, 0, 12);
         participants[3] = WireFormat::TxParticipant(10, 0, 13);
-        ParticipantList record(participants, 4, 42);
+        ParticipantList record(participants, 4, 42, 9);
         uint64_t logRef;
         service->objectManager.logTransactionParticipantList(record, &logRef);
     }
@@ -1122,7 +1122,7 @@ TEST_F(MasterServiceTest, migrateSingleLogEntry_participantList) {
         participants[0] = WireFormat::TxParticipant(123, 224, 10);
         participants[1] = WireFormat::TxParticipant(222, 2, 11);
         participants[2] = WireFormat::TxParticipant(111, 0, 12);
-        ParticipantList record(participants, 3, 42);
+        ParticipantList record(participants, 3, 42, 9);
         uint64_t logRef;
         service->objectManager.logTransactionParticipantList(record, &logRef);
     }
@@ -1132,7 +1132,7 @@ TEST_F(MasterServiceTest, migrateSingleLogEntry_participantList) {
         participants[0] = WireFormat::TxParticipant(123, 224, 10);
         participants[1] = WireFormat::TxParticipant(222, 2, 11);
         participants[2] = WireFormat::TxParticipant(1, 2, 12);
-        ParticipantList record(participants, 3, 42);
+        ParticipantList record(participants, 3, 42, 9);
         uint64_t logRef;
         service->objectManager.logTransactionParticipantList(record, &logRef);
     }
@@ -1172,7 +1172,7 @@ TEST_F(MasterServiceTest, migrateSingleLogEntry_participantList) {
               "migrateSingleLogEntry: Transaction Participant List Record not "
                     "migrated; keyHash not in range",
             TestLog::get());
-    EXPECT_EQ(112U, totalBytes);
+    EXPECT_EQ(120U, totalBytes);
     EXPECT_EQ(1U, entryTotals[LOG_ENTRY_TYPE_TXPLIST]);
 }
 
@@ -2802,12 +2802,13 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
     reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
     reqHdr.common.service = WireFormat::MASTER_SERVICE;
     reqHdr.lease = {1, 10, 5};
-    reqHdr.ackId = 9;
+    reqHdr.clientTxId = 9;
+    reqHdr.ackId = 8;
     reqHdr.participantCount = 4;
     reqHdr.opCount = 3;
     reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
     reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 4);
-    TransactionId txId(1U, 10U);
+    TransactionId txId(1U, 9U);
 
     // 2A. ReadOp
     RejectRules rejectRules;
@@ -2843,8 +2844,9 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
     EXPECT_FALSE(isObjectLocked(key1));
     EXPECT_FALSE(isObjectLocked(key2));
     EXPECT_FALSE(isObjectLocked(key3));
-    EXPECT_FALSE(
-            service->objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_FALSE(service->objectManager.unackedRpcResults->hasRecord(
+                        txId.clientLeaseId,
+                        txId.clientTransactionId));
     {
         Buffer value;
         ramcloud->read(1, "key1", 4, &value, NULL, &version);
@@ -2875,8 +2877,9 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
     EXPECT_TRUE(isObjectLocked(key1));
     EXPECT_TRUE(isObjectLocked(key2));
     EXPECT_TRUE(isObjectLocked(key3));
-    EXPECT_TRUE(
-            service->objectManager.preparedOps->hasParticipantListEntry(txId));
+    EXPECT_TRUE(service->objectManager.unackedRpcResults->hasRecord(
+                        txId.clientLeaseId,
+                        txId.clientTransactionId));
 
     Buffer value;
     ramcloud->read(1, "key1", 4, &value, NULL, &version);
@@ -2930,7 +2933,8 @@ TEST_F(MasterServiceTest, txPrepare_retriedPrepares) {
     reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
     reqHdr.common.service = WireFormat::MASTER_SERVICE;
     reqHdr.lease = {1, 10, 5};
-    reqHdr.ackId = 9;
+    reqHdr.clientTxId = 9;
+    reqHdr.ackId = 8;
     reqHdr.participantCount = 5;
     reqHdr.opCount = 3;
     reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
@@ -3086,7 +3090,8 @@ TEST_F(MasterServiceTest, txPrepare_singleRpcOptimization) {
     reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
     reqHdr.common.service = WireFormat::MASTER_SERVICE;
     reqHdr.lease = {1, 10, 5};
-    reqHdr.ackId = 9;
+    reqHdr.clientTxId = 9;
+    reqHdr.ackId = 8;
     reqHdr.participantCount = 3;
     reqHdr.opCount = 3;
     reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
@@ -3205,7 +3210,8 @@ TEST_F(MasterServiceTest, txPrepare_readOnly) {
     reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
     reqHdr.common.service = WireFormat::MASTER_SERVICE;
     reqHdr.lease = {1, 10, 5};
-    reqHdr.ackId = 9;
+    reqHdr.clientTxId = 9;
+    reqHdr.ackId = 8;
     reqHdr.participantCount = 4;
     reqHdr.opCount = 3;
     reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
@@ -3309,7 +3315,8 @@ TEST_F(MasterServiceTest, txPrepare_readOnly_failByLock) {
     reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
     reqHdr.common.service = WireFormat::MASTER_SERVICE;
     reqHdr.lease = {1, 10, 5};
-    reqHdr.ackId = 9;
+    reqHdr.clientTxId = 9;
+    reqHdr.ackId = 8;
     reqHdr.participantCount = 4;
     reqHdr.opCount = 3;
     reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));
@@ -3442,7 +3449,8 @@ TEST_F(MasterServiceTest, txPrepare_readOnly_failByVer) {
     reqHdr.common.opcode = WireFormat::Opcode::TX_PREPARE;
     reqHdr.common.service = WireFormat::MASTER_SERVICE;
     reqHdr.lease = {1, 10, 5};
-    reqHdr.ackId = 9;
+    reqHdr.clientTxId = 9;
+    reqHdr.ackId = 8;
     reqHdr.participantCount = 4;
     reqHdr.opCount = 3;
     reqBuffer.appendCopy(&reqHdr, sizeof32(reqHdr));

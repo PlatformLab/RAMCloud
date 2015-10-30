@@ -30,8 +30,11 @@ namespace RAMCloud {
  *      The keyHash used to uniquely identify the TxRecoveryManager
  *      responsible for this object and its recovery.
  * \param leaseId
- *      Id of the lease associated with the recovering transaction.  Used as
- *      part of the transaction's unique identifier.
+ *      Id of the lease associated with the recovering transaction; part of the
+ *      transaction's system-wide unique identifier.
+ * \param transactionId
+ *      Id of the transaction which is unique among transactions from the same
+ *      client; part of the transaction's system-wide unique identifier.
  * \param decision
  *      The decision that the TxRecoveryManager would like to persist.
  * \param timestamp
@@ -39,10 +42,10 @@ namespace RAMCloud {
  *      module. Used primarily by the cleaner to order live objects and
  *      improve future cleaning performance.
  */
-TxDecisionRecord::TxDecisionRecord(
-        uint64_t tableId, KeyHash keyHash, uint64_t leaseId,
+TxDecisionRecord::TxDecisionRecord(uint64_t tableId, KeyHash keyHash,
+        uint64_t leaseId, uint64_t transactionId,
         WireFormat::TxDecision::Decision decision, uint32_t timestamp)
-    : header(tableId, keyHash, leaseId, decision, timestamp)
+    : header(tableId, keyHash, leaseId, transactionId, decision, timestamp)
     , participantBuffer()
     , participantOffset(0)
     , defaultParticipantBuffer()
@@ -133,6 +136,15 @@ uint64_t
 TxDecisionRecord::getLeaseId()
 {
     return header.leaseId;
+}
+
+/**
+ * Obtain the 64-bit transaction identifier associated with this record.
+ */
+uint64_t
+TxDecisionRecord::getTransactionId()
+{
+    return header.transactionId;
 }
 
 /**

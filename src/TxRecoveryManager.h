@@ -62,9 +62,8 @@ class TxRecoveryManager : public WorkerTimer {
     struct RecoveryId {
         /// Id of the lease with which the recovering transaction was issued.
         uint64_t leaseId;
-        /// The identifying rpcId of the recovering transaction; namely the
-        /// rpcId of the first participant in the transaction.
-        uint64_t rpcId;
+        /// Id of the recovering transaction.
+        uint64_t transactionId;
 
         /**
          * The operator < is overridden to implement the
@@ -72,7 +71,8 @@ class TxRecoveryManager : public WorkerTimer {
          */
         bool operator<(const RecoveryId& recoveryId) const {
             return leaseId < recoveryId.leaseId ||
-                (leaseId == recoveryId.leaseId && rpcId < recoveryId.rpcId);
+                    (leaseId == recoveryId.leaseId
+                            && transactionId < recoveryId.transactionId);
         }
     };
 
@@ -104,7 +104,7 @@ class TxRecoveryManager : public WorkerTimer {
 
     class RecoveryTask {
       PUBLIC:
-        RecoveryTask(Context* context, uint64_t leaseId,
+        RecoveryTask(Context* context, uint64_t leaseId, uint64_t transactionId,
                 Buffer& participantBuffer, uint32_t participantCount,
                 uint32_t offset = 0);
         RecoveryTask(Context* context, TxDecisionRecord& record);
@@ -193,6 +193,8 @@ class TxRecoveryManager : public WorkerTimer {
         Context* context;
         /// Id of the lease associated with the transaction being recovered.
         uint64_t leaseId;
+        /// Id of the recovering transaction.
+        uint64_t transactionId;
         /// Current phase of the recovery.
         enum State {REQUEST_ABORT, DECIDE, DONE} state;
         /// The decision that the transaction will be driven to.

@@ -198,7 +198,8 @@ AbstractLog::free(Reference reference)
     segment->trackDeadEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ ||
         type == LOG_ENTRY_TYPE_RPCRESULT ||
-        type == LOG_ENTRY_TYPE_PREP)
+        type == LOG_ENTRY_TYPE_PREP ||
+        type == LOG_ENTRY_TYPE_TXPLIST)
         totalLiveBytes -= lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.
 }
@@ -390,7 +391,8 @@ AbstractLog::append(Lock& appendLock,
     head->trackNewEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ ||
         type == LOG_ENTRY_TYPE_RPCRESULT ||
-        type == LOG_ENTRY_TYPE_PREP)
+        type == LOG_ENTRY_TYPE_PREP ||
+        type == LOG_ENTRY_TYPE_TXPLIST)
         totalLiveBytes += lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.
 
@@ -479,7 +481,8 @@ AbstractLog::append(Lock& appendLock,
     head->trackNewEntry(type, lengthWithMetadata);
     if (type == LOG_ENTRY_TYPE_OBJ ||
         type == LOG_ENTRY_TYPE_RPCRESULT ||
-        type == LOG_ENTRY_TYPE_PREP)
+        type == LOG_ENTRY_TYPE_PREP ||
+        type == LOG_ENTRY_TYPE_TXPLIST)
         totalLiveBytes += lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.
 

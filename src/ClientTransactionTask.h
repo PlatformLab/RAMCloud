@@ -153,8 +153,8 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// Lease information for to this transaction.
     WireFormat::ClientLease lease;
 
-    /// Id of the rpcId that should be completed once the transaction is
-    /// complete.
+    /// RpcId used to identify this transaction.  Also is the rpcId that should
+    /// be completed once the transaction is complete.
     uint64_t txId;
 
     /// List of "in flight" Prepare Rpcs.
