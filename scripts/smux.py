@@ -14,6 +14,43 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+doc_string = '''
+smux.py <session_spec_file>
+
+The format of session_spec_file consists of ini-style parameters followed by
+lists of commands delimited by lines beginning with '---'.  
+
+Any line starting with a # is considered a comment and ignored.
+
+Currently there are two supported parameters.
+
+PANES_PER_WINDOW, 
+   The number of panes that each window will be carved into
+
+LAYOUT, 
+   One of the five standard tmux layouts, given below.
+   even-horizontal, even-vertical, main-horizontal, main-vertical, tiled.
+
+Sample Input File:
+
+   # This is a comment
+   PANES_PER_WINDOW = 4
+   LAYOUT = tiled
+   ----------
+   echo 'This is pane 1'
+   cat /proc/cpuinfo | less
+   ----------
+   echo 'This is pane 2'
+   cat /proc/meminfo 
+   ----------
+   echo 'This is pane 3'
+   uname -a
+   ----------
+   echo "This is pane 4"
+   cat /etc/issue
+   ----------
+
+'''
 
 import os
 import sys
@@ -135,43 +172,6 @@ def startSession(file):
   create(int(args['PANES_PER_WINDOW']), cmds, args['LAYOUT'])
       
 def usage():
-   doc_string = '''
-   mux.py <session_spec_file>
-
-   The format of session_spec_file consists of ini-style parameters followed by
-   lists of commands delimited by lines beginning with '---'.  
-
-   Any line starting with a # is considered a comment and ignored.
-
-   Currently there are two supported parameters.
-   
-   PANES_PER_WINDOW, 
-       The number of panes that each window will be carved into
-
-   LAYOUT, 
-       One of the five standard tmux layouts, given below.
-       even-horizontal, even-vertical, main-horizontal, main-vertical, tiled.
-
-   Sample Input File:
-
-       # This is a comment
-       PANES_PER_WINDOW = 4
-       LAYOUT = tiled
-       ----------
-       echo 'This is pane 1'
-       cat /proc/cpuinfo | less
-       ----------
-       echo 'This is pane 2'
-       cat /proc/meminfo 
-       ----------
-       echo 'This is pane 3'
-       uname -a
-       ----------
-       echo "This is pane 4"
-       cat /etc/issue
-       ----------
-   
-   '''
    print doc_string
    sys.exit(1)
 
