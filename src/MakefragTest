@@ -37,6 +37,7 @@ TESTS_SRCFILES := \
 		  src/BackupSelectorTest.cc \
 		  src/BackupServiceTest.cc \
 		  src/BackupStorageTest.cc \
+		  src/BasicTransportTest.cc \
 		  src/BitOpsTest.cc \
 		  src/BoostIntrusiveTest.cc \
 		  src/BufferTest.cc \

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2010-2014 Stanford University
+# Copyright (c) 2010-2015 Stanford University
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -46,10 +46,13 @@ valgrind_command = ''
 server_locator_templates = {
     'tcp': 'tcp:host=%(host)s,port=%(port)d',
     'tcp-1g': 'tcp:host=%(host1g)s,port=%(port)d',
+    'basic+udp': 'basic+udp:host=%(host)s,port=%(port)d',
+    'basic+udp-1g': 'basic+udp:host=%(host1g)s,port=%(port)d',
     'fast+udp': 'fast+udp:host=%(host)s,port=%(port)d',
     'fast+udp-1g': 'fast+udp:host=%(host1g)s,port=%(port)d',
     'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
     'infrc': 'infrc:host=%(host)s,port=%(port)d',
+    'basic+infud': 'basic+infud:',
     'fast+infud': 'fast+infud:',
     'unreliable+infud': 'unreliable+infud:',
     'fast+infeth': 'fast+infeth:mac=00:11:22:33:44:%(id)02x',
@@ -58,12 +61,15 @@ server_locator_templates = {
 coord_locator_templates = {
     'tcp': 'tcp:host=%(host)s,port=%(port)d',
     'tcp-1g': 'tcp:host=%(host1g)s,port=%(port)d',
+    'basic+udp': 'basic+udp:host=%(host)s,port=%(port)d',
     'fast+udp': 'fast+udp:host=%(host)s,port=%(port)d',
+    'basic+udp-1g': 'basic+udp:host=%(host1g)s,port=%(port)d',
     'fast+udp-1g': 'fast+udp:host=%(host1g)s,port=%(port)d',
     'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
     'infrc': 'infrc:host=%(host)s,port=%(port)d',
     # Coordinator uses udp even when rest of cluster uses infud
     # or infeth.
+    'basic+infud': 'basic+udp:host=%(host)s,port=%(port)d',
     'fast+infud': 'fast+udp:host=%(host)s,port=%(port)d',
     'unreliable+infud': 'fast+udp:host=%(host)s,port=%(port)d',
     'fast+infeth': 'fast+udp:host=%(host)s,port=%(port)d',

@@ -81,7 +81,10 @@ class Driver {
         void* getRange(uint32_t offset, uint32_t length);
         VIRTUAL_FOR_TESTING char *steal(uint32_t *len);
 
-        /// Address from which this data was received.
+        /// Address from which this data was received. The object referred
+        /// to by this pointer will be stable as long as the packet data
+        /// is stable (i.e., if steal() is invoked, then the Address will
+        /// live until release is invoked).
         const Address* sender;
 
         /// Driver the packet came from, where resources should be returned.
@@ -217,12 +220,10 @@ class Driver {
     virtual void registerMemory(void* base, size_t bytes) {}
 
     /**
-     * Send a single packet out over this Driver. The method doesn't return
-     * until header and payload have been read and the packet is "on the wire";
-     * the caller can safely discard or reuse the memory associated with payload
-     * and header once the method returns.  If an error occurs, this method
-     * will log the error and return without sending anything; this method
-     * does not throw exceptions.
+     * Send a single packet out over this Driver. The packet will not
+     * necessarily have been transmitted before this method returns.  If an
+     * error occurs, this method will log the error and return without
+     * sending anything; this method does not throw exceptions.
      *
      * header provides a means to slip data onto the front of the packet
      * without having to pay for a prepend to the Buffer containing the
@@ -231,18 +232,48 @@ class Driver {
      * \param recipient
      *      The address the packet should go to.
      * \param header
-     *      Bytes placed in the packet ahead of those from payload.
+     *      Bytes placed in the packet ahead of those from payload. The
+     *      driver will make a copy of this data, so the caller need not
+     *      preserve it after the method returns, even if the packet hasn't
+     *      yet been transmitted.
      * \param headerLen
      *      Length in bytes of the data in header.
      * \param payload
-     *      A buffer iterator positioned at the bytes for the payload to
-     *      follow the headerLen bytes from header.  May be NULL to
-     *      indicate "no payload".
+     *      A buffer iterator describing the bytes for the payload (the
+     *      portion of the packet after the header).  May be NULL to
+     *      indicate "no payload". Note: caller must preserve the buffer
+     *      data (but not the actual iterator) even after the method returns,
+     *      since the data may not yet have been transmitted.
      */
     virtual void sendPacket(const Address* recipient,
-                            const void *header,
+                            const void* header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload) = 0;
+
+    /**
+     * Alternate form of sendPacket.
+     *
+     * \param recipient
+     *      Where to send the packet.
+     * \param header
+     *      Contents of this object will be placed in the packet ahead
+     *      of payload.  The driver will make a copy of this data, so
+     *      the caller need not preserve it after the method returns, even
+     *      if the packet hasn't yet been transmitted.
+     * \param payload
+     *      A buffer iterator positioned at the bytes for the payload to
+     *      follow the headerLen bytes from header.  May be NULL to
+     *      indicate "no payload". Note: caller must preserve the buffer
+     *      data (but not the actual iterator) even after the method returns,
+     *      since the data may not yet have been transmitted.
+     */
+    template<typename T>
+    void sendPacket(const Address* recipient,
+                            const T* header,
+                            Buffer::Iterator *payload)
+    {
+        sendPacket(recipient, header, sizeof(T), payload);
+    }
 
     /**
      * Return the ServiceLocator for this Driver. If the Driver

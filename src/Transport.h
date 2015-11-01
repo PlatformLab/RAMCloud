@@ -216,7 +216,7 @@ class Transport {
 
         /**
          * Returns a human-readable string containing useful information
-         * about any active  RPC(s) on this session.
+         * about any active RPC(s) on this session.
          */
         virtual string getRpcInfo() {
             return format("unknown RPC(s) on %s", serviceLocator.c_str());

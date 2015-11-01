@@ -246,7 +246,7 @@ TEST_F(FastTransportTest, sendBadSessionError) {
     EXPECT_EQ(
         "{ sessionToken:abcd rpcId:3 clientSessionHint:4 "
         "serverSessionHint:5 0/0 frags channel:6 dir:1 reqACK:0 "
-        "drop:0 payloadType:4 } ", driver->outputLog);
+        "drop:0 payloadType:4 }", driver->outputLog);
 }
 
 /// A predicate to limit TestLog messages to invoke
@@ -312,7 +312,7 @@ TEST_F(FastTransportTest, handleIncomingPacket_c2sBadSession) {
     EXPECT_EQ(
         "{ sessionToken:0 rpcId:0 clientSessionHint:0 "
             "serverSessionHint:0 0/0 frags channel:0 dir:1 reqACK:0 "
-            "drop:0 payloadType:4 } ", driver->outputLog);
+            "drop:0 payloadType:4 }", driver->outputLog);
 }
 
 TEST_F(FastTransportTest, handleIncomingPacket_c2sGoodHint) {
@@ -352,7 +352,7 @@ TEST_F(FastTransportTest, handleIncomingPacket_c2sGoodHintBadToken) {
     EXPECT_EQ(
         "{ sessionToken:cccccccccccccccd rpcId:0 clientSessionHint:0 "
             "serverSessionHint:0 0/0 frags channel:0 dir:1 reqACK:0 "
-            "drop:0 payloadType:4 } ", driver->outputLog);
+            "drop:0 payloadType:4 }", driver->outputLog);
 }
 
 TEST_F(FastTransportTest, handleIncomingPacket_s2cGoodHint) {
@@ -1605,7 +1605,7 @@ TEST_F(ClientSessionTest, connect) {
     EXPECT_EQ(
         "{ sessionToken:cccccccccccccccc rpcId:0 "
         "clientSessionHint:98765432 serverSessionHint:cccccccc "
-        "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
+        "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 }",
         driver->outputLog);
 }
 
@@ -1801,7 +1801,7 @@ TEST_F(ClientSessionTest, processInboundPacket_badSession) {
     EXPECT_EQ(
         "{ sessionToken:cccccccccccccccc rpcId:0 "
         "clientSessionHint:98765432 serverSessionHint:cccccccc "
-        "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
+        "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 }",
         driver->outputLog);
     session->channelQueue.pop_front();
 }
@@ -1921,7 +1921,7 @@ TEST_F(ClientSessionTest, sendSessionOpenRequest) {
     EXPECT_EQ(
         "{ sessionToken:cccccccccccccccc rpcId:0 "
         "clientSessionHint:98765432 serverSessionHint:cccccccc "
-        "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 } ",
+        "0/0 frags channel:0 dir:0 reqACK:0 drop:0 payloadType:2 }",
         driver->outputLog);
     session->timer.stop();
 }

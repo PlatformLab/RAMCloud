@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -23,10 +23,13 @@ namespace RAMCloud {
  * Construct a MockDriver which does not include the header in the outputLog.
  */
 MockDriver::MockDriver()
-            : headerToString(0)
+            : incomingPacketHandler()
+            , headerToString(0)
             , outputLog()
             , sendPacketCount(0)
+            , stealCount(0)
             , releaseCount(0)
+            , packets()
 {
 }
 
@@ -39,16 +42,26 @@ MockDriver::MockDriver()
  *      for prefixing packets in the outputLog.
  */
 MockDriver::MockDriver(HeaderToString headerToString)
-            : headerToString(headerToString)
+            : incomingPacketHandler()
+            , headerToString(headerToString)
             , outputLog()
             , sendPacketCount(0)
+            , stealCount(0)
             , releaseCount(0)
+            , packets()
 {
+}
+
+MockDriver::~MockDriver()
+{
+    foreach (MockReceived* received, packets) {
+        delete(received);
+    }
 }
 
 void
 MockDriver::connect(IncomingPacketHandler* incomingPacketHandler) {
-    delete incomingPacketHandler;
+    this->incomingPacketHandler.reset(incomingPacketHandler);
 }
 
 void
@@ -86,7 +99,9 @@ MockDriver::sendPacket(const Address *addr,
 
     if (headerToString && header) {
         outputLog += headerToString(header, headerLen);
-        outputLog += " ";
+        if (payload && (payload->size() > 0)) {
+            outputLog += " ";
+        }
     }
 
     if (!payload)
@@ -105,7 +120,7 @@ MockDriver::sendPacket(const Address *addr,
     }
 
     uint32_t take = 10;
-    if (length < take) {
+    if (length <= take) {
         outputLog += TestUtil::toString(buf, length);
     } else {
         outputLog += TestUtil::toString(buf, take);
@@ -120,6 +135,68 @@ string
 MockDriver::getServiceLocator()
 {
     return "mock:";
+}
+
+/**
+ * Simulates the arrival of a packet
+ * 
+ * \param received
+ *      Structure describing the packet. Must be dynamically allocated,
+ *      and becomes our property; it will get freed when the MockDriver
+ *      is destroyed.
+ */
+void
+MockDriver::receivePacket(MockReceived *received)
+{
+    packets.push_back(received);
+    received->driver = received->mockDriver = this;
+    incomingPacketHandler->handlePacket(received);
+}
+
+/**
+ * Construct an object to hold an incoming packet.
+ *
+ * \param sender
+ *      String that will be converted into an Address for the sender.
+ * \param header
+ *      First byte of a header for the packet.
+ * \param headerLength
+ *      Number of bytes in the header.
+ * \param body
+ *      Null-terminated string that will be concatenated with the header
+ *      to form the packet.  NULL means no body.
+ */
+MockDriver::MockReceived::MockReceived(const char* sender, const void* header,
+        uint32_t headerLength, const char* body)
+    : locator(sender)
+    , senderAddress(&locator)
+    , mockDriver(NULL)
+{
+    this->sender = &senderAddress;
+    uint32_t bodyLength = 0;
+    if (body != NULL) {
+        bodyLength = downCast<uint32_t>(strlen(body));
+    }
+    payload = new char[headerLength + bodyLength];
+    memcpy(payload, header, headerLength);
+    if (body != NULL) {
+        memcpy(payload + headerLength, body, bodyLength);
+    }
+    len = headerLength + bodyLength;
+}
+
+// See Driver::Received::steal.
+char*
+MockDriver::MockReceived::steal(uint32_t *length)
+{
+    mockDriver->stealCount++;
+    *length = len;
+    return payload;
+}
+
+MockDriver::MockReceived::~MockReceived()
+{
+    delete payload;
 }
 
 }  // namespace RAMCloud

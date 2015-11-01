@@ -43,6 +43,7 @@ SHARED_SRCFILES := \
 		   src/AbstractLog.cc \
 		   src/AbstractServerList.cc \
 		   src/ArpCache.cc \
+		   src/BasicTransport.cc \
 		   src/CacheTrace.cc \
 		   src/ClientException.cc \
 		   src/ClientLeaseAgent.cc \

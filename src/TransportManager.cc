@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "BasicTransport.h"
 #include "CycleCounter.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
@@ -50,6 +51,17 @@ static struct TcpTransportFactory : public TransportFactory {
     }
 } tcpTransportFactory;
 
+static struct BasicUdpTransportFactory : public TransportFactory {
+    BasicUdpTransportFactory()
+        : TransportFactory("basic+kernelUdp", "basic+udp") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new BasicTransport(context,
+                new UdpDriver(context, localServiceLocator),
+                generateRandom());
+    }
+} basicUdpTransportFactory;
+
 static struct FastUdpTransportFactory : public TransportFactory {
     FastUdpTransportFactory()
         : TransportFactory("fast+kernelUdp", "fast+udp") {}
@@ -61,6 +73,16 @@ static struct FastUdpTransportFactory : public TransportFactory {
 } fastUdpTransportFactory;
 
 #ifdef ONLOAD
+static struct BasicSolarFlareTransportFactory : public TransportFactory {
+    BasicSolarFlareTransportFactory()
+        : TransportFactory("basic+solarflare", "basic+sf") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new BasicTransport(context,
+                new SolarFlareDriver(context, localServiceLocator),
+                generateRandom());
+    }
+} basicSpolarFlareTransportFactory;
 static struct FastSolarFlareTransportFactory : public TransportFactory {
     FastSolarFlareTransportFactory()
         : TransportFactory("fast+solarflare", "fast+sf") {}
@@ -73,6 +95,17 @@ static struct FastSolarFlareTransportFactory : public TransportFactory {
 #endif
 
 #ifdef INFINIBAND
+static struct BasicInfUdTransportFactory : public TransportFactory {
+    BasicInfUdTransportFactory()
+        : TransportFactory("basic+infinibandud", "basic+infud") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new BasicTransport(context,
+                new InfUdDriver(context, localServiceLocator, false),
+                generateRandom());
+    }
+} basicInfUdTransportFactory;
+
 static struct FastInfUdTransportFactory : public TransportFactory {
     FastInfUdTransportFactory()
         : TransportFactory("fast+infinibandud", "fast+infud") {}
@@ -104,6 +137,16 @@ static struct InfRcTransportFactory : public TransportFactory {
 #endif
 
 #ifdef DPDK
+static struct BasicDpdkTransportFactory : public TransportFactory {
+    BasicDpdkTransportFactory()
+        : TransportFactory("basic+dpdk", "basic+dpdk") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new BasicTransport(context,
+                new DpdkDriver(context, localServiceLocator),
+                generateRandom());
+    }
+} basicDpdkTransportFactory;
 static struct FastDpdkTransportFactory : public TransportFactory {
     FastDpdkTransportFactory()
         : TransportFactory("fast+dpdk", "fast+dpdk") {}
@@ -131,16 +174,20 @@ TransportManager::TransportManager(Context* context)
     , mockRegistrations(0)
 {
     transportFactories.push_back(&tcpTransportFactory);
+    transportFactories.push_back(&basicUdpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
 #ifdef ONLOAD
+    transportFactories.push_back(&basicSolarFlareTransportFactory);
     transportFactories.push_back(&fastSolarFlareTransportFactory);
 #endif
 #ifdef INFINIBAND
+    transportFactories.push_back(&basicInfUdTransportFactory);
     transportFactories.push_back(&fastInfUdTransportFactory);
     transportFactories.push_back(&fastInfEthTransportFactory);
     transportFactories.push_back(&infRcTransportFactory);
 #endif
 #ifdef DPDK
+    transportFactories.push_back(&basicDpdkTransportFactory);
     transportFactories.push_back(&fastDpdkTransportFactory);
 #endif
     transports.resize(transportFactories.size(), NULL);
