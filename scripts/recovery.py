@@ -148,11 +148,14 @@ def recover(num_servers,
     args['debug'] = debug
     args['coordinator_host'] = config.old_master_host
     args['coordinator_args'] = coordinator_args
-    args['backup_args'] = backup_args
+    if backup_args:
+        args['backup_args'] += backup_args;
+    else:
+        args['backup_args'] = '--maxNonVolatileBuffers 1000'
     # Allocate enough memory on recovery masters to handle several
     # recovery partitions (most recoveries will only have one recovery
     # partition per master, which is about 500 MB).
-    args['master_args'] = '-d -D -t 5000 --maxNonVolatileBuffers 1000'
+    args['master_args'] = '-d -D -t 5000'
     if master_args:
         args['master_args'] += ' ' + master_args;
     args['client'] = ('%s -f -n %d -r %d -s %d '
