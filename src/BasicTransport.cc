@@ -172,9 +172,11 @@ void
 BasicTransport::sendBytes(const Driver::Address* address, RpcId rpcId,
         Buffer* message, int offset, int length)
 {
+    uint8_t needGrant = 1;
     int messageSize = downCast<int>(message->size());
-    if (length > (messageSize - offset)) {
+    if (length >= (messageSize - offset)) {
         length = messageSize - offset;
+        needGrant = 0;
     }
     if (length <= 0) {
         return;
@@ -189,7 +191,7 @@ BasicTransport::sendBytes(const Driver::Address* address, RpcId rpcId,
     } else {
         // Send multiple packets.
         while (length > 0) {
-            DataHeader header(rpcId, message->size(), offset);
+            DataHeader header(rpcId, message->size(), offset, needGrant);
             int bytesThisPacket = std::min(length, maxDataPerPacket);
             Buffer::Iterator iter(message, offset, bytesThisPacket);
             driver->sendPacket(address, &header, &iter);
@@ -370,8 +372,10 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     t->clientRpcPool.destroy(clientRpc);
                 } else {
                     // See if we need to output a GRANT.
-                    if (clientRpc->grantOffset <
-                            (clientRpc->response->size() + t->roundTripBytes)) {
+                    if (header->needGrant && (clientRpc->grantOffset <
+                            (clientRpc->response->size() +
+                            t->roundTripBytes)) &&
+                            (clientRpc->grantOffset < header->totalLength)) {
                         clientRpc->grantOffset = clientRpc->response->size()
                                 + t->roundTripBytes + t->grantIncrement;
                         GrantHeader grant(header->common.rpcId,
@@ -490,9 +494,10 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     t->context->workerManager->handleRpc(serverRpc);
                 } else {
                     // See if we need to output a GRANT.
-                    if (serverRpc->grantOffset <
+                    if (header->needGrant && (serverRpc->grantOffset <
                             (serverRpc->requestPayload.size()
-                            + t->roundTripBytes)) {
+                            + t->roundTripBytes)) &&
+                            (serverRpc->grantOffset < header->totalLength)) {
                         serverRpc->grantOffset =
                                 serverRpc->requestPayload.size()
                                 + t->roundTripBytes + t->grantIncrement;
@@ -510,8 +515,11 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 if (header == NULL)
                     goto packetLengthError;
                 if ((serverRpc == NULL) || (serverRpc->transmitOffset == 0)) {
-                    RAMCLOUD_CLOG(WARNING, "unexpected GRANT from client %s",
-                            received->sender->toString().c_str());
+                    RAMCLOUD_LOG(WARNING, "unexpected GRANT from client %s, "
+                            "id (%lu,%lu), grantOffset %u",
+                            received->sender->toString().c_str(),
+                            header->common.rpcId.clientId,
+                            header->common.rpcId.sequence, header->offset);
                     return;
                 }
                 if (header->offset > serverRpc->transmitOffset) {
@@ -772,6 +780,8 @@ BasicTransport::MessageAccumulator::appendFragment(char* payload,
  * \param grantOffset
  *      Largest grantOffset that has been sent for this message (i.e.
  *      this is how many total bytes we should have received already).
+ *      May be 0 if the client never requested a grant (meaning that it
+ *      planned to transmit the entire message unilaterally).
  */
 void
 BasicTransport::MessageAccumulator::requestRetransmission(BasicTransport *t,
@@ -779,10 +789,20 @@ BasicTransport::MessageAccumulator::requestRetransmission(BasicTransport *t,
 {
     uint32_t endOffset;
     FragmentMap::iterator it = fragments.begin();
+
+    // Compute the end of the retransmission range.
     if (it != fragments.end()) {
+        // Retransmit the entire gap up to the first fragment.
         endOffset = it->first;
-    } else {
+    } else if (grantOffset > 0) {
+        // Retransmit everything that we've asked the sender to send:
+        // we don't seem to have received any of it.
         endOffset = grantOffset;
+    } else {
+        // We haven't issued a GRANT for this message; just retransmit
+        // one round-trip's worth of data. Once this data arrives, the
+        // normal grant mechanism should kick in if it's still needed.
+        endOffset = buffer->size() + t->roundTripBytes;
     }
     assert(endOffset > buffer->size());
     ResendHeader resend(rpcId, buffer->size(), endOffset - buffer->size());

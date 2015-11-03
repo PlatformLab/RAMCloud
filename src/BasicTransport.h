@@ -144,7 +144,7 @@ class BasicTransport : public Transport {
         void appendFragment(char* payload, uint32_t offset, uint32_t length);
         void requestRetransmission(BasicTransport *t,
                 const Driver::Address* address, RpcId rpcId,
-                uint32_t grantOffset);
+                uint32_t limit);
 
         /// Transport that is managing this object.
         BasicTransport* t;
@@ -372,13 +372,19 @@ class BasicTransport : public Transport {
                                      // this packet!).
         uint32_t offset;             // Offset within the message of the first
                                      // byte of data in this packet.
+        uint8_t needGrant;           // Zero means the sender is transmitting
+                                     // the entire message unilaterally;
+                                     // nonzero means the last part of the
+                                     // message won't be sent without a
+                                     // GRANT from the server.
 
         // The remaining packet bytes after the header constitute message
         // data starting at the given offset.
 
-        DataHeader(RpcId rpcId, uint32_t totalLength, uint32_t offset)
+        DataHeader(RpcId rpcId, uint32_t totalLength, uint32_t offset,
+                uint8_t needGrant)
             : common(PacketOpcode::DATA, rpcId),
-            totalLength(totalLength), offset(offset) {}
+            totalLength(totalLength), offset(offset), needGrant(needGrant) {}
     } __attribute__((packed));
 
     /**
