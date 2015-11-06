@@ -90,7 +90,7 @@ namespace CoordinatorClusterClockConstants {
 /// This value should be much larger than the time to perform the external
 /// storage  write (~10ms) but much much less than the max value (2^63 - 1).
 static CONSTEXPR_VAR ClusterTimeDuration safeTimeInterval =
-        ClusterTimeDuration::fromNanoseconds(3 * 1*9);  // 3 seconds
+        ClusterTimeDuration::fromNanoseconds(3 * 1e9);  // 3 seconds
 
 /// Amount of time (in seconds) between updates of the safeClusterTime to
 /// externalStorage.  This time should be less than the safeTimeIntervalMs;
