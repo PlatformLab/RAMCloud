@@ -144,6 +144,10 @@ InfUdDriver::InfUdDriver(Context* context,
     // update our locatorString, if one was provided, with the dynamic
     // address
     if (!locatorString.empty()) {
+        char c = locatorString[locatorString.size()-1];
+        if ((c != ':') && (c != ',')) {
+            locatorString += ",";
+        }
         if (localMac) {
             if (!macAddressProvided)
                 locatorString += "mac=" + localMac->toString();
