@@ -88,6 +88,7 @@ TESTS_SRCFILES := \
 		  src/LogEntryRelocatorTest.cc \
 		  src/LoggerTest.cc \
 		  src/LogIteratorTest.cc \
+		  src/LogProtectorTest.cc \
 		  src/LogSegmentTest.cc \
 		  src/LogTest.cc \
 		  src/MacAddressTest.cc \
