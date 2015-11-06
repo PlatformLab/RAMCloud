@@ -31,6 +31,7 @@ namespace RAMCloud {
 Infiniband::Infiniband(const char* deviceName)
     : device(deviceName)
     , pd(device)
+    , ahMap()
     , totalAddressHandleAllocCalls()
     , totalAddressHandleAllocTime()
     , totalQpCreates(0)
@@ -910,11 +911,8 @@ Infiniband::Address::Address(Infiniband& infiniband,
 }
 
 Infiniband::Address::~Address() {
-    if (ah != NULL) {
-        int rc = ibv_destroy_ah(ah);
-        if (rc != 0)
-            LOG(WARNING, "Destroying address handle failed with %d", rc);
-    }
+    // Don't call ibv_destroy_ah anymore: we keep address handles
+    // forever in the ahMap cache.
 }
 
 /**
@@ -930,8 +928,9 @@ Infiniband::Address::toString() const
 /**
  * Return an Infiniband address handle for this Address.
  *
- * Performance note: The first time this is called, it will allocate memory for
- * the address handle.
+ * Performance note: The first time this is called for a particular lid, it
+ * will allocate memory for the address handle, which is an expensive
+ * operation.
  *
  * \throw TransportException
  *      if ibv_create_ah fails
@@ -939,20 +938,32 @@ Infiniband::Address::toString() const
 ibv_ah*
 Infiniband::Address::getHandle() const
 {
-    if (ah == NULL) {
-        ibv_ah_attr attr;
-        attr.dlid = lid;
-        attr.src_path_bits = 0;
-        attr.is_global = 0;
-        attr.sl = 0;
-        attr.port_num = downCast<uint8_t>(physicalPort);
-        infiniband.totalAddressHandleAllocCalls += 1;
-        uint64_t start = Cycles::rdtsc();
-        ah = ibv_create_ah(infiniband.pd.pd, &attr);
-        infiniband.totalAddressHandleAllocTime += Cycles::rdtsc() - start;
-        if (ah == NULL)
-            throw TransportException(HERE, "failed to create ah", errno);
+    if (ah != NULL) {
+        return ah;
     }
+
+    // See if we have a cached value.
+    AddressHandleMap::iterator it = infiniband.ahMap.find(lid);
+    if (it != infiniband.ahMap.end()) {
+        ah = it->second;
+        return ah;
+    }
+
+    // Must allocate a new address handle.
+    LOG(NOTICE, "Allocating address handle for lid %u", lid);
+    ibv_ah_attr attr;
+    attr.dlid = lid;
+    attr.src_path_bits = 0;
+    attr.is_global = 0;
+    attr.sl = 0;
+    attr.port_num = downCast<uint8_t>(physicalPort);
+    infiniband.totalAddressHandleAllocCalls += 1;
+    uint64_t start = Cycles::rdtsc();
+    ah = ibv_create_ah(infiniband.pd.pd, &attr);
+    infiniband.totalAddressHandleAllocTime += Cycles::rdtsc() - start;
+    if (ah == NULL)
+        throw TransportException(HERE, "failed to create ah", errno);
+    infiniband.ahMap[lid] = ah;
     return ah;
 }
 
