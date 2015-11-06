@@ -950,7 +950,6 @@ Infiniband::Address::getHandle() const
     }
 
     // Must allocate a new address handle.
-    LOG(NOTICE, "Allocating address handle for lid %u", lid);
     ibv_ah_attr attr;
     attr.dlid = lid;
     attr.src_path_bits = 0;
