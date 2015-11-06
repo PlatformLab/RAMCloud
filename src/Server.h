@@ -26,6 +26,7 @@
 #include "ServerConfig.h"
 #include "ServerId.h"
 #include "ServerList.h"
+#include "WorkerTimer.h"
 
 namespace RAMCloud {
 
@@ -114,6 +115,28 @@ class Server {
      * See config.services.
      */
     Tub<PingService> ping;
+
+    // The class and variable below are used to run enlistment in a
+    // worker thread, so that post-enlistment initialization doesn't
+    // keep us from servicing RPCs.
+    class EnlistTimer: public WorkerTimer {
+      public:
+        EnlistTimer(Server* server, ServerId formerServerId)
+                : WorkerTimer(server->context->dispatch)
+                , server(server)
+                , formerServerId(formerServerId)
+            {
+                // Start enlistment immediately.
+                start(0);
+            }
+        virtual void handleTimerEvent() {
+            server->enlist(formerServerId);
+        }
+        Server* server;
+        ServerId formerServerId;
+        DISALLOW_COPY_AND_ASSIGN(EnlistTimer);
+    };
+    Tub<EnlistTimer> enlistTimer;
 
     DISALLOW_COPY_AND_ASSIGN(Server);
 };

@@ -43,6 +43,7 @@ Server::Server(Context* context, const ServerConfig* config)
     , backup()
     , membership()
     , ping()
+    , enlistTimer()
 {
     context->coordinatorSession->setLocation(
             config->coordinatorLocator.c_str(), config->clusterName.c_str());
@@ -107,7 +108,11 @@ Server::run()
     // (if appropriate). These large virtual memory operations can block
     // the entire process for seconds at a time, so we must not be expected
     // to handle RPCs until we're confident such hiccups won't occur.
-    enlist(formerServerId);
+    // Even so, some of the work that has to be done after enlistment takes
+    // significant amounts of time, so execute the enlistment in a worker
+    // thread. That way, this thread can enter the dispatcher and start
+    // servicing requests.
+    enlistTimer.construct(this, formerServerId);
 
     dispatch.run();
 }
@@ -211,6 +216,7 @@ Server::enlist(ServerId replacingId)
         failureDetector.construct(context, serverId);
         failureDetector->start();
     }
+    enlistTimer.destroy();
 }
 
 } // namespace RAMCloud
