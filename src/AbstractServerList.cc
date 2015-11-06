@@ -16,6 +16,7 @@
 #include "TransportManager.h"
 
 #include "AbstractServerList.h"
+#include "Cycles.h"
 #include "PingClient.h"
 #include "FailSession.h"
 #include "ServerTracker.h"
@@ -172,6 +173,7 @@ AbstractServerList::getSession(ServerId id)
             // Keep trying.
             RAMCLOUD_CLOG(NOTICE, "retrying server id check for %s: "
                     "server not yet enlisted", id.toString().c_str());
+            Cycles::sleep(1000);
         }
     }
 
