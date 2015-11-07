@@ -2033,16 +2033,53 @@ TEST_F(MasterServiceTest, remove_basics) {
     uint64_t version;
     ramcloud->remove(1, "key0", 4, NULL, &version);
     EXPECT_EQ(1U, version);
-    EXPECT_EQ(format("free: free on reference %lu | "
-            "sync: syncing segment 1 to offset 156 | "
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+            format("free: free on reference %lu | "
+            "sync: syncing segment 1 to offset 214 | "
             "schedule: scheduled | "
             "performWrite: Sending write to backup 1.0 | "
             "schedule: scheduled | "
             "performWrite: Write RPC finished for replica slot 0 | "
-            "sync: log synced", ref),
-            TestLog::get());
+            "sync: log synced", ref)));
 
     Buffer value;
+    EXPECT_THROW(ramcloud->read(1, "key0", 4, &value),
+            ObjectDoesntExistException);
+}
+
+TEST_F(MasterServiceTest, remove_linearizability) {
+    ramcloud->write(1, "key0", 4, "item0", 5);
+
+    TestLog::Enable _(antiGetEntryFilter);
+    Key key(1, "key0", 4);
+    HashTable::Candidates c;
+    service->objectManager.objectMap.lookup(key.getHash(), c);
+    uint64_t ref = c.getReference();
+    uint64_t version;
+
+    // Send first request.
+    RemoveRpc rmvRpc(ramcloud.get(), 1, "key0", 4);
+    WireFormat::Remove::Request* reqHdr =
+        rmvRpc.request.getStart<WireFormat::Remove::Request>();
+    rmvRpc.wait(&version);
+    EXPECT_EQ(1U, version);
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+            format("free: free on reference %lu ", ref)));
+    string testLogBefore = TestLog::get();
+
+    Buffer value;
+    EXPECT_THROW(ramcloud->read(1, "key0", 4, &value),
+            ObjectDoesntExistException);
+
+    // Retry with same header.
+    WireFormat::Remove::Response respHdr;
+    Service::Rpc rpc(NULL, NULL, NULL);
+    service->remove(reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(1U, respHdr.version);
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
+    EXPECT_EQ(testLogBefore, TestLog::get());
+
+    value.reset();
     EXPECT_THROW(ramcloud->read(1, "key0", 4, &value),
             ObjectDoesntExistException);
 }
@@ -2050,9 +2087,9 @@ TEST_F(MasterServiceTest, remove_basics) {
 TEST_F(MasterServiceTest, remove_tableNotOnServer) {
     TestLog::Enable _;
     EXPECT_THROW(ramcloud->remove(99, "key0", 4), TableDoesntExistException);
-    EXPECT_EQ("checkStatus: Server mock:host=master doesn't store "
-            "<99, 0xb3a4e310e6f49dd8>; refreshing object map",
-            TestLog::get());
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+                "checkStatus: Server mock:host=master doesn't store "
+                "<99, 0xb3a4e310e6f49dd8>; refreshing object map"));
 }
 
 TEST_F(MasterServiceTest, remove_rejectRules) {

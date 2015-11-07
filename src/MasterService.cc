@@ -1818,6 +1818,15 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
         WireFormat::Remove::Response* respHdr,
         Rpc* rpc)
 {
+    assert(reqHdr->rpcId > 0);
+    UnackedRpcHandle rh(&unackedRpcResults,
+                        reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
+    if (rh.isDuplicate()) {
+        *respHdr = parseRpcResult<WireFormat::Remove>(rh.resultLoc());
+        rpc->sendReply();
+        return;
+    }
+
     const void* stringKey = rpc->requestPayload->getRange(
             sizeof32(*reqHdr), reqHdr->keyLength);
 
@@ -1833,13 +1842,28 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
     // index entries later.
     Buffer oldBuffer;
 
-    // Remove the object.
     RejectRules rejectRules = reqHdr->rejectRules;
-    respHdr->common.status = objectManager.removeObject(
-            key, &rejectRules, &respHdr->version, &oldBuffer);
+    uint64_t rpcResultPtr;
+    respHdr->common.status = STATUS_OK;
+    RpcResult rpcResult(
+            reqHdr->tableId,
+            Key::getHash(reqHdr->tableId, stringKey, reqHdr->keyLength),
+            reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
+            respHdr, sizeof(*respHdr));
 
-    if (respHdr->common.status == STATUS_OK)
+    // Remove the object.
+    respHdr->common.status = objectManager.removeObject(
+            key, &rejectRules, &respHdr->version, &oldBuffer,
+            &rpcResult, &rpcResultPtr);
+
+    if (respHdr->common.status == STATUS_OK &&
+        respHdr->version != VERSION_NONEXISTENT) {
         objectManager.syncChanges();
+        rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is
+                                           // written.
+                                           // Otherwise, RPC state should reset
+                                           // especially for STATUS_RETRY.
+    }
 
     // Respond to the client RPC now. Removing old index entries can be
     // done asynchronously while maintaining strong consistency.

@@ -214,4 +214,7 @@ template void LinearizableObjectRpcWrapper::fillLinearizabilityHeader
     <WireFormat::Write::Request>(WireFormat::Write::Request* reqHdr);
 template void LinearizableObjectRpcWrapper::fillLinearizabilityHeader
     <WireFormat::Increment::Request>(WireFormat::Increment::Request* reqHdr);
+template void LinearizableObjectRpcWrapper::fillLinearizabilityHeader
+    <WireFormat::Remove::Request>(WireFormat::Remove::Request* reqHdr);
+
 } // namespace RAMCloud

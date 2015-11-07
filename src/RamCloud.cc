@@ -2034,7 +2034,7 @@ RamCloud::remove(uint64_t tableId, const void* key, uint16_t keyLength,
  */
 RemoveRpc::RemoveRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, const RejectRules* rejectRules)
-    : ObjectRpcWrapper(ramcloud->clientContext, tableId, key, keyLength,
+    : LinearizableObjectRpcWrapper(ramcloud, true, tableId, key, keyLength,
             sizeof(WireFormat::Remove::Response))
 {
     WireFormat::Remove::Request* reqHdr(allocHeader<WireFormat::Remove>());
@@ -2042,6 +2042,7 @@ RemoveRpc::RemoveRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->keyLength = keyLength;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     request.append(key, keyLength);
+    fillLinearizabilityHeader<WireFormat::Remove::Request>(reqHdr);
     send();
 }
 

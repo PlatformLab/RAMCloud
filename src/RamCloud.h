@@ -947,7 +947,7 @@ class ReadKeysAndValueRpc : public ObjectRpcWrapper {
  * Encapsulates the state of a RamCloud::remove operation,
  * allowing it to execute asynchronously.
  */
-class RemoveRpc : public ObjectRpcWrapper {
+class RemoveRpc : public LinearizableObjectRpcWrapper {
   public:
     RemoveRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
             uint16_t keyLength, const RejectRules* rejectRules = NULL);

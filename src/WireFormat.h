@@ -1394,6 +1394,9 @@ struct Remove {
     struct Request {
         RequestCommon common;
         uint64_t tableId;
+        ClientLease lease;
+        uint64_t rpcId;
+        uint64_t ackId;
         uint16_t keyLength;           // Length of the key in bytes.
                                       // The actual key follows
                                       // immediately after this header.

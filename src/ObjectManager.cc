@@ -385,13 +385,20 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
  * \param[out] removedObjBuffer
  *      If non-NULL, pointer to the buffer in log for the object being removed
  *      is returned.
+ * \param rpcResult
+ *      If non-NULL, this method appends rpcResult to the log atomically with
+ *      the other record(s) for the write. The extra record is used to ensure
+ *      linearizability.
+ * \param[out] rpcResultPtr
+ *      If non-NULL, pointer to the RpcResult in log is returned.
  * \return
  *      Returns STATUS_OK if the remove succeeded. Other status values indicate
  *      different failures (tablet doesn't exist, reject rules applied, etc).
  */
 Status
 ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
-                uint64_t* outVersion, Buffer* removedObjBuffer)
+                uint64_t* outVersion, Buffer* removedObjBuffer,
+                RpcResult* rpcResult, uint64_t* rpcResultPtr)
 {
     HashTableBucketLock lock(*this, key);
 
@@ -441,20 +448,34 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
     ObjectTombstone tombstone(object,
                               log.getSegmentId(reference),
                               WallTime::secondsTimestamp());
-    Buffer tombstoneBuffer;
-    tombstone.assembleForLog(tombstoneBuffer);
 
-    // Write the tombstone into the Log, increment the tablet version
-    // number, and remove from the hash table.
-    if (!log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer)) {
+    // Create a vector of appends in case we need to write multiple log entries
+    // including a tombstone and a linearizability record.
+    // This is necessary to ensure that both tombstone and rpcResult
+    // are written atomically. The log makes no atomicity guarantees across
+    // multiple append calls and we don't want a tombstone going to backups
+    // before the RpcResult, or vice versa.
+    Log::AppendVector appends[(rpcResult ? 2 : 1)];
+
+    tombstone.assembleForLog(appends[0].buffer);
+    appends[0].type = LOG_ENTRY_TYPE_OBJTOMB;
+    if (rpcResult) {
+        rpcResult->assembleForLog(appends[1].buffer);
+        appends[1].type = LOG_ENTRY_TYPE_RPCRESULT;
+    }
+
+    if (!log.append(appends, (rpcResult ? 2 : 1))) {
         // The log is out of space. Tell the client to retry and hope
         // that the cleaner makes space soon.
         return STATUS_RETRY;
     }
 
+    if (rpcResult && rpcResultPtr)
+        *rpcResultPtr = appends[1].reference.toInteger();
+
     TableStats::increment(masterTableMetadata,
                           tablet.tableId,
-                          tombstoneBuffer.size(),
+                          appends[0].buffer.size(),
                           1);
     segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log.free(reference);

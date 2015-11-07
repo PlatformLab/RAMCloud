@@ -76,7 +76,8 @@ class ObjectManager : public LogEntryHandlers,
                 RejectRules* rejectRules, uint64_t* outVersion,
                 bool valueOnly = false);
     Status removeObject(Key& key, RejectRules* rejectRules,
-                uint64_t* outVersion, Buffer* removedObjBuffer = NULL);
+                uint64_t* outVersion, Buffer* removedObjBuffer = NULL,
+                RpcResult* rpcResult = NULL, uint64_t* rpcResultPtr = NULL);
     void removeOrphanedObjects();
     void replaySegment(SideLog* sideLog, SegmentIterator& it,
                 std::unordered_map<uint64_t, uint64_t>* nextNodeIdMap);
