@@ -3045,18 +3045,13 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         WireFormat::Write::Response* respHdr,
         Rpc* rpc)
 {
-    const bool linearizable = reqHdr->rpcId > 0;
-    if (linearizable) {
-        void* result;
-        if (unackedRpcResults.checkDuplicate(reqHdr->lease,
-                                             reqHdr->rpcId,
-                                             reqHdr->ackId,
-                                             &result)) {
-            *respHdr = parseRpcResult<WireFormat::Write>(
-                    reinterpret_cast<uint64_t>(result));
-            rpc->sendReply();
-            return;
-        }
+    assert(reqHdr->rpcId > 0);
+    UnackedRpcHandle rh(&unackedRpcResults,
+                        reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
+    if (rh.isDuplicate()) {
+        *respHdr = parseRpcResult<WireFormat::Write>(rh.resultLoc());
+        rpc->sendReply();
+        return;
     }
 
     // This is a temporary object that has an invalid version and timestamp.
@@ -3077,32 +3072,27 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // Write the object.
     RejectRules rejectRules = reqHdr->rejectRules;
 
+    // Prepare linearizability information.
     uint64_t rpcResultPtr;
-    if (linearizable) {
-        KeyLength pKeyLen;
-        const void* pKey = object.getKey(0, &pKeyLen);
-        respHdr->common.status = STATUS_OK;
-        RpcResult rpcResult(
-                reqHdr->tableId, Key::getHash(reqHdr->tableId, pKey, pKeyLen),
-                reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
-                respHdr, sizeof(*respHdr));
+    KeyLength pKeyLen;
+    const void* pKey = object.getKey(0, &pKeyLen);
+    respHdr->common.status = STATUS_OK;
+    RpcResult rpcResult(
+            reqHdr->tableId, Key::getHash(reqHdr->tableId, pKey, pKeyLen),
+            reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
+            respHdr, sizeof(*respHdr));
 
-        respHdr->common.status = objectManager.writeObject(
-                object, &rejectRules, &respHdr->version, &oldObjectBuffer,
-                &rpcResult, &rpcResultPtr);
-    } else {
-        respHdr->common.status = objectManager.writeObject(
-                object, &rejectRules, &respHdr->version, &oldObjectBuffer);
-    }
+    // Write the object.
+    respHdr->common.status = objectManager.writeObject(
+            object, &rejectRules, &respHdr->version, &oldObjectBuffer,
+            &rpcResult, &rpcResultPtr);
 
-    if (respHdr->common.status == STATUS_OK)
+    if (respHdr->common.status == STATUS_OK) {
         objectManager.syncChanges();
-
-    if (linearizable) {
-        unackedRpcResults.recordCompletion(reqHdr->lease.leaseId,
-                                reqHdr->rpcId,
-                                reinterpret_cast<void*>(rpcResultPtr),
-                                this);
+        rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is
+                                           // written.
+                                           // Otherwise, RPC state should reset
+                                           // especially for STATUS_RETRY.
     }
 
     // If this is a overwrite, delete old index entries if any (this can

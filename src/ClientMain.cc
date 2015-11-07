@@ -41,7 +41,7 @@ bool fillWithTestData = false;
  * This method is used for testing coordinator crash recovery. It is
  * normally invoked repeatedly. Each invocation runs a set of representative
  * cluster operations, with some consistency checks mixed in.
- * 
+ *
  * \param client
  *      Connection to the RAMCloud cluster.
  */
@@ -201,7 +201,7 @@ void indexCrash(RamCloud* client)
     keys[2].keyLength = 10;
     uint64_t newVersion;
     client->write(tableId, 3, keys, "This is a test value", 20, NULL,
-            &newVersion, false, false);
+            &newVersion, false);
     LOG(NOTICE, "Wrote value into table");
 
     if (!lookupAndLog(client, tableId, "Object value after writing")) {

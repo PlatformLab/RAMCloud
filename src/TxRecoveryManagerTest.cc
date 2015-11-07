@@ -412,7 +412,7 @@ TEST_F(TxRecoveryManagerTest, RecoveryTask_performTask_abortEarly) {
     ramcloud->rpcTracker->nextRpcId = 100;
     ramcloud->clientLeaseAgent->getLease();
     ramcloud->clientLeaseAgent->lease.leaseId = task->leaseId;
-    ramcloud->write(tableId2, "foo", 3, "bar", 3, NULL, NULL, false, true);
+    ramcloud->write(tableId2, "foo", 3, "bar", 3, NULL, NULL, false);
 
     fillPList();
 
@@ -814,7 +814,7 @@ TEST_F(TxRecoveryManagerTest, processRequestAbortRpcResults_staleRpc) {
     ramcloud->rpcTracker->nextRpcId = 100;
     ramcloud->clientLeaseAgent->getLease();
     ramcloud->clientLeaseAgent->lease.leaseId = task->leaseId;
-    ramcloud->write(tableId1, "foo", 3, "bar", 3, NULL, NULL, false, true);
+    ramcloud->write(tableId1, "foo", 3, "bar", 3, NULL, NULL, false);
 
     task->participants.emplace_back(tableId1, 1, 2);
     task->nextParticipantEntry = task->participants.begin();

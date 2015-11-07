@@ -1280,7 +1280,7 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
             "migrateTablet: Sending last migration segment | "
             "migrateTablet: Migration succeeded for tablet "
             "[0x0,0xffffffffffffffff] in tableId 1; sent 1 objects and "
-            "0 tombstones to server 3.0 at mock:host=master2, 36 bytes in total"
+            "0 tombstones to server 3.0 at mock:host=master2, 92 bytes in total"
             " | deleteKeyHashRange: tableId 1 range [0x0,0xffffffffffffffff]"
             , TestLog::get());
 
@@ -2034,13 +2034,7 @@ TEST_F(MasterServiceTest, remove_basics) {
     ramcloud->remove(1, "key0", 4, NULL, &version);
     EXPECT_EQ(1U, version);
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
-            format("free: free on reference %lu | "
-            "sync: syncing segment 1 to offset 214 | "
-            "schedule: scheduled | "
-            "performWrite: Sending write to backup 1.0 | "
-            "schedule: scheduled | "
-            "performWrite: Write RPC finished for replica slot 0 | "
-            "sync: log synced", ref)));
+            format("free: free on reference %lu ", ref)));
 
     Buffer value;
     EXPECT_THROW(ramcloud->read(1, "key0", 4, &value),
@@ -3601,7 +3595,8 @@ TEST_F(MasterServiceTest, write_basics) {
     ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
     EXPECT_EQ(1U, version);
     EXPECT_EQ("writeObject: object: 36 bytes, version 1 | "
-            "sync: syncing segment 1 to offset 118 | "
+            "writeObject: rpcResult: 56 bytes | "
+            "sync: syncing segment 1 to offset 176 | "
             "schedule: scheduled | "
             "performWrite: Sending write to backup 1.0 | "
             "schedule: scheduled | "
@@ -3697,7 +3692,7 @@ TEST_F(MasterServiceTest, write_linearizable) {
     rules.versionNeGiven = true;
 
     WriteRpc writeRpc(ramcloud.get(), 1, "key0", 4, "item1", 5,
-                      &rules, false, true);
+                      &rules, false);
     WireFormat::Write::Request* reqHdr =
         writeRpc.request.getStart<WireFormat::Write::Request>();
     writeRpc.wait(&version);
@@ -3717,7 +3712,7 @@ TEST_F(MasterServiceTest, write_linearizable) {
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
 
     // StaleRpcException test.
-    ramcloud->write(1, "key0", 4, "item2", 5, NULL, NULL, false, true);
+    ramcloud->write(1, "key0", 4, "item2", 5, NULL, NULL, false);
     EXPECT_THROW(service->write(reqHdr, &respHdr, &rpc),
                  StaleRpcException);
 }

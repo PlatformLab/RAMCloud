@@ -146,19 +146,17 @@ class RamCloud {
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const void* buf, uint32_t length,
             const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
-            bool async = false, bool linearizable = false);
+            bool async = false);
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const char* value, const RejectRules* rejectRules = NULL,
-            uint64_t* version = NULL, bool async = false,
-            bool linearizable = false);
+            uint64_t* version = NULL, bool async = false);
     void write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyInfo,
             const void* buf, uint32_t length,
             const RejectRules* rejectRules = NULL, uint64_t* version = NULL,
-            bool async = false, bool linearizable = false);
+            bool async = false);
     void write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyInfo,
             const char* value, const RejectRules* rejectRules = NULL,
-            uint64_t* version = NULL, bool async = false,
-            bool linearizable = false);
+            uint64_t* version = NULL, bool async = false);
 
     void poll();
     explicit RamCloud(const char* serviceLocator,
@@ -1030,14 +1028,12 @@ class WriteRpc : public LinearizableObjectRpcWrapper {
   public:
     WriteRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
             uint16_t keyLength, const void* buf, uint32_t length,
-            const RejectRules* rejectRules = NULL, bool async = false,
-            bool linearizable = false);
+            const RejectRules* rejectRules = NULL, bool async = false);
     // this constructor will be used when the object has multiple keys
     WriteRpc(RamCloud* ramcloud, uint64_t tableId,
             uint8_t numKeys, KeyInfo *keyInfo,
             const void* buf, uint32_t length,
-            const RejectRules* rejectRules = NULL, bool async = false,
-            bool linearizable = false);
+            const RejectRules* rejectRules = NULL, bool async = false);
     ~WriteRpc() {}
     void wait(uint64_t* version = NULL);
 
