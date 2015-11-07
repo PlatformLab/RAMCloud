@@ -207,10 +207,11 @@ void LinearizableObjectRpcWrapper::tryFinish()
 
 /*
  * Following line is necessary to tell compiler to instantiate the templatized
- * method "fillLinearizabilityHeader" with WireFormat::Write::Request.
+ * method "fillLinearizabilityHeader" with WireFormat::Write::Request, etc.
  * This manual instantiation is necessary if the method is defined in cc file.
  */
 template void LinearizableObjectRpcWrapper::fillLinearizabilityHeader
     <WireFormat::Write::Request>(WireFormat::Write::Request* reqHdr);
-
+template void LinearizableObjectRpcWrapper::fillLinearizabilityHeader
+    <WireFormat::Increment::Request>(WireFormat::Increment::Request* reqHdr);
 } // namespace RAMCloud

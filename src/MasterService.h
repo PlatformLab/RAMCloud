@@ -179,7 +179,10 @@ class MasterService : public Service {
                 int64_t *asInt64,
                 double *asDouble,
                 uint64_t *newVersion,
-                Status *status);
+                Status *status,
+                const WireFormat::Increment::Request* reqHdr = NULL,
+                WireFormat::Increment::Response* respHdr = NULL,
+                uint64_t *rpcResultPtr = NULL);
     void readHashes(
                 const WireFormat::ReadHashes::Request* reqHdr,
                 WireFormat::ReadHashes::Response* respHdr,
@@ -305,7 +308,7 @@ class MasterService : public Service {
      *      this response without executing rpc.
      */
     template <typename LinearizableRpcType>
-    typename LinearizableRpcType::Response parseRpcResult(void* result) {
+    typename LinearizableRpcType::Response parseRpcResult(uint64_t result) {
         if (!result) {
             throw RetryException(HERE, 50, 50,
                     "Duplicate RPC is in progress.");
@@ -313,7 +316,7 @@ class MasterService : public Service {
 
         //Obtain saved RPC response from log.
         Buffer resultBuffer;
-        Log::Reference resultRef((uint64_t)result);
+        Log::Reference resultRef(result);
         objectManager.getLog()->getEntry(resultRef, resultBuffer);
         RpcResult savedRec(resultBuffer);
         return *(reinterpret_cast<const typename LinearizableRpcType::Response*>

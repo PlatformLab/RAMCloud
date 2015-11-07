@@ -420,7 +420,7 @@ class GetTableIdRpc : public CoordinatorRpcWrapper {
  * Encapsulates the state of a RamCloud::incrementDouble operation,
  * allowing it to execute asynchronously.
  */
-class IncrementDoubleRpc : public ObjectRpcWrapper {
+class IncrementDoubleRpc : public LinearizableObjectRpcWrapper {
   public:
     IncrementDoubleRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
             uint16_t keyLength, double incrementValue,
@@ -436,7 +436,7 @@ class IncrementDoubleRpc : public ObjectRpcWrapper {
  * Encapsulates the state of a RamCloud::incrementInt64 operation,
  * allowing it to execute asynchronously.
  */
-class IncrementInt64Rpc : public ObjectRpcWrapper {
+class IncrementInt64Rpc : public LinearizableObjectRpcWrapper {
   public:
     IncrementInt64Rpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
             uint16_t keyLength, int64_t incrementValue,

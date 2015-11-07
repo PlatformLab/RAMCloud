@@ -1092,7 +1092,7 @@ RamCloud::incrementDouble(uint64_t tableId, const void* key, uint16_t keyLength,
 IncrementDoubleRpc::IncrementDoubleRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, double incrementValue,
         const RejectRules* rejectRules)
-    : ObjectRpcWrapper(ramcloud->clientContext, tableId, key, keyLength,
+    : LinearizableObjectRpcWrapper(ramcloud, true, tableId, key, keyLength,
             sizeof(WireFormat::Increment::Response))
 {
     WireFormat::Increment::Request* reqHdr(
@@ -1103,6 +1103,7 @@ IncrementDoubleRpc::IncrementDoubleRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->incrementDouble = incrementValue;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     request.append(key, keyLength);
+    fillLinearizabilityHeader<WireFormat::Increment::Request>(reqHdr);
     send();
 }
 
@@ -1195,7 +1196,7 @@ RamCloud::incrementInt64(uint64_t tableId, const void* key, uint16_t keyLength,
 IncrementInt64Rpc::IncrementInt64Rpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, int64_t incrementValue,
         const RejectRules* rejectRules)
-    : ObjectRpcWrapper(ramcloud->clientContext, tableId, key, keyLength,
+    : LinearizableObjectRpcWrapper(ramcloud, true, tableId, key, keyLength,
             sizeof(WireFormat::Increment::Response))
 {
     WireFormat::Increment::Request* reqHdr(
@@ -1206,6 +1207,7 @@ IncrementInt64Rpc::IncrementInt64Rpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->incrementDouble = 0.0;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     request.append(key, keyLength);
+    fillLinearizabilityHeader<WireFormat::Increment::Request>(reqHdr);
     send();
 }
 

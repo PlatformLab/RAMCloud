@@ -567,6 +567,15 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
         WireFormat::Increment::Response* respHdr,
         Rpc* rpc)
 {
+    assert(reqHdr->rpcId > 0);
+    UnackedRpcHandle rh(&unackedRpcResults,
+                        reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
+    if (rh.isDuplicate()) {
+        *respHdr = parseRpcResult<WireFormat::Increment>(rh.resultLoc());
+        rpc->sendReply();
+        return;
+    }
+
     // Read the current value of the object and add the increment value
     Key key(reqHdr->tableId, *rpc->requestPayload, sizeof32(*reqHdr),
             reqHdr->keyLength);
@@ -574,11 +583,14 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 
     int64_t asInt64 = reqHdr->incrementInt64;
     double asDouble = reqHdr->incrementDouble;
+    uint64_t rpcRecordPtr;
     incrementObject(&key, reqHdr->rejectRules, &asInt64, &asDouble,
-                    &respHdr->version, status);
+                    &respHdr->version, status, reqHdr, respHdr, &rpcRecordPtr);
     if (*status != STATUS_OK)
         return;
     objectManager.syncChanges();
+
+    rh.recordCompletion(rpcRecordPtr);
 
     // Return new value
     respHdr->newValue.asInt64 = asInt64;
@@ -606,6 +618,18 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
  *      The new version of the incremented object on success.
  * \param status
  *      returns STATUS_OK or a failure code if not successful.
+ * \param reqHdr
+ *      Header from the incoming RPC request; contains all the
+ *      parameters for this operation except the key of the object.
+ *      Used for linearizability handling.
+ * \param[out] respHdr
+ *      Header for the response that will be returned to the client.
+ *      The caller has pre-allocated the right amount of space in the
+ *      response buffer for this type of request, and has zeroed out
+ *      its contents (so, for example, status is already zero).
+ *      This must be filled for linearizability handling.
+ * \param[out] rpcResultPtr
+ *      If non-NULL, pointer to the RpcResult in log is returned.
  */
 void
 MasterService::incrementObject(Key *key,
@@ -613,7 +637,10 @@ MasterService::incrementObject(Key *key,
             int64_t *asInt64,
             double *asDouble,
             uint64_t *newVersion,
-            Status *status)
+            Status *status,
+            const WireFormat::Increment::Request* reqHdr,
+            WireFormat::Increment::Response* respHdr,
+            uint64_t *rpcResultPtr)
 {
     // Read the object and add integer or floating point values in case
     // the summands are non-zero.  It is possible to do both an integer
@@ -671,9 +698,11 @@ MasterService::incrementObject(Key *key,
         newValue = oldValue;
         if (*asInt64 != 0) {
             newValue.asInt64 += *asInt64;
+            if (respHdr) respHdr->newValue.asInt64 = newValue.asInt64;
         }
         if (*asDouble != 0.0) {
             newValue.asDouble += *asDouble;
+            if (respHdr) respHdr->newValue.asDouble = newValue.asDouble;
         }
 
         // create object to populate newValueBuffer.
@@ -684,8 +713,24 @@ MasterService::incrementObject(Key *key,
         Object newObject(key->getTableId(), 0, 0, newValueBuffer);
         updateRejectRules.givenVersion = version;
         updateRejectRules.versionNeGiven = true;
-        *status = objectManager.writeObject(newObject, &updateRejectRules,
-                                            newVersion);
+
+        if (respHdr) {
+            KeyLength pKeyLen;
+            const void* pKey = newObject.getKey(0, &pKeyLen);
+            respHdr->common.status = STATUS_OK;
+            RpcResult rpcResult(
+                    reqHdr->tableId,
+                    Key::getHash(reqHdr->tableId, pKey, pKeyLen),
+                    reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
+                    respHdr, sizeof(*respHdr));
+            *status = objectManager.writeObject(newObject, &updateRejectRules,
+                                                newVersion, NULL,
+                                                &rpcResult, rpcResultPtr);
+        } else {
+            *status = objectManager.writeObject(newObject, &updateRejectRules,
+                                                newVersion);
+        }
+
         if (*status == STATUS_WRONG_VERSION) {
             TEST_LOG("retry after version mismatch");
         } else {
@@ -2983,7 +3028,8 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
                                              reqHdr->rpcId,
                                              reqHdr->ackId,
                                              &result)) {
-            *respHdr = parseRpcResult<WireFormat::Write>(result);
+            *respHdr = parseRpcResult<WireFormat::Write>(
+                    reinterpret_cast<uint64_t>(result));
             rpc->sendReply();
             return;
         }

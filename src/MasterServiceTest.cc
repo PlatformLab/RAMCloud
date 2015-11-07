@@ -684,6 +684,34 @@ TEST_F(MasterServiceTest, increment_basic) {
     EXPECT_EQ(3.0, newDouble);
 }
 
+TEST_F(MasterServiceTest, increment_linearizability) {
+    Buffer buffer;
+    uint64_t version = 0;
+    int64_t oldInt64 = 1;
+    int64_t newInt64;
+
+    ramcloud->write(1, "key0", 4, &oldInt64, sizeof(oldInt64), NULL, NULL);
+    newInt64 = ramcloud->incrementInt64(1, "key0", 4, 2, NULL, &version);
+    EXPECT_EQ(2U, version);
+    EXPECT_EQ(3, newInt64);
+
+    ramcloud->read(1, "key0", 4, &buffer);
+    buffer.copy(0, sizeof(newInt64), &newInt64);
+    EXPECT_EQ(3, newInt64);
+
+    IncrementInt64Rpc incRpc(ramcloud.get(), 1, "key0", 4, 2);
+    WireFormat::Increment::Request* reqHdr =
+        incRpc.request.getStart<WireFormat::Increment::Request>();
+    newInt64 = incRpc.wait(&version);
+    EXPECT_EQ(5, newInt64);
+
+    WireFormat::Increment::Response respHdr;
+    Service::Rpc rpc(NULL, NULL, NULL);
+    service->increment(reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(5, respHdr.newValue.asInt64);
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
+}
+
 TEST_F(MasterServiceTest, increment_create) {
     uint64_t version = 0;
     int64_t newInt64;
