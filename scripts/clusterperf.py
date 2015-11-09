@@ -624,8 +624,7 @@ simple_tests = [
     Test("broadcast", broadcast),
     Test("netBandwidth", netBandwidth),
     Test("readAllToAll", readAllToAll),
-    Test("readNotFound", default),
-    Test("linearizableRpc", basic)
+    Test("readNotFound", default)
 ]
 
 graph_tests = [
