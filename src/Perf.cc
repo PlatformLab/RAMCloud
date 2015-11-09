@@ -112,12 +112,13 @@ double atomicIntInc()
 {
     int count = 1000000;
     Atomic<int> value(11);
+    int prevValue = 1;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
-         value.inc();
+         prevValue = value.inc(prevValue);
     }
     uint64_t stop = Cycles::rdtsc();
-    // printf("Final value: %d\n", value.load());
+    // printf("Final value: %d\n", prevValue);
     return Cycles::toSeconds(stop - start)/count;
 }
 

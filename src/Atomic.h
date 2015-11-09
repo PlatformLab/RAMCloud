@@ -126,21 +126,36 @@ class Atomic {
     }
 
     /**
-     * Atomically increment the current value (for pointer types the
-     * increment is the size of the referent type; otherwise the increment
-     * is 1).
+     * Atomically increment the value by a given amount (default 1) and
+     * retrieve the previous value.
+     *
+     * \param increment
+     *     How much to add to the value. If the value is a pointer type,
+     *     the actual increment is this value multiplied by the size of
+     *     the reference objects. I.e. this produces the same effect as
+     *     the C++ statement "value += increment;".
+     * \result
+     *     The previous value.
      */
-    void inc()
+    ValueType inc(uint64_t increment = 1)
     {
-        if (AtomicStride<ValueType>::unitSize == 1) {
-            if (sizeof(value) == 8) {
-                __asm__ __volatile__("lock; incq %0" : "=m" (value));
-            } else {
-                __asm__ __volatile__("lock; incl %0" : "=m" (value));
-            }
+        ValueType prev;
+        if (sizeof(value) == 8) {
+            __asm__ __volatile__("lock; xaddq %%rax, %2;"
+                                 :"=a" (prev)
+                                 :"a" (increment*
+                                       AtomicStride<ValueType>::unitSize)
+                                  , "m" (value)
+                                 :"memory");
         } else {
-            add(1);
+            __asm__ __volatile__("lock; xaddl %%eax, %2;"
+                                 :"=a" (prev)
+                                 :"a" (static_cast<int>(increment)*
+                                       AtomicStride<ValueType>::unitSize)
+                                  , "m" (value)
+                                 :"memory");
         }
+        return prev;
     }
 
     /**
