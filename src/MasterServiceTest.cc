@@ -2099,6 +2099,60 @@ TEST_F(MasterServiceTest, remove_rejectRules) {
     EXPECT_EQ(1U, version);
 }
 
+TEST_F(MasterServiceTest, remove_linearizability_rejectRules) {
+    ramcloud->write(1, "key0", 4, "item0", 5);
+
+    TestLog::Enable _(antiGetEntryFilter);
+    Key key(1, "key0", 4);
+    HashTable::Candidates c;
+    service->objectManager.objectMap.lookup(key.getHash(), c);
+    uint64_t ref = c.getReference();
+    uint64_t version;
+
+    RejectRules rules;
+    memset(&rules, 0, sizeof(rules));
+    rules.versionNeGiven = true;
+    rules.givenVersion = 2;
+
+    // Send first request.
+    RemoveRpc rmvRpc(ramcloud.get(), 1, "key0", 4, &rules);
+    while (!rmvRpc.isReady()) {
+        ramcloud->poll();
+    }
+    EXPECT_FALSE(StringUtil::contains(TestLog::get(),
+            format("free: free on reference %lu ", ref)));
+
+    // Bump version to 2. RejectRule should not met anymore.
+    ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
+    EXPECT_EQ(2U, version);
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+            format("free: free on reference %lu ", ref)));
+
+    service->objectManager.objectMap.lookup(key.getHash(), c);
+    ref = c.getReference();
+
+    // Intentionally delayed wait() to prevent 2nd write request from having
+    // ackId same as rpcId for this rmvRpc. (So that we can retry.)
+    EXPECT_THROW(rmvRpc.wait(&version), WrongVersionException);
+
+    // Retry of remove: due to linearizability, we still get
+    //                  STATUS_WRONG_VERSION.
+    WireFormat::Remove::Request* reqHdr =
+        rmvRpc.request.getStart<WireFormat::Remove::Request>();
+    WireFormat::Remove::Response respHdr;
+    Service::Rpc rpc(NULL, &rmvRpc.request, rmvRpc.response);
+    service->remove(reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_WRONG_VERSION, respHdr.common.status);
+    EXPECT_FALSE(StringUtil::contains(TestLog::get(),
+            format("free: free on reference %lu ", ref)));
+
+    // New RPC with same RejectRule succeed.
+    ramcloud->remove(1, "key0", 4, &rules, &version);
+    EXPECT_EQ(2U, version);
+    EXPECT_TRUE(StringUtil::contains(TestLog::get(),
+            format("free: free on reference %lu ", ref)));
+}
+
 TEST_F(MasterServiceTest, remove_objectAlreadyDeletedRejectRules) {
     RejectRules rules;
     memset(&rules, 0, sizeof(rules));
@@ -2118,6 +2172,41 @@ TEST_F(MasterServiceTest, remove_objectAlreadyDeleted) {
     ramcloud->remove(1, "key0", 4);
     ramcloud->remove(1, "key0", 4, NULL, &version);
     EXPECT_EQ(VERSION_NONEXISTENT, version);
+}
+
+TEST_F(MasterServiceTest, remove_linearizability_objectAlreadyDeleted) {
+    TestLog::Enable _(antiGetEntryFilter);
+    Key key(1, "key0", 4);
+    uint64_t version;
+
+    // Send first request.
+    RemoveRpc rmvRpc(ramcloud.get(), 1, "key0", 4);
+    while (!rmvRpc.isReady()) {
+        ramcloud->poll();
+    }
+
+    // Make object exist.
+    ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
+    EXPECT_EQ(1U, version);
+
+    // Intentionally delayed wait() to prevent 2nd write request from having
+    // ackId same as rpcId for this rmvRpc. (So that we can retry.)
+    rmvRpc.wait(&version);
+    EXPECT_EQ(VERSION_NONEXISTENT, version);
+
+    // Retry of remove: due to linearizability, we still get
+    //                  VERSION_NONEXISTENT.
+    WireFormat::Remove::Request* reqHdr =
+        rmvRpc.request.getStart<WireFormat::Remove::Request>();
+    WireFormat::Remove::Response respHdr;
+    Service::Rpc rpc(NULL, &rmvRpc.request, rmvRpc.response);
+    service->remove(reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
+    EXPECT_EQ(VERSION_NONEXISTENT, respHdr.version);
+
+    // New RPC succeed.
+    ramcloud->remove(1, "key0", 4, NULL, &version);
+    EXPECT_EQ(1U, version);
 }
 
 TEST_F(MasterServiceTest, requestInsertIndexEntries_noIndexEntries) {
