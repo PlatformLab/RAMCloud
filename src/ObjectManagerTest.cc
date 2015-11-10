@@ -1660,14 +1660,12 @@ TEST_F(ObjectManagerTest, writeObject) {
     Object obj(key, "value", 5, 0, 0, buffer);
 
     // no tablet, no dice.
-    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager.writeObject(obj, 0, 0));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // non-NORMAL tablet state, no dice.
     tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
-    EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager.writeObject(obj, 0, 0));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // key locked, STATUS_RETRY
@@ -1675,8 +1673,7 @@ TEST_F(ObjectManagerTest, writeObject) {
                                           TabletManager::NORMAL);
     Log::Reference lockRef = storePreparedOp(key);
     EXPECT_TRUE(objectManager.lockTable.tryAcquireLock(key, lockRef));
-    EXPECT_EQ(STATUS_RETRY,
-        objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
     EXPECT_TRUE(objectManager.lockTable.releaseLock(key, lockRef));
 

@@ -3093,6 +3093,14 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
                                            // written.
                                            // Otherwise, RPC state should reset
                                            // especially for STATUS_RETRY.
+    } else if (respHdr->common.status != STATUS_RETRY &&
+               respHdr->common.status != STATUS_UNKNOWN_TABLET) {
+        // Above status requires a client to retry. We should not write
+        // RpcResult record in log for the two status values.
+
+        // Write RpcResult with failed (by RejectRule) status.
+        objectManager.writeRpcResultOnly(&rpcResult, &rpcResultPtr);
+        rh.recordCompletion(rpcResultPtr);
     }
 
     // If this is a overwrite, delete old index entries if any (this can

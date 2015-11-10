@@ -1202,8 +1202,9 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
     TabletManager::Tablet tablet;
-    if (!tabletManager->getTablet(key, &tablet))
+    if (!tabletManager->getTablet(key, &tablet)) {
         return STATUS_UNKNOWN_TABLET;
+    }
     if (tablet.state != TabletManager::NORMAL) {
         if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
             throw RetryException(HERE, 1000, 2000,
@@ -1386,6 +1387,38 @@ ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
         //TODO(seojin): Possible safety violation. Abort-vote is not written.
         //              Network-layer retry may cause in-consistency.
         //              Suspect this is unlikely.
+    }
+
+    *rpcResultPtr = av.reference.toInteger();
+    TableStats::increment(masterTableMetadata,
+            rpcResult->getTableId(),
+            av.buffer.size(),
+            1);
+}
+
+/**
+ * Write the RpcResult log-entry with result of Linearizable RPC.
+ * This method should be only used for failed RPCs. (So that RpcResult is
+ * the only log-entry to write on log.)
+ * \param rpcResult
+ *      This method appends rpcResult to the log. The record is used to ensure
+ *      linearizability.
+ * \param[out] rpcResultPtr
+ *      The pointer to the RpcResult in log is returned.
+ */
+void
+ObjectManager::writeRpcResultOnly(RpcResult* rpcResult, uint64_t* rpcResultPtr)
+{
+    Log::AppendVector av;
+    rpcResult->assembleForLog(av.buffer);
+    av.type = LOG_ENTRY_TYPE_RPCRESULT;
+
+    if (!log.hasSpaceFor(av.buffer.size()) || !log.append(&av, 1)) {
+        // The log is out of space. Tell the client to retry and hope
+        // that the cleaner makes space soon.
+        throw RetryException(HERE, 1000, 2000,
+                "Log is out of space! RpcResult wasn't logged. "
+                "Cannot just return failure of operation.");
     }
 
     *rpcResultPtr = av.reference.toInteger();

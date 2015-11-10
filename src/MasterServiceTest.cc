@@ -3678,7 +3678,7 @@ TEST_F(MasterServiceTest, write_rejectRules) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
-TEST_F(MasterServiceTest, write_linearizable) {
+TEST_F(MasterServiceTest, write_linearizable_statusOK) {
     // Duplicate conditional write.
     ObjectBuffer value;
     uint64_t version;
@@ -3715,6 +3715,40 @@ TEST_F(MasterServiceTest, write_linearizable) {
     ramcloud->write(1, "key0", 4, "item2", 5, NULL, NULL, false);
     EXPECT_THROW(service->write(reqHdr, &respHdr, &rpc),
                  StaleRpcException);
+}
+
+TEST_F(MasterServiceTest, write_linearizable_rejectRule) {
+    uint64_t version;
+    RejectRules rules;
+    memset(&rules, 0, sizeof(rules));
+    rules.doesntExist = true;
+
+    // 1st write.
+    WriteRpc writeRpc(ramcloud.get(), 1, "key0", 4, "item0", 5, &rules);
+    while (!writeRpc.isReady()) {
+        ramcloud->poll();
+    }
+
+    // 2nd write: Make that object exist now. RejectRule should not met anymore.
+    ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
+    EXPECT_EQ(1U, version);
+
+    // Intentionally delayed wait() to prevent 2nd write request from having
+    // ackId same as rpcId for this writeRpc. (So that we can retry.)
+    EXPECT_THROW(writeRpc.wait(&version), ObjectDoesntExistException);
+
+    // Retry of 1st write: due to linearizability, we still get
+    //                     STATUS_OBJECT_DOESNT_EXIST.
+    WireFormat::Write::Request* reqHdr =
+        writeRpc.request.getStart<WireFormat::Write::Request>();
+    WireFormat::Write::Response respHdr;
+    Service::Rpc rpc(NULL, &writeRpc.request, writeRpc.response);
+    service->write(reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, respHdr.common.status);
+
+    // New RPC with same RejectRule succeed.
+    ramcloud->write(1, "key0", 4, "item0", 5, &rules, &version);
+    EXPECT_EQ(2U, version);
 }
 
 /**
