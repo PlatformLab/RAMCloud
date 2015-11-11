@@ -583,18 +583,29 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 
     int64_t asInt64 = reqHdr->incrementInt64;
     double asDouble = reqHdr->incrementDouble;
-    uint64_t rpcRecordPtr;
+    uint64_t rpcResultPtr;
     incrementObject(&key, reqHdr->rejectRules, &asInt64, &asDouble,
-                    &respHdr->version, status, reqHdr, respHdr, &rpcRecordPtr);
-    if (*status != STATUS_OK)
-        return;
-    objectManager.syncChanges();
+                    &respHdr->version, status, reqHdr, respHdr, &rpcResultPtr);
 
-    rh.recordCompletion(rpcRecordPtr);
+    if (*status == STATUS_OK) {
+        objectManager.syncChanges();
+        rh.recordCompletion(rpcResultPtr);
 
-    // Return new value
-    respHdr->newValue.asInt64 = asInt64;
-    respHdr->newValue.asDouble = asDouble;
+        // Return new value
+        respHdr->newValue.asInt64 = asInt64;
+        respHdr->newValue.asDouble = asDouble;
+    } else if (respHdr->common.status != STATUS_RETRY &&
+               respHdr->common.status != STATUS_UNKNOWN_TABLET) {
+        // Above status requires a client to retry. We should not write
+        // RpcResult record in log for the two status values.
+
+        // Write RpcResult with failed (by RejectRule) status.
+        RpcResult rpcResult(reqHdr->tableId, key.getHash(),
+                            reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
+                            respHdr, sizeof(*respHdr));
+        objectManager.writeRpcResultOnly(&rpcResult, &rpcResultPtr);
+        rh.recordCompletion(rpcResultPtr);
+    }
 }
 
 /**

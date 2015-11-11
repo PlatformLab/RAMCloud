@@ -759,6 +759,43 @@ TEST_F(MasterServiceTest, increment_rejectRules) {
                  WrongVersionException);
 }
 
+
+TEST_F(MasterServiceTest, increment_linearizability_rejectRules) {
+    int64_t value = 0;
+    uint64_t version = 0;
+    RejectRules rules;
+    memset(&rules, 0, sizeof(rules));
+    rules.doesntExist = true;
+
+    // Send first request.
+    IncrementInt64Rpc incRpc(ramcloud.get(), 1, "key0", 4, 1, &rules);
+    while (!incRpc.isReady()) {
+        ramcloud->poll();
+    }
+
+    // Make object exist.
+    ramcloud->write(1, "key0", 4, &value, sizeof(value), NULL, &version);
+    EXPECT_EQ(1U, version);
+
+    // Intentionally delayed wait() to prevent 2nd write request from having
+    // ackId same as rpcId for this rmvRpc. (So that we can retry.)
+    EXPECT_THROW(incRpc.wait(&version), ObjectDoesntExistException);
+
+    // Retry of increment: due to linearizability, we still get
+    //                     STATUS_OBJECT_DOESNT_EXIST.
+    WireFormat::Increment::Request* reqHdr =
+        incRpc.request.getStart<WireFormat::Increment::Request>();
+    WireFormat::Increment::Response respHdr;
+    Service::Rpc rpc(NULL, &incRpc.request, incRpc.response);
+    service->increment(reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, respHdr.common.status);
+
+    // New RPC succeed.
+    value = ramcloud->incrementInt64(1, "key0", 4, 1, NULL, &version);
+    EXPECT_EQ(2U, version);
+    EXPECT_EQ(1, value);
+}
+
 TEST_F(MasterServiceTest, increment_invalidObject) {
     int32_t intVal = 0;
     float floatVal = 0;
