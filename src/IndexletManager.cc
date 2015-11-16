@@ -554,6 +554,7 @@ IndexletManager::getIndexlet(uint64_t tableId, uint8_t indexId,
 
 ///////////////////////////////////////////////////////////////////////////////
 ////////////////////////// Index data related functions ///////////////////////
+/////////////////////////////////// PUBLIC ////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
@@ -751,6 +752,48 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
     indexlet->bt->erase(BtreeEntry {key, keyLength, pKHash});
 
     return STATUS_OK;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+////////////////////////// Index data related functions ///////////////////////
+/////////////////////////////////// PRIVATE ///////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Check whether the given index entry exists in the given index.
+ * This function is currently used only for testing.
+ * 
+ * \param tableId
+ *      Id for a particular table.
+ * \param indexId
+ *      Id for a particular secondary index associated with tableId.
+ * \param key
+ *      Key blob for for the index entry.
+ * \param keyLength
+ *      Length of key.
+ * \param pKHash
+ *      Hash of the primary key of the object.
+ * \return
+ *      Boolean value true if the entry exists; false if not.
+ */
+bool
+IndexletManager::existsIndexEntry(
+        uint64_t tableId, uint8_t indexId,
+        const void* key, KeyLength keyLength, uint64_t pKHash)
+{
+    Lock indexletMapLock(mutex);
+
+    IndexletMap::iterator mapIter =
+            findIndexlet(tableId, indexId, key, keyLength, indexletMapLock);
+    if (mapIter == indexletMap.end()) {
+        return false;
+    }
+    Indexlet* indexlet = &mapIter->second;
+
+    Lock indexletLock(indexlet->indexletMutex);
+    indexletMapLock.unlock();
+
+    return indexlet->bt->exists(BtreeEntry {key, keyLength, pKHash});
 }
 
 } //namespace

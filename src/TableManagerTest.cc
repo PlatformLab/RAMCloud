@@ -768,39 +768,59 @@ TEST_F(TableManagerTest, serializeIndexConfig) {
     }
 }
 
-TEST_F(TableManagerTest, splitAndMigrateIndexlet_basics) {
+TEST_F(TableManagerTest, splitAndMigrateIndexlet) {
+    // Setup: Create two masters.
     MasterService* master1 = cluster.addServer(masterConfig)->master.get();
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
-
     updateManager->reset();
+
+    // Setup: Create a table with a single tablet on master1.
     uint64_t dataTableId = tableManager->createTable("foo", 1);
-    // Ensure that the table was created with a single tablet on master1.
+    cluster.externalStorage.log.clear();
     assert(master1->tabletManager.getNumTablets() == 1U);
     assert(master2->tabletManager.getNumTablets() == 0U);
 
+    // Setup: Create an index with a single indexlet on master2.
     uint8_t indexId = 1;
     tableManager->createIndex(dataTableId, indexId, 0, 1);
     cluster.externalStorage.log.clear();
-
-    // Ensure that the index was created with a single indexlet on master2.
     assert(master1->tabletManager.getNumTablets() == 1U);
     assert(master2->tabletManager.getNumTablets() == 1U);
     assert(master1->indexletManager.getNumIndexlets() == 0U);
     assert(master2->indexletManager.getNumIndexlets() == 1U);
 
+    // Setup: Define index boundaries and splitKey.
     char firstKey = 0;
     char firstNotOwnedKey = 127;
     string splitKey = "foo";
 
+    // Setup: Insert index entries (in the index created above)
+    // such that they fall on different sides of the splitKey.
+    master2->indexletManager.insertEntry(
+            dataTableId, indexId, "abcd", 4, 2581U);
+    master2->indexletManager.insertEntry(
+            dataTableId, indexId, "tuvw", 4, 9213U);
+    master2->objectManager.log.sync();
+    assert(master2->indexletManager.existsIndexEntry(
+            dataTableId, indexId, "abcd", 4, 2581U));
+    assert(master2->indexletManager.existsIndexEntry(
+            dataTableId, indexId, "tuvw", 4, 9213U));
+
+    // Split and migrate the indexlet from master2 to master1.
     EXPECT_NO_THROW(tableManager->coordSplitAndMigrateIndexlet(
             master1->serverId, dataTableId, indexId,
             splitKey.c_str(), (uint16_t)splitKey.length()));
 
+    // Check that master1 now has an additional indexlet and table (presumably
+    // corresponding to that indexlet), and that master2 doesn't have any
+    // additional indexlets or tablets.
     EXPECT_EQ(2U, master1->tabletManager.getNumTablets());
     EXPECT_EQ(1U, master2->tabletManager.getNumTablets());
     EXPECT_EQ(1U, master1->indexletManager.getNumIndexlets());
     EXPECT_EQ(1U, master2->indexletManager.getNumIndexlets());
 
+    // Check that master1 and master2 have the correct metadata about the
+    // indexlet each of them should own.
     SpinLock indexMutex;
     IndexletManager::Lock indexLock(indexMutex);
     IndexletManager::IndexletMap::iterator it1 =
@@ -818,6 +838,8 @@ TEST_F(TableManagerTest, splitAndMigrateIndexlet_basics) {
     EXPECT_NE(master2->indexletManager.indexletMap.end(), it2);
     indexLock.unlock();
 
+    // Check that the coordinator has the correct metadata about the new
+    // indexlets.
     TableManager::IdMap::iterator tableIter =
             tableManager->idMap.find(dataTableId);
     TableManager::Table* table = tableIter->second;
@@ -832,6 +854,7 @@ TEST_F(TableManagerTest, splitAndMigrateIndexlet_basics) {
     EXPECT_EQ(0, IndexKey::keyCompare(
             indexlet1->firstNotOwnedKey, indexlet1->firstNotOwnedKeyLength,
             splitKey.c_str(), (uint16_t)splitKey.length()));
+    EXPECT_EQ(master2->serverId, indexlet1->serverId);
 
     TableManager::Indexlet* indexlet2 = tableManager->findIndexlet(
             lock, index, splitKey.c_str(), (uint16_t)splitKey.length());
@@ -841,6 +864,17 @@ TEST_F(TableManagerTest, splitAndMigrateIndexlet_basics) {
     EXPECT_EQ(0, IndexKey::keyCompare(
             indexlet2->firstNotOwnedKey, indexlet2->firstNotOwnedKeyLength,
             reinterpret_cast<void *>(&firstNotOwnedKey), 1));
+    EXPECT_EQ(master1->serverId, indexlet2->serverId);
+
+    // Check that master1 and master2 contain the correct index entries.
+    EXPECT_TRUE(master2->indexletManager.existsIndexEntry(
+            dataTableId, indexId, "abcd", 4, 2581U));
+    EXPECT_FALSE(master2->indexletManager.existsIndexEntry(
+            dataTableId, indexId, "tuvw", 4, 9213U));
+    EXPECT_FALSE(master1->indexletManager.existsIndexEntry(
+            dataTableId, indexId, "abcd", 4, 2581U));
+    EXPECT_TRUE(master1->indexletManager.existsIndexEntry(
+            dataTableId, indexId, "tuvw", 4, 9213U));
 }
 
 TEST_F(TableManagerTest, splitTablet_basics) {

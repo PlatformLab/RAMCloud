@@ -2482,6 +2482,12 @@ MasterService::takeIndexletOwnership(
             IndexletManager::Indexlet::NORMAL);
     LOG(NOTICE, "Took ownership of indexlet in tableId %lu indexId %u",
             reqHdr->tableId, reqHdr->indexId);
+
+    // This is required only if this takeIndexletOwnership call is done
+    // as a part of coordSplitAndMigrateIndexlet() call. It does nothing
+    // useful if not.
+    tabletManager.changeState(reqHdr->backingTableId, 0UL, ~0UL,
+            TabletManager::RECOVERING, TabletManager::NORMAL);
 }
 
 /**
