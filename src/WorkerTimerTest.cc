@@ -38,6 +38,7 @@ class WorkerTimerTest : public ::testing::Test {
     ~WorkerTimerTest()
     {
         Cycles::mockTscValue = 0;
+        WorkerTimer::stopWarningMs = 0;
     }
 
     /**
@@ -73,12 +74,21 @@ class DummyWorkerTimer : public WorkerTimer {
         : WorkerTimer(dispatch)
         , myName(name)
         , sleepMicroseconds(0)
+        , logString()
         , restartTime(0)
     { }
     void handleTimerEvent() {
         TEST_LOG("WorkerTimer %s invoked", myName);
         if (sleepMicroseconds != 0) {
             usleep(sleepMicroseconds);
+        }
+        if (!logString.empty()) {
+            for (int i = 0; i < 1000; i++) {
+                if (TestLog::get().find(logString) != string::npos) {
+                    break;
+                }
+                usleep(1000);
+            }
         }
         if (restartTime != 0) {
             start(restartTime);
@@ -93,6 +103,10 @@ class DummyWorkerTimer : public WorkerTimer {
     // If non-zero, then handler will delayed for this long before
     // returning.
     int sleepMicroseconds;
+
+    // If non-empty, then handler won't return until TestLog contains
+    // this string (or  until a long time elapses).
+    string logString;
 
     // If non-zero, then handler will restart the timer with this
     // trigger time.
@@ -250,6 +264,31 @@ TEST_F(WorkerTimerTest, stopInternal_waitForHandlerToFinish) {
     double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
     EXPECT_GE(elapsed, .01);
     EXPECT_EQ("handleTimerEvent: WorkerTimer timer1 invoked | "
+            "stopInternal: waiting for handler", TestLog::get());
+    thread.join();
+}
+TEST_F(WorkerTimerTest, stopInternal_handlerDoesntFinishQuickly) {
+    Tub<DummyWorkerTimer> timer;
+    timer.construct("timer1", &dispatch);
+    timer->logString = "WorkerTimer stalled waiting for handler";
+    WorkerTimer::stopWarningMs = 1;
+    waitForWorkerProgress();               // Thread startup.
+    timer->start(0);
+    std::thread thread(testPoll, &dispatch);
+    // Wait for the handler to start executing (see "Timing-Dependent Tests"
+    // in designNotes).
+    for (int i = 1; i < 1000; i++) {
+        if (timer->handlerRunning) {
+            break;
+        }
+        usleep(1000);
+    }
+    EXPECT_TRUE(timer->handlerRunning);
+    TestLog::reset();
+    timer->stop();
+    EXPECT_EQ("stopInternal: waiting for handler | "
+            "stopInternal: WorkerTimer stalled waiting for handler to "
+            "complete; perhaps destructor was invoked from handler? | "
             "stopInternal: waiting for handler", TestLog::get());
     thread.join();
 }

@@ -216,7 +216,6 @@ Server::enlist(ServerId replacingId)
         failureDetector.construct(context, serverId);
         failureDetector->start();
     }
-    enlistTimer.destroy();
 }
 
 } // namespace RAMCloud

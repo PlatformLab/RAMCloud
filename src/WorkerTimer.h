@@ -158,6 +158,11 @@ class WorkerTimer {
     /// timerExpired or it exited).
     static int workerThreadProgressCount;
 
+    /// How long (in milliseconds) WorkerTimer::stopInternal will wait
+    /// for a handler to complete before printing a warning message.
+    /// If zero, use default value; should be nonzero only for unit tests
+    static int stopWarningMs;
+
     static Manager* findManager(Dispatch* dispatch, Lock& lock);
 
   PUBLIC:

@@ -13,6 +13,8 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <chrono>
+
 #include "Cycles.h"
 #include "Logger.h"
 #include "ShortMacros.h"
@@ -24,6 +26,7 @@ namespace RAMCloud {
 std::mutex WorkerTimer::mutex;
 WorkerTimer::ManagerList WorkerTimer::managers;
 int WorkerTimer::workerThreadProgressCount = 0;
+int WorkerTimer::stopWarningMs = 0;
 
 /**
  * Construct a WorkerTimer but do not start it: it will not fire until #start
@@ -126,9 +129,20 @@ void WorkerTimer::stop()
  */
 void WorkerTimer::stopInternal(Lock& lock)
 {
+    // If the handler is currently running, wait for it to complete.
+    // This design choice is a mixed bag. It fixes RAM-762 (we won't
+    // delete a timer out from underneath a running handler), but it
+    // can result in deadlock if a handler tries to delete itself
+    // (e.g. see RAM-806). In order to detect deadlocks, print a warning
+    // message if the handler doesn't complete quickly.
     while (handlerRunning) {
         TEST_LOG("waiting for handler");
-        handlerFinished.wait(lock);
+        std::chrono::milliseconds timeout(stopWarningMs ? stopWarningMs : 1000);
+        if (handlerFinished.wait_until(lock, std::chrono::system_clock::now()
+                + timeout) == std::cv_status::timeout) {
+            LOG(WARNING, "WorkerTimer stalled waiting for handler to "
+                    "complete; perhaps destructor was invoked from handler?");
+        }
     }
     if (active) {
         erase(manager->activeTimers, *this);
