@@ -16,13 +16,14 @@
 #ifndef RAMCLOUD_LOGGER_H
 #define RAMCLOUD_LOGGER_H
 
+#include <condition_variable>
+#include <thread>
 #include <time.h>
-#include <mutex>
 #include <unordered_map>
 
 #include "CodeLocation.h"
 #include "SpinLock.h"
-
+#include "Tub.h"
 
 namespace RAMCloud {
 
@@ -79,12 +80,14 @@ class Logger {
     static Logger& get();
 
     void setLogFile(const char* path, bool truncate = false);
+    void setLogFile(int fd);
 
     void setLogLevel(LogModule, LogLevel level);
     void setLogLevel(LogModule, int level);
     void setLogLevel(string module, string level);
     void changeLogLevel(LogModule, int delta);
     void reset();
+    void sync();
 
     void setLogLevels(LogLevel level);
     void setLogLevels(int level);
@@ -130,16 +133,23 @@ class Logger {
     static void installCrashBacktraceHandlers();
 
   PRIVATE:
+    bool addToBuffer(const char* src, int length);
     void cleanCollapseMap(struct timespec now);
-    FILE* getStream();
-    void printMessage(struct timespec t, const char* message, int skipCount);
+    static void printThreadMain(Logger* logger);
 
     /**
-     * The stream on which to log messages.  NULL means use stderr.
-     * Note: we don't ever set this value to stderr: if the application
-     * changes stderr we want to automatically use the new value.
+     * Log output gets written to this file descriptor (default is 3, for
+     * stderr).
      */
-    FILE* stream;
+    int fd;
+
+    /**
+     * True means that fd came from a file that we opened, so we must
+     * eventually close fd when the Logger is destroyed. False means that
+     * someone else provided this descriptor, so it's their responsibility
+     * to close it.
+     */
+    bool mustCloseFd;
 
     /**
      * An array indexed by LogModule where each entry means that, for that
@@ -194,8 +204,8 @@ class Logger {
      * is output repeatedly in a short time window, the first message is
      * printed immediately, but duplicates are not printed. Information about
      * that is recorded here, and eventually we print a single message for
-     * all of the duplicates. Keys are log messages (everything except the
-     * time part).
+     * all of the duplicates. Keys are pairs consisting of file name and
+     * line number where the log message is generated.
      */
     typedef std::unordered_map<std::pair<const char*, int>, SkipInfo, pairHash>
         CollapseMap;
@@ -233,11 +243,84 @@ class Logger {
      */
     struct timespec nextCleanTime;
 
+    // The following variables implement a circular buffer used to store
+    // log entries temporarily. A background thread prints out entries in
+    // the buffer. This is done because I/O is expensive and potentially
+    // unpredictable in speed. It's important not to delay the code that
+    // generates log entries, since it could be the dispatcher and delays
+    // could cause the server to be considered dead.
+
+    /**
+     * Used to synchronize access to buffer metadata.
+     */
+    SpinLock bufferMutex;
+
+    /**
+     * The print thread uses this to sleep when it runs out of log data
+     * to print.
+     */
+    std::condition_variable_any logDataAvailable;
+
+    /**
+     * Total number of bytes available in messageBuffer.
+     */
+    int bufferSize;
+
+    /**
+     * Buffer space (dynamically allocated, must be freed).
+     */
+    char* messageBuffer;
+
+    /**
+     * Offset in messageBuffer of the location where the next log message
+     * will be stored
+     */
+    volatile int nextToInsert;
+
+    /**
+     * Offset in messageBuffer of the first byte of data that has not yet been
+     * printed. Modified only by the printer thread (and this is the only
+     * shared variable modified by the printer thread).
+     */
+    volatile int nextToPrint;
+
+    /**
+     * Nonzero means that the most recently generated log entries had to be
+     * discarded because we ran out of buffer space (the print thread got
+     * behind). The value indicates how many entries were lost.
+     */
+    int discardedEntries;
+
+    /**
+     * This thread is responsible for invoking the (potentially blocking)
+     * kernel calls to write out the log.
+     */
+    Tub<std::thread> printThread;
+
+    /**
+     * Set to true to cause the print thread to exit during the Logger
+     * destructor.
+     */
+    bool printThreadExit;
+
     /**
      * If non-zero, overrides default value for buffer size in logMessage
      * (used for testing).
      */
-    uint32_t testingBufferSize;
+    int testingBufferSize;
+
+    /**
+     * If true (typically only during unit tests) don't wakeup the
+     * print thread.
+     */
+    bool testingNoNotify;
+
+    /**
+     * If non-NULL,  points to time information that will be used in all
+     * log messages, instead of using the current time. Intended primarily
+     * for testing.
+     */
+    struct timespec* testingLogTime;
 
     DISALLOW_COPY_AND_ASSIGN(Logger);
 };
@@ -305,6 +388,7 @@ class Logger {
  */
 #define RAMCLOUD_DIE(format_, ...) do { \
     RAMCLOUD_LOG(RAMCloud::ERROR, format_, ##__VA_ARGS__); \
+    Logger::get().sync(); \
     RAMCLOUD_BACKTRACE(RAMCloud::ERROR); \
     throw RAMCloud::FatalError(HERE, \
                                RAMCloud::format(format_, ##__VA_ARGS__)); \

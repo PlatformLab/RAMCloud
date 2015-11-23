@@ -75,7 +75,7 @@ def scan(f, startingEvent):
     startTime = 0.0
     lastTime = -1.0
     for line in f:
-        match = re.match('.*TimeTrace::printInternal.* '
+        match = re.match('.*TimeTrace\\.cc:.*printInternal.* '
                 '([0-9.]+) ns \(\+ *([0-9.]+) ns\): (.*)', line)
         if not match:
             continue

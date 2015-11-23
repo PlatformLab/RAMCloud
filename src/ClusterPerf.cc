@@ -6121,9 +6121,7 @@ try
             options(desc).positional(desc2).run(), vm);
     po::notify(vm);
     if (logFile.size() != 0) {
-        // Redirect both stdout and stderr to the log file.  Don't
-        // call logger.setLogFile, since that will not affect printf
-        // calls.
+        // Redirect both stdout and stderr to the log file.
         FILE* f = fopen(logFile.c_str(), "w");
         if (f == NULL) {
             RAMCLOUD_LOG(ERROR, "couldn't open log file '%s': %s",
@@ -6131,6 +6129,7 @@ try
             exit(1);
         }
         stdout = stderr = f;
+        Logger::get().setLogFile(fileno(f));
     }
     Logger::get().setLogLevels(logLevel);
     if (vm.count("help")) {
