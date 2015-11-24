@@ -1866,9 +1866,20 @@ basic()
         // below accounts for additional overhead per object beyond the
         // key and value.
         uint32_t numObjects = 200000000/(size + keyLength + 20);
+        LOG(NOTICE, "Filling table with %d-byte objects", size);
+        cluster->logMessageAll(NOTICE,
+                "Filling table with %d-byte objects", size);
         fillTable(dataTable, numObjects, keyLength, size);
+
+        LOG(NOTICE, "Starting read test for %d-byte objects", size);
+        cluster->logMessageAll(NOTICE,
+                "Starting read test for %d-byte objects", size);
         readDists[i] = readRandomObjects(dataTable, numObjects, keyLength,
                 100000, 2.0);
+
+        LOG(NOTICE, "Starting write test for %d-byte objects", size);
+        cluster->logMessageAll(NOTICE,
+                "Starting write test for %d-byte objects", size);
         writeDists[i] =  writeRandomObjects(dataTable, numObjects, keyLength,
                 size, 100000, 2.0);
     }
