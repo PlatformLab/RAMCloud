@@ -280,11 +280,11 @@ InsertIndexEntryRpc::InsertIndexEntryRpc(
 }
 
 /**
- * Handle the case where the RPC cannot be completed as the containing the index
- * key was not found.
+ * Handle the case where the RPC cannot be completed as the indexlet containing
+ * the key was not found.
  */
 void
-InsertIndexEntryRpc::indexNotFound()
+InsertIndexEntryRpc::indexletNotFound()
 {
     response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
 }
@@ -755,11 +755,11 @@ RemoveIndexEntryRpc::RemoveIndexEntryRpc(
 }
 
 /**
- * Handle the case where the RPC cannot be completed as the containing the index
- * key was not found.
+ * Handle the case where the RPC cannot be completed as the indexlet containing
+ * the key was not found.
  */
 void
-RemoveIndexEntryRpc::indexNotFound()
+RemoveIndexEntryRpc::indexletNotFound()
 {
     response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
 }

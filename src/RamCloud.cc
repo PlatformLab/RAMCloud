@@ -1612,11 +1612,11 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
 }
 
 /**
- * Handle the case where the RPC cannot be completed as the containing the index
- * key was not found.
+ * Handle the case where the RPC cannot be completed as the indexlet containing
+ * the key(s) was not found.
  */
 void
-LookupIndexKeysRpc::indexNotFound()
+LookupIndexKeysRpc::indexletNotFound()
 {
     response->reset();
     WireFormat::LookupIndexKeys::Response* respHdr =
