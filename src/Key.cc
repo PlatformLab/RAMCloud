@@ -56,7 +56,7 @@ Key::Key(LogEntryType type, Buffer& buffer)
         key = tomb.getKey();
 
     } else {
-        throw FatalError(HERE, "unknown Log::Entry type");
+        throw FatalError(HERE, "unknown Log::Entry type %d", type);
     }
 }
 

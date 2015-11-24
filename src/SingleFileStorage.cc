@@ -936,8 +936,8 @@ SingleFileStorage::open(bool sync)
     Lock lock(mutex);
     if (writeBuffersInUse >= maxWriteBuffers) {
         // Force the master to find some place else and/or backoff.
-        LOG(DEBUG, "Master tried to open a storage frame but too many "
-            "frames already buffered to accept it; rejecting");
+        RAMCLOUD_CLOG(NOTICE, "Master tried to open a storage frame but %lu "
+            "frames already buffered; rejecting", writeBuffersInUse);
         throw BackupOpenRejectedException(HERE);
     }
     FreeMap::size_type next = freeMap.find_next(lastAllocatedFrame);
