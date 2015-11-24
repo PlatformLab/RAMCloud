@@ -158,6 +158,8 @@ LIBS += -Wl,--whole-archive dpdk/build/lib/libintel_dpdk.a -Wl,--no-whole-archiv
 # Note: __STDC_LIMIT_MACROS definition below is needed to avoid
 # compilation errors in DPDK header files.
 COMFLAGS += -DDPDK -Dtypeof=__typeof__
+# Needed as of DPDK 1.8; remove if later versions fix the problem.
+CXXWARNS := $(CXXWARNS) -Wno-literal-suffix
 endif
 
 ifeq ($(YIELD),yes)
