@@ -14,12 +14,13 @@
  */
 
 #include "TestUtil.h"
-#include "MockCluster.h"
-#include "RawMetrics.h"
-#include "ServerMetrics.h"
-#include "RamCloud.h"
 #include "IndexKey.h"
 #include "IndexLookup.h"
+#include "MockCluster.h"
+#include "RamCloud.h"
+#include "RawMetrics.h"
+#include "ServerMetrics.h"
+#include "StringUtil.h"
 
 namespace RAMCloud {
 // This class provides tablet map and indexlet map info to ObjectFinder.
@@ -276,40 +277,38 @@ TEST_F(IndexLookupTest, getNext_filtering) {
     ramcloud->write(tableId, numKeys, keyList2, "value2");
     ramcloud->write(tableId, numKeys, keyList3, "value3");
 
-
     Key primaryKey1(tableId, keyList1[0].key, keyList1[0].keyLength);
-    uint64_t pkhash = primaryKey1.getHash();
-    // insert extra entries for pkhash A that would land in search range
-    im->insertEntry(tableId, 1, "B2", 2, pkhash);
-    im->insertEntry(tableId, 1, "C7", 2, pkhash);
+    uint64_t pkhash1 = primaryKey1.getHash();
+    // Insert extra index entries corresponding to pkhash for primaryKey1.
+    // We will ensure that these don't get returned on lookup.
+    im->insertEntry(tableId, 1, "b1", 2, pkhash1);
+    im->insertEntry(tableId, 1, "c1", 2, pkhash1);
+    im->insertEntry(tableId, 1, "B1", 2, pkhash1);
+    im->insertEntry(tableId, 1, "C1", 2, pkhash1);
 
-    IndexKey::IndexKeyRange keyRange(1, "B", 1, "D", 1);
-    IndexLookup indexLookup(ramcloud.get(), tableId, keyRange);
+    // Lookup for a key range such that the range contains some real index
+    // entries (corresponding to objects) and some fake index entries (inserted
+    // artificially above). Test that the objects get returned.
 
-    uint32_t itemsReturned = 0;
-    while (indexLookup.getNext()) {
-        itemsReturned++;
-    }
-    EXPECT_EQ(0U, itemsReturned);
+    IndexKey::IndexKeyRange keyRange1(1, "b", 1, "d", 1);
+    IndexLookup indexLookup1(ramcloud.get(), tableId, keyRange1);
 
-    // insert extra entries for pkhash A that would land in search range
-    im->insertEntry(tableId, 1, "b2", 2, 81);
-    im->insertEntry(tableId, 1, "c7", 2, pkhash);
+    EXPECT_TRUE(indexLookup1.getNext());
+    Object* obj = indexLookup1.currentObject();
+    EXPECT_STREQ("primaryKey2", StringUtil::binaryToString(
+            obj->getKey(), obj->getKeyLength(0)).c_str());
 
-    IndexKey::IndexKeyRange keyRange2(1, "b", 1, "d", 1);
+    EXPECT_TRUE(indexLookup1.getNext());
+    obj = indexLookup1.currentObject();
+    EXPECT_STREQ("primaryKey3", StringUtil::binaryToString(
+            obj->getKey(), obj->getKeyLength(0)).c_str());
+
+    EXPECT_FALSE(indexLookup1.getNext());
+
+    // Lookup for a key range such that it contains only fake index entries.
+    // Test that nothing gets returned.
+    IndexKey::IndexKeyRange keyRange2(1, "B", 1, "D", 1);
     IndexLookup indexLookup2(ramcloud.get(), tableId, keyRange2);
-
-    EXPECT_TRUE(indexLookup2.getNext());
-    EXPECT_STREQ("primaryKey2",
-        std::string(static_cast<const char*>(
-                        indexLookup2.currentObject()->getKey()),
-                    indexLookup2.currentObject()->getKeyLength(0)).c_str());
-
-    EXPECT_TRUE(indexLookup2.getNext());
-    EXPECT_STREQ("primaryKey3",
-        std::string(static_cast<const char*>(
-                        indexLookup2.currentObject()->getKey()),
-                    indexLookup2.currentObject()->getKeyLength(0)).c_str());
 
     EXPECT_FALSE(indexLookup2.getNext());
 }
