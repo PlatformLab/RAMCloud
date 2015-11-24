@@ -121,7 +121,7 @@ class BackupStorage {
             strncpy(clusterName, name, sizeof(clusterName) - 1);
         }
 
-        /// Return '\0' terminated cluster name in this superblock.
+        /// Return null terminated cluster name in this superblock.
         const char* getClusterName() { return clusterName; }
 
         /// Return the server id in this superblock.
