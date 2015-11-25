@@ -956,11 +956,11 @@ TEST_F(BasicTransportTest, handleTimerEvent_clientRequestTimeout) {
         }
     }
     EXPECT_EQ(1, wrapper.failedCount);
-    EXPECT_EQ("handleTimerEvent: sending PING to server mock:node=1 for "
-            "READ RPC | handleTimerEvent: aborting READ RPC to server "
-            "mock:node=1: timeout", TestLog::get());
+    EXPECT_EQ("handleTimerEvent: slow PING response from server mock:node=1 "
+            "for READ RPC, sequence 1 | handleTimerEvent: aborting READ RPC "
+            "to server mock:node=1, sequence 1: timeout", TestLog::get());
 }
-TEST_F(BasicTransportTest, handleTimerEvent_sendPingsFromClient) {
+TEST_F(BasicTransportTest, handleTimerEvent_logSlowPingResponse) {
     MockWrapper wrapper(NULL);
     WireFormat::RequestCommon* header =
             wrapper.request.emplaceAppend<WireFormat::RequestCommon>();
@@ -969,22 +969,22 @@ TEST_F(BasicTransportTest, handleTimerEvent_sendPingsFromClient) {
     session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
     driver->outputLog.clear();
 
+    // Nothing should get logged for the first 3 calls to handleTimerEvent.
+    transport.timer.handleTimerEvent();
+    transport.timer.handleTimerEvent();
     transport.timer.handleTimerEvent();
     EXPECT_EQ("", TestLog::get());
 
+    // The fourth call should log a message.
     transport.timer.handleTimerEvent();
-    EXPECT_EQ("handleTimerEvent: sending PING to server mock:node=1 for "
-            "READ RPC", TestLog::get());
-    EXPECT_EQ("PING (rpcId 666.1)", driver->outputLog);
+    EXPECT_EQ("handleTimerEvent: slow PING response from server mock:node=1 "
+            "for READ RPC, sequence 1", TestLog::get());
+    TestLog::reset();
 
-    driver->outputLog.clear();
-    transport.pingIntervals = 5;
-    transport.outgoingRpcs[1]->silentIntervals = 8;
+    // No messages for 5th and later calls.
     transport.timer.handleTimerEvent();
-    EXPECT_EQ("", driver->outputLog);
-
     transport.timer.handleTimerEvent();
-    EXPECT_EQ("PING (rpcId 666.1)", driver->outputLog);
+    EXPECT_EQ("", TestLog::get());
 }
 TEST_F(BasicTransportTest, handleTimerEvent_sendResendFromClient) {
     transport.roundTripBytes = 100;
@@ -1005,7 +1005,8 @@ TEST_F(BasicTransportTest, handleTimerEvent_sendResendFromClient) {
 
     transport.timer.handleTimerEvent();
     EXPECT_EQ("requestRetransmission: requested retransmit of response "
-            "bytes 5-155 from mock:node=1", TestLog::get());
+            "bytes 5-155 from mock:node=1, sequence 1, grantOffset 155",
+            TestLog::get());
     EXPECT_EQ("RESEND (rpcId 666.1, offset 5, length 150)", driver->outputLog);
 
     driver->outputLog.clear();
@@ -1034,7 +1035,9 @@ TEST_F(BasicTransportTest, handleTimerEvent_serverAbortsRequest) {
 
     transport.timer.handleTimerEvent();
     EXPECT_EQ("handleTimerEvent: aborting unknown(25185) RPC from client "
-            "mock:client=1: timeout while receiving request | "
+            "mock:client=1: 5 request bytes assembled, "
+            "0 unassembled fragments, request incomplete, "
+            "0 response bytes transmitted | "
             "deleteServerRpc: RpcId (100, 101)",
             TestLog::get());
 }
@@ -1051,7 +1054,7 @@ TEST_F(BasicTransportTest, handleTimerEvent_sendResendFromServer) {
 
     transport.timer.handleTimerEvent();
     EXPECT_EQ("requestRetransmission: requested retransmit of request "
-            "bytes 5-105 from mock:client=1",
+            "bytes 5-105 from mock:client=1, sequence 101, grantOffset 0",
             TestLog::get());
     EXPECT_EQ("RESEND (rpcId 100.101, offset 5, length 100)",
             driver->outputLog);
