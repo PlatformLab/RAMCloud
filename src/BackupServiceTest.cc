@@ -578,9 +578,30 @@ TEST_F(BackupServiceTest, writeSegment_openSegmentOutOfStorage) {
     openSegment(ServerId(99, 0), 87);
     openSegment(ServerId(99, 0), 88);
     openSegment(ServerId(99, 0), 89);
+    TestLog::reset();
     EXPECT_THROW(
         openSegment(ServerId(99, 0), 90),
         BackupOpenRejectedException);
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "Segment replicas currently open:"));
+    TestLog::reset();
+    EXPECT_THROW(
+        openSegment(ServerId(99, 0), 90),
+        BackupOpenRejectedException);
+    EXPECT_FALSE(TestUtil::contains(TestLog::get(),
+            "Segment replicas currently open:"));
+}
+
+TEST_F(BackupServiceTest, logOpenReplicas) {
+    openSegment(ServerId(99, 0), 85);
+    openSegment(ServerId(99, 0), 86);
+    openSegment(ServerId(52, 24), 87);
+    openSegment(ServerId(99, 0), 88);
+    closeSegment(ServerId(99, 0), 86);
+    TestLog::reset();
+    backup->logOpenReplicas();
+    EXPECT_EQ("logOpenReplicas: Segment replicas currently open: "
+            "<99.0, 85> <99.0, 88> <52.24, 87>", TestLog::get());
 }
 
 TEST_F(BackupServiceTest, GarbageCollectDownServerTask) {

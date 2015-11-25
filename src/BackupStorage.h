@@ -205,6 +205,11 @@ class BackupStorage {
         virtual void unload() = 0;
 
         /**
+         * Returns true if this frame is currently open, false otherwise.
+         */
+        virtual bool currentlyOpen() = 0;
+
+        /**
          * Return a pointer to the replica data for recovery. If needed, the
          * replica is loaded from storage into memory. If the replica is
          * already in memory a load from storage is avoided. If the replica

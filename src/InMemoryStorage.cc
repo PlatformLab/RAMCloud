@@ -323,8 +323,10 @@ InMemoryStorage::open(bool sync)
     FreeMap::size_type next = freeMap.find_next(lastAllocatedFrame);
     if (next == FreeMap::npos) {
         next = freeMap.find_first();
-        if (next == FreeMap::npos)
-            throw BackupStorageException(HERE, "Out of free segment frames.");
+        if (next == FreeMap::npos) {
+            RAMCLOUD_CLOG(NOTICE, "Rejecting open: no free storage frames");
+            throw BackupOpenRejectedException(HERE);
+        }
     }
     lastAllocatedFrame = next;
     size_t frameIndex = next;
