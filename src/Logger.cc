@@ -679,7 +679,7 @@ Logger::addToBuffer(const char* src, int length)
  * background to print log messages to secondary storage (this way, the
  * main RAMCloud threads aren't delayed for I/O).
  * 
- * \param owner
+ * \param logger
  *      The owning Logger. This thread accesses only information related
  *      to the buffer and the output file.
  */
