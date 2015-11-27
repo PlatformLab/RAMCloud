@@ -297,9 +297,9 @@ print-%:
 
 # Rebuild the Java bindings
 java: $(OBJDIR)/libramcloud.a
-	cd bindings/java; ./gradlew
+	bindings/java/gradlew --project-dir bindings/java
 java-clean:
-	cd bindings/java; ./gradlew clean
+	bindings/java/gradlew --project-dir bindings/java clean
 
 INSTALL_BINS := \
     $(OBJDIR)/client \
