@@ -178,16 +178,18 @@ BasicTransport::opcodeSymbol(uint8_t opcode) {
  *      Total number of bytes to transmit. If offset + length exceeds
  *      the message length, then all of the remaining bytes in message,
  *      starting at offset, will be transmitted.
+ * \param flags
+ *      Extra flags to set in DATA packet headers, such as RETRANSMISSION.
  */
 void
 BasicTransport::sendBytes(const Driver::Address* address, RpcId rpcId,
-        Buffer* message, int offset, int length)
+        Buffer* message, int offset, int length, uint8_t flags)
 {
-    uint8_t needGrant = 1;
+    flags |= DataHeader::NEED_GRANT;
     int messageSize = downCast<int>(message->size());
     if (length >= (messageSize - offset)) {
         length = messageSize - offset;
-        needGrant = 0;
+        flags = downCast<uint8_t>(flags & ~DataHeader::NEED_GRANT);
     }
     if (length <= 0) {
         return;
@@ -202,7 +204,7 @@ BasicTransport::sendBytes(const Driver::Address* address, RpcId rpcId,
     } else {
         // Send multiple packets.
         while (length > 0) {
-            DataHeader header(rpcId, message->size(), offset, needGrant);
+            DataHeader header(rpcId, message->size(), offset, flags);
             int bytesThisPacket = std::min(length, maxDataPerPacket);
             Buffer::Iterator iter(message, offset, bytesThisPacket);
             driver->sendPacket(address, &header, &iter);
@@ -346,6 +348,15 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
         if (it == t->outgoingRpcs.end()) {
             // This packet doesn't refer to an RPC that we care about.
             TEST_LOG("unknown packet for client");
+#if 0
+            if (common->rpcId.sequence < t->nextSequenceNumber) {
+                LOG(NOTICE, "Received %s packet from %s for sequence %lu, "
+                        "which already completed",
+                        opcodeSymbol(common->opcode).c_str(),
+                        received->sender->toString().c_str(),
+                        common->rpcId.sequence);
+            }
+#endif
             return;
         }
         ClientRpc* clientRpc = it->second;
@@ -383,7 +394,8 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     t->clientRpcPool.destroy(clientRpc);
                 } else {
                     // See if we need to output a GRANT.
-                    if (header->needGrant && (clientRpc->grantOffset <
+                    if ((header->flags & DataHeader::NEED_GRANT) &&
+                            (clientRpc->grantOffset <
                             (clientRpc->response->size() +
                             t->roundTripBytes)) &&
                             (clientRpc->grantOffset < header->totalLength)) {
@@ -394,6 +406,15 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                         t->driver->sendPacket(clientRpc->session->serverAddress,
                                 &grant, NULL);
                     }
+                }
+                if ((header->offset < clientRpc->resendLimit) &&
+                        !(header->flags & DataHeader::RETRANSMISSION)) {
+                    LOG(NOTICE, "Original data arrived from server %s after "
+                            "RESEND: sequence %lu, offset %u, "
+                            "resendLimit %u",
+                            received->sender->toString().c_str(),
+                            common->rpcId.sequence, header->offset,
+                            clientRpc->resendLimit);
                 }
                 return;
             }
@@ -418,7 +439,8 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     goto packetLengthError;
                 t->sendBytes(clientRpc->session->serverAddress,
                         header->common.rpcId, clientRpc->request,
-                        header->offset, header->length);
+                        header->offset, header->length,
+                        DataHeader::RETRANSMISSION);
                 LOG(NOTICE, "Client resent bytes %u-%u to %s for sequence %lu",
                         header->offset, header->offset + header->length,
                         received->sender->toString().c_str(),
@@ -499,7 +521,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     // We've already received the full message, so
                     // ignore this packet.
                     TEST_LOG("ignoring extraneous packet");
-                    return;
+                    goto serverDataDone;
                 }
                 serverRpc->accumulator->addPacket(received, header);
                 if ((serverRpc->requestPayload.size() >= header->totalLength)) {
@@ -509,7 +531,8 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     t->context->workerManager->handleRpc(serverRpc);
                 } else {
                     // See if we need to output a GRANT.
-                    if (header->needGrant && (serverRpc->grantOffset <
+                    if ((header->flags & DataHeader::NEED_GRANT) &&
+                            (serverRpc->grantOffset <
                             (serverRpc->requestPayload.size()
                             + t->roundTripBytes)) &&
                             (serverRpc->grantOffset < header->totalLength)) {
@@ -521,6 +544,16 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                         t->driver->sendPacket(serverRpc->clientAddress,
                                 &grant, NULL);
                     }
+                }
+                serverDataDone:
+                if ((header->offset < serverRpc->resendLimit) &&
+                        !(header->flags & DataHeader::RETRANSMISSION)) {
+                    LOG(NOTICE, "Original data arrived from client %s after "
+                            "RESEND: sequence %lu, offset %u, "
+                            "resendLimit %u",
+                            received->sender->toString().c_str(),
+                            common->rpcId.sequence, header->offset,
+                            serverRpc->resendLimit);
                 }
                 return;
             }
@@ -578,7 +611,8 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 }
                 t->sendBytes(serverRpc->clientAddress,
                         serverRpc->rpcId, &serverRpc->replyPayload,
-                        header->offset, header->length);
+                        header->offset, header->length,
+                        DataHeader::RETRANSMISSION);
                 uint32_t resendEnd = header->offset + header->length;
                 if (resendEnd > serverRpc->transmitOffset) {
                     serverRpc->transmitOffset = resendEnd;
@@ -593,13 +627,13 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
 
             case PacketOpcode::PING: {
                 if (serverRpc == NULL) {
-                    // It appears that all of the packets for this RPC
-                    // got lost. Ask the client to restart transmission.
+                    // No record of this RPC. Either all of the packets got
+                    // lost or, more likely,  we already sent a response
+                    // and deleted our state. Ask the client to restart
+                    // transmission, just in case there really was lost
+                    // data.
                     ResendHeader resend(common->rpcId, 0, t->roundTripBytes);
                     t->driver->sendPacket(received->sender, &resend, NULL);
-                    LOG(NOTICE, "PING request from %s for unknown sequence %lu",
-                            received->sender->toString().c_str(),
-                            common->rpcId.sequence);
                 } else if (serverRpc->transmitOffset == 0) {
                     // Either we haven't received the whole request message yet
                     // or we're still working on executing the RPC. In either
@@ -622,14 +656,14 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     // We have started sending the response message. It's
                     // possible that all of the response packets got lost,
                     // so we have to retransmit something. On the other hand,
-                    // it's also possible that we the PING arrived just after
+                    // it's also possible that the PING arrived just after
                     // we started sending a response, so no packets have
                     // actually been lost. This is the more likely case, so
                     // only resent one packet's worth of data (as opposed to
                     // retransmitting everything we've already sent).
                     t->sendBytes(serverRpc->clientAddress,
                             serverRpc->rpcId, &serverRpc->replyPayload,
-                            0, t->maxDataPerPacket);
+                            0, t->maxDataPerPacket, DataHeader::RETRANSMISSION);
                     LOG(NOTICE, "PING request from %s while sending reply, "
                             "%u bytes already sent",
                             received->sender->toString().c_str(),
@@ -812,8 +846,12 @@ BasicTransport::MessageAccumulator::appendFragment(char* payload,
  *      this is how many total bytes we should have received already).
  *      May be 0 if the client never requested a grant (meaning that it
  *      planned to transmit the entire message unilaterally).
+ *
+ * \return
+ *      The offset of the byte just after the last one whose retransmission
+ *      was requested.
  */
-void
+uint32_t
 BasicTransport::MessageAccumulator::requestRetransmission(BasicTransport *t,
         const Driver::Address* address, RpcId rpcId, uint32_t grantOffset)
 {
@@ -842,6 +880,7 @@ BasicTransport::MessageAccumulator::requestRetransmission(BasicTransport *t,
             (rpcId.clientId == t->clientId) ? "response" : "request",
             buffer->size(), endOffset, address->toString().c_str(),
             rpcId.sequence, grantOffset);
+    return endOffset;
 }
 
 /**
@@ -921,7 +960,8 @@ BasicTransport::Timer::handleTimerEvent()
             // silent, this must mean packets were lost, so request
             // retransmission.
             if (clientRpc->silentIntervals >= 2) {
-                clientRpc->accumulator->requestRetransmission(t,
+                clientRpc->resendLimit =
+                        clientRpc->accumulator->requestRetransmission(t,
                         clientRpc->session->serverAddress,
                         RpcId(t->clientId, sequence),
                         clientRpc->grantOffset);
@@ -964,7 +1004,8 @@ BasicTransport::Timer::handleTimerEvent()
         // See if we need to request retransmission for part of the request
         // message.
         if ((serverRpc->silentIntervals >= 2) && !serverRpc->requestComplete) {
-            serverRpc->accumulator->requestRetransmission(t,
+            serverRpc->resendLimit =
+                    serverRpc->accumulator->requestRetransmission(t,
                     serverRpc->clientAddress, serverRpc->rpcId,
                     serverRpc->grantOffset);
         }

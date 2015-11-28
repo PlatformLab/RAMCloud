@@ -142,7 +142,7 @@ class BasicTransport : public Transport {
         ~MessageAccumulator();
         void addPacket(Driver::Received* received, DataHeader *header);
         void appendFragment(char* payload, uint32_t offset, uint32_t length);
-        void requestRetransmission(BasicTransport *t,
+        uint32_t requestRetransmission(BasicTransport *t,
                 const Driver::Address* address, RpcId rpcId,
                 uint32_t limit);
 
@@ -214,6 +214,12 @@ class BasicTransport : public Transport {
         /// this message, or 0 if we haven't sent any GRANTs.
         uint32_t grantOffset;
 
+        /// The sum of the offset and length fields from the most recent
+        /// RESEND we have sent, 0 if no RESEND has been sent for this
+        /// RPC. Used to detect unnecessary RESENDs (because the original
+        /// data eventually arrives).
+        uint32_t resendLimit;
+
         /// Number of times that the transport timer has fired since we
         /// received any packets from the server.
         uint32_t silentIntervals;
@@ -229,6 +235,7 @@ class BasicTransport : public Transport {
             , notifier(notifier)
             , transmitOffset(0)
             , grantOffset(0)
+            , resendLimit(0)
             , silentIntervals(0)
             , accumulator()
         {}
@@ -264,6 +271,12 @@ class BasicTransport : public Transport {
         /// the request message, or 0 if we haven't sent any GRANTs.
         uint32_t grantOffset;
 
+        /// The sum of the offset and length fields from the most recent
+        /// RESEND we have sent, 0 if no RESEND has been sent for this
+        /// RPC. Used to detect unnecessary RESENDs (because the original
+        /// data eventually arrives).
+        uint32_t resendLimit;
+
         /// Number of times that the transport timer has fired since we
         /// received any packets from the client.
         uint32_t silentIntervals;
@@ -285,6 +298,7 @@ class BasicTransport : public Transport {
             , rpcId(rpcId)
             , transmitOffset(0)
             , grantOffset(0)
+            , resendLimit(0)
             , silentIntervals(0)
             , requestComplete(false)
             , accumulator()
@@ -372,19 +386,28 @@ class BasicTransport : public Transport {
                                      // this packet!).
         uint32_t offset;             // Offset within the message of the first
                                      // byte of data in this packet.
-        uint8_t needGrant;           // Zero means the sender is transmitting
-                                     // the entire message unilaterally;
-                                     // nonzero means the last part of the
-                                     // message won't be sent without a
-                                     // GRANT from the server.
+        uint8_t flags;               // An OR-ed combination of flag bits
+                                     // such as NEED_GRANT; see below for
+                                     // definitions.
 
         // The remaining packet bytes after the header constitute message
         // data starting at the given offset.
 
+        // Bit values for header flags.
+        // NEED_GRANT:               Means the sender is transmitting the entire
+        //                           message unilaterally; if not set, the last
+        //                           part of the message won't be sent without a
+        //                           GRANT from the server.
+        // RETRANSMISSION:           Means this packet is being sent in
+        //                           response to a RESEND or PING request (it
+        //                           has already been sent previously).
+        static const uint8_t NEED_GRANT = 1;
+        static const uint8_t RETRANSMISSION = 2;
+
         DataHeader(RpcId rpcId, uint32_t totalLength, uint32_t offset,
-                uint8_t needGrant)
-            : common(PacketOpcode::DATA, rpcId),
-            totalLength(totalLength), offset(offset), needGrant(needGrant) {}
+                uint8_t flags = 0)
+            : common(PacketOpcode::DATA, rpcId), totalLength(totalLength),
+            offset(offset), flags(flags) {}
     } __attribute__((packed));
 
     /**
@@ -458,7 +481,7 @@ class BasicTransport : public Transport {
     void deleteServerRpc(ServerRpc* serverRpc);
     static string opcodeSymbol(uint8_t opcode);
     void sendBytes(const Driver::Address* address, RpcId rpcId,
-            Buffer* message, int offset, int length);
+            Buffer* message, int offset, int length, uint8_t flags = 0);
 
     /// Shared RAMCloud information.
     Context* context;
