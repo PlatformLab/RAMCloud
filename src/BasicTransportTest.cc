@@ -26,23 +26,25 @@ class BasicTransportTest : public ::testing::Test {
   public:
     Context context;
     MockDriver* driver;
-    BasicTransport transport;
     ServiceLocator locator1;
     ServiceLocator locator2;
+    BasicTransport transport;
     MockDriver::MockAddress address1;
     MockDriver::MockAddress address2;
-    Transport::SessionRef session;
+    Transport::SessionRef sessionRef;
+    BasicTransport::Session* session;
     TestLog::Enable logEnabler;
 
     BasicTransportTest()
         : context(false)
         , driver(new MockDriver(headerToString))
-        , transport(&context, driver, 666)
         , locator1("mock:node=1")
         , locator2("mock:node=2")
+        , transport(&context, NULL, driver, 666)
         , address1(&locator1)
         , address2(&locator2)
-        , session(transport.getSession(&locator1))
+        , sessionRef(transport.getSession(&locator1))
+        , session(static_cast<BasicTransport::Session*>(sessionRef.get()))
         , logEnabler()
     {
         context.workerManager = new WorkerManager(&context, 5);
@@ -141,9 +143,9 @@ TEST_F(BasicTransportTest, sanityCheck) {
 
     ServiceLocator serverLocator("basic+udp: host=localhost, port=11101");
     UdpDriver* serverDriver = new UdpDriver(&context, &serverLocator);
-    BasicTransport server(&context, serverDriver, 1);
+    BasicTransport server(&context, &serverLocator, serverDriver, 1);
     UdpDriver* clientDriver = new UdpDriver(&context);
-    BasicTransport client(&context, clientDriver, 2);
+    BasicTransport client(&context, NULL, clientDriver, 2);
     Transport::SessionRef session = client.getSession(&serverLocator);
 
     MockWrapper rpc1("abcdefg");
@@ -173,8 +175,61 @@ TEST_F(BasicTransportTest, sanityCheck) {
 }
 
 TEST_F(BasicTransportTest, constructor) {
-    EXPECT_EQ(19236u, transport.roundTripBytes);
+    EXPECT_EQ(31602u, transport.roundTripBytes);
     EXPECT_TRUE(transport.timer.isRunning());
+}
+
+TEST_F(BasicTransportTest, getRoundTripBytes_basics) {
+    transport.maxDataPerPacket = 1500;
+    ServiceLocator locator("mock:gbs=8,rttMicros=2");
+    EXPECT_EQ(3000u, transport.getRoundTripBytes(&locator));
+}
+TEST_F(BasicTransportTest, getRoundTripBytes_noGbsOption) {
+    transport.maxDataPerPacket = 100;
+    ServiceLocator locator("mock:rttMicros=4");
+    EXPECT_EQ(5000u, transport.getRoundTripBytes(&locator));
+}
+TEST_F(BasicTransportTest, getRoundTripBytes_bogusGbsOption) {
+    transport.maxDataPerPacket = 100;
+    ServiceLocator locator("mock:gbs=xyz,rttMicros=4");
+    TestLog::reset();
+    EXPECT_EQ(5000u, transport.getRoundTripBytes(&locator));
+    EXPECT_EQ("getRoundTripBytes: Bad BasicTransport gbs option value 'xyz' "
+            "(expected positive integer); ignoring option",
+            TestLog::get());
+
+    ServiceLocator locator2("mock:gbs=99foo,rttMicros=4");
+    TestLog::reset();
+    EXPECT_EQ(5000u, transport.getRoundTripBytes(&locator2));
+    EXPECT_EQ("getRoundTripBytes: Bad BasicTransport gbs option value '99foo' "
+            "(expected positive integer); ignoring option",
+            TestLog::get());
+}
+TEST_F(BasicTransportTest, getRoundTripBytes_noRttOption) {
+    transport.maxDataPerPacket = 100;
+    ServiceLocator locator("mock:gbs=8");
+    EXPECT_EQ(25000u, transport.getRoundTripBytes(&locator));
+}
+TEST_F(BasicTransportTest, getRoundTripBytes_bogusRttOption) {
+    transport.maxDataPerPacket = 100;
+    ServiceLocator locator("mock:gbs=8,rttMicros=xyz");
+    TestLog::reset();
+    EXPECT_EQ(25000u, transport.getRoundTripBytes(&locator));
+    EXPECT_EQ("getRoundTripBytes: Bad BasicTransport rttMicros option value "
+            "'xyz' (expected positive integer); ignoring option",
+            TestLog::get());
+
+    ServiceLocator locator2("mock:gbs=8,rttMicros=5zzz");
+    TestLog::reset();
+    EXPECT_EQ(25000u, transport.getRoundTripBytes(&locator2));
+    EXPECT_EQ("getRoundTripBytes: Bad BasicTransport rttMicros option value "
+            "'5zzz' (expected positive integer); ignoring option",
+            TestLog::get());
+}
+TEST_F(BasicTransportTest, getRoundTripBytes_roundUpToEvenPackets) {
+    transport.maxDataPerPacket = 100;
+    ServiceLocator locator("mock:gbs=1,rttMicros=9");
+    EXPECT_EQ(1200u, transport.getRoundTripBytes(&locator));
 }
 
 TEST_F(BasicTransportTest, sendBytes_adjustLength) {
@@ -241,7 +296,7 @@ TEST_F(BasicTransportTest, sendBytes_needGrant) {
 TEST_F(BasicTransportTest, Session_constructor) {
     ServiceLocator locator("basic+udp: host=localhost, port=11101");
     UdpDriver* driver2 = new UdpDriver(&context, &locator);
-    BasicTransport transport2(&context, driver2, 1);
+    BasicTransport transport2(&context, &locator, driver2, 1);
     string exceptionMessage("no exception");
     try {
         ServiceLocator bogusLocator("bogus:foo=bar");
@@ -358,9 +413,9 @@ TEST_F(BasicTransportTest, handlePacket_dataForClient_incompleteHeader) {
 }
 TEST_F(BasicTransportTest, handlePacket_dataForClient_basics) {
     MockWrapper wrapper("message1");
+    session->roundTripBytes = 1000;
     session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
     driver->outputLog.clear();
-    transport.roundTripBytes = 1000;
     transport.grantIncrement = 500;
 
     // First packet of response.
@@ -386,9 +441,9 @@ TEST_F(BasicTransportTest, handlePacket_dataForClient_basics) {
 }
 TEST_F(BasicTransportTest, handlePacket_dataForClient_dontIssueGrant) {
     MockWrapper wrapper("message1");
+    session->roundTripBytes = 1000;
     session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
     driver->outputLog.clear();
-    transport.roundTripBytes = 1000;
     transport.grantIncrement = 500;
 
     // First packet of response (don't send grant: needGrant not set).
@@ -453,8 +508,7 @@ TEST_F(BasicTransportTest, handlePacket_grantForClient_incompleteHeader) {
 }
 TEST_F(BasicTransportTest, handlePacket_grantForClient) {
     MockWrapper wrapper("abcdefghij0123456789");
-    transport.roundTripBytes = 10;
-    transport.grantIncrement = 5;
+    session->roundTripBytes = 10;
     session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
     EXPECT_EQ("DATA (rpcId 666.1, totalLength 20, offset 0, NEED_GRANT) "
             "abcdefghij", driver->outputLog);
@@ -497,7 +551,7 @@ TEST_F(BasicTransportTest, handlePacket_resendForClient) {
 }
 TEST_F(BasicTransportTest, handlePacket_resendForClient_transmitOffsetChanges) {
     MockWrapper wrapper("abcdefghij0123456789");
-    transport.roundTripBytes = 10;
+    session->roundTripBytes = 10;
     session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
     EXPECT_EQ("DATA (rpcId 666.1, totalLength 20, offset 0, NEED_GRANT) "
             "abcdefghij",
@@ -953,7 +1007,6 @@ TEST_F(BasicTransportTest, appendFragment_truncateFragments) {
 
 TEST_F(BasicTransportTest, requestRetransmission) {
     transport.roundTripBytes = 100;
-    transport.grantIncrement = 50;
 
     // First retransmit: no fragments waiting, no grants sent.
     driver->receivePacket("mock:client=1",
@@ -968,7 +1021,7 @@ TEST_F(BasicTransportTest, requestRetransmission) {
 
     driver->outputLog.clear();
     uint32_t limit = serverRpc->accumulator->requestRetransmission(
-            &transport, &address1, BasicTransport::RpcId(100, 101), 0);
+            &transport, &address1, BasicTransport::RpcId(100, 101), 0, 100);
     EXPECT_EQ(105u, limit);
     EXPECT_EQ("RESEND (rpcId 100.101, offset 5, length 100)",
             driver->outputLog);
@@ -976,7 +1029,7 @@ TEST_F(BasicTransportTest, requestRetransmission) {
     // Second retransmit: no fragment, but grant was sent.
     driver->outputLog.clear();
     limit = serverRpc->accumulator->requestRetransmission(
-            &transport, &address1, BasicTransport::RpcId(100, 101), 25);
+            &transport, &address1, BasicTransport::RpcId(100, 101), 25, 100);
     EXPECT_EQ(25u, limit);
     EXPECT_EQ("RESEND (rpcId 100.101, offset 5, length 20)",
             driver->outputLog);
@@ -987,7 +1040,7 @@ TEST_F(BasicTransportTest, requestRetransmission) {
             "abcde");
     driver->outputLog.clear();
     limit = serverRpc->accumulator->requestRetransmission(
-            &transport, &address1, BasicTransport::RpcId(100, 101), 25);
+            &transport, &address1, BasicTransport::RpcId(100, 101), 25, 100);
     EXPECT_EQ(15u, limit);
     EXPECT_EQ("RESEND (rpcId 100.101, offset 5, length 10)",
             driver->outputLog);
@@ -1043,7 +1096,7 @@ TEST_F(BasicTransportTest, handleTimerEvent_logSlowPingResponse) {
     EXPECT_EQ("", TestLog::get());
 }
 TEST_F(BasicTransportTest, handleTimerEvent_sendResendFromClient) {
-    transport.roundTripBytes = 100;
+    session->roundTripBytes = 100;
     transport.grantIncrement = 50;
     MockWrapper wrapper(NULL);
     WireFormat::RequestCommon* header =

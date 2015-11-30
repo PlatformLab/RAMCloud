@@ -56,7 +56,7 @@ static struct BasicUdpTransportFactory : public TransportFactory {
         : TransportFactory("basic+kernelUdp", "basic+udp") {}
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
-        return new BasicTransport(context,
+        return new BasicTransport(context, localServiceLocator,
                 new UdpDriver(context, localServiceLocator),
                 generateRandom());
     }
@@ -78,7 +78,7 @@ static struct BasicSolarFlareTransportFactory : public TransportFactory {
         : TransportFactory("basic+solarflare", "basic+sf") {}
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
-        return new BasicTransport(context,
+        return new BasicTransport(context, localServiceLocator,
                 new SolarFlareDriver(context, localServiceLocator),
                 generateRandom());
     }
@@ -100,7 +100,7 @@ static struct BasicInfUdTransportFactory : public TransportFactory {
         : TransportFactory("basic+infinibandud", "basic+infud") {}
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
-        return new BasicTransport(context,
+        return new BasicTransport(context, localServiceLocator,
                 new InfUdDriver(context, localServiceLocator, false),
                 generateRandom());
     }
@@ -142,7 +142,7 @@ static struct BasicDpdkTransportFactory : public TransportFactory {
         : TransportFactory("basic+dpdk", "basic+dpdk") {}
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
-        return new BasicTransport(context,
+        return new BasicTransport(context, localServiceLocator,
                 new DpdkDriver(context, localServiceLocator),
                 generateRandom());
     }

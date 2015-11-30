@@ -26,6 +26,8 @@ namespace RAMCloud {
  * 
  * \param context
  *      Shared state about various RAMCloud modules.
+ * \param locator
+ *      Service locator that contains parameters for this transport.
  * \param driver
  *      Used to send and receive packets. This transport becomes owner
  *      of the driver and will free it in when this object is deleted.
@@ -33,8 +35,8 @@ namespace RAMCloud {
  *      Identifier that identifies us in outgoing RPCs: must be unique across
  *      all servers and clients.
  */
-BasicTransport::BasicTransport(Context* context, Driver* driver,
-        uint64_t clientId)
+BasicTransport::BasicTransport(Context* context, const ServiceLocator* locator,
+        Driver* driver, uint64_t clientId)
     : context(context)
     , driver(driver)
     , maxDataPerPacket(driver->getMaxPacketSize() - sizeof32(DataHeader))
@@ -45,7 +47,7 @@ BasicTransport::BasicTransport(Context* context, Driver* driver,
     , outgoingRpcs()
     , incomingRpcs()
     , serverTimerList()
-    , roundTripBytes(0)
+    , roundTripBytes(getRoundTripBytes(locator))
     , grantIncrement(5*maxDataPerPacket)
     , timer(this, context->dispatch)
     , timerInterval(0)
@@ -53,14 +55,6 @@ BasicTransport::BasicTransport(Context* context, Driver* driver,
     , pingIntervals(10)
 {
     driver->connect(new IncomingPacketHandler(this));
-
-    // The values below should eventually be computed using parameters
-    // in the service locator. For now, compute roundTripBytes for a
-    // network with 30 Gbs bandwidth and 5 us round-trip (rounded up to
-    // an even number of DATA packets).
-    while (roundTripBytes < (30000*5)/8) {
-        roundTripBytes += maxDataPerPacket;
-    }
 
     // Set up the timer to trigger at 2 ms intervals. We use this choice
     // (as of 11/2015) because the Linux kernel appears to buffer packets
@@ -72,8 +66,8 @@ BasicTransport::BasicTransport(Context* context, Driver* driver,
     LOG(NOTICE, "BasicTransport parameters: maxDataPerPacket %u, "
             "roundTripBytes %u, grantIncrement %u, pingIntervals %d, "
             "timeoutIntervals %d, timerInterval %.2f ms",
-            maxDataPerPacket, roundTripBytes, grantIncrement,
-            pingIntervals, timeoutIntervals,
+            maxDataPerPacket, roundTripBytes,
+            grantIncrement, pingIntervals, timeoutIntervals,
             Cycles::toSeconds(timerInterval)*1e3);
 }
 
@@ -130,6 +124,55 @@ BasicTransport::deleteServerRpc(ServerRpc* serverRpc)
         erase(serverTimerList, *serverRpc);
     }
     serverRpcPool.destroy(serverRpc);
+}
+
+/**
+ * Parse option values in a service locator to determine how many bytes
+ * of data must be sent to cover the round-trip latency of a connection.
+ *
+ * \param locator
+ *      Service locator that may contain "gbs" and "rttMicros" options.
+ *      If NULL, or if any of the options  are missing, then defaults
+ *      are supplied.
+ */
+uint32_t
+BasicTransport::getRoundTripBytes(const ServiceLocator* locator)
+{
+    uint32_t gBitsPerSec = 10;
+    uint32_t roundTripMicros = 25;
+
+    if (locator  != NULL) {
+        if (locator->hasOption("gbs")) {
+            char* end;
+            uint32_t value = downCast<uint32_t>(strtoul(
+                    locator->getOption("gbs").c_str(), &end, 10));
+            if ((*end == 0) && (value != 0)) {
+                gBitsPerSec = value;
+            } else {
+                LOG(ERROR, "Bad BasicTransport gbs option value '%s' "
+                        "(expected positive integer); ignoring option",
+                        locator->getOption("gbs").c_str());
+            }
+        }
+        if (locator->hasOption("rttMicros")) {
+            char* end;
+            uint32_t value = downCast<uint32_t>(strtoul(
+                    locator->getOption("rttMicros").c_str(), &end, 10));
+            if ((*end == 0) && (value != 0)) {
+                roundTripMicros = value;
+            } else {
+                LOG(ERROR, "Bad BasicTransport rttMicros option value '%s' "
+                        "(expected positive integer); ignoring option",
+                        locator->getOption("rttMicros").c_str());
+            }
+        }
+    }
+
+    // Compute round-trip time in terms of full packets (round up).
+    uint32_t roundTripBytes = (roundTripMicros*gBitsPerSec*1000)/8;
+    roundTripBytes = ((roundTripBytes+maxDataPerPacket-1)/maxDataPerPacket)
+            * maxDataPerPacket;
+    return roundTripBytes;
 }
 
 /**
@@ -225,6 +268,7 @@ BasicTransport::Session::Session(BasicTransport* t,
         const ServiceLocator* locator, uint32_t timeoutMs)
     : t(t)
     , serverAddress(NULL)
+    , roundTripBytes(t->getRoundTripBytes(locator))
     , aborted(false)
 {
     try {
@@ -317,8 +361,8 @@ BasicTransport::Session::sendRequest(Buffer* request, Buffer* response,
     RpcId id(t->clientId, t->nextSequenceNumber);
     t->nextSequenceNumber++;
     t->outgoingRpcs[id.sequence] = clientRpc;
-    t->sendBytes(serverAddress, id, request, 0, t->roundTripBytes);
-    clientRpc->transmitOffset = t->roundTripBytes;
+    t->sendBytes(serverAddress, id, request, 0, roundTripBytes);
+    clientRpc->transmitOffset = roundTripBytes;
 }
 
 /**
@@ -397,10 +441,11 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     if ((header->flags & DataHeader::NEED_GRANT) &&
                             (clientRpc->grantOffset <
                             (clientRpc->response->size() +
-                            t->roundTripBytes)) &&
+                            clientRpc->session->roundTripBytes)) &&
                             (clientRpc->grantOffset < header->totalLength)) {
                         clientRpc->grantOffset = clientRpc->response->size()
-                                + t->roundTripBytes + t->grantIncrement;
+                                + clientRpc->session->roundTripBytes
+                                + t->grantIncrement;
                         GrantHeader grant(header->common.rpcId,
                                 clientRpc->grantOffset);
                         t->driver->sendPacket(clientRpc->session->serverAddress,
@@ -846,6 +891,9 @@ BasicTransport::MessageAccumulator::appendFragment(char* payload,
  *      this is how many total bytes we should have received already).
  *      May be 0 if the client never requested a grant (meaning that it
  *      planned to transmit the entire message unilaterally).
+ * \param roundTripBytes
+ *      Number of bytes that can be transmitted during the time it takes
+ *      for a round-trip latency.
  *
  * \return
  *      The offset of the byte just after the last one whose retransmission
@@ -853,7 +901,8 @@ BasicTransport::MessageAccumulator::appendFragment(char* payload,
  */
 uint32_t
 BasicTransport::MessageAccumulator::requestRetransmission(BasicTransport *t,
-        const Driver::Address* address, RpcId rpcId, uint32_t grantOffset)
+        const Driver::Address* address, RpcId rpcId, uint32_t grantOffset,
+        uint32_t roundTripBytes)
 {
     uint32_t endOffset;
     FragmentMap::iterator it = fragments.begin();
@@ -870,7 +919,7 @@ BasicTransport::MessageAccumulator::requestRetransmission(BasicTransport *t,
         // We haven't issued a GRANT for this message; just retransmit
         // one round-trip's worth of data. Once this data arrives, the
         // normal grant mechanism should kick in if it's still needed.
-        endOffset = buffer->size() + t->roundTripBytes;
+        endOffset = buffer->size() + roundTripBytes;
     }
     assert(endOffset > buffer->size());
     ResendHeader resend(rpcId, buffer->size(), endOffset - buffer->size());
@@ -964,7 +1013,8 @@ BasicTransport::Timer::handleTimerEvent()
                         clientRpc->accumulator->requestRetransmission(t,
                         clientRpc->session->serverAddress,
                         RpcId(t->clientId, sequence),
-                        clientRpc->grantOffset);
+                        clientRpc->grantOffset,
+                        clientRpc->session->roundTripBytes);
             }
         }
     }
@@ -1007,7 +1057,7 @@ BasicTransport::Timer::handleTimerEvent()
             serverRpc->resendLimit =
                     serverRpc->accumulator->requestRetransmission(t,
                     serverRpc->clientAddress, serverRpc->rpcId,
-                    serverRpc->grantOffset);
+                    serverRpc->grantOffset, t->roundTripBytes);
         }
     }
 }

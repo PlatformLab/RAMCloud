@@ -22,6 +22,7 @@
 #include "Dispatch.h"
 #include "Driver.h"
 #include "ServerRpcPool.h"
+#include "ServiceLocator.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -35,8 +36,8 @@ class BasicTransport : public Transport {
     struct DataHeader;
 
   public:
-    explicit BasicTransport(Context* context, Driver* driver,
-            uint64_t clientId);
+    explicit BasicTransport(Context* context, const ServiceLocator* locator,
+            Driver* driver, uint64_t clientId);
     ~BasicTransport();
 
     string getServiceLocator();
@@ -119,6 +120,12 @@ class BasicTransport : public Transport {
         // dynamically allocated and must be freed by the session.
         Driver::Address* serverAddress;
 
+
+        /// The number of bytes corresponding to a round-trip time between
+        /// two machines. For additional information, see the documentation
+        /// for the definition of BasicTransport::roundTripBytes below.
+        uint32_t roundTripBytes;
+
         // True means the abort method has been invoked, sso this session
         // is no longer usable.
         bool aborted;
@@ -143,8 +150,8 @@ class BasicTransport : public Transport {
         void addPacket(Driver::Received* received, DataHeader *header);
         void appendFragment(char* payload, uint32_t offset, uint32_t length);
         uint32_t requestRetransmission(BasicTransport *t,
-                const Driver::Address* address, RpcId rpcId,
-                uint32_t limit);
+                const Driver::Address* address, RpcId grantOffset,
+                uint32_t limit, uint32_t requestRetransmission);
 
         /// Transport that is managing this object.
         BasicTransport* t;
@@ -479,6 +486,7 @@ class BasicTransport : public Transport {
 
   PRIVATE:
     void deleteServerRpc(ServerRpc* serverRpc);
+    uint32_t getRoundTripBytes(const ServiceLocator* locator);
     static string opcodeSymbol(uint8_t opcode);
     void sendBytes(const Driver::Address* address, RpcId rpcId,
             Buffer* message, int offset, int length, uint8_t flags = 0);

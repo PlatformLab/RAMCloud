@@ -74,7 +74,7 @@ class MockDriver : public Driver {
     virtual ~MockDriver();
     virtual void connect(IncomingPacketHandler* incomingPacketHandler);
     virtual void disconnect();
-    virtual uint32_t getMaxPacketSize() { return 1400; }
+    virtual uint32_t getMaxPacketSize() { return maxPacketSize; }
     virtual void release(char *payload);
     virtual void sendPacket(const Address* addr,
                             const void *header,
@@ -108,6 +108,9 @@ class MockDriver : public Driver {
      * Records information from each call to send/recv packets.
      */
     string outputLog;
+
+    // Return value from getMaxPacketSize.
+    uint32_t maxPacketSize;
 
     // The following variables count calls to various methods, for use
     // by tests.
