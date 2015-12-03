@@ -948,7 +948,7 @@ MasterService::migrateSingleLogEntry(
         entryKeyHash = record.getKeyHash();
     } else if (type == LOG_ENTRY_TYPE_TXPLIST) {
         ParticipantList participantList(buffer);
-        for (uint64_t i = 0; i < participantList.header.participantCount; ++i) {
+        for (uint64_t i = 0; i < participantList.getParticipantCount(); ++i) {
             entryTableId = participantList.participants[i].tableId;
             entryKeyHash = participantList.participants[i].keyHash;
             if (entryTableId != tableId)

@@ -2623,7 +2623,7 @@ ObjectManager::dumpSegment(Segment* segment)
                     separator, it.getOffset(), it.getLength(),
                     participantList.getTransactionId().clientLeaseId,
                     participantList.getTransactionId().clientTransactionId,
-                    participantList.header.participantCount);
+                    participantList.getParticipantCount());
         }
 
         it.next();

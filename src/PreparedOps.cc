@@ -379,15 +379,6 @@ ParticipantList::computeChecksum()
 }
 
 /**
- * Return the unique identifier for this transaction and participant list.
- */
-TransactionId
-ParticipantList::getTransactionId()
-{
-    return TransactionId(header.clientLeaseId, header.clientTransactionId);
-}
-
-/**
  * Construct PreparedWrites.
  */
 PreparedOps::PreparedOps(Context* context)
@@ -539,50 +530,77 @@ PreparedOps::updatePtr(uint64_t leaseId,
 void
 PreparedOps::PreparedItem::handleTimerEvent()
 {
-    Buffer opBuffer;
-    Log::Reference opRef(newOpPtr);
-    context->getMasterService()->objectManager.getLog()->getEntry(
-            opRef, opBuffer);
-    PreparedOp op(opBuffer, 0, opBuffer.size());
+    // This timer handler asynchronously notifies the recovery manager that this
+    // transaction is taking a long time and may have failed.  This handler may
+    // be called multiple times to ensure the notification is delivered.
+    //
+    // Note: This notification was previously done in synchronously, but holding
+    // the thread and worker timer resources while waiting for the notification
+    // to be acknowledge could caused deadlock when the notification is sent to
+    // the same server.
 
-    //TODO(seojin): RAM-767. op.participants can be stale while log cleaning.
-    //              It is possible to cause invalid memory access.
+    // Construct and send the RPC if it has not been done.
+    if (!txHintFailedRpc) {
+        Buffer opBuffer;
+        Log::Reference opRef(newOpPtr);
+        context->getMasterService()->objectManager.getLog()->getEntry(
+                opRef, opBuffer);
+        PreparedOp op(opBuffer, 0, opBuffer.size());
 
-    TransactionId txId = op.getTransactionId();
+        //TODO(seojin): RAM-767. op.participants can be stale while log
+        //              cleaning. It is possible to cause invalid memory access.
 
-    UnackedRpcHandle participantListLocator(
-            &context->getMasterService()->unackedRpcResults,
-            {txId.clientLeaseId, 0, 0},
-            txId.clientTransactionId,
-            0);
+        TransactionId txId = op.getTransactionId();
 
-    if (participantListLocator.isDuplicate()) {
-        Buffer pListBuf;
-        Log::Reference pListRef(participantListLocator.resultLoc());
-        context->getMasterService()->objectManager.getLog()->getEntry(pListRef,
-                                                                      pListBuf);
-        ParticipantList participantList(pListBuf);
+        UnackedRpcHandle participantListLocator(
+                &context->getMasterService()->unackedRpcResults,
+                {txId.clientLeaseId, 0, 0},
+                txId.clientTransactionId,
+                0);
 
-        assert(participantList.header.participantCount > 0);
-        TEST_LOG("TxHintFailed RPC is sent to owner of tableId %lu and "
-                "keyHash %lu.", participantList.participants[0].tableId,
-                participantList.participants[0].keyHash);
+        if (participantListLocator.isDuplicate()) {
+            Buffer pListBuf;
+            Log::Reference pListRef(participantListLocator.resultLoc());
+            context->getMasterService()->objectManager.getLog()->getEntry(
+                    pListRef, pListBuf);
+            ParticipantList participantList(pListBuf);
+            txId = participantList.getTransactionId();
+            TEST_LOG("TxHintFailed RPC is sent to owner of tableId %lu and "
+                    "keyHash %lu.",
+                    participantList.getTableId(), participantList.getKeyHash());
 
-        MasterClient::txHintFailed(context,
-                participantList.participants[0].tableId,
-                participantList.participants[0].keyHash,
-                participantList.header.clientLeaseId,
-                participantList.header.clientTransactionId,
-                participantList.header.participantCount,
-                participantList.participants);
-    } else {
-        RAMCLOUD_LOG(WARNING,
-                "Unable to find participant list record for TxId (%lu, %lu); "
-                "client transaction recovery could not be requested.",
-                txId.clientLeaseId, txId.clientTransactionId);
+            txHintFailedRpc.construct(context,
+                    participantList.getTableId(),
+                    participantList.getKeyHash(),
+                    txId.clientLeaseId,
+                    txId.clientTransactionId,
+                    participantList.getParticipantCount(),
+                    participantList.participants);
+        } else {
+            // Abort; there is no way to send the RPC if we can't find the
+            // participant list.  Hopefully, some other server still has the
+            // list.  Log this situation as it is a bug if it occurs.
+            RAMCLOUD_LOG(WARNING, "Unable to find participant list record for "
+                    "TxId (%lu, %lu); client transaction recovery could not be "
+                    "requested.", txId.clientLeaseId, txId.clientTransactionId);
+            return;
+        }
     }
 
-    this->start(Cycles::rdtsc() + Cycles::fromMicroseconds(TX_TIMEOUT_US));
+    // RPC should have been sent.
+    if (!txHintFailedRpc->isReady()) {
+        // If the RPC is not yet ready, reschedule the worker timer to poll for
+        // the RPC's completion.
+        this->start(0);
+    } else {
+        // The RPC is ready; "wait" on it as is convention.
+        txHintFailedRpc->wait();
+        txHintFailedRpc.destroy();
+
+        // Wait for another TX_TIMEOUT_US before getting worried again and
+        // resending the hint-failed notification.
+        this->start(Cycles::rdtsc() + Cycles::fromMicroseconds(TX_TIMEOUT_US));
+    }
 }
 
 /**
