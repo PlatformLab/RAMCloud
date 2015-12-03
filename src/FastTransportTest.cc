@@ -452,6 +452,8 @@ class InboundMessageTest : public ::testing::Test {
     void
     setUp(uint16_t totalFrags, bool useTimer = false)
     {
+        destroy(); // Deletes previously allocated resources
+                   // since user may invoke setUp multiple times.
         driver = new MockDriver();
         transport = new FastTransport(&context, driver);
         buffer = new Buffer();
@@ -482,13 +484,18 @@ class InboundMessageTest : public ::testing::Test {
 
     ~InboundMessageTest()
     {
+        destroy();
+    }
+
+    void destroy()
+    {
         if (msg)
             delete msg;
         if (buffer)
             delete buffer;
         session = NULL;
         if (transport)
-            delete transport;
+            delete transport; // Destructor of transport deletes driver.
     }
 
     void dataStagingWindowToWindow(
@@ -820,6 +827,8 @@ class OutboundMessageTest: public ::testing::Test {
     void
     setUp(uint32_t messageLen, bool useTimer = false)
     {
+        destroy(); // Deletes previously allocated resources
+                   // since user may invoke setUp multiple times.
         assert(!(messageLen % 10));
 
         driver = new MockDriver(FastTransport::Header::headerToString);
@@ -859,13 +868,18 @@ class OutboundMessageTest: public ::testing::Test {
 
     ~OutboundMessageTest()
     {
-        delete msg;
+        destroy();
+        Cycles::mockTscValue = 0;
+    }
+
+    void destroy() {
+        if (msg)
+            delete msg;
         session = NULL;
         if (buffer)
             delete buffer;
         if (transport)
             delete transport;
-        Cycles::mockTscValue = 0;
     }
 
     static void sentTimesWindowToString(
