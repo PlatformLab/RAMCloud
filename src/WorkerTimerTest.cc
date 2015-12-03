@@ -394,7 +394,6 @@ TEST_F(WorkerTimerTest, checkTimers_setHandlerRunningAndSignalFinished) {
     uint64_t start = Cycles::rdtsc();
     Cycles::mockTscValue = 2000;
     std::thread thread(testPoll, &dispatch);
-    EXPECT_EQ(~0UL, WorkerTimer::getEarliestOutstandingEpoch());
 
     // Wait for the handler to start executing (see "Timing-Dependent Tests"
     // in designNotes).
@@ -405,118 +404,44 @@ TEST_F(WorkerTimerTest, checkTimers_setHandlerRunningAndSignalFinished) {
         usleep(1000);
     }
     EXPECT_TRUE(timer->handlerRunning);
-    EXPECT_EQ(LogProtector::getCurrentEpoch(),
-              WorkerTimer::getEarliestOutstandingEpoch());
     timer.destroy();
-    EXPECT_EQ(~0UL, WorkerTimer::getEarliestOutstandingEpoch());
     Cycles::mockTscValue = 0;              // We need to measure real time!
     double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
     EXPECT_GE(elapsed, .01);
     thread.join();
 }
 
-TEST_F(WorkerTimerTest, checkTimers_testEpochForHandler) {
-    Tub<DummyWorkerTimer> timer1;
-    timer1.construct("timer1", &dispatch);
-    timer1->start(2000);
-    Dispatch dispatch2(false);
-    Dispatch dispatch3(false);
-    Tub<DummyWorkerTimer> timer2;
-    timer2.construct("timer2", &dispatch2);
-    timer2->start(1000);
-    Tub<DummyWorkerTimer> timer3;
-    timer3.construct("timer3", &dispatch);
-    timer3->start(3000);
-    Tub<DummyWorkerTimer> timer4;
-    timer4.construct("timer4", &dispatch);
-    timer4->start(7000);
-    Tub<DummyWorkerTimer> timer5;
-    timer5.construct("timer5", &dispatch3);
-    timer5->start(3000);
-    EXPECT_EQ(3u, WorkerTimer::managers.size());
+TEST_F(WorkerTimerTest, checkTimers_logProtector) {
+    LogProtector::currentSystemEpoch = 24;
+    Tub<DummyWorkerTimer> timer;
+    timer.construct("timer1", &dispatch);
+    waitForWorkerProgress();               // Thread startup.
+    timer->start(1000);
+    timer->sleepMicroseconds = 10000;
+    Cycles::mockTscValue = 0;              // We need to measure real time!
+    uint64_t start = Cycles::rdtsc();
+    Cycles::mockTscValue = 2000;
+    EXPECT_EQ(~0UL, LogProtector::getEarliestOutstandingEpoch(~0));
+    std::thread thread(testPoll, &dispatch);
 
-    timer1->sleepMicroseconds = 10000;
-    timer2->sleepMicroseconds = 10000;
-    timer3->sleepMicroseconds = 10000;
-    timer4->sleepMicroseconds = 10000;
-    timer5->sleepMicroseconds = 10000;
-
-    EXPECT_EQ(~0UL, WorkerTimer::getEarliestOutstandingEpoch());
-
-    Cycles::mockTscValue = 2200;
-    Tub<std::thread> thread[4][3];
-    thread[0][0].construct(testPoll, &dispatch);
-    thread[0][1].construct(testPoll, &dispatch2);
-    thread[0][2].construct(testPoll, &dispatch3);
-
-    uint64_t startEpoch = LogProtector::getCurrentEpoch();
-
+    // Wait for the handler to start executing (see "Timing-Dependent Tests"
+    // in designNotes).
     for (int i = 1; i < 1000; i++) {
-        if (timer1->handlerRunning && timer2->handlerRunning) {
+        if (timer->handlerRunning) {
             break;
         }
-        usleep(100);
+        usleep(1000);
     }
-    EXPECT_TRUE(timer1->handlerRunning);
-    EXPECT_TRUE(timer2->handlerRunning);
-    EXPECT_EQ(startEpoch, WorkerTimer::getEarliestOutstandingEpoch());
-
-    LogProtector::incrementCurrentEpoch();
-    Cycles::mockTscValue = 5000;
-    thread[1][0].construct(testPoll, &dispatch);
-    thread[1][1].construct(testPoll, &dispatch2);
-    thread[1][2].construct(testPoll, &dispatch3);
-    for (int i = 1; i < 1000; i++) {
-        if (timer5->handlerRunning) {
-            break;
-        }
-        usleep(100);
-    }
-    EXPECT_TRUE(timer5->handlerRunning);
-    EXPECT_EQ(startEpoch, WorkerTimer::getEarliestOutstandingEpoch());
-
-    LogProtector::incrementCurrentEpoch();
-    Cycles::mockTscValue = 13000;
-    thread[2][0].construct(testPoll, &dispatch);
-    thread[2][1].construct(testPoll, &dispatch2);
-    thread[2][2].construct(testPoll, &dispatch3);
-    for (int i = 1; i < 1000; i++) {
-        if (!timer1->handlerRunning && !timer2->handlerRunning) {
-            break;
-        }
-        usleep(100);
-    }
-    EXPECT_FALSE(timer1->handlerRunning);
-    EXPECT_FALSE(timer2->handlerRunning);
-    EXPECT_EQ(startEpoch + 1, WorkerTimer::getEarliestOutstandingEpoch());
-
-    LogProtector::incrementCurrentEpoch();
-    Cycles::mockTscValue = 16000;
-    thread[3][0].construct(testPoll, &dispatch);
-    thread[3][1].construct(testPoll, &dispatch2);
-    thread[3][2].construct(testPoll, &dispatch3);
-    for (int i = 1; i < 1000; i++) {
-        if (timer3->handlerRunning && !timer5->handlerRunning) {
-            break;
-        }
-        usleep(100);
-    }
-    EXPECT_FALSE(timer5->handlerRunning);
-    EXPECT_TRUE(timer3->handlerRunning);
-    EXPECT_EQ(startEpoch + 3, WorkerTimer::getEarliestOutstandingEpoch());
-
-    Cycles::mockTscValue = 0;
-    timer1.destroy();
-    timer2.destroy();
-    timer3.destroy();
-    timer4.destroy();
-    timer5.destroy();
-    for (int i = 0; i < 4; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            thread[i][j]->join();
-            thread[i][j].destroy();
-        }
-    }
+    EXPECT_TRUE(timer->handlerRunning);
+    EXPECT_EQ(24U, timer->manager->logProtectorActivity.epoch);
+    EXPECT_EQ(~0, timer->manager->logProtectorActivity.activityMask);
+    EXPECT_EQ(24U, LogProtector::getEarliestOutstandingEpoch(~0));
+    timer.destroy();
+    EXPECT_EQ(~0UL, LogProtector::getEarliestOutstandingEpoch(~0));
+    Cycles::mockTscValue = 0;              // We need to measure real time!
+    double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
+    EXPECT_GE(elapsed, .01);
+    thread.join();
 }
 
 TEST_F(WorkerTimerTest, workerThreadMain_exit) {
