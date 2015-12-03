@@ -15,7 +15,7 @@
 
 #include "TestUtil.h"
 #include "Logger.h"
-#include "ServerRpcPool.h"
+#include "LogProtector.h"
 #include "ShortMacros.h"
 #include "WorkerTimer.h"
 
@@ -405,7 +405,7 @@ TEST_F(WorkerTimerTest, checkTimers_setHandlerRunningAndSignalFinished) {
         usleep(1000);
     }
     EXPECT_TRUE(timer->handlerRunning);
-    EXPECT_EQ(ServerRpcPool<>::getCurrentEpoch(),
+    EXPECT_EQ(LogProtector::getCurrentEpoch(),
               WorkerTimer::getEarliestOutstandingEpoch());
     timer.destroy();
     EXPECT_EQ(~0UL, WorkerTimer::getEarliestOutstandingEpoch());
@@ -449,7 +449,7 @@ TEST_F(WorkerTimerTest, checkTimers_testEpochForHandler) {
     thread[0][1].construct(testPoll, &dispatch2);
     thread[0][2].construct(testPoll, &dispatch3);
 
-    uint64_t startEpoch = ServerRpcPool<>::getCurrentEpoch();
+    uint64_t startEpoch = LogProtector::getCurrentEpoch();
 
     for (int i = 1; i < 1000; i++) {
         if (timer1->handlerRunning && timer2->handlerRunning) {
@@ -461,7 +461,7 @@ TEST_F(WorkerTimerTest, checkTimers_testEpochForHandler) {
     EXPECT_TRUE(timer2->handlerRunning);
     EXPECT_EQ(startEpoch, WorkerTimer::getEarliestOutstandingEpoch());
 
-    ServerRpcPool<>::incrementCurrentEpoch();
+    LogProtector::incrementCurrentEpoch();
     Cycles::mockTscValue = 5000;
     thread[1][0].construct(testPoll, &dispatch);
     thread[1][1].construct(testPoll, &dispatch2);
@@ -475,7 +475,7 @@ TEST_F(WorkerTimerTest, checkTimers_testEpochForHandler) {
     EXPECT_TRUE(timer5->handlerRunning);
     EXPECT_EQ(startEpoch, WorkerTimer::getEarliestOutstandingEpoch());
 
-    ServerRpcPool<>::incrementCurrentEpoch();
+    LogProtector::incrementCurrentEpoch();
     Cycles::mockTscValue = 13000;
     thread[2][0].construct(testPoll, &dispatch);
     thread[2][1].construct(testPoll, &dispatch2);
@@ -490,7 +490,7 @@ TEST_F(WorkerTimerTest, checkTimers_testEpochForHandler) {
     EXPECT_FALSE(timer2->handlerRunning);
     EXPECT_EQ(startEpoch + 1, WorkerTimer::getEarliestOutstandingEpoch());
 
-    ServerRpcPool<>::incrementCurrentEpoch();
+    LogProtector::incrementCurrentEpoch();
     Cycles::mockTscValue = 16000;
     thread[3][0].construct(testPoll, &dispatch);
     thread[3][1].construct(testPoll, &dispatch2);
