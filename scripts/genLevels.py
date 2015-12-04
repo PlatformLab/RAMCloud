@@ -15,7 +15,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 """
-This program generates the header file RpcLevelNums.h, which assigns a
+This program generates the header file RpcLevelData.h, which assigns a
 call depth to each RPC opcode, in order to avoid distributed deadlocks.
 This program should be run from the top-level RAMCloud source directory.
 """
