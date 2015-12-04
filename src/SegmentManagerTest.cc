@@ -676,8 +676,8 @@ TEST_F(SegmentManagerTest, freeUnreferencedSegments_blockByWorkerTimer) {
         usleep(1000);
     }
     EXPECT_TRUE(timer->handlerRunning);
-    timer->manager->logProtectorActivity.epoch = 7;
-    EXPECT_EQ(7U, LogProtector::getEarliestOutstandingEpoch(~0));
+    timer->manager->epoch = 7;
+    EXPECT_EQ(7U, WorkerTimer::getEarliestOutstandingEpoch());
 
     // Ongoing WorkerTimer handler prevents cleaning.
     freeable->cleanedEpoch = 7;
@@ -687,7 +687,7 @@ TEST_F(SegmentManagerTest, freeUnreferencedSegments_blockByWorkerTimer) {
 
     // WorkerTimer handler is finished.
     timer.destroy();
-    EXPECT_EQ(8U, LogProtector::getEarliestOutstandingEpoch(~0));
+    EXPECT_EQ(~0UL, WorkerTimer::getEarliestOutstandingEpoch());
     segmentManager.freeUnreferencedSegments();
     EXPECT_EQ(0U, segmentManager.segmentsByState[
         SegmentManager::FREEABLE_PENDING_REFERENCES].size());

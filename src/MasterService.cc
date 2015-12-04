@@ -1113,8 +1113,21 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
         tabletManager.changeState(tableId, firstKeyHash, lastKeyHash,
                 TabletManager::NORMAL, TabletManager::LOCKED_FOR_MIGRATION);
 
+        // Increment the current epoch and save the last epoch any
+        // currently running RPC could have been a part of
+        uint64_t epoch = LogProtector::incrementCurrentEpoch() - 1;
+
         // Wait for the remainder of already running writes to finish.
-        LogProtector::wait(context, Transport::ServerRpc::APPEND_ACTIVITY);
+        while (true) {
+            Dispatch::Lock lock(context->dispatch);
+            uint64_t earliestEpoch =
+                LogProtector::getEarliestOutstandingEpoch(
+                        Transport::ServerRpc::APPEND_ACTIVITY);
+            earliestEpoch = std::min(earliestEpoch,
+                        WorkerTimer::getEarliestOutstandingEpoch());
+            if (earliestEpoch > epoch)
+                break;
+        }
     }
 
     // Phase 3: finish iterating over the remaining log entries.
@@ -2281,8 +2294,21 @@ MasterService::splitAndMigrateIndexlet(
         indexletManager.truncateIndexlet(
                 tableId, indexId, splitKey, splitKeyLength);
 
+        // Increment the current epoch and save the last epoch any
+        // currently running RPC could have been a part of
+        uint64_t epoch = LogProtector::incrementCurrentEpoch() - 1;
+
         // Wait for the remainder of already running writes to finish.
-        LogProtector::wait(context, Transport::ServerRpc::APPEND_ACTIVITY);
+        while (true) {
+            Dispatch::Lock lock(context->dispatch);
+            uint64_t earliestEpoch =
+                LogProtector::getEarliestOutstandingEpoch(
+                        Transport::ServerRpc::APPEND_ACTIVITY);
+            earliestEpoch = std::min(earliestEpoch,
+                        WorkerTimer::getEarliestOutstandingEpoch());
+            if (earliestEpoch > epoch)
+                break;
+        }
     }
 
     // Phase 3: finish iterating over the remaining log entries.

@@ -1142,6 +1142,8 @@ SegmentManager::freeUnreferencedSegments()
         earliestEpoch = LogProtector::getEarliestOutstandingEpoch(
                             Transport::ServerRpc::READ_ACTIVITY);
     }
+    earliestEpoch = std::min(earliestEpoch,
+                        WorkerTimer::getEarliestOutstandingEpoch());
     SegmentList::iterator it = freeablePending.begin();
 
     int skippedCount = 0;

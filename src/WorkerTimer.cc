@@ -21,6 +21,7 @@
 #include "ShortMacros.h"
 #include "Unlock.h"
 #include "WorkerTimer.h"
+#include "ServerRpcPool.h"
 
 namespace RAMCloud {
 std::mutex WorkerTimer::mutex;
@@ -172,7 +173,7 @@ WorkerTimer::Manager::Manager(Dispatch* dispatch, Lock& lock)
     , workerThread()
     , waitingForWork()
     , activeTimers()
-    , logProtectorActivity()
+    , epoch(~0)
     , links()
 {
     managers.push_back(*this);
@@ -242,6 +243,24 @@ WorkerTimer::findManager(Dispatch* dispatch, Lock& lock)
 }
 
 /**
+ * Obtain the earliest (lowest value) epoch of any outstanding WorkerTimer in
+ * the system. If there are no ongoing timer handlers, then the return value
+ * is -1 (i.e. the largest 64-bit unsigned integer).
+ */
+uint64_t
+WorkerTimer::getEarliestOutstandingEpoch()
+{
+    Lock _(mutex);
+    uint64_t earliest = ~0;
+
+    for (ManagerList::iterator it(managers.begin());
+            it != managers.end(); it++) {
+        earliest = std::min(it->epoch, earliest);
+    }
+    return earliest;
+}
+
+/**
  * This method does most of the work for the worker thread. It checks
  * to see if any WorkerTimers are ready to execute and, if so, it
  * runs one of them. In addition, it restarts the Dispatch::Timer
@@ -281,15 +300,16 @@ void WorkerTimer::Manager::checkTimers(Lock& lock)
         erase(activeTimers, *ready);
         ready->active = false;
         ready->handlerRunning = true;
+        epoch = LogProtector::getCurrentEpoch();
 
         // Release the monitor lock while the timer handler runs; otherwise,
         // WorkerTimer::handleTimerEvent might hang on the lock for a long
         // time, effectively blocking the dispatch thread.
         {
             Unlock<std::mutex> unlock(mutex);
-            LogProtector::Guard logGuard(logProtectorActivity);
             ready->handleTimerEvent();
         }
+        epoch = ~0lu;
         ready->handlerRunning = false;
         ready->handlerFinished.notify_one();
     }
