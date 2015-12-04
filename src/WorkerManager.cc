@@ -19,7 +19,6 @@
 #include "CycleCounter.h"
 #include "Fence.h"
 #include "Initialize.h"
-#include "LogProtector.h"
 #include "PerfStats.h"
 #include "RawMetrics.h"
 #include "RpcLevel.h"
@@ -427,7 +426,7 @@ WorkerManager::workerMain(Worker* worker)
                     TimeTraceUtil::RequestStatus::WORKER_START));
 #endif
 
-            worker->rpc->epoch = LogProtector::getCurrentEpoch();
+            worker->rpc->epoch = ServerRpcPool<>::getCurrentEpoch();
             Service::Rpc rpc(worker, &worker->rpc->requestPayload,
                     &worker->rpc->replyPayload);
             Service::handleRpc(worker->context, &rpc);

@@ -18,4 +18,10 @@
 
 namespace RAMCloud {
 
+/// See ServerRpcPool.h for details.
+namespace ServerRpcPoolInternal {
+    ServerRpcPoolInternal::ServerRpcList outstandingServerRpcs;
+    uint64_t currentEpoch = 1;
+}
+
 } // namespace RAMCloud

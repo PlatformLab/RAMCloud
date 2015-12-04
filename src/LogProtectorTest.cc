@@ -22,7 +22,7 @@ namespace RAMCloud {
 TEST(LogProtectorTest, initialState) {
     LogProtector::Lock lock(LogProtector::epochProvidersMutex);
     EXPECT_EQ(0U, LogProtector::epochProviders.size());
-    EXPECT_LE(1U, LogProtector::currentSystemEpoch);
+    EXPECT_EQ(1U, LogProtector::currentSystemEpoch);
 }
 
 class DummyEpochProvider : public LogProtector::EpochProvider {
@@ -66,7 +66,6 @@ TEST(LogProtectorTest, activity_destroy) {
 }
 
 TEST(LogProtectorTest, activity_start) {
-    LogProtector::currentSystemEpoch = 1;
     LogProtector::Activity activity;
     EXPECT_EQ(-1UL, activity.epoch);
     EXPECT_EQ(0, activity.activityMask);
@@ -80,7 +79,6 @@ TEST(LogProtectorTest, activity_start) {
 }
 
 TEST(LogProtectorTest, activity_stop) {
-    LogProtector::currentSystemEpoch = 1;
     LogProtector::Activity activity;
     activity.start();
     EXPECT_EQ(1U, activity.epoch);
@@ -90,7 +88,6 @@ TEST(LogProtectorTest, activity_stop) {
 }
 
 TEST(LogProtectorTest, activity_getEarliestEpoch) {
-    LogProtector::currentSystemEpoch = 1;
     LogProtector::Activity activity;
     EXPECT_EQ(-1UL, activity.getEarliestEpoch(~0));
     activity.start();
@@ -105,7 +102,6 @@ TEST(LogProtectorTest, activity_getEarliestEpoch) {
 }
 
 TEST(LogProtectorTest, guard) {
-    LogProtector::currentSystemEpoch = 1;
     LogProtector::Activity activity;
     EXPECT_EQ(-1UL, activity.epoch);
     EXPECT_EQ(0, activity.activityMask);

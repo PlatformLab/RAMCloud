@@ -93,7 +93,6 @@ SHARED_SRCFILES := \
 		   src/LogEntryRelocator.cc \
 		   src/LogEntryTypes.cc \
 		   src/LogMetricsStringer.cc \
-		   src/LogProtector.cc \
 		   src/Logger.cc \
 		   src/LogIterator.cc \
 		   src/MacAddress.cc \
@@ -140,6 +139,7 @@ SHARED_SRCFILES := \
 		   src/ServerIdRpcWrapper.cc \
 		   src/ServerList.cc \
 		   src/ServerMetrics.cc \
+		   src/ServerRpcPool.cc \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \
 		   src/SessionAlarm.cc \

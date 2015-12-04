@@ -19,7 +19,6 @@
 #include "SegmentIterator.h"
 #include "LogDigest.h"
 #include "LogMetadata.h"
-#include "LogProtector.h"
 #include "ServerConfig.h"
 #include "ServerRpcPool.h"
 #include "MasterTableMetadata.h"
@@ -237,7 +236,7 @@ TEST_F(SegmentManagerTest, cleaningComplete) {
     LogSegment* survivor = segmentManager.allocSideSegment();
     EXPECT_NE(static_cast<LogSegment*>(NULL), survivor);
 
-    LogProtector::currentSystemEpoch = 17530;
+    ServerRpcPoolInternal::currentEpoch = 17530;
 
     LogSegmentVector survivors;
     LogSegmentVector clean;
@@ -254,7 +253,7 @@ TEST_F(SegmentManagerTest, cleaningComplete) {
         SegmentManager::FREEABLE_PENDING_DIGEST_AND_REFERENCES].size());
     EXPECT_EQ(cleaned, &segmentManager.segmentsByState[
         SegmentManager::FREEABLE_PENDING_DIGEST_AND_REFERENCES].back());
-    EXPECT_EQ(17531U, LogProtector::currentSystemEpoch);
+    EXPECT_EQ(17531U, ServerRpcPoolInternal::currentEpoch);
     EXPECT_EQ(17530U, cleaned->cleanedEpoch);
 }
 
@@ -702,7 +701,7 @@ TEST_F(SegmentManagerTest, freeUnreferencedSegments_logWhenStuck) {
     LogSegment* freeable = segmentManager.allocHeadSegment();
     segmentManager.allocHeadSegment();
 
-    LogProtector::currentSystemEpoch = 8;
+    ServerRpcPoolInternal::currentEpoch = 8;
     ServerRpcPool<TestServerRpc> pool;
     TestServerRpc* rpc = pool.construct();
     rpc->epoch = 8;

@@ -24,7 +24,6 @@
 #include "EnumerationIterator.h"
 #include "IndexKey.h"
 #include "LogIterator.h"
-#include "LogProtector.h"
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "ObjectBuffer.h"
@@ -1115,13 +1114,12 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
 
         // Increment the current epoch and save the last epoch any
         // currently running RPC could have been a part of
-        uint64_t epoch = LogProtector::incrementCurrentEpoch() - 1;
+        uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
 
         // Wait for the remainder of already running writes to finish.
         while (true) {
-            Dispatch::Lock lock(context->dispatch);
             uint64_t earliestEpoch =
-                LogProtector::getEarliestOutstandingEpoch(
+                ServerRpcPool<>::getEarliestOutstandingEpoch(context,
                         Transport::ServerRpc::APPEND_ACTIVITY);
             earliestEpoch = std::min(earliestEpoch,
                         WorkerTimer::getEarliestOutstandingEpoch());
@@ -2296,13 +2294,12 @@ MasterService::splitAndMigrateIndexlet(
 
         // Increment the current epoch and save the last epoch any
         // currently running RPC could have been a part of
-        uint64_t epoch = LogProtector::incrementCurrentEpoch() - 1;
+        uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
 
         // Wait for the remainder of already running writes to finish.
         while (true) {
-            Dispatch::Lock lock(context->dispatch);
             uint64_t earliestEpoch =
-                LogProtector::getEarliestOutstandingEpoch(
+                ServerRpcPool<>::getEarliestOutstandingEpoch(context,
                         Transport::ServerRpc::APPEND_ACTIVITY);
             earliestEpoch = std::min(earliestEpoch,
                         WorkerTimer::getEarliestOutstandingEpoch());
