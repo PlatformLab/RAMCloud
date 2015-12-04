@@ -5133,6 +5133,7 @@ readDistRandom()
         valuesInLine++;
     }
     printf("\n");
+    fflush(stdout);
     for (int i = 0; i <  NUM_BUCKETS; i++) {
         LOG(NOTICE, "Number of times between %d and %d usecs: %d (%.2f%%)",
                 MICROS_PER_BUCKET*i, MICROS_PER_BUCKET*(i+1),
