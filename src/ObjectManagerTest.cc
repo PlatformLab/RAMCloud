@@ -1577,7 +1577,8 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_acked) {
     // pre-insert ack
     unackedRpcResults->shouldRecover(txId.clientLeaseId,
                                      txId.clientTransactionId,
-                                     txId.clientTransactionId);
+                                     txId.clientTransactionId,
+                                     LOG_ENTRY_TYPE_TXPLIST);
     EXPECT_TRUE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
             unackedRpcResults->clients.end());
     EXPECT_TRUE(unackedRpcResults->isRpcAcked(txId.clientLeaseId,
@@ -1634,8 +1635,8 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_hasPListEntry) {
 
     TestLog::reset();
     objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("shouldRecover: Duplicate RpcResult or ParticipantList found "
-                    "during recovery. <clientID, rpcID, ackId> = <42, 9, 0>",
+    EXPECT_EQ("shouldRecover: Duplicate Transaction Participant List Record "
+              "found during recovery. <clientID, rpcID, ackId> = <42, 9, 0>",
               TestLog::get());
 
     EXPECT_TRUE(unackedRpcResults->hasRecord(txId.clientLeaseId,
@@ -3177,7 +3178,8 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_relocate) {
                             txId.clientTransactionId)));
 
     // Make sure the PariticipantList is considered live.
-    objectManager.unackedRpcResults->shouldRecover(42, 10, 0);
+    objectManager.unackedRpcResults->shouldRecover(42, 10, 0,
+                                                   LOG_ENTRY_TYPE_TXPLIST);
     EXPECT_FALSE(objectManager.unackedRpcResults->isRpcAcked(42, 10));
 
     LogEntryType oldTypeInLog;
@@ -3233,7 +3235,8 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_clean) {
                             txId.clientTransactionId)));
 
     // Make sure the PariticipantList is not considered live.
-    objectManager.unackedRpcResults->shouldRecover(42, 10, 11);
+    objectManager.unackedRpcResults->shouldRecover(42, 10, 11,
+                                                   LOG_ENTRY_TYPE_TXPLIST);
     EXPECT_TRUE(objectManager.unackedRpcResults->isRpcAcked(42, 9));
 
     LogEntryType oldTypeInLog;

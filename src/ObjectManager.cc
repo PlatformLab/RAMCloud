@@ -906,10 +906,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
 
             RpcResult rpcResult(buffer);
 
-            if (unackedRpcResults->shouldRecover(
-                    rpcResult.getLeaseId(),
-                    rpcResult.getRpcId(),
-                    rpcResult.getAckId())) {
+            if (unackedRpcResults->shouldRecover(rpcResult.getLeaseId(),
+                                                 rpcResult.getRpcId(),
+                                                 rpcResult.getAckId(),
+                                                 type)) {
                 Log::Reference newRpcResultReference;
                 {
                     CycleCounter<uint64_t> _(&segmentAppendTicks);
@@ -1090,7 +1090,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             }
             if (unackedRpcResults->shouldRecover(txId.clientLeaseId,
                                                  txId.clientTransactionId,
-                                                 0)) {
+                                                 0,
+                                                 type)) {
                 CycleCounter<uint64_t> _(&segmentAppendTicks);
                 Log::Reference logRef;
                 if (sideLog->append(LOG_ENTRY_TYPE_TXPLIST, buffer, &logRef)) {

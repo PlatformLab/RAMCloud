@@ -45,7 +45,10 @@ class UnackedRpcResults {
                         uint64_t rpcId,
                         uint64_t ackId,
                         void** result);
-    bool shouldRecover(uint64_t clientId, uint64_t rpcId, uint64_t ackId);
+    bool shouldRecover(uint64_t clientId,
+                       uint64_t rpcId,
+                       uint64_t ackId,
+                       LogEntryType entryType);
     void recordCompletion(uint64_t clientId,
                              uint64_t rpcId,
                              void* result,

@@ -158,19 +158,26 @@ TEST_F(UnackedRpcResultsTest, checkDuplicate_validateWithUpdatedLease) {
 
 TEST_F(UnackedRpcResultsTest, shouldRecover) {
     //Basic Function
-    EXPECT_TRUE(results.shouldRecover(1, 11, 5));
-    EXPECT_FALSE(results.shouldRecover(1, 5, 4));
+    EXPECT_TRUE(results.shouldRecover(1, 11, 5, LOG_ENTRY_TYPE_RPCRESULT));
+    EXPECT_FALSE(results.shouldRecover(1, 5, 4, LOG_ENTRY_TYPE_RPCRESULT));
 
-    //Duplicate
+    //Duplicate RPCRESULT
     TestLog::reset();
-    EXPECT_FALSE(results.shouldRecover(1, 10, 5));
-    EXPECT_EQ("shouldRecover: "
-              "Duplicate RpcResult or ParticipantList found during recovery. "
-              "<clientID, rpcID, ackId> = <1, 10, 5>",
-            TestLog::get());
+    EXPECT_FALSE(results.shouldRecover(1, 10, 5, LOG_ENTRY_TYPE_RPCRESULT));
+    EXPECT_EQ("shouldRecover: Duplicate Linearizable Rpc Record found during "
+              "recovery. <clientID, rpcID, ackId> = <1, 10, 5>",
+              TestLog::get());
+
+    //Duplicate TXPLIST
+    TestLog::reset();
+    EXPECT_FALSE(results.shouldRecover(1, 10, 0, LOG_ENTRY_TYPE_TXPLIST));
+    EXPECT_EQ("shouldRecover: Duplicate Transaction Participant List Record "
+              "found during recovery. <clientID, rpcID, ackId> = <1, 10, 0>",
+              TestLog::get());
 
     //Auto client insertion
-    EXPECT_TRUE(results.shouldRecover(2, 4, 2)); //ClientId = 2 inserted.
+    EXPECT_TRUE(results.shouldRecover(2, 4, 2, LOG_ENTRY_TYPE_RPCRESULT));
+    // ^ ClientId = 2 inserted.
     std::unordered_map<uint64_t, UnackedRpcResults::Client*>::iterator it;
     it = results.clients.find(2);
     EXPECT_NE(it, results.clients.end());

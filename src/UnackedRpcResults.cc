@@ -299,10 +299,8 @@ UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
 }
 
 /**
- * Used during recovery to figure out whether to retain a log record containing
- * the results of an RPC. This function indicates whether we can tell from the
- * information seen so far that a given RPC's result need not be retained.
- * (the client has acknowledged receiving the result.)
+ * Used during recovery to determine whether to retain a log record containing
+ * either the results of an RPC or a transaction participant list.
  *
  * \param clientId
  *      RPC sender's id.
@@ -310,6 +308,8 @@ UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
  *      RPC's id to be checked.
  * \param ackId
  *      The ack number transmitted with the RPC with \a rpcId.
+ * \param entryType
+ *      The log entry type of the record in question. Used for better logging.
  *
  * \return
  *      True if the log record may be useful, or
@@ -318,7 +318,8 @@ UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
 bool
 UnackedRpcResults::shouldRecover(uint64_t clientId,
                                  uint64_t rpcId,
-                                 uint64_t ackId)
+                                 uint64_t ackId,
+                                 LogEntryType entryType)
 {
     Lock lock(mutex);
     ClientMap::iterator it;
@@ -332,10 +333,10 @@ UnackedRpcResults::shouldRecover(uint64_t clientId,
         client->processAck(ackId, freer);
 
     if (client->hasRecord(rpcId)) {
-        LOG(WARNING,
-                "Duplicate RpcResult or ParticipantList found during recovery. "
-                "<clientID, rpcID, ackId> = <"
-                "%" PRIu64 ", " "%" PRIu64 ", " "%" PRIu64 ">",
+        LOG((entryType == LOG_ENTRY_TYPE_TXPLIST ? NOTICE : WARNING),
+                "Duplicate %s found during recovery. <clientID, rpcID, ackId> "
+                "= <%" PRIu64 ", " "%" PRIu64 ", " "%" PRIu64 ">",
+                LogEntryTypeHelpers::toString(entryType),
                 clientId, rpcId, ackId);
         return false;
     }
