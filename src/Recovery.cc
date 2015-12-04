@@ -431,10 +431,10 @@ Recovery::performTask()
 }
 
 /**
- * Returns true if all partitions of the will were recovered successfully.
- * False if some recovery master failed to recover its partition or if
- * recovery never got off the ground for some reason (for example, a
- * complete log could not be found among available backups).
+ * Returns true if all partitions of the crashed master were recovered
+ * successfully. False if some recovery master failed to recover its
+ * partition or if recovery never got off the ground for some reason
+ * (for example, a complete log could not be found among available backups).
  */
 bool
 Recovery::wasCompletelySuccessful() const
@@ -994,12 +994,12 @@ struct MasterStartTask {
 using namespace RecoveryInternal; // NOLINT
 
 /**
- * Start recovery of each of the partitions of the will on a recovery master.
- * Each master will only be assigned one partition of one will at a time. If
- * there are too few masters to perform the full recovery then only a subset
- * of the partitions will be recovered. When this recovery completes if there
- * are partitions of the will the still need recovery a follow up recovery
- * will be scheduled.
+ * Start recovery of each of the partitions on a recovery master.  Each
+ * master will only be assigned one partition at a time. If there are
+ * too few masters to perform the full recovery then only a subset of
+ * the partitions will be recovered. When this recovery completes if there
+ * are partitions that still need recovery a follow up recovery will
+ * be scheduled.
  */
 void
 Recovery::startRecoveryMasters()
@@ -1039,8 +1039,8 @@ Recovery::startRecoveryMasters()
             recoveryMasterFinished(ServerId(), false);
     }
 
-    // Hand out each tablet from the will to one of the recovery masters
-    // depending on which partition it was in.
+    // Hand out each tablet to one of the recovery masters depending on
+    // which partition it was in.
     foreach (auto& tablet, dataToRecover.tablet()) {
         auto& task = recoverTasks[tablet.user_data()];
         if (task) {
@@ -1078,10 +1078,10 @@ Recovery::startRecoveryMasters()
  *
  * \param recoveryMasterId
  *      ServerId of the master which has successfully or
- *      unsuccessfully finished recovering the partition of the
- *      will which was assigned to it. If invalid (ServerId())
+ *      unsuccessfully finished recovering the partition that
+ *      was assigned to it. If invalid (ServerId())
  *      then the check to ensure this recovery master is
- *      stil part of the recovery is skipped (used above to
+ *      still part of the recovery is skipped (used above to
  *      recycle this code for the case when there was no
  *      recovery master to give a partition to.
  * \param successful
@@ -1107,7 +1107,7 @@ Recovery::recoveryMasterFinished(ServerId recoveryMasterId,
         ++unsuccessfulRecoveryMasters;
         if (recoveryMasterId.isValid())
             LOG(NOTICE, "Recovery master %s failed to recover its partition "
-                "of the will for crashed server %s",
+                "for crashed server %s",
                 recoveryMasterId.toString().c_str(),
                 crashedServerId.toString().c_str());
     }
