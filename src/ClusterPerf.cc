@@ -4317,6 +4317,7 @@ doWorkload(OpType type)
     printf("0.0 Max Throughput: %.0f ops\n", rate);
 
     // Output the times (several comma-separated values on each line).
+    Logger::get().sync();
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
         if (valuesInLine >= 10) {
@@ -4331,6 +4332,7 @@ doWorkload(OpType type)
         valuesInLine++;
     }
     printf("\n");
+    fflush(stdout);
     #undef NUM_KEYS
 
     // Wait for slaves to exit.
@@ -4534,6 +4536,7 @@ transactionDistRandom()
     }
 
     // Output the times (several comma-separated values on each line).
+    Logger::get().sync();
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
         if (valuesInLine >= 10) {
@@ -5032,6 +5035,7 @@ readDist()
     }
 
     // Output the times (several comma-separated values on each line).
+    Logger::get().sync();
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
         if (valuesInLine >= 10) {
@@ -5119,6 +5123,7 @@ readDistRandom()
     }
 
     // Output the times (several comma-separated values on each line).
+    Logger::get().sync();
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
         if (valuesInLine >= 10) {
@@ -5732,6 +5737,7 @@ writeDistRandom()
     }
 
     // Output the times (several comma-separated values on each line).
+    Logger::get().sync();
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
         if (valuesInLine >= 10) {
