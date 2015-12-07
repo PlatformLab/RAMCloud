@@ -6191,6 +6191,9 @@ try
         }
     }
 
+    // Flush printout of all data before timetrace gets dumped.
+    fflush(stdout);
+
     if (clientIndex == 0) {
         cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
         cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
