@@ -146,7 +146,7 @@ def recover(num_servers,
     args['transport'] = transport
     args['verbose'] = verbose
     args['debug'] = debug
-    args['coordinator_host'] = config.old_master_host
+    args['coordinator_host'] = getOldMasterHost()
     args['coordinator_args'] = coordinator_args
     if backup_args:
         args['backup_args'] += backup_args;
@@ -162,8 +162,8 @@ def recover(num_servers,
                       '-k %d -l %s -o %d' % (client_binary,
                       num_objects, num_removals, object_size,
                       num_servers, log_level, num_overwrites))
-    args['old_master_host'] = config.old_master_host
-    args['client_hosts'] = [config.old_master_host]
+    args['old_master_host'] = getOldMasterHost()
+    args['client_hosts'] = [getOldMasterHost()]
     if old_master_ram:
         args['old_master_args'] = '-d -t %d' % old_master_ram
     else:

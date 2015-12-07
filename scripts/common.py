@@ -15,6 +15,7 @@
 
 """Misc utilities and variables for Python scripts."""
 
+import commands
 import contextlib
 import os
 import random
@@ -25,7 +26,7 @@ import subprocess
 import sys
 import time
 
-__all__ = ['sh', 'captureSh', 'Sandbox', 'getDumpstr']
+__all__ = ['sh', 'captureSh', 'Sandbox', 'getDumpstr', 'getHosts', 'getOldMasterHost']
 
 def sh(command, bg=False, **kwargs):
     """Execute a local command."""
@@ -83,6 +84,7 @@ class Sandbox(object):
         @return: If bg is True then a Process corresponding to the command
                  which was run, otherwise None.
         """
+        checkHost(host)
         if bg:
             sonce = ''.join([chr(random.choice(range(ord('a'), ord('z'))))
                              for c in range(8)])
@@ -265,3 +267,90 @@ def getDumpstr():
         return d
     else:
         return Dumpstr(url)
+
+def getHosts():
+    """Returns a list of the hosts available for servers or clients.
+
+    Each entry consists of a name for the host (for ssh), an IP address
+    to use for creating service locators, and an id for generating
+    Ethernet addresses.
+
+    By default, the function will return a list generated from servers
+    locked by the current user in rcres (an RAMCloud internal utility).
+    If rcres is not available, a custom list can be defined in
+    localconfig.py (see below and the wiki for additional instructions).
+    In the event that rcres is available and a custom list is defined,
+    the function will validate the custom list against rcres.
+
+    Example for constructing a custom list in localconfig.py:
+    hosts = []
+    for i in range(1, 61):
+        hosts.append(('rc%02d' % i,
+                      '192.168.1.%d' % (100 + i),
+                      i))
+    """
+    # Find servers locked by user via rcres
+    rcresOutput = commands.getoutput('rcres ls -l | grep "$(whoami)" | cut -c13-16 | grep "rc[0-9]" | cut -c3-4')
+    rcresFailed = re.match(".*not found.*", rcresOutput)
+
+    # If hosts overridden in localconfig.py, check that all servers are locked
+    if 'hosts' in globals():
+        requstedUnlockedHosts = []
+        for host in hosts:
+            if str("%02d" % host[2]) not in rcresOutput.split():
+                requstedUnlockedHosts.append(host[0])
+
+        if not rcresFailed and len(requstedUnlockedHosts) > 0:
+            raise Exception ("Manually defined hosts list in localconfig.py includes the "
+                "following servers not locked by user in rcres:\r\n\t%s" % requstedUnlockedHosts)
+
+        return hosts
+    # hosts has not been overridden, check that rcres has some servers for us
+    else:
+        if rcresFailed:
+            raise Exception ("config.py could not invoke rcres (%s);\r\n"
+                "\tplease specify a custom hosts list in scripts/localconfig.py" % rcresOutput)
+
+        if len(rcresOutput) == 0:
+            raise Exception ("config.py found 0 rcXX servers locked in rcres;\r\n"
+                "\tcheck your locks or specify a custom hosts list in scripts/localconfig.py")
+
+    # Everything checks out, build list
+    serverList = []
+    for hostNum in rcresOutput.split():
+        i = int(hostNum)
+        serverList.append(('rc%02d' % i,
+                         '192.168.1.%d' % (100 + i),
+                         i))
+    return serverList
+
+def getOldMasterHost():
+    """Returns old_master_host if defined in config.py or localconfig.py.
+    Otherwise, returns the last server from getHosts()
+    """
+    if config.old_master_host:
+        return config.old_master_host
+    else:
+        return getHosts()[-1]
+
+def checkHost(host):
+    """Returns True when the host specified is either locked via rcres or in
+    cases where rcres is unavailable, is specified in the user's
+    scripts/localconfig.py. If both conditions are false, an exception is raised.
+    This function is intended to be invoked as a check right before executing a
+    command on the target server.
+    """
+    serverList = getHosts()
+    for server in serverList:
+        if host == server[0]:
+            return True
+
+    # Server was not found in the valid list, let's check what the problem may be
+    rcresOutput = commands.getoutput('rcres ls')
+    rcresFailed = re.match(".*not found.*", rcresOutput)
+    if rcresFailed:
+        raise Exception ("Attempted to use a host (%s) that is not present in the "
+            "current user's scripts/localconfig.py" % host)
+    else:
+        raise Exception ("Attempted to use a host (%s) that is not locked by the "
+            "current user in rcres" % host)
