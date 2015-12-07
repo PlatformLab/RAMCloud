@@ -23,6 +23,7 @@
 #include "EnumerationIterator.h"
 #include "LogIterator.h"
 #include "LogMetadata.h"
+#include "LogProtector.h"
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "Memory.h"
@@ -1309,9 +1310,9 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
     // other yet and can't perform a migrate.
     TestLog::Enable _("migrateTablet", "deleteKeyHashRange", NULL);
 
-    uint64_t oldEpcoh = ServerRpcPool<>::getCurrentEpoch();
+    uint64_t oldEpcoh = LogProtector::getCurrentEpoch();
     ramcloud->migrateTablet(tbl, 0, -1, master2->serverId);
-    EXPECT_GT(ServerRpcPool<>::getCurrentEpoch(), oldEpcoh);
+    EXPECT_GT(LogProtector::getCurrentEpoch(), oldEpcoh);
     EXPECT_EQ("migrateTablet: Migrating tablet [0x0,0xffffffffffffffff] "
             "in tableId 1 to server 3.0 at mock:host=master2 | "
             "migrateTablet: Sending last migration segment | "

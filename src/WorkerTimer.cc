@@ -17,6 +17,7 @@
 
 #include "Cycles.h"
 #include "Logger.h"
+#include "LogProtector.h"
 #include "ShortMacros.h"
 #include "Unlock.h"
 #include "WorkerTimer.h"
@@ -299,7 +300,7 @@ void WorkerTimer::Manager::checkTimers(Lock& lock)
         erase(activeTimers, *ready);
         ready->active = false;
         ready->handlerRunning = true;
-        epoch = ServerRpcPool<>::getCurrentEpoch();
+        epoch = LogProtector::getCurrentEpoch();
 
         // Release the monitor lock while the timer handler runs; otherwise,
         // WorkerTimer::handleTimerEvent might hang on the lock for a long

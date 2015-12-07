@@ -62,6 +62,7 @@ CLIENT_SRCFILES := \
 		   src/LogCabinLogger.cc \
 		   src/LogCabinStorage.cc \
 		   src/LogMetricsStringer.cc \
+		   src/LogProtector.cc \
 		   src/MacAddress.cc \
 		   src/MacIpAddress.cc \
 		   src/MasterClient.cc \
@@ -93,7 +94,6 @@ CLIENT_SRCFILES := \
 		   src/ServerIdRpcWrapper.cc \
 		   src/ServerList.cc \
 		   src/ServerMetrics.cc \
-		   src/ServerRpcPool.cc \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \
 		   src/SessionAlarm.cc \

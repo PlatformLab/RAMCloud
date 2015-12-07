@@ -17,6 +17,7 @@
 #include "Object.h"
 #include "LogDigest.h"
 #include "LogMetadata.h"
+#include "LogProtector.h"
 #include "ShortMacros.h"
 #include "SegletAllocator.h"
 #include "SegmentManager.h"
@@ -755,7 +756,7 @@ SegmentManager::freeSegment(LogSegment* segment, bool waitForDigest, Lock& lock)
     // Increment the current epoch and save the last epoch any
     // RPC could have been a part of so we can store it with
     // the segment to be freed.
-    uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
+    uint64_t epoch = LogProtector::incrementCurrentEpoch() - 1;
 
     // Cleaned segments must wait until the next digest has been
     // written (that is, the new segments we cleaned into are part
@@ -1135,9 +1136,12 @@ SegmentManager::freeUnreferencedSegments()
     if (freeablePending.empty())
         return;
 
-    uint64_t earliestEpoch =
-        ServerRpcPool<>::getEarliestOutstandingEpoch(context,
-                Transport::ServerRpc::READ_ACTIVITY);
+    uint64_t earliestEpoch;
+    {
+        Dispatch::Lock lock(context->dispatch);
+        earliestEpoch = LogProtector::getEarliestOutstandingEpoch(
+                            Transport::ServerRpc::READ_ACTIVITY);
+    }
     earliestEpoch = std::min(earliestEpoch,
                         WorkerTimer::getEarliestOutstandingEpoch());
     SegmentList::iterator it = freeablePending.begin();
@@ -1173,7 +1177,7 @@ SegmentManager::freeUnreferencedSegments()
                     "from being freed (segment epoch %lu, RPC epoch %lu, "
                     "current epoch %lu, stuck for %.0f seconds)",
                     skippedCount, savedEpoch, oldestRpcEpoch,
-                    ServerRpcPool<>::getCurrentEpoch(), nextMessageSeconds);
+                    LogProtector::getCurrentEpoch(), nextMessageSeconds);
             nextMessageSeconds += 1.0;
         }
     }
