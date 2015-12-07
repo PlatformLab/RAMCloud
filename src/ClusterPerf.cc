@@ -60,7 +60,7 @@ namespace po = boost::program_options;
 using namespace RAMCloud;
 
 // Shared state for client library.
-Context context(false);
+Context *context;
 
 // Used to invoke RAMCloud operations.
 static RamCloud* cluster;
@@ -1883,6 +1883,7 @@ basic()
         writeDists[i] =  writeRandomObjects(dataTable, numObjects, keyLength,
                 size, 100000, 2.0);
     }
+    Logger::get().sync();
 
     // Print out the results (in a different order):
     for (int i = 0; i < NUM_SIZES; i++) {
@@ -4939,7 +4940,7 @@ readAllToAll()
                 uint64_t startCycles = Cycles::rdtsc();
                 ReadRpc read(cluster, tableId, key, keyLength, &result);
                 while (!read.isReady()) {
-                    context.dispatch->poll();
+                    context->dispatch->poll();
                     double secsWaiting =
                         Cycles::toSeconds(Cycles::rdtsc() - startCycles);
                     if (secsWaiting > 1.0) {
@@ -4977,7 +4978,7 @@ readAllToAll()
         uint64_t startCycles = Cycles::rdtsc();
         ReadRpc read(cluster, tableId, key, keyLength, &result);
         while (!read.isReady()) {
-            context.dispatch->poll();
+            context->dispatch->poll();
             if (Cycles::toSeconds(Cycles::rdtsc() - startCycles) > 1.0) {
                 RAMCLOUD_LOG(ERROR,
                             "Master client %d couldn't read from tableId %lu",
@@ -6159,7 +6160,9 @@ try
         exit(1);
     }
 
-    RamCloud r(&context, coordinatorLocator.c_str());
+    Context realContext;
+    context = &realContext;
+    RamCloud r(&realContext, coordinatorLocator.c_str());
     cluster = &r;
     cluster->createTable("data");
     dataTable = cluster->getTableId("data");
