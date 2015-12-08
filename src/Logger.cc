@@ -531,6 +531,7 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
         // a while). Save information so we don't print this message again
         // for a while.
         skip->message.assign(buffer, charsWritten);
+        skip->skipCount = 0;
         skip->nextPrintTime = Util::timespecAdd(now,
                 {collapseIntervalMs/1000,
                 (collapseIntervalMs%1000)*1000000});
