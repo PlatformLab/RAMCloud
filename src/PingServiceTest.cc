@@ -163,8 +163,13 @@ TEST_F(PingServiceTest, getServerId) {
 }
 
 TEST_F(PingServiceTest, getServerId_transportError) {
-    ServerId id = PingClient::getServerId(&context, FailSession::get());
-    EXPECT_EQ("invalid", id.toString());
+    string exceptionMessage("no exception");
+    try {
+        PingClient::getServerId(&context, FailSession::get());
+    } catch (TransportException& e) {
+        exceptionMessage = e.message;
+    }
+    EXPECT_EQ("getServerId RPC failed", exceptionMessage);
 }
 
 TEST_F(PingServiceTest, ping_basics) {

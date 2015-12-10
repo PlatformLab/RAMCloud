@@ -362,10 +362,13 @@ PingClient::logMessage(Context* context, ServerId serverId,
  *      Open connection to another server.
  *
  * \result
- *      True is returned if a getServerId RPC returns confirmation that
- *      the server is the expected one. False is returned if we find out
- *      that the server is *not* the expected one, or if we are unable
- *      to communicate with the server for any reason.
+ *      The ServerId returned by the server. If the server has not yet
+ *      completed its enlistment, then it doesn't have an id so it returns
+ *      an invalid id.
+ *
+ * \throw TransportException
+ *      Thrown if there was a transport-level error that prevented us from
+ *      communicating with the server.
  */
 ServerId
 PingClient::getServerId(Context* context, Transport::SessionRef session)
@@ -395,16 +398,21 @@ GetServerIdRpc::GetServerIdRpc(Context* context, Transport::SessionRef session)
 /**
  * Wait for a getServerId RPC to complete.
  *
- * \return
- *      Returns the ServerId for the server, or an invalid ServerId if
- *      a transport-level problem prevented the RPC from completing.
+ * \result
+ *      The ServerId returned by the server. If the server has not yet
+ *      completed its enlistment, then it doesn't have an id so it returns
+ *      an invalid id.
+ *
+ * \throw TransportException
+ *      Thrown if there was a transport-level error that prevented us from
+ *      communicating with the server.
  */
 ServerId
 GetServerIdRpc::wait()
 {
     waitInternal(context->dispatch);
     if (getState() != FINISHED) {
-        return ServerId();
+        throw TransportException(HERE, "getServerId RPC failed");
     }
     const WireFormat::GetServerId::Response* respHdr(
             getResponseHeader<WireFormat::GetServerId>());
