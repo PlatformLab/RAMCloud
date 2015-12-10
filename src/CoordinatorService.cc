@@ -54,6 +54,8 @@ CoordinatorService::CoordinatorService(Context* context,
     , leaseAuthority(context)
     , runtimeOptions()
     , recoveryManager(context, tableManager, &runtimeOptions)
+    , activeVerifications()
+    , mutex("CoordinatorService::mutex")
     , forceServerDownForTesting(false)
     , neverKill(neverKill)
     , initFinished(false)
@@ -814,29 +816,49 @@ CoordinatorService::checkServerControlRpcs(
  * \param serverId
  *      Server to investigate.
  * \return
- *      True if the server is dead, false if it is alive.
+ *      True if the server is dead, false if it is alive, or if someone
+ *      else is currently checking it.
  * \throw Exception
  *      If \a serverId is not in #serverList.
  */
 bool
-CoordinatorService::verifyServerFailure(ServerId serverId) {
+CoordinatorService::verifyServerFailure(ServerId serverId)
+{
     // Skip the real ping if this is from a unit test
     if (forceServerDownForTesting)
         return true;
     if (neverKill)
         return false;
 
+    // Don't ping this server if someone else is already doing it.
+    uint64_t id = serverId.getId();
+    {
+        Lock lock(mutex);
+        if (activeVerifications.find(id) != activeVerifications.end()) {
+            return false;
+        }
+        activeVerifications.emplace(id);
+    }
+
+    bool result;
     const string& serviceLocator = serverList->getLocator(serverId);
     PingRpc pingRpc(context, serverId, ServerId());
 
     if (pingRpc.wait(deadServerTimeout * 1000 * 1000)) {
         LOG(NOTICE, "False positive for server id %s (\"%s\")",
                     serverId.toString().c_str(), serviceLocator.c_str());
-        return false;
+        result = false;
+    } else {
+        LOG(NOTICE, "Verified host failure: id %s (\"%s\")",
+            serverId.toString().c_str(), serviceLocator.c_str());
+        result = true;
     }
-    LOG(NOTICE, "Verified host failure: id %s (\"%s\")",
-        serverId.toString().c_str(), serviceLocator.c_str());
-    return true;
+
+    {
+        Lock lock(mutex);
+        activeVerifications.erase(id);
+    }
+    return result;
 }
 
 } // namespace RAMCloud

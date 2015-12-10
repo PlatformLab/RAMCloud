@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_COORDINATORSERVICE_H
 #define RAMCLOUD_COORDINATORSERVICE_H
 
+#include <unordered_set>
+
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 #include "TableConfig.pb.h"
@@ -197,6 +199,19 @@ class CoordinatorService : public Service {
      * Handles all master recovery details on behalf of the coordinator.
      */
     MasterRecoveryManager recoveryManager;
+
+    /**
+     * Keeps track of the servers that we are currently checking to see if
+     * they have failed,so we don't start multiple simultaneous checks
+     * for the same server. The keys in this set are Server::getId() results.
+     */
+    std::unordered_set<uint64_t> activeVerifications;
+
+    /**
+     * Used to synchronize access to verifications.
+     */
+    SpinLock mutex;
+    typedef std::lock_guard<SpinLock> Lock;
 
     /**
      * Used for testing only. If true, the HINT_SERVER_CRASHED handler will
