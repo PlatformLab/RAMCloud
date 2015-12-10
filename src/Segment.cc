@@ -373,29 +373,29 @@ uint64_t bufferAppendCount;
  *      Offset in the segment to begin appending from.
  * \param length
  *      Number of bytes in the segment to append, starting from the offset.
- *      This value must not exceed the current end of the segment.
- * \throw FatalError
- *      A FatalError is thrown if #length bytes cannot be appended from #offset,
- *      due to either or both of the parameters being invalid.
+ *      Offset+length must not exceed the current size of the segment.
  */
 void
 Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
 {
-    while (length > 0) {
+    uint32_t currentOffset = offset;
+    uint32_t currentLength = length;
+    while (currentLength > 0) {
         const void* contigPointer = NULL;
-        uint32_t contigBytes = std::min(length, peek(offset, &contigPointer));
-        if (contigBytes == 0)
-            break;
+        uint32_t contigBytes = std::min(currentLength,
+                peek(currentOffset, &contigPointer));
+        if (contigBytes == 0) {
+            DIE("invalid offset (%u) and/or length (%u); "
+                    "segment has %lu seglets, total length %lu, "
+                    "currentOffset %u",
+                    offset, length, segletBlocks.size(),
+                    segletSize * segletBlocks.size(), currentOffset);
+        }
 
         buffer.append(contigPointer, contigBytes);
 
-        offset += contigBytes;
-        length -= contigBytes;
-    }
-
-    if (length != 0) {
-        throw FatalError(HERE, format("invalid length (%u) and/or offset (%u) "
-            "parameter(s)", length, offset));
+        currentOffset += contigBytes;
+        currentLength -= contigBytes;
     }
 }
 
@@ -843,10 +843,17 @@ Segment::copyOut(uint32_t offset, void* buffer, uint32_t length) const
 Segment::EntryHeader
 Segment::getEntryHeader(uint32_t offset)
 {
+    if (this == NULL) {
+        DIE("Null `this` pointer");
+    }
     static_assert(sizeof(EntryHeader) == 1,
                   "Contiguity in segments not guaranteed!");
     const EntryHeader* header = NULL;
     peek(offset, reinterpret_cast<const void**>(&header));
+    if (header == NULL) {
+        DIE("Null header; offset %u, segment length %u",
+                offset, head);
+    }
     return *header;
 }
 
