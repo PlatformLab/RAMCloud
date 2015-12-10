@@ -83,6 +83,9 @@ PingService::getServerId(const WireFormat::GetServerId::Request* reqHdr,
         respHdr->serverId = ServerId().getId();
     } else {
         respHdr->serverId = serverId.getId();
+        if (!serverId.isValid()) {
+            RAMCLOUD_LOG(NOTICE, "Returning invalid server id");
+        }
     }
 }
 
