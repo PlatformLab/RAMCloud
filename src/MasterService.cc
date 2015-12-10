@@ -3462,8 +3462,10 @@ MasterService::recover(uint64_t recoveryId, ServerId masterId,
                 task->replica.state = Replica::State::FAILED;
                 runningSet.erase(task->replica.segmentId);
             } catch (const ServerNotUpException& e) {
-                LOG(WARNING, "No record of backup %s, trying next backup",
-                        task->replica.backupId.toString().c_str());
+                LOG(WARNING, "Backup %s no longer in cluster, trying next "
+                        "backup for segment %lu",
+                        task->replica.backupId.toString().c_str(),
+                        task->replica.segmentId);
                 task->replica.state = Replica::State::FAILED;
                 runningSet.erase(task->replica.segmentId);
             } catch (const ClientException& e) {

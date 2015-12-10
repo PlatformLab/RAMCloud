@@ -4271,7 +4271,8 @@ TEST_F(MasterServiceTest, recover) {
             TestLog::get()));
     // 5) Checks bad locators for initial RPCs are handled
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-            "recover: No record of backup 1003.0, trying next backup",
+            "recover: Backup 1003.0 no longer in cluster, trying next "
+            "backup for segment 90",
             TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(5).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
@@ -4287,7 +4288,8 @@ TEST_F(MasterServiceTest, recover) {
             TestLog::get()));
     // 5) Checks bad locators for non-initial RPCs are handled
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
-            "recover: No record of backup 1004.0, trying next backup",
+            "recover: Backup 1004.0 no longer in cluster, trying next "
+            "backup for segment 92",
             TestLog::get()));
     EXPECT_EQ(State::FAILED, replicas.at(7).state);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
