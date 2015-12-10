@@ -516,5 +516,19 @@ TestUtil::readFile(const char* path)
     return result;
 }
 
+/**
+ * Waits for the TestLog to become nonempty, but gives up if a long time
+ * goes by without this happening.
+ */
+void
+TestUtil::waitForLog()
+{
+    // See "Timing-Dependent Tests" in designNotes.
+    for (int i = 0; i < 10000; i++) {
+        if (!TestLog::get().empty())
+            return;
+        usleep(100);
+    }
+}
 
 } // namespace RAMCloud

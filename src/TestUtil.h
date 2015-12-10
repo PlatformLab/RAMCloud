@@ -64,6 +64,7 @@ class TestUtil {
     static string toString(const void* buf, uint32_t length);
     static string toString(Buffer* buffer, uint32_t offset, uint32_t length);
     static string toString(Buffer* buffer);
+    static void waitForLog();
 
     /**
     * Return a string returned from the given object's stream operator.
