@@ -188,6 +188,14 @@ TEST_F(AbstractServerListTest, getSession_basics) {
 TEST_F(AbstractServerListTest, getSession_bogusId) {
     EXPECT_EQ("fail:", sl.getSession({9999, 22})->getServiceLocator());
 }
+TEST_F(AbstractServerListTest, getSession_serverCrashed) {
+    MockTransport transport(&context);
+    context.transportManager->registerMock(&transport);
+
+    ServerId id1 = sl.add("mock:id=1", ServerStatus::CRASHED);
+    Transport::SessionRef session1 = sl.getSession(id1);
+    EXPECT_EQ("fail:", session1->getServiceLocator());
+}
 TEST_F(AbstractServerListTest, getSession_verifyServerId) {
     AbstractServerList::skipServerIdCheck = false;
     BindTransport transport(&context);
@@ -206,6 +214,18 @@ TEST_F(AbstractServerListTest, getSession_verifyServerId) {
     EXPECT_EQ("getSession: server for locator mock:host=ping has incorrect "
             "id (expected 1.0, got 0.0); discarding session",
             TestLog::get());
+}
+TEST_F(AbstractServerListTest, getSession_transportException) {
+    AbstractServerList::skipServerIdCheck = false;
+    BindTransport transport(&context);
+    TransportManager::MockRegistrar mockRegistrar(&context, transport);
+    ServerId id1 = sl.add("error:", ServerStatus::UP,
+            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE});
+    TestLog::Enable _;
+    Transport::SessionRef session = sl.getSession(id1);
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(), "getSession: couldn't "
+            "verify server id for 0.0: connection failed"));
+    EXPECT_EQ("fail:", session->getServiceLocator());
 }
 TEST_F(AbstractServerListTest, getSession_retryIdVerification) {
     AbstractServerList::skipServerIdCheck = false;

@@ -140,7 +140,7 @@ AbstractServerList::getSession(ServerId id)
     {
         Lock _(mutex);
         ServerDetails* details = iget(id);
-        if (details == NULL)
+        if ((details == NULL) || (details->status != ServerStatus::UP))
             return FailSession::get();
         if (details->session != NULL)
             return details->session;
@@ -157,7 +157,16 @@ AbstractServerList::getSession(ServerId id)
     // See RAM-571 for more on this.
     if (!skipServerIdCheck) {
         while (1) {
-            ServerId actualId = PingClient::getServerId(context, session);
+            ServerId actualId;
+            try {
+                actualId = PingClient::getServerId(context, session);
+            } catch (TransportException& e) {
+                // Can't even communicate with the server; fail the session.
+                RAMCLOUD_LOG(NOTICE,
+                        "couldn't verify server id for %s: connection failed",
+                        id.toString().c_str());
+                return FailSession::get();
+            }
             if (actualId == id) {
                 break;
             }
