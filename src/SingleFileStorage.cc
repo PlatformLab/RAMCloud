@@ -581,8 +581,8 @@ SingleFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
             strerror(errno), offset, count);
     } else if (r != downCast<ssize_t>(count)) {
         DIE("Unexpectedly short write to replica, starting offset in "
-            "file %lu, length %lu",
-             offset, count);
+            "file %lu, length %lu, result %lu",
+             offset, count, r);
     }
     r = pwrite(fd, metadataBuf, metadataCount, metadataOffset);
     PerfStats::threadStats.backupWriteActiveCycles += writeTicks.stop();
