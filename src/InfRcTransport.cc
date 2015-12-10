@@ -440,12 +440,22 @@ InfRcTransport::InfRcSession::cancelRequest(
     }
     foreach (ClientRpc& rpc, transport->outstandingRpcs) {
         if (rpc.notifier == notifier) {
-
-            // Wait until NIC completes all ongoing transmits. This will
-            // guarantee that we don't send garbaged rpc if NIC has already
-            // started DMA transmit of data from the rpc that we want to cancel.
+            // At this point we'd lke to delay until the NIC completes all
+            // ongoing transmits. Otherwise, if a buffer gets reused after we
+            // return, then the NIC could transmit garbage. However, as of
+            // 12/2015 this can cause delays as long as 4 seconds (long
+            // timeouts in the NIC if the target died?), which locks the
+            // dispatch thread and causes this machine to be presumed dead.
+            // So, try to wait for completion, but give up after 1ms if it
+            // doesn't complete.
+            uint64_t start = Cycles::rdtsc();
             while (transport->freeTxBuffers.size() != MAX_TX_QUEUE_DEPTH) {
                 transport->reapTxBuffers();
+                if (Cycles::toSeconds(Cycles::rdtsc() - start) > 1e-03) {
+                    LOG(NOTICE, "gave up waiting for all outstanding "
+                            "transmissions after 1ms");
+                    break;
+                }
             }
             erase(transport->outstandingRpcs, rpc);
             transport->clientRpcPool.destroy(&rpc);
@@ -879,7 +889,8 @@ InfRcTransport::getTransmitBuffer()
             double waitMs = 1e03 * Cycles::toSeconds(Cycles::rdtsc() - start);
             if (waitMs > 5.0)  {
                 LOG(WARNING, "Long delay waiting for transmit buffers "
-                        "(%.1f ms); deadlock or target crashed?", waitMs);
+                        "(%.1f ms elapsed, %lu buffers now free); deadlock "
+                        "or target crashed?", waitMs, freeTxBuffers.size());
             }
         }
     }
