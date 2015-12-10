@@ -203,14 +203,16 @@ Server::enlist(ServerId replacingId)
                                                backupReadSpeed);
     LOG(NOTICE, "Enlisted; serverId %s", serverId.toString().c_str());
 
+    // Finish PingService initialization first, so that the getServerId
+    // RPC will work; otherwise, no one can open connections to us.
+    if (ping)
+        ping->setServerId(serverId);
     if (master)
         master->setServerId(serverId);
     if (backup)
         backup->setServerId(serverId);
     if (membership)
         membership->setServerId(serverId);
-    if (ping)
-        ping->setServerId(serverId);
 
     if (config.detectFailures) {
         failureDetector.construct(context, serverId);
