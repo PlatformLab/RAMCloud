@@ -56,7 +56,6 @@ class BackupService : public Service
         WireFormat::BackupGetRecoveryData::Response* respHdr,
         Rpc* rpc);
     void killAllStorage();
-    void logOpenReplicas();
     void recoveryComplete(
         const WireFormat::BackupRecoveryComplete::Request* reqHdr,
         WireFormat::BackupRecoveryComplete::Response* respHdr,
@@ -187,13 +186,6 @@ class BackupService : public Service
      * become zero pretty soon after startup.
      */
     int oldReplicas;
-
-    /**
-     * Cycles::rdtsc time of the last time when logOpenReplicas was
-     * called as a result of a replica open failure (used to avoid
-     * printing too many of these messages).
-     */
-    uint64_t lastLogTime;
 
     /**
      * Try to garbage collect replicas from a particular master found on disk

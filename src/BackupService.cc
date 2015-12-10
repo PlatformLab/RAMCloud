@@ -57,7 +57,6 @@ BackupService::BackupService(Context* context,
     , testingSkipCallerIdCheck(false)
     , taskQueue()
     , oldReplicas(0)
-    , lastLogTime(0)
 {
     context->services[WireFormat::BACKUP_SERVICE] = this;
     if (config->backup.inMemory) {
@@ -589,20 +588,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
     if (reqHdr->open && !frame) {
         LOG(DEBUG, "Opening <%s,%lu>", masterId.toString().c_str(),
             segmentId);
-        try {
-            frame = storage->open(config->backup.sync);
-        } catch (const BackupOpenRejectedException& e) {
-            // We have exceeded the limit on the number of open replicas.
-            // Print out info about all of the open replicas, in case that's
-            // useful for debugging. However, only do it occasionally to
-            // avoid generating too much log data.
-            uint64_t now = Cycles::rdtsc();
-            if (Cycles::toSeconds(now - lastLogTime) > 1.0) {
-                logOpenReplicas();
-                lastLogTime = now;
-            }
-            throw;
-        }
+        frame = storage->open(config->backup.sync);
         frames[MasterSegmentIdPair(masterId, segmentId)] = frame;
     }
 
@@ -651,29 +637,6 @@ try {
 } catch (...) {
     LOG(ERROR, "Unknown fatal error in BackupService::gcThread.");
     throw;
-}
-
-/**
- * Generate a log message containing the identifiers for all replicas
- * that are currently open.
- */
-void
-BackupService::logOpenReplicas()
-{
-    string frameList;
-    for (FrameMap::iterator it = frames.begin(); it != frames.end(); it++) {
-        MasterSegmentIdPair id = it->first;
-        BackupStorage::FrameRef& frame = it->second;
-        if (!frame->currentlyOpen())
-            continue;
-        if (!frameList.empty())
-            frameList.append(" ");
-        char buffer[100];
-        snprintf(buffer, sizeof(buffer), "<%s, %lu>",
-                id.masterId.toString().c_str(), id.segmentId);
-        frameList.append(buffer);
-    }
-    LOG(NOTICE, "Segment replicas currently open: %s", frameList.c_str());
 }
 
 /**
