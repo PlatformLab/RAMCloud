@@ -63,6 +63,9 @@ class SpinLock {
     /// Count of the number of processor ticks spent waiting to acquire this
     /// lock due to it having already been held.
     uint64_t contendedTicks;
+
+    /// True means log when waiting for the lock; intended for unit tests only.
+    bool logWaits;
 };
 
 } // end RAMCloud
