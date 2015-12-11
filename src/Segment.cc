@@ -465,7 +465,7 @@ Segment::getEntry(uint32_t offset, Buffer* buffer, uint32_t* lengthWithMetadata)
  * pointing to the entry. This the main method used to access entries that have
  * been appended to a segment.
  *
- * \param reference 
+ * \param reference
  *      The Segment::Reference object pointing to the desired entry. This should
  *      always have been a result of a previous call to Segment::getReference().
  * \param buffer
@@ -492,7 +492,7 @@ Segment::getEntry(Reference reference,
     // If 'p' points to the first byte of a seglet, 'it' will point to the
     // seglet base address that we want. Otherwise, it will point one higher,
     // so we need to adjust.
-    if (it > segletBlocks.begin() && p != *(it - 1))
+    if (it > segletBlocks.begin() && p != *it)
         it--;
 
     assert(it != segletBlocks.end());
@@ -626,7 +626,7 @@ Segment::getEntry(Buffer* buffer, uint32_t offset,
  * Return the total number of bytes appended to the segment. Calling this method
  * before and after an append will indicate exactly how many bytes were consumed
  * in storing the appended entry, including metadata.
- * 
+ *
  * A SegmentCertificate which can be used to validate the integrity of the
  * segment's metadata is optionally passed back by value in the 'certificate'
  * parameter.  A copy must be done since the certificate will change on the
