@@ -54,6 +54,12 @@ class TxRecoveryManager : public WorkerTimer {
     SpinLock lock;
     typedef std::lock_guard<SpinLock> Lock;
 
+    /// Used to ensure only one timer handler is running at a time.  We don't
+    /// use the monitor lock for this purpose because we don't want to block
+    /// other TxRecoveryManger operations while the handler is running (blocking
+    /// all operations during the timer handler caused deadlock; RAM-820).
+    SpinLock handlerLock;
+
     /// Overall information about this server.
     Context* context;
 

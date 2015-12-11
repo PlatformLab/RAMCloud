@@ -15,6 +15,7 @@
 
 #include "TxRecoveryManager.h"
 #include "MasterService.h"
+#include "Unlock.h"
 
 namespace RAMCloud {
 
@@ -27,6 +28,7 @@ namespace RAMCloud {
 TxRecoveryManager::TxRecoveryManager(Context* context)
     : WorkerTimer(context->dispatch)
     , lock("TxRecoveryManager::lock")
+    , handlerLock("TxRecoveryManager::handlerLock")
     , context(context)
     , recoveringIds()
     , recoveries()
@@ -41,7 +43,16 @@ TxRecoveryManager::TxRecoveryManager(Context* context)
 void
 TxRecoveryManager::handleTimerEvent()
 {
-    Lock _(lock);
+    Lock lockMonitor(lock);
+
+    // Make sure only one handler is running at a time.  If there is another
+    // handler already running, just reschedule the timer.
+    if (!handlerLock.try_lock()) {
+        TEST_LOG("Handler already running.");
+        this->start(0);
+        return;
+    }
+    Lock running(handlerLock, std::adopt_lock);
 
     // See if any of the recoveries need to do more work.
     RecoveryList::iterator it = recoveries.begin();
@@ -52,7 +63,12 @@ TxRecoveryManager::handleTimerEvent()
             recoveringIds.erase(task->getId());
             it = recoveries.erase(it);
         } else {
-            task->performTask();
+            {
+                // Unlock the monitor lock while processing each recovery task;
+                // prevents deadlock described in RAM-820.
+                Unlock<SpinLock> unlockMonitor(lock);
+                task->performTask();
+            }
             it++;
         }
     }

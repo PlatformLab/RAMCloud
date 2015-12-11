@@ -199,7 +199,7 @@ class TxRecoveryManagerTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(TxRecoveryManagerTest);
 };
 
-TEST_F(TxRecoveryManagerTest, handleTimerEvent) {
+TEST_F(TxRecoveryManagerTest, handleTimerEvent_basic) {
     insertRecovery(1, 1, 4);
     insertRecovery(2, 4, 1);
 
@@ -227,6 +227,17 @@ TEST_F(TxRecoveryManagerTest, handleTimerEvent) {
     txRecoveryManager.handleTimerEvent();
     EXPECT_FALSE(txRecoveryManager.isRunning());
     EXPECT_EQ(0U, txRecoveryManager.recoveries.size());
+}
+
+TEST_F(TxRecoveryManagerTest, handleTimerEvent_duplicate) {
+    TestLog::reset();
+    EXPECT_FALSE(txRecoveryManager.isRunning());
+    {
+        TxRecoveryManager::Lock _(txRecoveryManager.handlerLock);
+        txRecoveryManager.handleTimerEvent();
+    }
+    EXPECT_EQ("handleTimerEvent: Handler already running.", TestLog::get());
+    EXPECT_TRUE(txRecoveryManager.isRunning());
 }
 
 TEST_F(TxRecoveryManagerTest, handleTxHintFailed_basic) {
