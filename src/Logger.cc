@@ -530,7 +530,9 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
         // collapsible message (either it's new or  we haven't printed it in
         // a while). Save information so we don't print this message again
         // for a while.
-        skip->message.assign(buffer, charsWritten);
+        if (skip->message.empty()) {
+            skip->message.assign(buffer, charsWritten);
+        }
         skip->skipCount = 0;
         skip->nextPrintTime = Util::timespecAdd(now,
                 {collapseIntervalMs/1000,
@@ -608,7 +610,7 @@ Logger::cleanCollapseMap(struct timespec now)
             string newMessage = format("%010lu.%09lu", now.tv_sec, now.tv_nsec)
                     + skip->message.substr(20, i+2-20)
                     + format(" (%d duplicates of this message were skipped)",
-                    skip->skipCount-1)
+                    skip->skipCount)
                     + skip->message.substr(i+2);
             if (addToBuffer(newMessage.c_str(),
                     downCast<int>(newMessage.size()))) {

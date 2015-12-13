@@ -388,8 +388,8 @@ class Logger {
  */
 #define RAMCLOUD_DIE(format_, ...) do { \
     RAMCLOUD_LOG(RAMCloud::ERROR, format_, ##__VA_ARGS__); \
-    Logger::get().sync(); \
     RAMCLOUD_BACKTRACE(RAMCloud::ERROR); \
+    Logger::get().sync(); \
     throw RAMCloud::FatalError(HERE, \
                                RAMCloud::format(format_, ##__VA_ARGS__)); \
 } while (0)

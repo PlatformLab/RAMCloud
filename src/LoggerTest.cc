@@ -288,12 +288,33 @@ TEST_F(LoggerTest, logMessage_collapseDuplicates) {
     // Wait a while and log the original message; one more copy should appear.
     testTime.tv_nsec += 2000000;
     logger.setLogFile("__test.log", true);
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 3; i++) {
         logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
                 CodeLocation("file", 99, "func", "pretty"), "first ");
     }
     EXPECT_EQ("0000000003.503000000 file:99 in func ERROR[1]: "
             "(4 duplicates of this message were skipped) first ",
+            getLog("__test.log"));
+
+    // Wait another while and log the original message; one more copy
+    // should appear.
+    testTime.tv_nsec += 2000000;
+    logger.setLogFile("__test.log", true);
+    for (int i = 0; i < 2; i++) {
+        logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
+                CodeLocation("file", 99, "func", "pretty"), "first ");
+    }
+    EXPECT_EQ("0000000003.505000000 file:99 in func ERROR[1]: "
+            "(2 duplicates of this message were skipped) first ",
+            getLog("__test.log"));
+
+    // Wait another while, then call collapseDuplicates to clean
+    // things up.
+    testTime.tv_nsec += 2000000;
+    logger.setLogFile("__test.log", true);
+    logger.cleanCollapseMap(testTime);
+    EXPECT_EQ("0000000003.507000000 file:99 in func ERROR[1]: "
+            "(1 duplicates of this message were skipped) first ",
             getLog("__test.log"));
 }
 
@@ -439,7 +460,7 @@ TEST_F(LoggerTest, cleanCollapseMap_print) {
             "0000000001.000000003 WARNING[1]: message3\n");
     logger.cleanCollapseMap({1, 500000000});
     EXPECT_EQ("0000000001.500000000 WARNING[1]: "
-            "(7 duplicates of this message were skipped) message2\n",
+            "(8 duplicates of this message were skipped) message2\n",
             getLog("__test.log"));
     EXPECT_EQ(2U, logger.collapseMap.size());
     EXPECT_EQ(6, logger.collapseMap[pair2].nextPrintTime.tv_sec);
@@ -527,6 +548,13 @@ TEST_F(LoggerTest, assertionError) {
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
             "file:99 in function .* Assertion `assertion info' failed",
             getLog("__test.log")));
+}
+
+TEST_F(LoggerTest, printProcInfo) {
+    printf("*** /proc/self/stat:\n%s",
+            TestUtil::readFile("/proc/self/stat").c_str());
+    printf("\n*** /proc/self/statm:\n%s",
+            TestUtil::readFile("/proc/self/statm").c_str());
 }
 
 }  // namespace RAMCloud
