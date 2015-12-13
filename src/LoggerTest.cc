@@ -550,11 +550,4 @@ TEST_F(LoggerTest, assertionError) {
             getLog("__test.log")));
 }
 
-TEST_F(LoggerTest, printProcInfo) {
-    printf("*** /proc/self/stat:\n%s",
-            TestUtil::readFile("/proc/self/stat").c_str());
-    printf("\n*** /proc/self/statm:\n%s",
-            TestUtil::readFile("/proc/self/statm").c_str());
-}
-
 }  // namespace RAMCloud
