@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -88,7 +88,7 @@ TEST_F(AbstractLogTest, append_basic) {
     LogSegment* oldHead = l.head;
 
     int appends = 0;
-    uint64_t original = l.totalBytesRemaining;
+    uint64_t original = l.totalLiveBytes;
     while (l.append(LOG_ENTRY_TYPE_OBJ, data, dataLen)) {
         if (appends++ == 0)
             EXPECT_EQ(oldHead, l.head);
@@ -98,7 +98,7 @@ TEST_F(AbstractLogTest, append_basic) {
     }
     // This depends on ServerConfig's number of bytes allocated to the log.
     EXPECT_EQ(303, appends);
-    EXPECT_EQ(19858923U, original - l.totalBytesRemaining);
+    EXPECT_EQ(19858923U, l.totalLiveBytes - original);
 
     // getEntry()'s test ensures actual data gets there.
 
@@ -190,9 +190,9 @@ TEST_F(AbstractLogTest, free) {
     sourceBuffer.appendExternal(&data, sizeof(data));
     Log::Reference ref;
     l.append(LOG_ENTRY_TYPE_OBJ, sourceBuffer, &ref);
-    uint64_t original = l.totalBytesRemaining;
+    uint64_t original = l.totalLiveBytes;
     l.free(ref);
-    EXPECT_EQ(10U, l.totalBytesRemaining - original);
+    EXPECT_EQ(10U, original - l.totalLiveBytes);
 }
 
 TEST_F(AbstractLogTest, getEntry) {
@@ -234,9 +234,13 @@ TEST_F(AbstractLogTest, getSegmentId) {
 }
 
 TEST_F(AbstractLogTest, hasSpaceFor) {
-    uint64_t original = l.totalBytesRemaining;
+    TestLog::Enable _;
+    uint64_t original = l.maxLiveBytes - l.totalLiveBytes;
     EXPECT_TRUE(l.hasSpaceFor(original));
     EXPECT_FALSE(l.hasSpaceFor(original + 1));
+    EXPECT_EQ("hasSpaceFor: Memory capacity exceeded; must delete objects "
+            "before any more new objects can be created",
+            TestLog::get());
 }
 
 TEST_F(AbstractLogTest, segmentExists) {
@@ -291,6 +295,7 @@ class MockLog : public AbstractLog {
 };
 
 TEST_F(AbstractLogTest, allocNewWritableHead) {
+    TestLog::Enable _;
     MockLog ml(&l);
 
     ml.head = reinterpret_cast<LogSegment*>(0xdeadbeef);
@@ -298,20 +303,20 @@ TEST_F(AbstractLogTest, allocNewWritableHead) {
     EXPECT_FALSE(ml.allocNewWritableHead());
     EXPECT_EQ(reinterpret_cast<LogSegment*>(0xdeadbeef), ml.head);
     EXPECT_TRUE(ml.metrics.noSpaceTimer);
+    EXPECT_EQ("allocNewWritableHead: No clean segments available; deferring "
+            "operations until cleaner runs", TestLog::get());
 
     ml.returnSegment = true;
     EXPECT_TRUE(ml.allocNewWritableHead());
     EXPECT_EQ(&ml.segment, ml.head);
     EXPECT_FALSE(ml.metrics.noSpaceTimer);
     EXPECT_NE(0U, ml.metrics.totalNoSpaceTicks);
+    EXPECT_EQ(37729075lu, ml.maxLiveBytes);
 
     *const_cast<bool*>(&ml.head->isEmergencyHead) = true;
     EXPECT_FALSE(ml.allocNewWritableHead());
     EXPECT_EQ(&ml.segment, ml.head);
     EXPECT_TRUE(ml.metrics.noSpaceTimer);
-
-    // Ensure mustNotFail was false in allocNextSegment()
-    EXPECT_EQ("", TestLog::get());
 }
 
 } // namespace RAMCloud

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -34,7 +34,7 @@ namespace RAMCloud {
  *      (e.g. a required option was missing, or the host name
  *      couldn't be parsed).
  */
-IpAddress::IpAddress(const ServiceLocator& serviceLocator)
+IpAddress::IpAddress(const ServiceLocator* serviceLocator)
     : address()
 {
     try {
@@ -45,7 +45,7 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
         sockaddr_in* addr = reinterpret_cast<sockaddr_in*>(&address);
         addr->sin_family = AF_INET;
 
-        std::string hostName = serviceLocator.getOption("host");
+        std::string hostName = serviceLocator->getOption("host");
 
         // Warning! The return value from getthostbyname_r is advertised
         // as being the same as what is returned at error, but it is not;
@@ -66,7 +66,7 @@ IpAddress::IpAddress(const ServiceLocator& serviceLocator)
                                         hostName + "'", serviceLocator);
         }
         memcpy(&addr->sin_addr, host.h_addr, sizeof(addr->sin_addr));
-        uint16_t port = serviceLocator.getOption<uint16_t>("port");
+        uint16_t port = serviceLocator->getOption<uint16_t>("port");
         addr->sin_port = HTONS(port);
     } catch (ServiceLocator::NoSuchKeyException& e) {
         throw BadIpAddressException(HERE, e.message, serviceLocator);

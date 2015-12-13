@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -75,6 +75,7 @@ SingleFileStorage::Frame::Frame(SingleFileStorage* storage, size_t frameIndex)
     , isOpen(false)
     , isClosed(false)
     , sync(false)
+    , isWriteBuffer(false)
     , appendedToByCurrentProcess(false)
     , appendedLength(0)
     , committedLength(0)
@@ -120,8 +121,19 @@ SingleFileStorage::Frame::schedule(Priority priority)
  *      Lock on the storage mutex which must be held before calling.
  *      Not actually used; just here to sanity check locking.
  * \param priority
- *      Priority of this task versus others. Reads are performed with
- *      NORMAL priority; writes are performed with LOW priority.
+ *      Priority of this task versus others. Reads (which are executed
+ *      only as part of crash recovery) are performed with NORMAL
+ *      priority. Writes to open replicas are performed with
+ *      LOW priority (i.e., do if time permits, but reads are higher
+ *      priority). Once a replica is closed, then its (final) write
+ *      executes at HIGH priority. This is needed to avoid stalling
+ *      crash recovery. In the past, all writes were at LOW priority,
+ *      but this could cause dirty replicas to accumulate while
+ *      reading segments for recovery. Eventually, maxWriteBuffers
+ *      gets exceeded in the entire cluster, so masters cannot open
+ *      new write segments, which stalls segment replay and causes
+ *      many bad things to happen.  Thus, once a replica is full we
+ *      need to get it to secondary storage ASAP.
  */
 void
 SingleFileStorage::Frame::schedule(Lock& lock, Priority priority)
@@ -380,8 +392,17 @@ SingleFileStorage::Frame::close()
     if (isSynced()) {
         if (buffer) {
             buffer.reset();
-            --storage->nonVolatileBuffersInUse;
+            if (isWriteBuffer) {
+                --storage->writeBuffersInUse;
+                isWriteBuffer = false;
+            }
         }
+    } else {
+        // This frame was already scheduled for I/O previously, but
+        // at low priority. Now that it's closed, raise the priority
+        // so it gets to secondary storage quickly and we can free its
+        // buffer in memory.
+        schedule(lock, HIGH);
     }
 }
 
@@ -444,7 +465,10 @@ SingleFileStorage::Frame::free()
 
     if (buffer) {
         buffer.reset();
-        --storage->nonVolatileBuffersInUse;
+        if (isWriteBuffer) {
+            --storage->writeBuffersInUse;
+            isWriteBuffer = false;
+        }
     }
 
     storage->freeMap[frameIndex] = 1;
@@ -492,10 +516,11 @@ SingleFileStorage::Frame::open(bool sync)
 
     // Be careful, if this method throws an exception the storage layer
     // above will leak the count of a non-volatile buffer.
-    storage->nonVolatileBuffersInUse++;
+    storage->writeBuffersInUse++;
     isOpen = true;
     isClosed = false;
     this->sync = sync;
+    isWriteBuffer = true;
     appendedLength = 0;
     committedLength = 0;
     memset(appendedMetadata.get(), '\0', METADATA_SIZE);
@@ -556,8 +581,8 @@ SingleFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
             strerror(errno), offset, count);
     } else if (r != downCast<ssize_t>(count)) {
         DIE("Unexpectedly short write to replica, starting offset in "
-            "file %lu, length %lu",
-             offset, count);
+            "file %lu, length %lu, result %lu",
+             offset, count, r);
     }
     r = pwrite(fd, metadataBuf, metadataCount, metadataOffset);
     PerfStats::threadStats.backupWriteActiveCycles += writeTicks.stop();
@@ -611,7 +636,6 @@ SingleFileStorage::Frame::performRead(Lock& lock)
 {
     assert(loadRequested);
     BufferPtr buffer = storage->allocateBuffer();
-    storage->nonVolatileBuffersInUse++;
     const size_t frameStart = storage->offsetOfFrame(frameIndex);
 
     if (testingSkipRealIo) {
@@ -619,6 +643,7 @@ SingleFileStorage::Frame::performRead(Lock& lock)
     } else {
         ++metrics->backup.storageReadCount;
         metrics->backup.storageReadBytes += storage->segmentSize;
+        ++PerfStats::threadStats.backupReadOps;
         PerfStats::threadStats.backupReadBytes += storage->segmentSize;
         // Lock released during this call; assume any field could have changed.
         storage->unlockedRead(lock, buffer.get(),
@@ -669,6 +694,7 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
     } else {
         ++metrics->backup.storageWriteCount;
         metrics->backup.storageWriteBytes += dirtyLength;
+        ++PerfStats::threadStats.backupWriteOps;
         PerfStats::threadStats.backupWriteBytes += dirtyLength;
         // Lock released during this call; assume any field could have changed.
         storage->unlockedWrite(lock, firstDirtyBlock, dirtyLength,
@@ -686,7 +712,9 @@ SingleFileStorage::Frame::performWrite(Lock& lock)
     // Release the in-memory copy if it won't be used again.
     if (isClosed && isSynced() && !loadRequested && buffer) {
         buffer.reset();
-        --storage->nonVolatileBuffersInUse;
+        assert(isWriteBuffer);
+        --storage->writeBuffersInUse;
+        isWriteBuffer = false;
     }
 
     if (loadRequested) {
@@ -754,14 +782,9 @@ SingleFileStorage::BufferDeleter::operator()(void* buffer)
  *      When specified, writes to this storage instance should be limited
  *      to at most the given rate (in megabytes per second). The special
  *      value 0 turns off throttling.
- * \param maxNonVolatileBuffers
- *      Limit on the number of non-volatile buffers storage will fill with
- *      replica data queued for store before rejecting new open requests
- *      from masters. Setting this too low can severely impact recovery
- *      performance in small clusters. This is because replica loads are
- *      prioritized over stores during recovery so for recovery to proceed
- *      quickly the cluster must be able to buffer all the replicas generated
- *      during recovery.
+ * \param maxWriteBuffers
+ *      Limit on the number of segment replicas representing new data from
+ *      masters that can be stored in memory at any given time.
  * \param filePath
  *      A filesystem path to the device or file where segments will be stored.
  *      If NULL then a temporary file in the system temp directory is created
@@ -775,7 +798,7 @@ SingleFileStorage::BufferDeleter::operator()(void* buffer)
 SingleFileStorage::SingleFileStorage(size_t segmentSize,
                                      size_t frameCount,
                                      size_t writeRateLimit,
-                                     size_t maxNonVolatileBuffers,
+                                     size_t maxWriteBuffers,
                                      const char* filePath,
                                      int openFlags)
     : BackupStorage(segmentSize, Type::DISK, writeRateLimit)
@@ -791,8 +814,8 @@ SingleFileStorage::SingleFileStorage(size_t segmentSize,
     , fd(-1)
     , usingDevNull(filePath != NULL && string(filePath) == "/dev/null")
     , tempFilePath()
-    , nonVolatileBuffersInUse(0)
-    , maxNonVolatileBuffers(maxNonVolatileBuffers)
+    , writeBuffersInUse(0)
+    , maxWriteBuffers(maxWriteBuffers)
     , bufferDeleter(this)
     , buffers()
 {
@@ -928,10 +951,10 @@ SingleFileStorage::FrameRef
 SingleFileStorage::open(bool sync)
 {
     Lock lock(mutex);
-    if (nonVolatileBuffersInUse >= maxNonVolatileBuffers) {
+    if (writeBuffersInUse >= maxWriteBuffers) {
         // Force the master to find some place else and/or backoff.
-        LOG(DEBUG, "Master tried to open a storage frame but too many "
-            "frames already buffered to accept it; rejecting");
+        RAMCLOUD_CLOG(NOTICE, "Master tried to open a storage frame but %lu "
+            "frames already buffered; rejecting", writeBuffersInUse);
         throw BackupOpenRejectedException(HERE);
     }
     FreeMap::size_type next = freeMap.find_next(lastAllocatedFrame);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,6 +16,7 @@
 #include "TransportManager.h"
 
 #include "AbstractServerList.h"
+#include "Cycles.h"
 #include "PingClient.h"
 #include "FailSession.h"
 #include "ServerTracker.h"
@@ -139,7 +140,7 @@ AbstractServerList::getSession(ServerId id)
     {
         Lock _(mutex);
         ServerDetails* details = iget(id);
-        if (details == NULL)
+        if ((details == NULL) || (details->status != ServerStatus::UP))
             return FailSession::get();
         if (details->session != NULL)
             return details->session;
@@ -155,11 +156,33 @@ AbstractServerList::getSession(ServerId id)
     // the server uses the same locator, but has a different server id).
     // See RAM-571 for more on this.
     if (!skipServerIdCheck) {
-        if (!PingClient::verifyServerId(context, session, id)) {
-            RAMCLOUD_LOG(NOTICE, "couldn't verify server id %s for "
-                    "locator %s; discarding session",
-                    id.toString().c_str(), locator.c_str());
-            return FailSession::get();
+        while (1) {
+            ServerId actualId;
+            try {
+                actualId = PingClient::getServerId(context, session);
+            } catch (TransportException& e) {
+                // Can't even communicate with the server; fail the session.
+                RAMCLOUD_LOG(NOTICE,
+                        "couldn't verify server id for %s: connection failed",
+                        id.toString().c_str());
+                return FailSession::get();
+            }
+            if (actualId == id) {
+                break;
+            }
+            if (actualId.isValid()) {
+                RAMCLOUD_LOG(NOTICE, "server for locator %s has incorrect id "
+                        "(expected %s, got %s); discarding session",
+                        locator.c_str(), id.toString().c_str(),
+                        actualId.toString().c_str());
+                return FailSession::get();
+            }
+            // If we get here, it means that the server doesn't yet know its
+            // id (it must not have completed the enlistment process yet).
+            // Keep trying.
+            RAMCLOUD_CLOG(NOTICE, "retrying server id check for %s: "
+                    "server not yet enlisted", id.toString().c_str());
+            Cycles::sleep(1000);
         }
     }
 

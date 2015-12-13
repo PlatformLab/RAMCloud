@@ -41,6 +41,7 @@ struct CodeLocation {
                       relativeFile().c_str(),
                       line);
     }
+    const char* baseFileName() const;
     string relativeFile() const;
     string qualifiedFunction() const;
 

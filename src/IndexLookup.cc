@@ -393,7 +393,7 @@ IndexLookup::getNext()
         if (curObj->getPKHash() != activeHashes[numRemoved & ARRAY_MASK]) {
             // If the PKHash does not match, then that should mean that
             // this output is meant for a later pKHash. Here, we "assert" that
-            if (DEBUG_BUILD) {
+            #if DEBUG_BUILD
                 bool found = false;
                 size_t end = (numAssigned & ARRAY_MASK);
                 for (size_t i = numRemoved; (i & ARRAY_MASK) != end; ++i) {
@@ -404,7 +404,7 @@ IndexLookup::getNext()
                 }
 
                 assert(found);
-            }
+            #endif
 
             haveObjectToReturn = false;
             curOffset = origOffset; // Rollback for future consumption.

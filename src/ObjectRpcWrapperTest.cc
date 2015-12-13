@@ -37,7 +37,7 @@ class ObjRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
         snprintf(buffer, sizeof(buffer), "mock:refresh=%d", called);
 
         tableMap->clear();
-        Tablet rawEntry({10, 0, ~0, ServerId(),
+        Tablet rawEntry({10, 0, uint64_t(~0), ServerId(),
                     Tablet::NORMAL, LogPosition()});
         TabletWithLocator entry(rawEntry, buffer);
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +18,7 @@
 
 #include "Log.h"
 #include "LogCleaner.h"
+#include "PerfStats.h"
 #include "ServerConfig.h"
 #include "ShortMacros.h"
 
@@ -49,16 +50,13 @@ AbstractLog::AbstractLog(LogEntryHandlers* entryHandlers,
       segmentSize(segmentSize),
       head(NULL),
       appendLock("AbstractLog::appendLock"),
-      totalBytesRemaining(0),
+      totalLiveBytes(0),
+      maxLiveBytes(0),
       metrics()
 {
-    // Steve Rumble suggests that the correct percentage of memory we allow to
-    // be used for live data is 98%, but we are being more conservative because
-    // we expect performance to degrade at even lower utlizations.
-    SegletAllocator& alloc = segmentManager->getAllocator();
-    totalBytesRemaining = static_cast<uint64_t>(alloc.getSegletSize() *
-            static_cast<double>(alloc.getFreeCount(SegletAllocator::DEFAULT)) *
-            0.95);
+    // This is a placeholder value; the real value will get computed
+    // shortly by allocNewWritableHead.
+    maxLiveBytes = 10000000;
 }
 
 /**
@@ -198,8 +196,11 @@ AbstractLog::free(Reference reference)
                                            NULL,
                                            &lengthWithMetadata);
     segment->trackDeadEntry(type, lengthWithMetadata);
-    if (type == LOG_ENTRY_TYPE_OBJ)
-        totalBytesRemaining += lengthWithMetadata;
+    if (type == LOG_ENTRY_TYPE_OBJ ||
+        type == LOG_ENTRY_TYPE_RPCRESULT ||
+        type == LOG_ENTRY_TYPE_PREP ||
+        type == LOG_ENTRY_TYPE_TXPLIST)
+        totalLiveBytes -= lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.
 }
 
@@ -263,16 +264,25 @@ AbstractLog::getSegmentId(Reference reference)
 }
 
 /**
- * Given a size of a new live object, check whether we have enough space to put
- * it into the log without risking being unable to clean.
-
+ * Given the size of a new live object, check whether we have enough
+ * space to put it into the log without risking being unable to clean.
+ * A false reply means some existing objects must be deleted before
+ * any new objects can be created (i.e., the current problem can't be
+ * fixed by the cleaner). If false is returned, a log message is
+ * generated.
+ *
  * \param objectSize
  *       The total amount of log space that will be consumed by the object and
  *       its metadata
  */
 bool
 AbstractLog::hasSpaceFor(uint64_t objectSize) {
-    return objectSize <= totalBytesRemaining;
+    if ((totalLiveBytes + objectSize) <= maxLiveBytes) {
+        return true;
+    }
+    RAMCLOUD_CLOG(WARNING, "Memory capacity exceeded; must delete objects "
+            "before any more new objects can be created");
+    return false;
 }
 /**
  * Check if a segment is still in the system. This method can be used to
@@ -379,12 +389,14 @@ AbstractLog::append(Lock& appendLock,
     // Update log statistics so that the cleaner can make intelligent decisions
     // when trying to reclaim memory.
     head->trackNewEntry(type, lengthWithMetadata);
-    if (type == LOG_ENTRY_TYPE_OBJ)
-        totalBytesRemaining -= lengthWithMetadata;
+    if (type == LOG_ENTRY_TYPE_OBJ ||
+        type == LOG_ENTRY_TYPE_RPCRESULT ||
+        type == LOG_ENTRY_TYPE_PREP ||
+        type == LOG_ENTRY_TYPE_TXPLIST)
+        totalLiveBytes += lengthWithMetadata;
     //TODO(seojin): handle RpcResult and PreparedOp.
 
-    metrics.totalBytesAppended += length;
-    metrics.totalMetadataBytesAppended += (lengthWithMetadata - length);
+    PerfStats::threadStats.logBytesAppended += lengthWithMetadata;
 
     return true;
 }
@@ -467,12 +479,14 @@ AbstractLog::append(Lock& appendLock,
     // Update log statistics so that the cleaner can make intelligent decisions
     // when trying to reclaim memory.
     head->trackNewEntry(type, lengthWithMetadata);
-    if (type == LOG_ENTRY_TYPE_OBJ)
-        totalBytesRemaining -= lengthWithMetadata;
+    if (type == LOG_ENTRY_TYPE_OBJ ||
+        type == LOG_ENTRY_TYPE_RPCRESULT ||
+        type == LOG_ENTRY_TYPE_PREP ||
+        type == LOG_ENTRY_TYPE_TXPLIST)
+        totalLiveBytes += lengthWithMetadata;
+    //TODO(seojin): handle RpcResult and PreparedOp.
 
-    metrics.totalBytesAppended += entryDataLength;
-    metrics.totalMetadataBytesAppended +=
-                            (lengthWithMetadata - entryDataLength);
+    PerfStats::threadStats.logBytesAppended += lengthWithMetadata;
 
     return true;
 }
@@ -543,11 +557,24 @@ AbstractLog::allocNewWritableHead()
     if (newHead == NULL || head->isEmergencyHead) {
         if (!metrics.noSpaceTimer)
             metrics.noSpaceTimer.construct(&metrics.totalNoSpaceTicks);
+        RAMCLOUD_CLOG(NOTICE, "No clean segments available; deferring "
+                "operations until cleaner runs");
         return false;
     }
 
     if (metrics.noSpaceTimer)
         metrics.noSpaceTimer.destroy();
+
+    // Recompute maxLiveBytes. We do this here because the value can
+    // change over time due to seglets being removed from the default
+    // pool for other uses. Steve Rumble suggests that the correct
+    // percentage of memory we allow to be used for live data is 98%,
+    // but this code is more conservative because we expect performance
+    // to degrade at even lower utilizations.
+
+    SegletAllocator& alloc = segmentManager->getAllocator();
+    maxLiveBytes = static_cast<uint64_t>(0.95 * alloc.getSegletSize() *
+            static_cast<double>(alloc.getTotalCount(SegletAllocator::DEFAULT)));
 
     return true;
 }

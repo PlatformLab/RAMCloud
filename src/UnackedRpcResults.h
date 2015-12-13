@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,7 +17,9 @@
 #define RAMCLOUD_UNACKEDRPCRESULTS_H
 
 #include <unordered_map>
+#include "AbstractLog.h"
 #include "Common.h"
+#include "ClientLeaseValidator.h"
 #include "SpinLock.h"
 #include "WorkerTimer.h"
 
@@ -33,16 +35,20 @@ namespace RAMCloud {
  */
 class UnackedRpcResults {
   PUBLIC:
-    explicit UnackedRpcResults(Context* context);
+    explicit UnackedRpcResults(Context* context,
+                               AbstractLog::ReferenceFreer* freer,
+                               ClientLeaseValidator* leaseValidator);
     ~UnackedRpcResults();
-
     void startCleaner();
-    bool checkDuplicate(uint64_t clientId,
+    void resetFreer(AbstractLog::ReferenceFreer* freer);
+    bool checkDuplicate(WireFormat::ClientLease clientLease,
                         uint64_t rpcId,
                         uint64_t ackId,
-                        uint64_t leaseExpiration,
                         void** result);
-    bool shouldRecover(uint64_t clientId, uint64_t rpcId, uint64_t ackId);
+    bool shouldRecover(uint64_t clientId,
+                       uint64_t rpcId,
+                       uint64_t ackId,
+                       LogEntryType entryType);
     void recordCompletion(uint64_t clientId,
                              uint64_t rpcId,
                              void* result,
@@ -58,6 +64,8 @@ class UnackedRpcResults {
   PRIVATE:
     void resizeRpcList(uint64_t clientId, int size);
     void cleanByTimeout();
+    /// Used only for testing.
+    bool hasRecord(uint64_t clientId, uint64_t rpcId);
 
     /**
      * Holds info about outstanding RPCs, which is needed to avoid re-doing
@@ -120,19 +128,20 @@ class UnackedRpcResults {
          */
         explicit Client(int size) : maxRpcId(0),
                                     maxAckId(0),
-                                    leaseExpiration(0),
+                                    leaseExpiration(),
                                     numRpcsInProgress(0),
                                     rpcs(new UnackedRpc[size]()),
                                     len(size) {
         }
         ~Client() {
-            delete rpcs;
+            delete[] rpcs;
         }
 
         bool hasRecord(uint64_t rpcId);
         void* result(uint64_t rpcId);
         void recordNewRpc(uint64_t rpcId);
         void updateResult(uint64_t rpcId, void* result);
+        void processAck(uint64_t ackId, AbstractLog::ReferenceFreer* freer);
 
         /**
          * Keeps the largest RpcId from the client seen in this master.
@@ -153,7 +162,7 @@ class UnackedRpcResults {
          * but the lease may have been extended since this value was written).
          * Used in Cleaner for GC.
          */
-        uint64_t leaseExpiration;
+        ClusterTime leaseExpiration;
 
         /**
          * The count for rpcIds in stage between checkDuplicate and
@@ -214,7 +223,19 @@ class UnackedRpcResults {
 
     Context* context;
 
+    /**
+     * Allows this module to determine if a lease is still valid.
+     */
+    ClientLeaseValidator* leaseValidator;
+
     Cleaner cleaner;
+
+    /**
+     * Pointer to reference freer. During garbage collection by ackId,
+     * this freer should be used to designate specific log entry as
+     * cleanable.
+     */
+    AbstractLog::ReferenceFreer* freer;
 
     DISALLOW_COPY_AND_ASSIGN(UnackedRpcResults);
 };
@@ -231,10 +252,9 @@ class UnackedRpcResults {
 class UnackedRpcHandle {
   PUBLIC:
     UnackedRpcHandle(UnackedRpcResults* unackedRpcResults,
-                     uint64_t clientId,
+                     WireFormat::ClientLease clientLease,
                      uint64_t rpcId,
-                     uint64_t ackId,
-                     uint64_t leaseExpiration);
+                     uint64_t ackId);
     UnackedRpcHandle(const UnackedRpcHandle& origin);
     UnackedRpcHandle& operator= (const UnackedRpcHandle& origin);
     ~UnackedRpcHandle();

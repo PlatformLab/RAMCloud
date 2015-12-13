@@ -36,6 +36,21 @@ length__FILE__Prefix()
 
 } // anonymous namespace
 
+
+/**
+ * Return the base name of the file (i.e., only the last component of the
+ * file name, omitting any preceding directories).
+ */
+const char*
+CodeLocation::baseFileName() const
+{
+    const char* lastSlash = strrchr(file, '/');
+    if (lastSlash == NULL) {
+        return file;
+    }
+    return lastSlash+1;
+}
+
 string
 CodeLocation::relativeFile() const
 {
@@ -52,6 +67,9 @@ CodeLocation::relativeFile() const
  * Return the name of the function, qualified by its surrounding classes and
  * namespaces. Note that this strips off the RAMCloud namespace to produce
  * shorter strings.
+ *
+ * Beware: this method is really really slow (10-20 microseconds); we no
+ * longer use it in log messages because it wastes so much time.
  */
 string
 CodeLocation::qualifiedFunction() const

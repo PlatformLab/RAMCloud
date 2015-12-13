@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,11 +34,19 @@ namespace RAMCloud {
  * Construct a new MembershipService object. There should really only be one
  * per server.
  */
-MembershipService::MembershipService(ServerList* serverList,
+MembershipService::MembershipService(Context* context,
+                                     ServerList* serverList,
                                      const ServerConfig* serverConfig)
-    : serverList(serverList),
-      serverConfig(serverConfig)
+    : context(context)
+    , serverList(serverList)
+    , serverConfig(serverConfig)
 {
+    context->services[WireFormat::MEMBERSHIP_SERVICE] = this;
+}
+
+MembershipService::~MembershipService()
+{
+    context->services[WireFormat::MEMBERSHIP_SERVICE] = NULL;
 }
 
 /**

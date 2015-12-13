@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -241,6 +241,12 @@ class CleanableSegmentManager {
 
     /// Metrics shared with the LogCleaner module.
     LogCleanerMetrics::OnDisk<>& onDiskMetrics;
+
+#ifdef TESTING
+    /// If nonzero, then getLiveObjectUtilization will always return this
+    /// value. Used in unit tests.
+    static int mockLiveObjectUtilization;
+#endif
 
     DISALLOW_COPY_AND_ASSIGN(CleanableSegmentManager);
 };

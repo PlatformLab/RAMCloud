@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -21,10 +21,10 @@ namespace RAMCloud {
 // Thread-specific data holds the identifier for each thread.  It starts
 // off zero, but is set to a non-zero unique value the first time it is
 // accessed.
-__thread uint64_t ThreadId::id = 0;
+__thread int ThreadId::id = 0;
 
 // The highest-numbered thread identifier that has already been used.
-uint64_t ThreadId::highestId = 0;
+int ThreadId::highestId = 0;
 
 /// Used to serialize access to #highestId.
 std::mutex ThreadId::mutex;
@@ -36,7 +36,7 @@ std::mutex ThreadId::mutex;
  * \return
  *      The unique identifier for the current thread.
  */
-uint64_t
+int
 ThreadId::assign()
 {
     std::unique_lock<std::mutex> lock(mutex);
@@ -54,7 +54,7 @@ ThreadId::assign()
  * - It will be unique for this thread (i.e., no other thread has ever
  *   been returned this value or ever will be returned this value)
  */
-uint64_t
+int
 ThreadId::get()
 {
     if (id != 0) {

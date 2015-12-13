@@ -63,7 +63,7 @@ class RpcTracker {
     RpcTracker()
         : firstMissing(1)
         , nextRpcId(1)
-        , rpcs({})
+        , rpcs()
     {}
     ~RpcTracker();
 

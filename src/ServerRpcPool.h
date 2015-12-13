@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,29 +20,9 @@
 #include "Dispatch.h"
 #include "ObjectPool.h"
 #include "Transport.h"
+#include "LogProtector.h"
 
 namespace RAMCloud {
-
-namespace ServerRpcPoolInternal {
-    INTRUSIVE_LIST_TYPEDEF(Transport::ServerRpc, outstandingRpcListHook)
-        ServerRpcList;
-
-    // List of ServerRpcs that are being processed. RPCs are added to the
-    // list when allocated in ServerRpcPool::construct and are removed
-    // when they are destroyed in ServerRpcPool::destroy. This list may
-    // be walked to check whether a given epoch is still represented by
-    // any outstanding RPC in the system.
-    extern ServerRpcList outstandingServerRpcs;
-
-    // An unsigned integer representing the current epoch. Epochs are
-    // just monotonically increasing values that represent some point
-    // in time. All ServerRpcs are tagged with currentEpoch and all
-    // RPCs in the system can be queried to find the oldest RPC still
-    // being processed. Epochs are a coarse-grained means to determining
-    // when all RPCs encountered after some point in time have left
-    // the system.
-    extern uint64_t currentEpoch;
-};
 
 /**
  * ServerRpcPool is a fast allocator for Transport-specific subclasses
@@ -53,13 +33,14 @@ namespace ServerRpcPoolInternal {
  * copy buffers.
  */
 template<typename T = Transport::ServerRpc>
-class ServerRpcPool {
+class ServerRpcPool : public LogProtector::EpochProvider {
   public:
     /**
      * Construct a new ServerRpcPool.
      */
     ServerRpcPool()
-        : pool(),
+        : outstandingServerRpcs(),
+          pool(),
           outstandingAllocations(0)
     {
     }
@@ -83,8 +64,7 @@ class ServerRpcPool {
     construct(Args&&... args)
     {
         T* rpc = pool.construct(static_cast<Args&&>(args)...);
-        rpc->epoch = ServerRpcPoolInternal::currentEpoch;
-        ServerRpcPoolInternal::outstandingServerRpcs.push_back(*rpc);
+        outstandingServerRpcs.push_back(*rpc);
         outstandingAllocations++;
         return rpc;
     }
@@ -96,64 +76,40 @@ class ServerRpcPool {
     void
     destroy(T* const rpc)
     {
-        ServerRpcPoolInternal::outstandingServerRpcs.erase(
-            ServerRpcPoolInternal::outstandingServerRpcs.iterator_to(*rpc));
+        outstandingServerRpcs.erase(outstandingServerRpcs.iterator_to(*rpc));
         outstandingAllocations--;
         pool.destroy(rpc);
     }
 
-    /**
-     * Return the current epoch.
-     */
-    static uint64_t
-    getCurrentEpoch()
+    // See LogProtector::EpochProvider for documentation.
+    // Caller must hold dispatch lock.
+    uint64_t
+    getEarliestEpoch(int activityMask)
     {
-        return ServerRpcPoolInternal::currentEpoch;
-    }
-
-    /**
-     * Obtain the earliest (lowest value) epoch of any outstanding RPC in the
-     * system. If there are no RPCs, then the return value is -1 (i.e. the
-     * largest 64-bit unsigned integer).
-     *
-     * Note that this method is not particularly efficient and should not be
-     * called very frequently (it will grab the Dispatch lock and query all
-     * outstanding server RPCs).
-     * 
-     * \param context
-     *      Overall information about the RAMCloud server; used to lock the
-     *      dispatcher.
-     */
-    static uint64_t
-    getEarliestOutstandingEpoch(Context* context)
-    {
-        Dispatch::Lock lock(context->dispatch);
         uint64_t earliest = -1;
 
-        ServerRpcPoolInternal::ServerRpcList::iterator it =
-            ServerRpcPoolInternal::outstandingServerRpcs.begin();
-        while (it != ServerRpcPoolInternal::outstandingServerRpcs.end()) {
-            earliest = std::min(it->epoch, earliest);
+        ServerRpcList::iterator it = outstandingServerRpcs.begin();
+        while (it != outstandingServerRpcs.end()) {
+            if (((it->activities & activityMask) != 0) & (it->epoch != 0)) {
+                earliest = std::min(it->epoch, earliest);
+            }
             it++;
         }
 
         return earliest;
     }
 
-    /**
-     * Increment the current epoch by one.
-     * 
-     * \return
-     *      The new epoch value.
-     */
-    static uint64_t
-    incrementCurrentEpoch()
-    {
-        // atomically increment the epoch (with a gcc builtin)
-        return __sync_add_and_fetch(&ServerRpcPoolInternal::currentEpoch, 1);
-    }
-
   PRIVATE:
+    INTRUSIVE_LIST_TYPEDEF(Transport::ServerRpc, outstandingRpcListHook)
+        ServerRpcList;
+
+    // List of ServerRpcs that are being processed. RPCs are added to the
+    // list when allocated in ServerRpcPool::construct and are removed
+    // when they are destroyed in ServerRpcPool::destroy. This list may
+    // be walked to check whether a given epoch is still represented by
+    // any outstanding RPC in this pool.
+    ServerRpcList outstandingServerRpcs;
+
     /// Pool allocator backing the actual ServerRpc classes this class returns.
     ObjectPool<T> pool;
 

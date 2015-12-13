@@ -91,7 +91,7 @@ class Object {
 
     void assembleForLog(Buffer& buffer);
     void assembleForLog(void* buffer);
-    void appendValueToBuffer(Buffer* buffer, uint32_t valueOffset = 0);
+    void appendValueToBuffer(Buffer* buffer);
     static void appendKeysAndValueToBuffer(
             uint64_t tableId, KeyCount numKeys, KeyInfo *keyList,
             const void* value, uint32_t valueLength, Buffer* request,
@@ -117,7 +117,7 @@ class Object {
     const void* getKeysAndValue();
     KeyCount getKeyCount();
     const void* getValue(uint32_t *valueLength = NULL);
-    bool getValueOffset(uint16_t *offset);
+    bool getValueOffset(uint32_t *offset);
     uint32_t getValueLength();
 
     uint32_t getKeysAndValueLength();

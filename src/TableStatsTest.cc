@@ -22,43 +22,36 @@ namespace RAMCloud {
 class TableStatsTest : public ::testing::Test {
   public:
     MasterTableMetadata mtm;
-    vector<Tablet> tablets;
     Buffer digestBuffer;
 
     TableStatsTest()
         : mtm()
-        , tablets()
         , digestBuffer()
     {
     }
 
     void fillMtm() {
+        TableStats::addKeyHashRange(&mtm, 1, 0, 9);
         TableStats::increment(&mtm, 1, 11, 111);
+        TableStats::addKeyHashRange(&mtm, 2, 0, 9);
         TableStats::increment(&mtm, 2, 22, 222);
+        TableStats::addKeyHashRange(&mtm, 63, 0, 9);
         TableStats::increment(&mtm, 63, TableStats::threshold - 1, 63000);
+        TableStats::addKeyHashRange(&mtm, 64, 0, 9);
         TableStats::increment(&mtm, 64, TableStats::threshold, 64000);
+        TableStats::addKeyHashRange(&mtm, 65, 0, 9);
         TableStats::increment(&mtm, 65, TableStats::threshold + 1, 65000);
+        TableStats::addKeyHashRange(&mtm, 66, 0, 9);
         TableStats::increment(&mtm, 66, TableStats::threshold + 2, 66000);
     }
 
-    void fillTabletsStandard() {
-        tablets.clear();
-        Tablet t1 = {1, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
-        tablets.push_back(t1);
-        Tablet t2 = {2, 1, 10, ServerId(), Tablet::NORMAL, LogPosition()};
-        tablets.push_back(t2);
-        Tablet t3 = {64, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
-        tablets.push_back(t3);
-        Tablet t4 = {64, 21, 40, ServerId(), Tablet::NORMAL, LogPosition()};
-        tablets.push_back(t4);
-        Tablet t5 = {65, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
-        tablets.push_back(t5);
-        Tablet t6 = {65, 21, 50, ServerId(), Tablet::NORMAL, LogPosition()};
-        tablets.push_back(t6);
-        Tablet t7 = {66, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
-        tablets.push_back(t7);
-        Tablet t8 = {66, 21, 60, ServerId(), Tablet::NORMAL, LogPosition()};
-        tablets.push_back(t8);
+    const TableStats::DigestEntry*
+    findDigestWithTabletId(uint64_t tableId, const TableStats::Digest* digest) {
+        for (size_t i = 0; i < digest->header.entryCount; ++i)
+            if (digest->entries[i].tableId == tableId)
+                return &(digest->entries[i]);
+
+        return NULL;
     }
 
     const TableStats::Digest* getDigest() {
@@ -87,6 +80,52 @@ TEST_F(TableStatsTest, constructor_TableStats) {
         EXPECT_FALSE(stats->lock.try_lock());
         stats->lock.unlock();
         delete stats;
+    }
+}
+
+TEST_F(TableStatsTest, addKeyHashRange) {
+    MasterTableMetadata::Entry* entry;
+    EXPECT_TRUE(mtm.find(0) == NULL);
+    TableStats::addKeyHashRange(&mtm, 0, 0, 10);
+    EXPECT_NE(mtm.tableMetadataMap.end(), mtm.tableMetadataMap.find(0));
+    entry = mtm.find(0);
+    EXPECT_FALSE(entry == NULL);
+    {
+        TableStats::Lock guard(entry->stats.lock);
+        EXPECT_EQ(11U, entry->stats.keyHashCount);
+        EXPECT_FALSE(entry->stats.totalOwnership);
+    }
+
+    TableStats::addKeyHashRange(&mtm, 0, 11, ~0UL);
+    {
+        TableStats::Lock guard(entry->stats.lock);
+        EXPECT_EQ(0U, entry->stats.keyHashCount);
+        EXPECT_TRUE(entry->stats.totalOwnership);
+    }
+}
+
+TEST_F(TableStatsTest, deleteKeyHashRange) {
+    MasterTableMetadata::Entry* entry;
+    EXPECT_TRUE(mtm.find(0) == NULL);
+    TableStats::deleteKeyHashRange(&mtm, 0, 11, ~0UL);
+    entry = mtm.find(0);
+    EXPECT_TRUE(entry == NULL);
+
+    TableStats::addKeyHashRange(&mtm, 0, 0, ~0UL);
+    entry = mtm.find(0);
+    EXPECT_FALSE(entry == NULL);
+    {
+        TableStats::Lock guard(entry->stats.lock);
+        EXPECT_EQ(0U, entry->stats.keyHashCount);
+        EXPECT_TRUE(entry->stats.totalOwnership);
+    }
+
+    TableStats::deleteKeyHashRange(&mtm, 0, 11, ~0UL);
+    EXPECT_FALSE(entry == NULL);
+    {
+        TableStats::Lock guard(entry->stats.lock);
+        EXPECT_EQ(11U, entry->stats.keyHashCount);
+        EXPECT_FALSE(entry->stats.totalOwnership);
     }
 }
 
@@ -136,7 +175,7 @@ TEST_F(TableStatsTest, decrement) {
     }
 }
 
-TEST_F(TableStatsTest, serialize) {
+TEST_F(TableStatsTest, serialize_basic) {
     // First Check an empty mtm.
     {
         Buffer buffer;
@@ -146,9 +185,9 @@ TEST_F(TableStatsTest, serialize) {
         const TableStats::Digest* digest;
         digest = reinterpret_cast<const TableStats::Digest*>(temp);
 
-        EXPECT_EQ(0u, digest->header.entryCount);
-        EXPECT_EQ(0u, digest->header.otherByteCount);
-        EXPECT_EQ(0u, digest->header.otherRecordCount);
+        EXPECT_EQ(0U, digest->header.entryCount);
+        EXPECT_EQ(0, digest->header.otherBytesPerKeyHash);
+        EXPECT_EQ(0, digest->header.otherRecordsPerKeyHash);
     }
 
     // Now check a populated mtm.
@@ -157,10 +196,9 @@ TEST_F(TableStatsTest, serialize) {
     const TableStats::Digest* digest = getDigest();
 
     EXPECT_EQ(3u, digest->header.entryCount);
-    EXPECT_EQ(static_cast<unsigned>(TableStats::threshold
-                                    - 1 + 11 + 22),
-              digest->header.otherByteCount);
-    EXPECT_EQ(63333u, digest->header.otherRecordCount);
+    EXPECT_EQ((double(TableStats::threshold - 1) + 11 + 22) / 30,
+              digest->header.otherBytesPerKeyHash);
+    EXPECT_EQ(double(63333) / 30, digest->header.otherRecordsPerKeyHash);
 
     MasterTableMetadata::Entry* entry;
 
@@ -168,8 +206,10 @@ TEST_F(TableStatsTest, serialize) {
     EXPECT_TRUE(entry != NULL);
     {
         TableStats::Lock guard(entry->stats.lock);
-        EXPECT_EQ(entry->stats.byteCount, digest->entries[0].byteCount);
-        EXPECT_EQ(entry->stats.recordCount, digest->entries[0].recordCount);
+        EXPECT_EQ(double(entry->stats.byteCount) / 10,
+                  digest->entries[0].bytesPerKeyHash);
+        EXPECT_EQ(double(entry->stats.recordCount) / 10,
+                  digest->entries[0].recordsPerKeyHash);
     }
     entry = NULL;
 
@@ -177,8 +217,10 @@ TEST_F(TableStatsTest, serialize) {
     EXPECT_TRUE(entry != NULL);
     {
         TableStats::Lock guard(entry->stats.lock);
-        EXPECT_EQ(entry->stats.byteCount, digest->entries[1].byteCount);
-        EXPECT_EQ(entry->stats.recordCount, digest->entries[1].recordCount);
+        EXPECT_EQ(double(entry->stats.byteCount) / 10,
+                  digest->entries[1].bytesPerKeyHash);
+        EXPECT_EQ(double(entry->stats.recordCount) / 10,
+                  digest->entries[1].recordsPerKeyHash);
     }
     entry = NULL;
 
@@ -186,56 +228,97 @@ TEST_F(TableStatsTest, serialize) {
     EXPECT_TRUE(entry != NULL);
     {
         TableStats::Lock guard(entry->stats.lock);
-        EXPECT_EQ(entry->stats.byteCount, digest->entries[2].byteCount);
-        EXPECT_EQ(entry->stats.recordCount, digest->entries[2].recordCount);
+        EXPECT_EQ(double(entry->stats.byteCount) / 10,
+                  digest->entries[2].bytesPerKeyHash);
+        EXPECT_EQ(double(entry->stats.recordCount) / 10,
+                  digest->entries[2].recordsPerKeyHash);
     }
     entry = NULL;
 
 }
 
+TEST_F(TableStatsTest, serialize_fullTable) {
+    TableStats::addKeyHashRange(&mtm, 1, 0, ~0UL);
+    TableStats::increment(&mtm, 1, 100, 200);
+
+    Buffer buffer;
+    TableStats::serialize(&buffer, &mtm);
+
+    const void* temp = buffer.getRange(0, sizeof(TableStats::DigestHeader));
+    const TableStats::Digest* digest;
+    digest = reinterpret_cast<const TableStats::Digest*>(temp);
+
+    EXPECT_EQ(0u, digest->header.entryCount);
+    EXPECT_EQ(double(100) / (double(~0UL) + 1),
+              digest->header.otherBytesPerKeyHash);
+    EXPECT_EQ(double(200) / (double(~0UL) + 1),
+              digest->header.otherRecordsPerKeyHash);
+}
+
+TEST_F(TableStatsTest, serialize_skipTable) {
+    TableStats::addKeyHashRange(&mtm, 1, 0, 100);
+    TableStats::increment(&mtm, 1, TableStats::threshold + 2, 200);
+    TableStats::deleteKeyHashRange(&mtm, 1, 0, 100);
+
+    Buffer buffer;
+    TableStats::serialize(&buffer, &mtm);
+
+    const void* temp = buffer.getRange(0, sizeof(TableStats::DigestHeader));
+    const TableStats::Digest* digest;
+    digest = reinterpret_cast<const TableStats::Digest*>(temp);
+
+    EXPECT_EQ(0u, digest->header.entryCount);
+    EXPECT_EQ(double(0), digest->header.otherBytesPerKeyHash);
+    EXPECT_EQ(double(0), digest->header.otherRecordsPerKeyHash);
+}
+
 TEST_F(TableStatsTest, estimator_constructor) {
     fillMtm();
     const TableStats::Digest* digest = getDigest();
-    // Fill tablets
-    fillTabletsStandard();
 
-    TableStats::Estimator e(digest, &tablets);
+    TableStats::Estimator e(digest);
 
-    EXPECT_EQ(static_cast<unsigned>(TableStats::threshold
-                                    - 1 + 11 + 22),
-              e.otherStats.byteCount);
-    EXPECT_EQ(63333u, e.otherStats.recordCount);
-    EXPECT_EQ(11u, e.otherStats.keyRange);
+    EXPECT_EQ(digest->header.otherBytesPerKeyHash,
+              e.otherStats.bytesPerKeyHash);
+    EXPECT_EQ(digest->header.otherRecordsPerKeyHash,
+              e.otherStats.recordsPerKeyHash);
 
     MasterTableMetadata::Entry* entry;
+    const TableStats::DigestEntry* digestEntry;
 
     entry = mtm.find(64);
+    digestEntry = findDigestWithTabletId(64, digest);
     EXPECT_TRUE(entry != NULL);
     {
         TableStats::Lock guard(entry->stats.lock);
-        EXPECT_EQ(entry->stats.byteCount, e.tableStats[64].byteCount);
-        EXPECT_EQ(entry->stats.recordCount, e.tableStats[64].recordCount);
-        EXPECT_EQ(21u, e.tableStats[64].keyRange);
+        EXPECT_EQ(digestEntry->bytesPerKeyHash,
+                  e.tableStats[64].bytesPerKeyHash);
+        EXPECT_EQ(digestEntry->recordsPerKeyHash,
+                  e.tableStats[64].recordsPerKeyHash);
     }
     entry = NULL;
 
     entry = mtm.find(65);
+    digestEntry = findDigestWithTabletId(65, digest);
     EXPECT_TRUE(entry != NULL);
     {
         TableStats::Lock guard(entry->stats.lock);
-        EXPECT_EQ(entry->stats.byteCount, e.tableStats[65].byteCount);
-        EXPECT_EQ(entry->stats.recordCount, e.tableStats[65].recordCount);
-        EXPECT_EQ(31u, e.tableStats[65].keyRange);
+        EXPECT_EQ(digestEntry->bytesPerKeyHash,
+                  e.tableStats[65].bytesPerKeyHash);
+        EXPECT_EQ(digestEntry->recordsPerKeyHash,
+                  e.tableStats[65].recordsPerKeyHash);
     }
     entry = NULL;
 
     entry = mtm.find(66);
+    digestEntry = findDigestWithTabletId(66, digest);
     EXPECT_TRUE(entry != NULL);
     {
         TableStats::Lock guard(entry->stats.lock);
-        EXPECT_EQ(entry->stats.byteCount, e.tableStats[66].byteCount);
-        EXPECT_EQ(entry->stats.recordCount, e.tableStats[66].recordCount);
-        EXPECT_EQ(41u, e.tableStats[66].keyRange);
+        EXPECT_EQ(digestEntry->bytesPerKeyHash,
+                  e.tableStats[66].bytesPerKeyHash);
+        EXPECT_EQ(digestEntry->recordsPerKeyHash,
+                  e.tableStats[66].recordsPerKeyHash);
     }
     entry = NULL;
 
@@ -244,22 +327,19 @@ TEST_F(TableStatsTest, estimator_constructor) {
 TEST_F(TableStatsTest, estimator_estimate_basic) {
     fillMtm();
     const TableStats::Digest* digest = getDigest();
-    // Fill tablets
-    fillTabletsStandard();
 
-    TableStats::Estimator e(digest, &tablets);
+    TableStats::Estimator e(digest);
 
-    TableStats::Estimator::Entry ret;
+    TableStats::Estimator::Estimate ret;
 
-    Tablet tt1 = {1, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
+    Tablet tt1 = {1, 0, 4, ServerId(), Tablet::NORMAL, LogPosition()};
     ret = e.estimate(&tt1);
-    EXPECT_EQ(1u, ret.keyRange);
-    EXPECT_EQ(static_cast<unsigned>((TableStats::threshold
-                                    - 1 + 11 + 22) / 11),
+    EXPECT_EQ(static_cast<unsigned>(
+                    double(TableStats::threshold - 1 + 11 + 22) * 5 / 30),
               ret.byteCount);
-    EXPECT_EQ(63333u / 11, ret.recordCount);
+    EXPECT_EQ(63333u * 5 / 30, ret.recordCount);
 
-    Tablet tt2 = {66, 21, 60, ServerId(), Tablet::NORMAL, LogPosition()};
+    Tablet tt2 = {66, 21, 25, ServerId(), Tablet::NORMAL, LogPosition()};
     ret = e.estimate(&tt2);
 
     MasterTableMetadata::Entry* entry;
@@ -268,66 +348,10 @@ TEST_F(TableStatsTest, estimator_estimate_basic) {
     EXPECT_TRUE(entry != NULL);
     {
         TableStats::Lock guard(entry->stats.lock);
-        EXPECT_EQ(40u, ret.keyRange);
-        EXPECT_EQ(entry->stats.byteCount * 40 / 41, ret.byteCount);
-        EXPECT_EQ(entry->stats.recordCount * 40 /41, ret.recordCount);
+        EXPECT_EQ(entry->stats.byteCount * 5 / 10, ret.byteCount);
+        EXPECT_EQ(entry->stats.recordCount * 5 /10, ret.recordCount);
     }
     entry = NULL;
 }
-
-TEST_F(TableStatsTest, estimator_estimate_keyRange_zero) {
-    fillMtm();
-    const TableStats::Digest* digest = getDigest();
-    // Clear tablet information. Simulating no tablets.
-    tablets.clear();
-
-    TableStats::Estimator e(digest, &tablets);
-
-    TableStats::Estimator::Entry ret;
-
-    Tablet tt1 = {1, 1, 1, ServerId(), Tablet::NORMAL, LogPosition()};
-    ret = e.estimate(&tt1);
-    EXPECT_EQ(1.0, ret.keyRange);
-    EXPECT_EQ(0u, ret.byteCount);
-    EXPECT_EQ(0u, ret.recordCount);
-
-    Tablet tt2 = {66, 1, 1,
-                  ServerId(), Tablet::NORMAL, LogPosition()};
-    ret = e.estimate(&tt2);
-    EXPECT_EQ(1.0, ret.keyRange);
-    EXPECT_EQ(0u, ret.byteCount);
-    EXPECT_EQ(0u, ret.recordCount);
-}
-
-TEST_F(TableStatsTest, estimator_Estimate_full_tablet) {
-    fillMtm();
-    const TableStats::Digest* digest = getDigest();
-    // Fill tablets
-    tablets.clear();
-    Tablet t7 = {66, 0, 0xFFFFFFFFFFFFFFFF,
-                 ServerId(), Tablet::NORMAL, LogPosition()};
-    tablets.push_back(t7);
-
-    TableStats::Estimator e(digest, &tablets);
-
-    TableStats::Estimator::Entry ret;
-
-    Tablet tt2 = {66, 0, 0xFFFFFFFFFFFFFFFF,
-                  ServerId(), Tablet::NORMAL, LogPosition()};
-    ret = e.estimate(&tt2);
-
-    MasterTableMetadata::Entry* entry;
-
-    entry = mtm.find(66);
-    EXPECT_TRUE(entry != NULL);
-    {
-        TableStats::Lock guard(entry->stats.lock);
-        EXPECT_EQ(double(0xFFFFFFFFFFFFFFFF) + 1, ret.keyRange);
-        EXPECT_EQ(entry->stats.byteCount, ret.byteCount);
-        EXPECT_EQ(entry->stats.recordCount, ret.recordCount);
-    }
-    entry = NULL;
-}
-
 
 } // namespace RAMCloud

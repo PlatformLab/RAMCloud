@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -12,6 +12,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#include <algorithm>
 
 #include "ClientException.h"
 #include "TabletManager.h"
@@ -211,11 +212,13 @@ TabletManager::getTablets(vector<Tablet>* outTablets)
  *      Key hash value at which the to-be-deleted tablet begins.
  * \param endKeyHash
  *      Key hash value at which the to-be-deleted tablet ends.
+ * \return
+ *      True if a tablet was removed; false otherwise.
  * \throw
  *      InternalError if tablet was not found because the range overlaps
  *      with one or more existing tablets.
  */
-void
+bool
 TabletManager::deleteTablet(uint64_t tableId,
                             uint64_t startKeyHash,
                             uint64_t endKeyHash)
@@ -227,7 +230,7 @@ TabletManager::deleteTablet(uint64_t tableId,
         RAMCLOUD_LOG(DEBUG, "Could not find tablet in tableId %lu with "
                             "startKeyHash %lu and endKeyHash %lu",
                             tableId, startKeyHash, endKeyHash);
-        return;
+        return false;
     }
 
     Tablet* t = &it->second;
@@ -240,7 +243,7 @@ TabletManager::deleteTablet(uint64_t tableId,
     }
 
     tabletMap.erase(it);
-    return;
+    return true;
 }
 
 /**
@@ -415,6 +418,40 @@ TabletManager::getNumTablets()
     return tabletMap.size();
 }
 
+
+/**
+ * Helper function to toString(); used to print a single tablet to a String.
+ *
+ * \param tablet - tablet to print out
+ * \param output - string to append output to
+ */
+static void
+printTablet(TabletManager::Tablet *tablet, string* output) {
+    if (output->length() != 0)
+        output->append("\n");
+    *output += format("{ tableId: %lu startKeyHash: %lu endKeyHash: %lu "
+        "state: %d reads: %lu writes: %lu }", tablet->tableId,
+        tablet->startKeyHash, tablet->endKeyHash, tablet->state,
+        tablet->readCount, tablet->writeCount);
+}
+
+/**
+ * Helper function to toString(); used to std::sort() tablets first by their
+ * tableId and then by their start hash.
+ *
+ * \param a - tablet 1
+ * \param b - tablet 2
+ * \return  - true if a < b
+ */
+bool
+compareTablet(const TabletManager::Tablet &a,
+              const TabletManager::Tablet &b) {
+    if (a.tableId != b.tableId)
+        return a.tableId < b.tableId;
+    else
+        return a.startKeyHash < b.startKeyHash;
+}
+
 /**
  * Obtain a string representation of the tablets this object is managing.
  * Tablets are unordered in the output. This is typically used in unit tests.
@@ -423,18 +460,25 @@ string
 TabletManager::toString()
 {
     Lock guard(lock);
-
     string output;
-    TabletMap::iterator it = tabletMap.begin();
-    while (it != tabletMap.end()) {
-        if (output.length() != 0)
-            output += "\n";
-        Tablet* t = &it->second;
-        output += format("{ tableId: %lu startKeyHash: %lu endKeyHash: %lu "
-            "state: %d reads: %lu writes: %lu }", t->tableId, t->startKeyHash,
-            t->endKeyHash, t->state, t->readCount, t->writeCount);
-        ++it;
+
+// Sort output on debug
+#if DEBUG_BUILD
+    TabletMap::iterator it;
+    vector<Tablet> tablets;
+
+    for (it = tabletMap.begin(); it != tabletMap.end(); ++it)
+        tablets.push_back(it->second);
+    sort(tablets.begin(), tablets.end(), compareTablet);
+
+    for (size_t i = 0; i < tablets.size(); ++i)
+        printTablet(&tablets[i], &output);
+#else
+    for (TabletMap::iterator it = tabletMap.begin();
+            it != tabletMap.end(); ++it) {
+       printTablet(&(it->second), &output);
     }
+#endif
 
     return output;
 }

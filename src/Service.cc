@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,10 +15,11 @@
 
 #include "Cycles.h"
 #include "RawMetrics.h"
+#include "RpcLevel.h"
 #include "Service.h"
 #include "ShortMacros.h"
-#include "ServiceManager.h"
 #include "TransportManager.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 
@@ -118,17 +119,22 @@ Service::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 }
 
 /**
- * This method is invoked by ServiceManager to process an incoming
+ * This method is invoked by WorkerManager to process an incoming
  * RPC.  Under normal conditions, when this method returns the RPC has
  * been serviced and a response has been prepared, but the response
- * has not yet been sent back to the client (this will happen later on
- * in the dispatch thread).
+ * has not yet been sent back to the client (the caller will take
+ * care of this).
  *
+ * \param context
+ *      Overall information about the server (e.g. holds array of
+ *      defined services).
  * \param rpc
- *      An incoming RPC that is ready to be serviced.
+ *      An incoming RPC that is ready to be serviced. We assume that
+ *      the caller has already verified that the request has a valid
+ *      opcode, so we don't recheck it here.
  */
 void
-Service::handleRpc(Rpc* rpc) {
+Service::handleRpc(Context* context, Rpc* rpc) {
     // This method takes care of things that are the same in all services,
     // such as keeping statistics. It then calls a service-specific dispatch
     // method to handle the details of performing the RPC.
@@ -138,27 +144,32 @@ Service::handleRpc(Rpc* rpc) {
         prepareErrorResponse(rpc->replyPayload, STATUS_MESSAGE_TOO_SHORT);
         return;
     }
-
-    // The check below is needed to avoid out-of-range accesses to
-    // rpcsHandled etc.
-    uint32_t opcode = header->opcode;
-    if (opcode >= WireFormat::ILLEGAL_RPC_TYPE) {
-        opcode = WireFormat::ILLEGAL_RPC_TYPE;
-        // If the following assertion fails, then rawmetrics.py's list of RPCs
-        // is out of sync with WireFormat.h's definitions.
-        assert(&metrics->rpc.illegal_rpc_typeCount ==
-               &(&metrics->rpc.rpc0Count)[opcode]);
+    if ((header->service >= WireFormat::INVALID_SERVICE)
+            || (context->services[header->service] == NULL)) {
+        prepareErrorResponse(rpc->replyPayload, STATUS_SERVICE_NOT_AVAILABLE);
+        return;
     }
+    Service* service = context->services[header->service];
+
+    WireFormat::Opcode opcode = WireFormat::Opcode(header->opcode);
     (&metrics->rpc.rpc0Count)[opcode]++;
+    RpcLevel::setCurrentOpcode(opcode);
     uint64_t start = Cycles::rdtsc();
     try {
-        dispatch(WireFormat::Opcode(header->opcode), rpc);
+        service->dispatch(opcode, rpc);
     } catch (RetryException& e) {
         prepareRetryResponse(rpc->replyPayload, e.minDelayMicros,
                 e.maxDelayMicros, e.message);
     } catch (ClientException& e) {
         prepareErrorResponse(rpc->replyPayload, e.status);
     }
+#ifdef TESTING
+    // This code is only needed when running unit tests (without it,
+    // the weird structure of the unit test results in lots of errors in
+    // RpcLevel::checkCall). The code is harmless outside of unit tests,
+    // but it just wastes time.
+    RpcLevel::setCurrentOpcode(RpcLevel::NO_RPC);
+#endif
     (&metrics->rpc.rpc0Ticks)[opcode] += Cycles::rdtsc() - start;
 }
 

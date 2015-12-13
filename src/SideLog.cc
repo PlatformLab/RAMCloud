@@ -114,6 +114,12 @@ SideLog::commit()
     // different batch of entries.
     segments.clear();
 
+    log->totalLiveBytes += totalLiveBytes;
+    totalLiveBytes = 0;
+
+    metrics.mergeInto(log);
+    metrics.reset();
+
     // Force the head to roll over so a new digest goes out. The caller also
     // acquires the appendLock, so drop it first. This is safe. We don't care
     // about any races. We only want the log head to change.

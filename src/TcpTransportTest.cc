@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -16,16 +16,22 @@
 #include "TestUtil.h"
 #include "MockSyscall.h"
 #include "MockWrapper.h"
-#include "ServiceManager.h"
 #include "TcpTransport.h"
 #include "Tub.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 
 class TcpTransportTest : public ::testing::Test {
   public:
+    // The purpose of this value is to specify a rpc size that will cause the
+    // underlying sendmsg() to break up the rpc into multiple sends. This value
+    // is determined imperically by increasing it until sendMessage_largeBuffer
+    // test stops mentioning that you have to increase the size of the message.
+    static const uint32_t largeBufferSize = 2540000;
+
     Context context;
-    ServiceManager* serviceManager;
+    WorkerManager* workerManager;
     ServiceLocator locator;
     MockSyscall* sys;
     Syscall* savedSyscall;
@@ -35,7 +41,7 @@ class TcpTransportTest : public ::testing::Test {
 
     TcpTransportTest()
             : context()
-            , serviceManager(context.serviceManager)
+            , workerManager(NULL)
             , locator("tcp+ip:host=localhost,port=11000")
             , sys(NULL)
             , savedSyscall(NULL)
@@ -43,6 +49,9 @@ class TcpTransportTest : public ::testing::Test {
             , server(&context, &locator)
             , client(&context)
     {
+        workerManager = new WorkerManager(&context);
+        context.workerManager = workerManager;
+        workerManager->testingSaveRpcs = 1;
         sys = new MockSyscall();
         savedSyscall = TcpTransport::sys;
         TcpTransport::sys = sys;
@@ -65,7 +74,7 @@ class TcpTransportTest : public ::testing::Test {
 
     // Open a connection to a server and return a file descriptor
     // for the socket.
-    int connectToServer(const ServiceLocator& serviceLocator)
+    int connectToServer(const ServiceLocator* serviceLocator)
     {
         int fd = socket(PF_INET, SOCK_STREAM, 0);
         EXPECT_GE(fd, 0);
@@ -81,7 +90,7 @@ class TcpTransportTest : public ::testing::Test {
     {
         int result = 0;
         Transport::ServerRpc* rpc = NULL;
-        while ((rpc = context.serviceManager->waitForRpc(0.0)) != NULL) {
+        while ((rpc = context.workerManager->waitForRpc(0.0)) != NULL) {
             transport->serverRpcPool.destroy(
                 static_cast<TcpTransport::TcpServerRpc*>(rpc));
             result++;
@@ -107,7 +116,7 @@ class TcpTransportTest : public ::testing::Test {
 };
 
 TEST_F(TcpTransportTest, sanityCheck) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
 
     // Send two requests from the client.
     MockWrapper rpc1("request1");
@@ -116,10 +125,10 @@ TEST_F(TcpTransportTest, sanityCheck) {
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
 
     // Receive the two requests on the server.
-    Transport::ServerRpc* serverRpc1 = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc1 = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc1 != NULL);
     EXPECT_EQ("request1", TestUtil::toString(&serverRpc1->requestPayload));
-    Transport::ServerRpc* serverRpc2 = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc2 = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc2 != NULL);
     EXPECT_EQ("request2", TestUtil::toString(&serverRpc2->requestPayload));
 
@@ -191,16 +200,16 @@ TEST_F(TcpTransportTest, destructor) {
     ServiceLocator locator("tcp+ip:host=localhost,port=11001");
     TcpTransport* server = new TcpTransport(&context, &locator);
     TcpTransport* client = new TcpTransport(&context);
-    Transport::SessionRef session1 = client->getSession(locator);
-    Transport::SessionRef session2 = client->getSession(locator);
+    Transport::SessionRef session1 = client->getSession(&locator);
+    Transport::SessionRef session2 = client->getSession(&locator);
 
     MockWrapper rpc1("request1");
     MockWrapper rpc2("request2");
     session1->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     session2->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
-    Transport::ServerRpc* serverRpc1 = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc1 = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc1 != NULL);
-    Transport::ServerRpc* serverRpc2 = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc2 = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc2 != NULL);
     EXPECT_EQ("request1", TestUtil::toString(&serverRpc1->requestPayload));
     EXPECT_EQ("request2", TestUtil::toString(&serverRpc2->requestPayload));
@@ -226,7 +235,7 @@ TEST_F(TcpTransportTest, destructor) {
 TEST_F(TcpTransportTest, Socket_destructor_deleteRpc) {
     // Send a partial message to a server, then close its socket and
     // ensure that the TcpServerRpc was deleted.
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_NE(server.sockets.size(), 0U);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
@@ -248,7 +257,7 @@ TEST_F(TcpTransportTest, Socket_destructor_clearRpcsWaitingToReply) {
     // Send several requests to the server; respond to all of them,
     // but make the first response large enough that it backs up
     // the others.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
 
     // Send requests.
     MockWrapper rpc1("request1");
@@ -259,15 +268,15 @@ TEST_F(TcpTransportTest, Socket_destructor_clearRpcsWaitingToReply) {
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
 
     // Receive the requests on the server and respond to each.
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 1000000);
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, largeBufferSize);
     serverRpc->sendReply();
-    serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     serverRpc->replyPayload.fillFromString("response2");
     serverRpc->sendReply();
-    serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     serverRpc->replyPayload.fillFromString("response3");
     serverRpc->sendReply();
@@ -296,7 +305,7 @@ TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_acceptFailure) {
 }
 
 TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_success) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_NE(server.sockets.size(), 0U);
     EXPECT_FALSE(server.sockets[server.sockets.size() - 1] == NULL);
@@ -304,7 +313,7 @@ TEST_F(TcpTransportTest, AcceptHandler_handleFileEvent_success) {
 }
 
 TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_reads) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     EXPECT_NE(server.sockets.size(), 0U);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
@@ -331,7 +340,7 @@ TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_writes) {
     // Generate 3 requests and respond to each; make the first response
     // too large to send entirely in sendReply, so that handleFileEvent
     // must finish the sending.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
 
     // Send requests.
     MockWrapper rpc1("request1");
@@ -342,15 +351,15 @@ TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_writes) {
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
 
     // Send replies.
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 199999);
     serverRpc->sendReply();
-    serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     serverRpc->replyPayload.fillFromString("response2");
     serverRpc->sendReply();
-    serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     serverRpc->replyPayload.fillFromString("response3");
     serverRpc->sendReply();
@@ -370,7 +379,7 @@ TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_writes) {
 }
 
 TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_eof) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     close(fd);
@@ -380,7 +389,7 @@ TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_eof) {
 }
 
 TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_error) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     sys->recvErrno = EPERM;
@@ -398,7 +407,7 @@ TEST_F(TcpTransportTest, ServerSocketHandler_handleFileEvent_error) {
 // ServerSocketHandler_handleFileEvent_writes above.
 
 TEST_F(TcpTransportTest, sendMessage_sendPartOfHeader) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     TcpTransport::Header header;
     header.nonce = 222;
     header.len = 10;
@@ -409,7 +418,7 @@ TEST_F(TcpTransportTest, sendMessage_sendPartOfHeader) {
     payload.fillFromString("0xaa55aa55 30 40");
     EXPECT_EQ(0, TcpTransport::sendMessage(fd, 222,
             &payload, 12 + sizeof(TcpTransport::Header) - 6));
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("0xaa55aa55 30 40",
             TestUtil::toString(&serverRpc->requestPayload));
@@ -420,14 +429,14 @@ TEST_F(TcpTransportTest, sendMessage_sendPartOfHeader) {
 }
 
 TEST_F(TcpTransportTest, sendMessage_multipleChunks) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     Buffer payload;
     payload.appendExternal("abcde", 5);
     payload.appendExternal("xxx", 3);
     payload.appendExternal("12345678", 8);
     TcpTransport::sendMessage(fd, 111, &payload, -1);
 
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("abcdexxx12345678",
             TestUtil::toString(&serverRpc->requestPayload));
@@ -438,7 +447,7 @@ TEST_F(TcpTransportTest, sendMessage_multipleChunks) {
 }
 
 TEST_F(TcpTransportTest, sendMessage_tooManyChunksForOneMessage) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     Buffer payload;
     for (int i = 0; i < 60; i++) {
         payload.appendExternal("abcdefghijklmnopqrstuvwxyz" + i/10, 1);
@@ -449,7 +458,7 @@ TEST_F(TcpTransportTest, sendMessage_tooManyChunksForOneMessage) {
     bytesLeft = TcpTransport::sendMessage(fd, 111, &payload, bytesLeft);
     EXPECT_EQ(0, bytesLeft);
 
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("a0a1a2a3a4a5a6a7a8a9b0b1b2b3b4b5b6b7b8b9c0c1c2c3c4c5c6c7c8c9"
             "d0d1d2d3d4d5d6d7d8d9e0e1e2e3e4e5e6e7e8e9f0f1f2f3f4f5f6f7f8f9",
@@ -461,7 +470,7 @@ TEST_F(TcpTransportTest, sendMessage_tooManyChunksForOneMessage) {
 }
 
 TEST_F(TcpTransportTest, sendMessage_errorOnSend) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     Buffer payload;
     payload.appendExternal("test message", 5);
 
@@ -478,33 +487,34 @@ TEST_F(TcpTransportTest, sendMessage_errorOnSend) {
 }
 
 TEST_F(TcpTransportTest, sendMessage_largeBuffer) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc(NULL);
-    TestUtil::fillLargeBuffer(&rpc.request, 300000);
+    TestUtil::fillLargeBuffer(&rpc.request, largeBufferSize);
     TcpTransport::messageChunks = 0;
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_GT(TcpTransport::messageChunks, 0)
         << "The message fit in one chunk. You may have to increase the size "
            "of the message for this test to be effective.";
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&serverRpc->requestPayload,
-            300000));
-    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 350000);
+            largeBufferSize));
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, largeBufferSize + 1);
     TcpTransport::messageChunks = 0;
     serverRpc->sendReply();
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc));
     EXPECT_GT(TcpTransport::messageChunks, 0)
         << "The message fit in one chunk. You may have to increase the size "
            "of the message for this test to be effective.";
-    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc.response, 350000));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc.response,
+            largeBufferSize + 1));
 }
 
 TEST_F(TcpTransportTest, sendMessage_brokenPipe) {
     // The main reason for this test is to make sure that
     // broken pipe errors don't generate signals that kill
     // the process.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     ASSERT_TRUE(waitForSession(server));
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     server.closeSocket(serverFd);
@@ -548,7 +558,7 @@ TEST_F(TcpTransportTest, recvCarefully_ioErrors) {
 // (IncomingMessage::cancel is tested by cancelRequest tests below.)
 
 TEST_F(TcpTransportTest, IncomingMessage_readMessage_receiveHeaderInPieces) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
 
@@ -576,7 +586,7 @@ TEST_F(TcpTransportTest, IncomingMessage_readMessage_receiveHeaderInPieces) {
 
 TEST_F(TcpTransportTest, IncomingMessage_readMessage_messageTooLong) {
     TestLog::Enable filter("readMessage");
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     Buffer buffer;
@@ -596,7 +606,7 @@ TEST_F(TcpTransportTest, IncomingMessage_readMessage_messageTooLong) {
 TEST_F(TcpTransportTest, IncomingMessage_readMessage_getBufferFromSession) {
     // This test is a bit goofy, in that we set up a server, then
     // initialize the IncomingMessage to receive a client-side reply.
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     MockWrapper rpc1("request1");
@@ -617,7 +627,7 @@ TEST_F(TcpTransportTest, IncomingMessage_readMessage_getBufferFromSession) {
 }
 
 TEST_F(TcpTransportTest, IncomingMessage_readMessage_findRpcReturnsNull) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     TcpTransport::TcpSession session(client);
@@ -632,7 +642,7 @@ TEST_F(TcpTransportTest, IncomingMessage_readMessage_findRpcReturnsNull) {
 }
 
 TEST_F(TcpTransportTest, IncomingMessage_readMessage_receiveBodyInPieces) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     Buffer buffer;
@@ -660,7 +670,7 @@ TEST_F(TcpTransportTest, IncomingMessage_readMessage_receiveBodyInPieces) {
 }
 
 TEST_F(TcpTransportTest, IncomingMessage_readMessage_discardExtraneousBytes) {
-    int fd = connectToServer(locator);
+    int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     Buffer buffer;
@@ -704,7 +714,7 @@ TEST_F(TcpTransportTest, sessionConstructor_socketError) {
     sys->socketErrno = EPERM;
     string message("");
     try {
-        TcpTransport::TcpSession session(client, locator);
+        TcpTransport::TcpSession session(client, &locator);
     } catch (TransportException& e) {
         message = e.message;
     }
@@ -718,7 +728,7 @@ TEST_F(TcpTransportTest, sessionConstructor_connectError) {
     sys->connectErrno = EPERM;
     string message("no exception");
     try {
-        TcpTransport::TcpSession session(client, locator);
+        TcpTransport::TcpSession session(client, &locator);
     } catch (TransportException& e) {
         message = e.message;
     }
@@ -732,13 +742,13 @@ TEST_F(TcpTransportTest, sessionConstructor_connectError) {
 }
 
 TEST_F(TcpTransportTest, sessionDestructor) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     session = NULL;
     EXPECT_EQ(1, sys->closeCount);
 }
 
 TEST_F(TcpTransportTest, TcpSession_abort) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc("request");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     session->abort();
@@ -746,7 +756,7 @@ TEST_F(TcpTransportTest, TcpSession_abort) {
 }
 
 TEST_F(TcpTransportTest, TcpSession_cancelRequest_waitingForResponse) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
 
@@ -771,7 +781,7 @@ TEST_F(TcpTransportTest, TcpSession_cancelRequest_responsePartiallyReceived) {
     // Make sure that if an RPC is canceled part-way through receiving
     // its response, the response buffer is not accessed after cancelRequest
     // returns.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
 
@@ -780,7 +790,7 @@ TEST_F(TcpTransportTest, TcpSession_cancelRequest_responsePartiallyReceived) {
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     TcpTransport::TcpServerRpc* serverRpc =
             static_cast<TcpTransport::TcpServerRpc*>(
-            serviceManager->waitForRpc(1.0));
+            workerManager->waitForRpc(1.0));
     EXPECT_TRUE(serverRpc != NULL);
     TcpTransport::TcpClientRpc* clientRpc =
             &(rawSession->rpcsWaitingForResponse.front());
@@ -811,26 +821,26 @@ TEST_F(TcpTransportTest, TcpSession_cancelRequest_responsePartiallyReceived) {
 }
 
 TEST_F(TcpTransportTest, TcpSession_cancelRequest_waitingToSend) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
 
     // Send a large request, which will queue on rpcsWaitingToSend,
     // followed by a couple more smaller ones, which will queue behind it.
     MockWrapper rpc1;
-    TestUtil::fillLargeBuffer(&rpc1.request, 777777);
+    TestUtil::fillLargeBuffer(&rpc1.request, largeBufferSize);
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     MockWrapper rpc2("request2");
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     MockWrapper rpc3("request3");
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
-    EXPECT_EQ(3U, rawSession->rpcsWaitingToSend.size());
+    ASSERT_EQ(3U, rawSession->rpcsWaitingToSend.size());
 
     // Now try cancelling them.
     session->cancelRequest(&rpc2);
-    EXPECT_EQ(2U, rawSession->rpcsWaitingToSend.size());
+    ASSERT_EQ(2U, rawSession->rpcsWaitingToSend.size());
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(
-            rawSession->rpcsWaitingToSend.front().request, 777777));
+            rawSession->rpcsWaitingToSend.front().request, largeBufferSize));
     EXPECT_EQ("request3", TestUtil::toString(
             rawSession->rpcsWaitingToSend.back().request));
     session->cancelRequest(&rpc1);
@@ -840,14 +850,14 @@ TEST_F(TcpTransportTest, TcpSession_cancelRequest_waitingToSend) {
 }
 
 TEST_F(TcpTransportTest, TcpSession_close_cancelRpcsWaitingToSend) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
 
     // Queue several requests (make the first one long, so they
     // all block on rpcsWaitingToSend.
     MockWrapper rpc1;
-    TestUtil::fillLargeBuffer(&rpc1.request, 777777);
+    TestUtil::fillLargeBuffer(&rpc1.request, largeBufferSize);
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     MockWrapper rpc2("request2");
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
@@ -863,7 +873,7 @@ TEST_F(TcpTransportTest, TcpSession_close_cancelRpcsWaitingToSend) {
 }
 
 TEST_F(TcpTransportTest, TcpSession_close_cancelRpcsWaitingForResponse) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
 
@@ -911,7 +921,7 @@ TEST_F(TcpTransportTest, findRpc) {
 }
 
 TEST_F(TcpTransportTest, TcpSession_getRpcInfo) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
 
@@ -930,7 +940,7 @@ TEST_F(TcpTransportTest, TcpSession_getRpcInfo) {
     rpc2.setOpcode(WireFormat::REMOVE);
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     MockWrapper rpc3;
-    TestUtil::fillLargeBuffer(&rpc3.request, 777777);
+    TestUtil::fillLargeBuffer(&rpc3.request, largeBufferSize);
     rpc3.setOpcode(WireFormat::WRITE);
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
     MockWrapper rpc4;
@@ -947,7 +957,7 @@ TEST_F(TcpTransportTest, TcpSession_getRpcInfo) {
 }
 
 TEST_F(TcpTransportTest, sendRequest_clearResponse) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc("request");
     rpc.response.fillFromString("abcdef");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
@@ -955,7 +965,7 @@ TEST_F(TcpTransportTest, sendRequest_clearResponse) {
 }
 
 TEST_F(TcpTransportTest, sendRequest_sessionClosed) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
     rawSession->abort();
@@ -965,7 +975,7 @@ TEST_F(TcpTransportTest, sendRequest_sessionClosed) {
 }
 
 TEST_F(TcpTransportTest, sendRequest_shortAndLongMessages) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
 
@@ -974,13 +984,13 @@ TEST_F(TcpTransportTest, sendRequest_shortAndLongMessages) {
     MockWrapper rpc1("request1");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     MockWrapper rpc2;
-    TestUtil::fillLargeBuffer(&rpc2.request, 300000);
+    TestUtil::fillLargeBuffer(&rpc2.request, largeBufferSize);
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     MockWrapper rpc3("request3");
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
 
-    EXPECT_EQ(2U, rawSession->rpcsWaitingToSend.size());
-    EXPECT_EQ(1U, rawSession->rpcsWaitingForResponse.size());
+    ASSERT_EQ(2U, rawSession->rpcsWaitingToSend.size());
+    ASSERT_EQ(1U, rawSession->rpcsWaitingForResponse.size());
     TcpTransport::TcpClientRpc& r1 =
             rawSession->rpcsWaitingForResponse.front();
     TcpTransport::TcpClientRpc& r2 =
@@ -988,7 +998,7 @@ TEST_F(TcpTransportTest, sendRequest_shortAndLongMessages) {
     TcpTransport::TcpClientRpc& r3 =
             rawSession->rpcsWaitingToSend.back();
     EXPECT_EQ("request1", TestUtil::toString(r1.request));
-    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(r2.request, 300000));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(r2.request, largeBufferSize));
     EXPECT_EQ("request3", TestUtil::toString(r3.request));
     EXPECT_TRUE(r1.sent);
     EXPECT_FALSE(r2.sent);
@@ -996,7 +1006,7 @@ TEST_F(TcpTransportTest, sendRequest_shortAndLongMessages) {
 }
 
 TEST_F(TcpTransportTest, sendRequest_sendMessageException) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
     sys->sendmsgErrno = EPERM;
@@ -1011,12 +1021,12 @@ TEST_F(TcpTransportTest, sendRequest_sendMessageException) {
 }
 
 TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_readResponse) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
     MockWrapper rpc1("request1");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     serverRpc->replyPayload.fillFromString("response1");
 
@@ -1032,14 +1042,14 @@ TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_readResponse) {
 }
 
 TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_sendRequests) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::TcpSession* rawSession =
             reinterpret_cast<TcpTransport::TcpSession*>(session.get());
 
     // Send a long request (to fill up the socket) followed by 2
     // short requests.
     MockWrapper rpc1;
-    TestUtil::fillLargeBuffer(&rpc1.request, 300000);
+    TestUtil::fillLargeBuffer(&rpc1.request, largeBufferSize);
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     MockWrapper rpc2("request2");
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
@@ -1048,20 +1058,20 @@ TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_sendRequests) {
     EXPECT_EQ(3U, rawSession->rpcsWaitingToSend.size());
 
     // Receive requests on the server and make sure they are all okay.
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&serverRpc->requestPayload,
-            300000));
+            largeBufferSize));
     server.serverRpcPool.destroy(
         static_cast<TcpTransport::TcpServerRpc*>(serverRpc));
 
-    serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("request2", TestUtil::toString(&serverRpc->requestPayload));
     server.serverRpcPool.destroy(
         static_cast<TcpTransport::TcpServerRpc*>(serverRpc));
 
-    serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("request3", TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_EQ(0U, rawSession->rpcsWaitingToSend.size());
@@ -1074,7 +1084,7 @@ TEST_F(TcpTransportTest, ClientSocketHandler_handleFileEvent_sendRequests) {
 TEST_F(TcpTransportTest, ClientSocketHandler_eof) {
     // In this test, arrange for the connection to get closed
     // while an RPC is outstanding and we are waiting for a response.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc1("xxx");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     TcpTransport::TcpSession* rawSession =
@@ -1088,7 +1098,7 @@ TEST_F(TcpTransportTest, ClientSocketHandler_eofOutsideRPC) {
     // In this test, close the connection when there is no RPC
     // outstanding; this creates additional stress because not all
     // data structures have been initialized.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     server.closeSocket(downCast<unsigned>(server.sockets.size()) - 1);
     TcpTransport::TcpSession* rawSession =
@@ -1098,7 +1108,7 @@ TEST_F(TcpTransportTest, ClientSocketHandler_eofOutsideRPC) {
 }
 
 TEST_F(TcpTransportTest, ClientSocketHandler_ioError) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc1("xxx");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     TcpTransport::TcpSession* rawSession =
@@ -1115,12 +1125,12 @@ TEST_F(TcpTransportTest, ClientSocketHandler_ioError) {
 TEST_F(TcpTransportTest, sendReply_fdClosed) {
     // Create a situation where the server shuts down a socket before
     // an RPC response is sent.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc1("request1");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     TcpTransport::TcpServerRpc* serverRpc =
             static_cast<TcpTransport::TcpServerRpc*>(
-            serviceManager->waitForRpc(1.0));
+            workerManager->waitForRpc(1.0));
     EXPECT_TRUE(serverRpc != NULL);
     serverRpc->replyPayload.fillFromString("response1");
     server.closeSocket(serverRpc->fd);
@@ -1131,12 +1141,12 @@ TEST_F(TcpTransportTest, sendReply_fdReused) {
     // Create a situation where the socket for an RPC has been closed
     // and reused for a different connection before an RPC response is
     // sent.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc1("request1");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
     TcpTransport::TcpServerRpc* serverRpc1 =
             static_cast<TcpTransport::TcpServerRpc*>(
-            serviceManager->waitForRpc(1.0));
+            workerManager->waitForRpc(1.0));
     EXPECT_TRUE(serverRpc1 != NULL);
     serverRpc1->replyPayload.fillFromString("response1");
 
@@ -1144,12 +1154,12 @@ TEST_F(TcpTransportTest, sendReply_fdReused) {
     // create a new session that will reuse the same socket.
     server.closeSocket(serverRpc1->fd);
     session = NULL;
-    session = client.getSession(locator);
+    session = client.getSession(&locator);
     MockWrapper rpc2("request2");
     session->sendRequest(&rpc2.request, &rpc2.response, &rpc2);
     TcpTransport::TcpServerRpc* serverRpc2 =
             static_cast<TcpTransport::TcpServerRpc*>(
-            serviceManager->waitForRpc(1.0));
+            workerManager->waitForRpc(1.0));
 
     // Attempt to send a reply, and make sure that it doesn't
     // accidentally get sent to the wrong request.
@@ -1165,7 +1175,7 @@ TEST_F(TcpTransportTest, sendReply) {
     // short so it can be transmitted immediately; make the next response
     // long, so it blocks; make the last response short (it should queue up
     // behind the long one).
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
 
     // Send requests.
     MockWrapper rpc1("request1");
@@ -1176,15 +1186,15 @@ TEST_F(TcpTransportTest, sendReply) {
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
 
     // Send replies.
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     serverRpc->replyPayload.fillFromString("response1");
     serverRpc->sendReply();
-    serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
-    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, 200000);
+    TestUtil::fillLargeBuffer(&serverRpc->replyPayload, largeBufferSize);
     serverRpc->sendReply();
-    serverRpc = serviceManager->waitForRpc(1.0);
+    serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     serverRpc->replyPayload.fillFromString("response3");
     serverRpc->sendReply();
@@ -1202,7 +1212,8 @@ TEST_F(TcpTransportTest, sendReply) {
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc1));
     EXPECT_EQ("response1/0", TestUtil::toString(&rpc1.response));
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc2));
-    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc2.response, 200000));
+    EXPECT_EQ("ok", TestUtil::checkLargeBuffer(&rpc2.response,
+                largeBufferSize));
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc3));
     EXPECT_EQ("response3/0", TestUtil::toString(&rpc3.response));
     EXPECT_EQ("~TcpServerRpc: deleted | ~TcpServerRpc: deleted",
@@ -1211,10 +1222,10 @@ TEST_F(TcpTransportTest, sendReply) {
 }
 
 TEST_F(TcpTransportTest, sendReply_error) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc1("request1");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     serverRpc->replyPayload.fillFromString("response1");
 
@@ -1234,7 +1245,7 @@ TEST_F(TcpTransportTest, sendReply_error) {
 TEST_F(TcpTransportTest, sessionAlarm) {
     TestLog::Enable _;
     TcpTransport::TcpSession* session = new TcpTransport::TcpSession(
-            client, locator, 30);
+            client, &locator, 30);
     Transport::SessionRef ref = session;
 
     // First, let a request complete successfully, and make sure that
@@ -1244,7 +1255,7 @@ TEST_F(TcpTransportTest, sessionAlarm) {
     // We do not want the session alarm timer firing unless we fire it
     // explicitly.
     context.sessionAlarmTimer->stop();
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     serverRpc->replyPayload.fillFromString("response1");
     serverRpc->sendReply();
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc1));
@@ -1265,11 +1276,11 @@ TEST_F(TcpTransportTest, sessionAlarm) {
 }
 
 TEST_F(TcpTransportTest, TcpServerRpc_getClientServiceLocator) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     TcpTransport::messageChunks = 0;
     MockWrapper rpc1("request1");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
-    Transport::ServerRpc* serverRpc = serviceManager->waitForRpc(1.0);
+    Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "tcp:host=127\\.0\\.0\\.1,port=[0-9][0-9]*",

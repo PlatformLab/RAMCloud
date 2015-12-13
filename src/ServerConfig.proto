@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -49,6 +49,9 @@ message ServerConfig {
     /// Largest allowable key for a RAMCloud object, in bytes.
     required fixed32 max_object_key_size = 10;
 
+    /// Max number of cores to use at once for dispatch and worker threads.
+    required fixed32 max_cores = 11;
+
     /// Configuration details specific to the MasterService on a server.
     message Master {
         /// Total number bytes to use for the in-memory Log.
@@ -77,21 +80,18 @@ message ServerConfig {
         /// Maximum number of threads the cleaner will use.
         required fixed32 cleaner_thread_count = 8;
 
-        /// Max number of simultaneous threads that may run in MasterService.
-        required fixed32 master_service_thread_count = 9;
-
         /// Number of replicas to keep per segment stored on backups.
-        required fixed32 num_replicas = 10;
+        required fixed32 num_replicas = 9;
 
         /// Specifies whether to use MinCopysets or random replication.
-        required bool use_mincopysets = 11;
+        required bool use_mincopysets = 10;
 
         /// If true, allow replication to local backup.
-        required bool use_local_backup = 12;
+        required bool use_local_backup = 11;
     }
 
     /// The server's MasterService configuration, if it is running one.
-    optional Master master = 11;
+    optional Master master = 12;
 
     message Backup {
         /// Whether the backup garbage collector is enabled or not.
@@ -122,5 +122,5 @@ message ServerConfig {
     }
 
     /// The server's BackupService configuration, if it is running one.
-    optional Backup backup = 12;
+    optional Backup backup = 13;
 }

@@ -25,14 +25,13 @@ namespace RAMCloud {
  *
  * \param unackedRpcResults
  *      Pointer to UnackedRpcResults instance to operate on.
- * \param clientId
- *      RPC sender's id.
+ * \param clientLease
+ *      The client lease associated with this RPC.  Contain the client lease id,
+ *      the lease expiration time.
  * \param rpcId
  *      RPC's id to be checked.
  * \param ackId
  *      The ack number transmitted with the RPC whose id number is rpcId.
- * \param leaseExpiration
- *      Client's lease expiration time.
  *
  * \throw ExpiredLeaseException
  *      The lease for \a clientId is already expired in coordinator.
@@ -44,19 +43,17 @@ namespace RAMCloud {
  */
 UnackedRpcHandle::UnackedRpcHandle(
         UnackedRpcResults* unackedRpcResults,
-        uint64_t clientId,
+        WireFormat::ClientLease clientLease,
         uint64_t rpcId,
-        uint64_t ackId,
-        uint64_t leaseExpiration)
-    : clientId(clientId)
+        uint64_t ackId)
+    : clientId(clientLease.leaseId)
     , rpcId(rpcId)
     , duplicate(false)
     , resultPtr(0)
     , rpcResults(unackedRpcResults)
 {
     void* result;
-    duplicate = rpcResults->checkDuplicate(clientId, rpcId, ackId,
-                                           leaseExpiration, &result);
+    duplicate = rpcResults->checkDuplicate(clientLease, rpcId, ackId, &result);
     resultPtr = reinterpret_cast<uint64_t>(result);
 }
 
@@ -157,14 +154,24 @@ UnackedRpcHandle::recordCompletion(uint64_t result)
  * \param context
  *      Overall information about the RAMCloud server and provides access to
  *      the dispatcher and masterService.
+ * \param freer
+ *      Pointer to reference freer. During garbage collection by ackId,
+ *      this freer should be used to designate specific log entry as cleanable.
+ * \param leaseValidator
+ *      Allows this module to determine if a given lease is still valid.
  */
-UnackedRpcResults::UnackedRpcResults(Context* context)
+UnackedRpcResults::UnackedRpcResults(Context* context,
+                                     AbstractLog::ReferenceFreer* freer,
+                                     ClientLeaseValidator* leaseValidator)
     : clients(20)
     , mutex()
     , default_rpclist_size(50)
     , context(context)
+    , leaseValidator(leaseValidator)
     , cleaner(this)
-{}
+    , freer(freer)
+{
+}
 
 /**
  * Default destructor
@@ -187,18 +194,26 @@ UnackedRpcResults::startCleaner()
 }
 
 /**
+ * Resets log entry freer.
+ */
+void
+UnackedRpcResults::resetFreer(AbstractLog::ReferenceFreer* freer)
+{
+    freer = freer;
+}
+
+/**
  * Check whether a particular rpc id has been received in this master
  * previously. If so, returns information about that RPC. If not, creates
  * a new record indicating that the RPC is now being processed.
  *
- * \param clientId
- *      RPC sender's id.
+ * \param clientLease
+ *      The client lease associated with this RPC.  Contain the client lease id,
+ *      the lease expiration time.
  * \param rpcId
  *      RPC's id to be checked.
  * \param ackId
  *      The ack number transmitted with the RPC whose id number is rpcId.
- * \param leaseExpiration
- *      Client's lease expiration time in the form of ClusterTime.
  * \param[out] resultPtrOut
  *      If the RPC already has been completed, the pointer to its result (the \a
  *      result value previously passed to #UnackedRpcResults::recordCompletion)
@@ -219,26 +234,16 @@ UnackedRpcResults::startCleaner()
  *      not have received this request in the first place.
  */
 bool
-UnackedRpcResults::checkDuplicate(uint64_t clientId,
+UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
                                   uint64_t rpcId,
                                   uint64_t ackId,
-                                  uint64_t leaseExpiration,
                                   void** resultPtrOut)
 {
     Lock lock(mutex);
     *resultPtrOut = NULL;
     Client* client;
 
-    if (leaseExpiration &&
-            leaseExpiration < context->masterService->clusterTime) {
-        //contact coordinator for lease expiration and clusterTime.
-        WireFormat::ClientLease lease =
-            CoordinatorClient::getLeaseInfo(context, clientId);
-        context->masterService->updateClusterTime(lease.timestamp);
-        if (lease.leaseId == 0) {
-            throw ExpiredLeaseException(HERE);
-        }
-    }
+    uint64_t clientId = clientLease.leaseId;
 
     ClientMap::iterator it = clients.find(clientId);
     if (it == clients.end()) {
@@ -248,11 +253,24 @@ UnackedRpcResults::checkDuplicate(uint64_t clientId,
         client = it->second;
     }
 
+    // Update lease with more up-to-date information if available to avoid
+    // unnecessary lease validation.
+    if (ClusterTime(clientLease.leaseExpiration) < client->leaseExpiration) {
+        clientLease.leaseExpiration = client->leaseExpiration.getEncoded();
+    }
+    // Make sure lease is valid.
+    if (!leaseValidator->validate(clientLease, &clientLease)) {
+        throw ExpiredLeaseException(HERE);
+    }
+
+    ClusterTime leaseExpiration(clientLease.leaseExpiration);
+
     //1. Update leaseExpiration and ack.
     if (client->leaseExpiration < leaseExpiration)
         client->leaseExpiration = leaseExpiration;
-    if (client->maxAckId < ackId)
-        client->maxAckId = ackId;
+    if (client->maxAckId < ackId) {
+        client->processAck(ackId, freer);
+    }
 
     //2. Check if the same RPC has been started.
     //   There are four cases to handle.
@@ -281,10 +299,8 @@ UnackedRpcResults::checkDuplicate(uint64_t clientId,
 }
 
 /**
- * Used during recovery to figure out whether to retain a log record containing
- * the results of an RPC. This function indicates whether we can tell from the
- * information seen so far that a given RPC's result need not be retained.
- * (the client has acknowledged receiving the result.)
+ * Used during recovery to determine whether to retain a log record containing
+ * either the results of an RPC or a transaction participant list.
  *
  * \param clientId
  *      RPC sender's id.
@@ -292,6 +308,8 @@ UnackedRpcResults::checkDuplicate(uint64_t clientId,
  *      RPC's id to be checked.
  * \param ackId
  *      The ack number transmitted with the RPC with \a rpcId.
+ * \param entryType
+ *      The log entry type of the record in question. Used for better logging.
  *
  * \return
  *      True if the log record may be useful, or
@@ -300,7 +318,8 @@ UnackedRpcResults::checkDuplicate(uint64_t clientId,
 bool
 UnackedRpcResults::shouldRecover(uint64_t clientId,
                                  uint64_t rpcId,
-                                 uint64_t ackId)
+                                 uint64_t ackId,
+                                 LogEntryType entryType)
 {
     Lock lock(mutex);
     ClientMap::iterator it;
@@ -311,7 +330,16 @@ UnackedRpcResults::shouldRecover(uint64_t clientId,
     }
     Client* client = it->second;
     if (client->maxAckId < ackId)
-        client->maxAckId = ackId;
+        client->processAck(ackId, freer);
+
+    if (client->hasRecord(rpcId)) {
+        LOG((entryType == LOG_ENTRY_TYPE_TXPLIST ? NOTICE : WARNING),
+                "Duplicate %s found during recovery. <clientID, rpcID, ackId> "
+                "= <%" PRIu64 ", " "%" PRIu64 ", " "%" PRIu64 ">",
+                LogEntryTypeHelpers::toString(entryType),
+                clientId, rpcId, ackId);
+        return false;
+    }
 
     return rpcId > client->maxAckId;
 }
@@ -388,7 +416,7 @@ UnackedRpcResults::recoverRecord(uint64_t clientId,
 
     //1. Handle Ack.
     if (client->maxAckId < ackId)
-        client->maxAckId = ackId;
+        client->processAck(ackId, freer);
 
     //2. Check if the same RPC has been started.
     //   There are four cases to handle.
@@ -400,7 +428,8 @@ UnackedRpcResults::recoverRecord(uint64_t clientId,
         client->recordNewRpc(rpcId);
         client->updateResult(rpcId, result);
     } else if (client->hasRecord(rpcId)) {
-        LOG(WARNING, "Duplicate RpcResult found during recovery. "
+        LOG(WARNING,
+                "Duplicate RpcResult or ParticipantList found during recovery. "
                 "<clientID, rpcID, ackId> = <"
                 "%" PRIu64 ", " "%" PRIu64 ", " "%" PRIu64 ">",
                 clientId, rpcId, ackId);
@@ -462,7 +491,7 @@ UnackedRpcResults::isRpcAcked(uint64_t clientId, uint64_t rpcId)
 void
 UnackedRpcResults::cleanByTimeout()
 {
-    vector<uint64_t> victims;
+    vector<ClientLease> victims;
     {
         Lock lock(mutex);
 
@@ -479,35 +508,53 @@ UnackedRpcResults::cleanByTimeout()
                         //&& victims.size() < Cleaner::maxCheckPerPeriod;
              ++i, ++it) {
             Client* client = it->second;
-            if (client->leaseExpiration <=
-                    context->masterService->clusterTime) {
-                victims.push_back(it->first);
+
+            ClientLease lease = {it->first,
+                                 client->leaseExpiration.getEncoded(),
+                                 0};
+            if (leaseValidator->needsValidation(lease)) {
+                victims.push_back(lease);
             }
         }
     }
 
     // Check with coordinator whether the lease is expired.
     // And erase entry if the lease is expired.
-    uint64_t maxClusterTime = 0;
+    ClusterTime maxClusterTime;
     for (uint32_t i = 0; i < victims.size(); ++i) {
         Lock lock(mutex);
-        if (clients[victims[i]]->numRpcsInProgress)
+        if (clients[victims[i].leaseId]->numRpcsInProgress)
             continue;
 
-        WireFormat::ClientLease lease =
-            CoordinatorClient::getLeaseInfo(context, victims[i]);
-        if (lease.leaseId == 0) {
-            clients.erase(victims[i]);
+        ClientLease lease = victims[i];
+        if (leaseValidator->validate(lease, &lease)) {
+            clients[victims[i].leaseId]->leaseExpiration =
+                                            ClusterTime(lease.leaseExpiration);
         } else {
-            clients[victims[i]]->leaseExpiration = lease.leaseExpiration;
+            clients.erase(victims[i].leaseId);
         }
+    }
+}
 
-        if (maxClusterTime < lease.timestamp)
-            maxClusterTime = lease.timestamp;
+/**
+ * Returns true if a record exists for the given client id and RPC id; false,
+ * otherwise.  This method is used only for unit testing.
+ */
+bool
+UnackedRpcResults::hasRecord(uint64_t clientId, uint64_t rpcId) {
+    Client* client;
+    ClientMap::iterator it = clients.find(clientId);
+    if (it == clients.end()) {
+        return false;
     }
 
-    if (maxClusterTime)
-        context->masterService->updateClusterTime(maxClusterTime);
+    client = it->second;
+
+    if (rpcId <= client->maxAckId) {
+        return false;
+    }
+
+    return client->hasRecord(rpcId);
 }
 
 /**
@@ -534,7 +581,7 @@ UnackedRpcResults::Cleaner::handleTimerEvent()
 
     // Run once per 1/10 of lease term to keep expected garbage ~ 5%.
     this->start(Cycles::rdtsc()+Cycles::fromNanoseconds(
-            LeaseCommon::LEASE_TERM_US * 100));
+            LeaseCommon::LEASE_TERM.toNanoseconds() / 10));
 }
 
 /**
@@ -568,7 +615,7 @@ UnackedRpcResults::Client::result(uint64_t rpcId) {
 }
 
 /**
- * Mark the start of processing a new RPC on Client's internal data strucutre.
+ * Mark the start of processing a new RPC on Client's internal data structure.
  *
  * \param rpcId
  *      The id of new Rpc.
@@ -578,6 +625,33 @@ UnackedRpcResults::Client::recordNewRpc(uint64_t rpcId) {
     if (rpcs[rpcId % len].id > maxAckId)
         resizeRpcs(10);
     rpcs[rpcId % len] = UnackedRpc(rpcId, NULL);
+}
+
+/**
+ * Processes ack provided by the client. Frees log entries for RpcResult up to
+ * ackId, and bumps maxAckId.
+ * \param ackId
+ *      The ack number transmitted with the RPC whose id number is rpcId.
+ * \param freer
+ *      Pointer to reference freer. This freer should be used to set
+ *      log entries used for RpcResult as free.
+ */
+void
+UnackedRpcResults::Client::processAck(uint64_t ackId,
+                                      AbstractLog::ReferenceFreer* freer) {
+    for (uint64_t id = maxAckId + 1; id <= ackId; id++) {
+        if (rpcs[id % len].id == id) {
+            uint64_t resPtr = reinterpret_cast<uint64_t>(rpcs[id % len].result);
+            if (resPtr) {
+                Log::Reference reference(resPtr);
+                freer->freeLogEntry(reference);
+            } else {
+                LOG(WARNING, "client acked unfinished RPC with "
+                             "rpcId <%" PRIu64 ">", id);
+            }
+        }
+    }
+    maxAckId = ackId;
 }
 
 /**

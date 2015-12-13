@@ -18,7 +18,7 @@
 #include "ShortMacros.h"
 #include "Cycles.h"
 #include "ServiceLocator.h"
-#include "ServiceManager.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 
@@ -46,13 +46,14 @@ FastTransport::FastTransport(Context* context, Driver* driver)
     , clientRpcPool()
 {
     struct IncomingPacketHandler : Driver::IncomingPacketHandler {
-        explicit IncomingPacketHandler(FastTransport& t) : t(t) {}
-        void operator()(Driver::Received* received) {
-            t.handleIncomingPacket(received);
+        explicit IncomingPacketHandler(FastTransport* t) : t(t) {}
+        void handlePacket(Driver::Received* received) {
+            t->handleIncomingPacket(received);
         }
-        FastTransport& t;
+        FastTransport* t;
+        DISALLOW_COPY_AND_ASSIGN(IncomingPacketHandler);
     };
-    driver->connect(new IncomingPacketHandler(*this));
+    driver->connect(new IncomingPacketHandler(this));
 }
 
 FastTransport::~FastTransport()
@@ -78,7 +79,7 @@ FastTransport::getServiceLocator()
 
 // See Transport::getSession().
 Transport::SessionRef
-FastTransport::getSession(const ServiceLocator& serviceLocator,
+FastTransport::getSession(const ServiceLocator* serviceLocator,
         uint32_t timeoutMs)
 {
     Dispatch::Lock lock(context->dispatch);
@@ -179,8 +180,8 @@ void FastTransport::handleIncomingPacket(Driver::Received* received)
     Header* header = received->getOffset<Header>(0);
     if (header == NULL) {
         LOG(WARNING,
-            "packet too short (%u bytes)",
-            received->len);
+            "packet from %s too short (%u bytes)",
+            received->sender->toString().c_str(), received->len);
         return;
     }
     if (header->pleaseDrop) {
@@ -202,7 +203,9 @@ void FastTransport::handleIncomingPacket(Driver::Received* received)
                 session->startSession(received->sender,
                                       header->clientSessionHint);
             } else {
-                LOG(WARNING, "bad session hint %d", header->serverSessionHint);
+                LOG(WARNING, "bad session hint %d from %s",
+                        header->serverSessionHint,
+                        received->sender->toString().c_str());
                 sendBadSessionError(header, received->sender);
             }
             return;
@@ -214,9 +217,11 @@ void FastTransport::handleIncomingPacket(Driver::Received* received)
             session->processInboundPacket(received);
             return;
         } else {
-            LOG(WARNING, "bad session token (0x%lx in session %d, "
-                "0x%lx in packet)", session->getToken(),
-                header->serverSessionHint, header->sessionToken);
+            LOG(WARNING, "bad session token from %s (session %d, "
+                    "expected 0x%lx, got 0x%lx)",
+                    received->sender->toString().c_str(),
+                    header->clientSessionHint, session->getToken(),
+                    header->sessionToken);
             sendBadSessionError(header, received->sender);
             return;
         }
@@ -230,13 +235,16 @@ void FastTransport::handleIncomingPacket(Driver::Received* received)
                 header->getPayloadType() == Header::SESSION_OPEN) {
                 session->processInboundPacket(received);
             } else {
-                LOG(WARNING, "bad fragment token (0x%lx in session %d, "
-                    "0x%lx in packet), client dropping", session->getToken(),
-                    header->clientSessionHint, header->sessionToken);
+                LOG(WARNING, "bad session token from %s (session %d, "
+                    "expected 0x%lx, got 0x%lx)",
+                    received->sender->toString().c_str(),
+                    header->clientSessionHint, session->getToken(),
+                    header->sessionToken);
             }
         } else {
-            LOG(WARNING, "bad client session hint %d",
-                header->clientSessionHint);
+            LOG(WARNING, "bad client session hint %d from %s",
+                header->clientSessionHint,
+                received->sender->toString().c_str());
         }
     }
 }
@@ -385,7 +393,7 @@ FastTransport::InboundMessage::setup(FastTransport* transport,
 }
 
 /**
- * Creates and transmits an ACK decribing which fragments are still missing.
+ * Creates and transmits an ACK describing which fragments are still missing.
  */
 void
 FastTransport::InboundMessage::sendAck()
@@ -451,8 +459,7 @@ FastTransport::InboundMessage::init(uint16_t totalFrags,
     this->totalFrags = totalFrags;
     this->dataBuffer = dataBuffer;
     if (useTimer) {
-        timer->start(transport->context->dispatch->currentTime +
-                session->timeoutCycles);
+        timer->start(Cycles::rdtsc() + session->timeoutCycles);
     }
 }
 
@@ -589,8 +596,7 @@ FastTransport::InboundMessage::Timer::handleTimerEvent()
         if (inboundMsg->silentIntervals > 1) {
             inboundMsg->sendAck();
         }
-        start(inboundMsg->transport->context->dispatch->currentTime +
-              inboundMsg->session->timeoutCycles);
+        start(Cycles::rdtsc() + inboundMsg->session->timeoutCycles);
     }
 }
 
@@ -769,20 +775,7 @@ FastTransport::OutboundMessage::send()
             sendOneData(totalFrags-1, true);
         }
 
-        // Find the oldest unacknowledged fragment, and schedule the timer
-        // based on that.
-        uint64_t oldestSentTime = now;
-        for (uint32_t fragNumber = firstMissingFrag; fragNumber < stop;
-                fragNumber++) {
-            uint64_t sentTime = sentTimes[fragNumber];
-            // if we reach a not-sent, the rest must be not-sent
-            if (!sentTime)
-                break;
-            if (sentTime != ACKED && sentTime > 0)
-                if (sentTime < oldestSentTime)
-                    oldestSentTime = sentTime;
-        }
-        timer->start(oldestSentTime + session->timeoutCycles);
+        timer->start(now + session->timeoutCycles);
     }
 }
 
@@ -1208,7 +1201,7 @@ FastTransport::ServerSession::processReceivedData(ServerChannel* channel,
     case ServerChannel::RECEIVING:
         if (channel->inboundMsg.processReceivedData(received)) {
             channel->state = ServerChannel::PROCESSING;
-            transport->context->serviceManager->handleRpc(channel->currentRpc);
+            transport->context->workerManager->handleRpc(channel->currentRpc);
         }
         break;
     case ServerChannel::PROCESSING:
@@ -1422,11 +1415,11 @@ FastTransport::ClientSession::getRpcInfo()
  *
  */
 void
-FastTransport::ClientSession::init(const ServiceLocator& serviceLocator,
+FastTransport::ClientSession::init(const ServiceLocator* serviceLocator,
                                    uint32_t timeoutMs)
 {
     serverAddress.reset(transport->driver->newAddress(serviceLocator));
-    setServiceLocator(serviceLocator.getOriginalString());
+    setServiceLocator(serviceLocator->getOriginalString());
     if (timeoutMs == 0)
         timeoutMs = DEFAULT_TIMEOUT_MS;
     // Careful with the arithmetic below (timeoutMs is only uint32_t).

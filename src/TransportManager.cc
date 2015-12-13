@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -14,16 +14,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "BasicTransport.h"
 #include "CycleCounter.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
-#include "ServiceManager.h"
 #include "TransportManager.h"
 #include "TransportFactory.h"
 #include "TcpTransport.h"
 #include "FastTransport.h"
 #include "UdpDriver.h"
 #include "FailSession.h"
+#include "WorkerManager.h"
 #include "WorkerSession.h"
 
 #ifdef INFINIBAND
@@ -33,6 +34,10 @@
 
 #ifdef ONLOAD
 #include "SolarFlareDriver.h"
+#endif
+
+#ifdef DPDK
+#include "DpdkDriver.h"
 #endif
 
 namespace RAMCloud {
@@ -46,6 +51,17 @@ static struct TcpTransportFactory : public TransportFactory {
     }
 } tcpTransportFactory;
 
+static struct BasicUdpTransportFactory : public TransportFactory {
+    BasicUdpTransportFactory()
+        : TransportFactory("basic+kernelUdp", "basic+udp") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new BasicTransport(context, localServiceLocator,
+                new UdpDriver(context, localServiceLocator),
+                generateRandom());
+    }
+} basicUdpTransportFactory;
+
 static struct FastUdpTransportFactory : public TransportFactory {
     FastUdpTransportFactory()
         : TransportFactory("fast+kernelUdp", "fast+udp") {}
@@ -57,6 +73,16 @@ static struct FastUdpTransportFactory : public TransportFactory {
 } fastUdpTransportFactory;
 
 #ifdef ONLOAD
+static struct BasicSolarFlareTransportFactory : public TransportFactory {
+    BasicSolarFlareTransportFactory()
+        : TransportFactory("basic+solarflare", "basic+sf") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new BasicTransport(context, localServiceLocator,
+                new SolarFlareDriver(context, localServiceLocator),
+                generateRandom());
+    }
+} basicSpolarFlareTransportFactory;
 static struct FastSolarFlareTransportFactory : public TransportFactory {
     FastSolarFlareTransportFactory()
         : TransportFactory("fast+solarflare", "fast+sf") {}
@@ -69,6 +95,17 @@ static struct FastSolarFlareTransportFactory : public TransportFactory {
 #endif
 
 #ifdef INFINIBAND
+static struct BasicInfUdTransportFactory : public TransportFactory {
+    BasicInfUdTransportFactory()
+        : TransportFactory("basic+infinibandud", "basic+infud") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new BasicTransport(context, localServiceLocator,
+                new InfUdDriver(context, localServiceLocator, false),
+                generateRandom());
+    }
+} basicInfUdTransportFactory;
+
 static struct FastInfUdTransportFactory : public TransportFactory {
     FastInfUdTransportFactory()
         : TransportFactory("fast+infinibandud", "fast+infud") {}
@@ -99,6 +136,30 @@ static struct InfRcTransportFactory : public TransportFactory {
 } infRcTransportFactory;
 #endif
 
+#ifdef DPDK
+static struct BasicDpdkTransportFactory : public TransportFactory {
+    BasicDpdkTransportFactory()
+        : TransportFactory("basic+dpdk", "basic+dpdk") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new BasicTransport(context, localServiceLocator,
+                new DpdkDriver(context, localServiceLocator),
+                generateRandom());
+    }
+} basicDpdkTransportFactory;
+static struct FastDpdkTransportFactory : public TransportFactory {
+    FastDpdkTransportFactory()
+        : TransportFactory("fast+dpdk", "fast+dpdk") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        LOG(NOTICE, "Trying to createTransport");
+        return new FastTransport(context,
+                new DpdkDriver(context, localServiceLocator));
+        LOG(NOTICE, "Transport Created");
+    }
+} fastDpdkTransportFactory;
+#endif
+
 TransportManager::TransportManager(Context* context)
     : context(context)
     , isServer(false)
@@ -113,14 +174,21 @@ TransportManager::TransportManager(Context* context)
     , mockRegistrations(0)
 {
     transportFactories.push_back(&tcpTransportFactory);
+    transportFactories.push_back(&basicUdpTransportFactory);
     transportFactories.push_back(&fastUdpTransportFactory);
 #ifdef ONLOAD
+    transportFactories.push_back(&basicSolarFlareTransportFactory);
     transportFactories.push_back(&fastSolarFlareTransportFactory);
 #endif
 #ifdef INFINIBAND
+    transportFactories.push_back(&basicInfUdTransportFactory);
     transportFactories.push_back(&fastInfUdTransportFactory);
     transportFactories.push_back(&fastInfEthTransportFactory);
     transportFactories.push_back(&infRcTransportFactory);
+#endif
+#ifdef DPDK
+    transportFactories.push_back(&basicDpdkTransportFactory);
+    transportFactories.push_back(&fastDpdkTransportFactory);
 #endif
     transports.resize(transportFactories.size(), NULL);
 }
@@ -367,7 +435,7 @@ TransportManager::openSessionInternal(const string& serviceLocator)
 
             try {
                 Transport::SessionRef session = transports[i]->getSession(
-                        locator, sessionTimeoutMs);
+                        &locator, sessionTimeoutMs);
                 if (isServer) {
                     return new WorkerSession(context, session);
                 }
@@ -453,15 +521,27 @@ void
 TransportManager::dumpTransportFactories()
 {
     Dispatch::Lock lock(context->dispatch);
-    LOG(NOTICE, "The following transport factories are known:");
-    uint32_t i = 0;
+    string list;
+    string separator = "";
     foreach (auto factory, transportFactories) {
-        LOG(NOTICE,
-            "Transport factory %u supports the following protocols:", i);
-        foreach (const char* protocol, factory->getProtocols())
-          LOG(NOTICE, "  %s", protocol);
-        ++i;
+        int count = 0;
+        foreach (const char* protocol, factory->getProtocols()) {
+            if (count == 0) {
+                list.append(separator);
+            } else if (count == 1) {
+                list.append(" (");
+            } else {
+                list.append(", ");
+            }
+            list.append(protocol);
+            count++;
+        }
+        if (count > 1) {
+            list.append(")");
+        }
+        separator = ", ";
     }
+    LOG(NOTICE, "Known transports: %s", list.c_str());
 }
 
 } // namespace RAMCloud

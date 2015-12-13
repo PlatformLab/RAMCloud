@@ -239,7 +239,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
     const ProtoBuf::RecoveryPartition recoveryPartition;
     TestLog::Enable _;
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
-                       std::ref(*mgr),
+                       mgr,
                        0lu, serverId, recoveryPartition, false);
     while (!mgr->taskQueue.performTask()); // Do RecoveryMasterFinishedTask.
     thread.join();
@@ -292,7 +292,7 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
 
     TestLog::Enable _;
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
-                       std::ref(*mgr),
+                       mgr,
                        recovery->recoveryId,
                        ServerId{2, 0}, recoveryPartition, true);
     while (!mgr->taskQueue.performTask()); // Do RecoveryMasterFinishedTask.
@@ -366,7 +366,7 @@ TEST_F(MasterRecoveryManagerTest,
 
     TestLog::Enable _;
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
-                       std::ref(*mgr),
+                       mgr,
                        recovery->recoveryId,
                        ServerId{2, 0}, recoveryPartition, false);
     while (!mgr->taskQueue.performTask());
@@ -381,7 +381,7 @@ TEST_F(MasterRecoveryManagerTest,
         "schedule: scheduled | "
         "performTask: A recovery master failed to recover its partition | "
         "recoveryMasterFinished: Recovery master 2.0 failed to recover its "
-            "partition of the will for crashed server 1.0 | "
+            "partition for crashed server 1.0 | "
         "recoveryMasterFinished: Recovery wasn't completely successful; will "
             "not broadcast the end of recovery 1 for server 1.0 to backups | "
         "recoveryFinished: Recovery 1 completed for master 1.0 | "

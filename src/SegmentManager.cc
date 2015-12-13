@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,6 +17,7 @@
 #include "Object.h"
 #include "LogDigest.h"
 #include "LogMetadata.h"
+#include "LogProtector.h"
 #include "ShortMacros.h"
 #include "SegletAllocator.h"
 #include "SegmentManager.h"
@@ -24,6 +25,7 @@
 #include "ServerRpcPool.h"
 #include "TableStats.h"
 #include "MasterTableMetadata.h"
+#include "WorkerTimer.h"
 
 namespace RAMCloud {
 
@@ -76,10 +78,12 @@ SegmentManager::SegmentManager(Context* context,
       allSegments(),
       segmentsByState(),
       lock("SegmentManager::lock"),
-      logIteratorCount(0),
       segmentsOnDisk(0),
       segmentsOnDiskHistogram(maxSegments, 1),
-      safeVersion(1)
+      safeVersion(1),
+      oldestRpcEpoch(0),
+      stuckStartTime(0),
+      nextMessageSeconds(0.0)
 {
     if ((segmentSize % allocator.getSegletSize()) != 0)
         throw SegmentManagerException(HERE, "segmentSize % segletSize != 0");
@@ -309,6 +313,7 @@ SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
             return NULL;
 
         guard.destroy();
+        LOG(NOTICE, "Couldn't allocate segment for cleaning");
 
         // This message is likely benign (it can happen if there are no writes
         // coming in to roll over the log head and free up previously-cleaned
@@ -475,28 +480,6 @@ SegmentManager::cleanableSegments(LogSegmentVector& out)
 }
 
 /**
- * Called whenever a LogIterator is created. The point is that the segment
- * manager keeps track of when iterators exist and ensures that cleaning does
- * not permute the log until after all iteration has completed.
- */
-void
-SegmentManager::logIteratorCreated()
-{
-    Lock guard(lock);
-    logIteratorCount++;
-}
-
-/**
- * Called whenever a LogIterator is destroyed.
- */
-void
-SegmentManager::logIteratorDestroyed()
-{
-    Lock guard(lock);
-    logIteratorCount--;
-}
-
-/**
  * Get a list of active segments (segments that are currently part of the log)
  * that have an identifier greater than or equal to the given value. This is
  * used by the log iterator to discover segments to iterate over.
@@ -515,9 +498,6 @@ SegmentManager::getActiveSegments(uint64_t minSegmentId,
                                   LogSegmentVector& outList)
 {
     Lock guard(lock);
-
-    if (logIteratorCount == 0)
-        throw SegmentManagerException(HERE, "cannot call outside of iteration");
 
     // Walk the lists to collect the closed Segments. Since the cleaner
     // is locked out of inserting survivor segments and freeing cleaned
@@ -611,8 +591,8 @@ SegmentManager::doesIdExist(uint64_t id)
 }
 
 #ifdef TESTING
-/// Set to non-0 to mock the reported utilization of backup segments.
 int SegmentManager::mockSegmentUtilization = 0;
+int SegmentManager::mockMemoryUtilization = 0;
 #endif
 
 /**
@@ -644,6 +624,11 @@ int
 SegmentManager::getMemoryUtilization()
 {
     Lock guard(lock);
+
+#ifdef TESTING
+    if (mockMemoryUtilization)
+        return mockMemoryUtilization;
+#endif
 
     size_t freeSeglets = allocator.getFreeCount(SegletAllocator::DEFAULT);
     size_t totalSeglets = allocator.getTotalCount(SegletAllocator::DEFAULT);
@@ -771,7 +756,7 @@ SegmentManager::freeSegment(LogSegment* segment, bool waitForDigest, Lock& lock)
     // Increment the current epoch and save the last epoch any
     // RPC could have been a part of so we can store it with
     // the segment to be freed.
-    uint64_t epoch = ServerRpcPool<>::incrementCurrentEpoch() - 1;
+    uint64_t epoch = LogProtector::incrementCurrentEpoch() - 1;
 
     // Cleaned segments must wait until the next digest has been
     // written (that is, the new segments we cleaned into are part
@@ -824,12 +809,9 @@ SegmentManager::writeDigest(LogSegment* newHead, LogSegment* prevHead)
 {
     LogDigest digest;
 
-    // Only include new survivor segments if no log iteration in progress.
-    if (logIteratorCount == 0) {
-        while (!segmentsByState[CLEANABLE_PENDING_DIGEST].empty()) {
-            LogSegment& s = segmentsByState[CLEANABLE_PENDING_DIGEST].front();
-            changeState(s, NEWLY_CLEANABLE);
-        }
+    while (!segmentsByState[CLEANABLE_PENDING_DIGEST].empty()) {
+        LogSegment& s = segmentsByState[CLEANABLE_PENDING_DIGEST].front();
+        changeState(s, NEWLY_CLEANABLE);
     }
 
     foreach (LogSegment& s, segmentsByState[CLEANABLE])
@@ -843,19 +825,11 @@ SegmentManager::writeDigest(LogSegment* newHead, LogSegment* prevHead)
 
     digest.addSegmentId(newHead->id);
 
-    // Only preclude/free cleaned segments if no log iteration in progress.
-    if (logIteratorCount == 0) {
-        SegmentList& list = segmentsByState[
-            FREEABLE_PENDING_DIGEST_AND_REFERENCES];
-        while (!list.empty()) {
-            LogSegment& s = list.front();
-            changeState(s, FREEABLE_PENDING_REFERENCES);
-        }
-    } else {
-        SegmentList& list = segmentsByState[
-            FREEABLE_PENDING_DIGEST_AND_REFERENCES];
-        foreach (LogSegment& s, list)
-            digest.addSegmentId(s.id);
+    SegmentList& list = segmentsByState[
+        FREEABLE_PENDING_DIGEST_AND_REFERENCES];
+    while (!list.empty()) {
+        LogSegment& s = list.front();
+        changeState(s, FREEABLE_PENDING_REFERENCES);
     }
 
     Buffer buffer;
@@ -1162,15 +1136,48 @@ SegmentManager::freeUnreferencedSegments()
     if (freeablePending.empty())
         return;
 
-    uint64_t earliestEpoch =
-        ServerRpcPool<>::getEarliestOutstandingEpoch(context);
+    uint64_t earliestEpoch;
+    {
+        Dispatch::Lock lock(context->dispatch);
+        earliestEpoch = LogProtector::getEarliestOutstandingEpoch(
+                            Transport::ServerRpc::READ_ACTIVITY);
+    }
     SegmentList::iterator it = freeablePending.begin();
 
+    int skippedCount = 0;
+    uint64_t savedEpoch = ~0;
     while (it != freeablePending.end()) {
         LogSegment& s = *it;
         ++it;
-        if (s.cleanedEpoch < earliestEpoch)
+        if (s.cleanedEpoch < earliestEpoch) {
             free(&s);
+        } else {
+            skippedCount++;
+            if (s.cleanedEpoch < savedEpoch) {
+                savedEpoch = s.cleanedEpoch;
+            }
+        }
+    }
+    if (skippedCount == 0) {
+        nextMessageSeconds = 0;
+    } else if ((earliestEpoch > oldestRpcEpoch)
+            || (nextMessageSeconds == 0.0)) {
+        oldestRpcEpoch = earliestEpoch;
+        stuckStartTime = Cycles::rdtsc();
+        nextMessageSeconds = 1.0;
+    } else {
+        // Outstanding RPCs are keeping us from freeing segments. If this
+        // goes on for a long time then log a message.
+        uint64_t now = Cycles::rdtsc();
+        double stuckSeconds = Cycles::toSeconds(now - stuckStartTime);
+        if (stuckSeconds > nextMessageSeconds) {
+            RAMCLOUD_LOG(WARNING, "Unfinished RPCs are preventing %d segments "
+                    "from being freed (segment epoch %lu, RPC epoch %lu, "
+                    "current epoch %lu, stuck for %.0f seconds)",
+                    skippedCount, savedEpoch, oldestRpcEpoch,
+                    LogProtector::getCurrentEpoch(), nextMessageSeconds);
+            nextMessageSeconds += 1.0;
+        }
     }
 }
 

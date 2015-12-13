@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2010-2011 Stanford University
+# Copyright (c) 2010-2015 Stanford University
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -32,7 +32,6 @@ from optparse import OptionParser
 
 def recover(num_servers,
             backups_per_server,
-            num_partitions,
             object_size,
             num_objects,
             num_overwrites,
@@ -65,11 +64,6 @@ def recover(num_servers,
                                is 2 then an additional process is started to
                                run the second Backup.
     @type  backups_per_server: C{int}
-
-    @param num_partitions: Number of partitions to create on the old Master
-                           before it is crashed.  This also determines how many
-                           Recovery Masters will participate in recovery.
-    @type  num_partitions: C{int}
 
     @param object_size: Size of objects to fill old Master with before crash.
     @type  object_size: C{int}
@@ -152,32 +146,30 @@ def recover(num_servers,
     args['transport'] = transport
     args['verbose'] = verbose
     args['debug'] = debug
-    args['coordinator_host'] = config.old_master_host
+    args['coordinator_host'] = getOldMasterHost()
     args['coordinator_args'] = coordinator_args
-    args['backup_args'] = backup_args
-    # Just a guess of about how much capacity a master will have to have
-    # to hold all the data from all the partitions
-    if master_ram:
-        log_space_per_partition = master_ram
+    if backup_args:
+        args['backup_args'] += backup_args;
     else:
-        log_space_per_partition = (200 + (1.3 * num_objects / object_size * num_overwrites))
-    # Extra segments are needed because the dummy tablets placed on the
-    # masters cause log head rollovers. Without compensating for the
-    # space waster by that the recovery masters run out of space.
-    args['master_args'] = '-d -D -t %d' % (log_space_per_partition +
-                                           8 * num_partitions)
+        args['backup_args'] = '--maxNonVolatileBuffers 1000'
+    # Allocate enough memory on recovery masters to handle several
+    # recovery partitions (most recoveries will only have one recovery
+    # partition per master, which is about 500 MB).
+    args['master_args'] = '-d -D -t 5000'
     if master_args:
         args['master_args'] += ' ' + master_args;
     args['client'] = ('%s -f -n %d -r %d -s %d '
-                      '-t %d -k %d -l %s -o %d' % (client_binary,
+                      '-k %d -l %s -o %d' % (client_binary,
                       num_objects, num_removals, object_size,
-                      num_partitions, num_servers, log_level, num_overwrites))
-    args['old_master_host'] = config.old_master_host
-    args['client_hosts'] = [config.old_master_host]
+                      num_servers, log_level, num_overwrites))
+    args['old_master_host'] = getOldMasterHost()
+    args['client_hosts'] = [getOldMasterHost()]
     if old_master_ram:
         args['old_master_args'] = '-d -t %d' % old_master_ram
     else:
-        old_master_ram = log_space_per_partition * num_partitions * num_overwrites
+        # Estimate how much log space the old master will need to hold
+        # all of the data.
+        old_master_ram = (200 + (1.3 * num_objects / object_size * num_overwrites))
         if args['coordinator_host'][0] == 'rcmaster' and old_master_ram > 42000:
             print('Warning: pushing the limits of rcmaster; '
                   'limiting RAM to 42000 MB to avoid knocking it over; '
@@ -250,12 +242,15 @@ if __name__ == '__main__':
             help='Number of disk backup copies for each segment')
     parser.add_option('--servers', type=int, default=10,
             metavar='N', dest='num_servers',
-            help='Number of hosts on which to run servers')
+            help='Number of hosts on which to run servers for use '
+                 "as recovery masters; doesn't include crashed server")
     parser.add_option('-s', '--size', type=int, default=1024,
             help='Object size in bytes')
     parser.add_option('-n', '--numObjects', type=int,
-            metavar='N', dest='num_objects', default=2964750,
-            help='Number of objects per partition')
+            metavar='N', dest='num_objects', default=0,
+            help='Total number of objects on crashed master (default value '
+                 'will create enough data for one partition on each recovery '
+                 'master)')
     parser.add_option('-o', '--numOverwrite', type=int,
             metavar='N', dest='num_overwrites', default=1,
             help='Number of writes per key')
@@ -267,9 +262,6 @@ if __name__ == '__main__':
             help='Transport to use for communication with servers')
     parser.add_option('-v', '--verbose', action='store_true', default=False,
             help='Print progress messages')
-    parser.add_option('-p', '--partitions', type=int, default=1,
-            metavar='N', dest='num_partitions',
-            help=('Number of partitions on the old master'))
     parser.add_option('--masterRam', type=int,
             metavar='N', dest='master_ram',
             help='Megabytes to allocate for the log per recovery master')
@@ -287,8 +279,11 @@ if __name__ == '__main__':
     args = {}
     args['num_servers'] = options.num_servers
     args['backups_per_server'] = options.backups_per_server
-    args['num_partitions'] = options.num_partitions
     args['object_size'] = options.size
+    if options.num_objects == 0:
+        # The value below depends on Recovery::PARTITION_MAX_BYTES
+        # and various other RAMCloud parameters
+        options.num_objects = 480000*options.num_servers
     args['num_objects'] = options.num_objects
     args['num_overwrites'] = options.num_overwrites
     args['replicas'] = options.replicas

@@ -140,6 +140,12 @@ class RecoverSegmentBenchmark {
             static_cast<double>(totalSegmentBytes - totalObjectBytes) /
             static_cast<double>(totalSegmentBytes));
 
+        double seconds = Cycles::toSeconds(ticks);
+        printf("Recovery object throughput: %.2f MB/s\n",
+               static_cast<double>(totalObjectBytes) / seconds / 1024. / 1024.);
+        printf("Recovery log throughput: %.2f MB/s\n",
+              static_cast<double>(totalSegmentBytes) / seconds / 1024. / 1024.);
+
         printf("\n");
         printf("Verify object checksums: %.2f ms\n",
                Cycles::toSeconds(metrics->master.verifyChecksumTicks.load()) *

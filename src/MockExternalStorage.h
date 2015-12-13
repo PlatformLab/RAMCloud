@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_MOCKEXTERNALSTORAGE_H
 #define RAMCLOUD_MOCKEXTERNALSTORAGE_H
 
+#include <thread>
+#include <mutex>
 #include <string>
 #include <queue>
 #include "ExternalStorage.h"
@@ -23,10 +25,10 @@
 namespace RAMCloud {
 
 /**
- * This class provides a dummy implementation of the ExternalStorage
- * interface. It is used for unit tests, and also for RAMCloud clusters
- * that wish to run without any persistent storage of coordinator data
- * (typically testing and performance measurement).
+ * This class provides a dummy implementation of the ExternalStorage interface.
+ * It is used for unit tests, and also for RAMCloud clusters that wish to run
+ * without any persistent storage of coordinator data (typically testing and
+ * performance measurement). This class is thread-safe.
  */
 class MockExternalStorage: public ExternalStorage {
   PUBLIC:
@@ -56,6 +58,10 @@ class MockExternalStorage: public ExternalStorage {
     }
 
   PRIVATE:
+    /// Monitor-style lock: acquired by all externally visible methods.
+    std::mutex mutex;
+    typedef std::unique_lock<std::mutex> Lock;
+
     /// Copy of generateLog argument from constructor.
     bool generateLog;
 
@@ -84,7 +90,7 @@ class MockExternalStorage: public ExternalStorage {
     /// Holds the data from the last call to "set".
     std::string setData;
 
-    void logAppend(const std::string& record);
+    void logAppend(Lock& lock, const std::string& record);
 
     DISALLOW_COPY_AND_ASSIGN(MockExternalStorage);
 };

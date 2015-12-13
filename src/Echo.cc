@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -22,8 +22,8 @@
 #include "Common.h"
 #include "Buffer.h"
 #include "OptionParser.h"
-#include "ServiceManager.h"
 #include "TransportManager.h"
+#include "WorkerManager.h"
 
 /**
  * \file
@@ -52,7 +52,7 @@ try
                             optionParser.options.getLocalLocator().c_str());
 
     while (true) {
-        Transport::ServerRpc* rpc = context.serviceManager->waitForRpc(1);
+        Transport::ServerRpc* rpc = context.workerManager->waitForRpc(1);
         if (rpc == NULL)
             continue;
         // This is unsafe if the Transport discards the

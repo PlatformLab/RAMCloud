@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -125,8 +125,6 @@ class SegmentManager {
     void injectSideSegments(LogSegmentVector& segments);
     void freeUnusedSideSegments(LogSegmentVector& segments);
     void cleanableSegments(LogSegmentVector& out);
-    void logIteratorCreated();
-    void logIteratorDestroyed();
     void getActiveSegments(uint64_t nextSegmentId, LogSegmentVector& list);
     bool initializeSurvivorReserve(uint32_t numSegments);
     LogSegment& operator[](SegmentSlot slot);
@@ -140,6 +138,10 @@ class SegmentManager {
     /// Used to mock the return value of getSegmentUtilization() when set to
     /// anything other than 0.
     static int mockSegmentUtilization;
+
+    /// If nonzero, then getMemoryUtilization will always return this
+    /// value. Used in unit tests.
+    static int mockMemoryUtilization;
 #endif
 
   PRIVATE:
@@ -354,13 +356,6 @@ class SegmentManager {
     /// simultaneously.
     SpinLock lock;
 
-    /// Count of the number of LogIterators currently in existence that
-    /// refer to the log we're managing. So long as this count is non-zero,
-    /// no changes made by the cleaner may be applied. That means that
-    /// survivor segments must not be added to the log and cleaned segments
-    /// must not be freed.
-    int logIteratorCount;
-
     /// Number of segments currently on backup disks. This is exactly the number
     /// of ReplicatedSegments that exist.
     uint32_t segmentsOnDisk;
@@ -403,7 +398,7 @@ class SegmentManager {
      * of any particular object.
      * As far as the object is not removed, its
      * version number has no influence of the safeVersion, because the
-     * safeVersion is used to keep the monotonicitiy of the version number of
+     * safeVersion is used to keep the monotonicity of the version number of
      * any recreated object.
      *
      * \li When an object is removed, set the safeVersion
@@ -412,6 +407,23 @@ class SegmentManager {
      *
      **/
     std::atomic_uint_fast64_t safeVersion;
+
+
+    /// The following variables allow us to log messages if the epoch
+    /// mechanism gets "stuck", where some old RPC is never completing and
+    /// that prevents us from freeing cleaned segments. OldestRpcEpoch is
+    /// the epoch of the oldest incomplete RPC.
+    uint64_t oldestRpcEpoch;
+
+    /// Time (in Cycles::rdtsc() units) of the beginning of a time interval
+    /// during which oldestRpcEpoch is stuck at a particular value that is
+    /// preventing segments from being freed.
+    uint64_t stuckStartTime;
+
+    /// Time (in seconds measured from stuckStartTime) at which we will
+    /// generate the next log message indicating that segment freeing is
+    /// stuck. 0 means we aren't stuck.
+    double nextMessageSeconds;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentManager);
 };

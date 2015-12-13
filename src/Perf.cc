@@ -112,12 +112,13 @@ double atomicIntInc()
 {
     int count = 1000000;
     Atomic<int> value(11);
+    int prevValue = 1;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
-         value.inc();
+         prevValue = value.inc(prevValue);
     }
     uint64_t stop = Cycles::rdtsc();
-    // printf("Final value: %d\n", value.load());
+    // printf("Final value: %d\n", prevValue);
     return Cycles::toSeconds(stop - start)/count;
 }
 
@@ -798,6 +799,59 @@ double lockNonDispThrd()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the time to create and delete an entry in a small
+// map.
+double mapCreate()
+{
+    // Generate an array of random keys that will be used to lookup
+    // entries in the map.
+    int numKeys = 20;
+    uint64_t keys[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+        keys[i] = generateRandom();
+    }
+
+    int count = 10000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i += 5) {
+        std::map<uint64_t, uint64_t> map;
+        for (int j = 0; j < numKeys; j++) {
+            map[keys[j]] = 1000+j;
+        }
+        for (int j = 0; j < numKeys; j++) {
+            map.erase(keys[j]);
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/(count * numKeys);
+}
+
+// Measure the time to lookup a random element in a small map.
+double mapLookup()
+{
+    std::map<uint64_t, uint64_t> map;
+
+    // Generate an array of random keys that will be used to lookup
+    // entries in the map.
+    int numKeys = 20;
+    uint64_t keys[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+        keys[i] = generateRandom();
+        map[keys[i]] = 12345;
+    }
+
+    int count = 100000;
+    uint64_t sum = 0;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        for (int j = 0; j < numKeys; j++) {
+            sum += map[keys[j]];
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/(count*numKeys);
+}
+
 // Measure the cost of copying a given number of bytes with memcpy.
 double memcpyShared(int cpySize, bool coldSrc = false, bool coldDst = false)
 {
@@ -1289,6 +1343,56 @@ double timeTrace()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the time to create and delete an entry in a small
+// unordered_map.
+double unorderedMapCreate()
+{
+    std::unordered_map<uint64_t, uint64_t> map;
+
+    int count = 100000;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i += 5) {
+        map[i] = 100;
+        map[i+1] = 200;
+        map[i+2] = 300;
+        map[i+3] = 400;
+        map[i+4] = 500;
+        map.erase(i);
+        map.erase(i+1);
+        map.erase(i+2);
+        map.erase(i+3);
+        map.erase(i+4);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the time to lookup a random element in a small unordered_map.
+double unorderedMapLookup()
+{
+    std::unordered_map<uint64_t, uint64_t> map;
+
+    // Generate an array of random keys that will be used to lookup
+    // entries in the map.
+    int numKeys = 10;
+    uint64_t keys[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+        keys[i] = generateRandom();
+        map[keys[i]] = 12345;
+    }
+
+    int count = 100000;
+    uint64_t sum = 0;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        for (int j = 0; j < numKeys; j++) {
+            sum += map[keys[j]];
+        }
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/(count*numKeys);
+}
+
 // Measure the cost of pushing a new element on a std::vector, copying
 // from the end to an internal element, and popping the end element.
 double vectorPushPop()
@@ -1418,6 +1522,10 @@ TestInfo tests[] = {
      "Acquire/release Dispatch::Lock (in dispatch thread)"},
     {"lockNonDispThrd", lockNonDispThrd,
      "Acquire/release Dispatch::Lock (non-dispatch thread)"},
+    {"mapCreate", mapCreate,
+     "Create+delete entry in std::map"},
+    {"mapLookup", mapLookup,
+     "Lookup in std::map<uint64_t, uint64_t>"},
     {"memcpyCached100", memcpyCached100,
      "memcpy 100 bytes with hot/fixed dst and src"},
     {"memcpyCached1000", memcpyCached1000,
@@ -1478,6 +1586,10 @@ TestInfo tests[] = {
      "Throw an Exception using ClientException::throwException"},
     {"timeTrace", timeTrace,
      "Record an event using TimeTrace"},
+    {"unorderedMapCreate", unorderedMapCreate,
+     "Create+delete entry in unordered_map"},
+    {"unorderedMapLookup", unorderedMapLookup,
+     "Lookup in std::unordered_map<uint64_t, uint64_t>"},
     {"vectorPushPop", vectorPushPop,
      "Push and pop a std::vector"},
 };

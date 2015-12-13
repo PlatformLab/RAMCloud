@@ -246,8 +246,8 @@ class Infiniband {
              */
             explicit BadAddressException(const CodeLocation& where,
                                             std::string msg,
-                    const ServiceLocator& serviceLocator) : Exception(where,
-                    "Service locator '" + serviceLocator.getOriginalString() +
+                    const ServiceLocator* serviceLocator) : Exception(where,
+                    "Service locator '" + serviceLocator->getOriginalString() +
                     "' couldn't be converted to Infiniband address: " + msg) {}
         };
         Address* clone() const {
@@ -256,7 +256,7 @@ class Infiniband {
         string toString() const;
 
         Address(Infiniband& infiniband, int physicalPort,
-                   const ServiceLocator& serviceLocator);
+                   const ServiceLocator* serviceLocator);
         Address(Infiniband& infiniband, int physicalPort,
                    uint16_t lid, uint32_t qpn)
             : Driver::Address()
@@ -498,9 +498,25 @@ class Infiniband {
 //  PRIVATE:
     Device device;
     ProtectionDomain pd;
+
+    // A cache of address handles for all of the hosts we have ever
+    // communicated with. Keys are lids. Needed so that we don't have to
+    // call ibv_create_ah for every UD packet in order to send a response
+    // (as of 11/2015, these calls take 40-50us!). These entries are never
+    // garbage collected, but there will be only one entry per host (and the
+    // lids are only 16 bits), so the memory usage should be tolerable.
+    typedef std::unordered_map<uint16_t, ibv_ah*> AddressHandleMap;
+    AddressHandleMap ahMap;
+
     uint64_t totalAddressHandleAllocCalls;
     uint64_t totalAddressHandleAllocTime;
     static const uint32_t MAX_INLINE_DATA = 400;
+
+    // The following variables keep track of queue pair creations and
+    // deletions; this information is printed when queue pair creation fails,
+    // to help provide more information.
+    int totalQpCreates;
+    int totalQpDeletes;
 };
 
 } // namespace RAMCloud

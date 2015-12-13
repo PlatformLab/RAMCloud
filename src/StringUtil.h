@@ -32,6 +32,7 @@ string regsub(const string& subject, const string& pattern,
         const string& replacement);
 string binaryToString(const void* input, uint32_t length);
 std::vector<std::string> split(const std::string &s, char delim);
+int64_t stringToInt(const char* s, bool* error);
 
 } // end StringUtil
 

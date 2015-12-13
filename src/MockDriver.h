@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -30,8 +30,8 @@ namespace RAMCloud {
 class MockDriver : public Driver {
   public:
     struct MockAddress : public Address {
-        explicit MockAddress(const ServiceLocator& serviceLocator)
-            : serviceLocator(serviceLocator) {}
+        explicit MockAddress(const ServiceLocator* serviceLocator)
+            : serviceLocator(*serviceLocator) {}
         MockAddress(const MockAddress& other)
             : Address(other), serviceLocator(other.serviceLocator) {}
         MockAddress* clone() const {
@@ -48,25 +48,55 @@ class MockDriver : public Driver {
         void operator=(const MockAddress&);
     };
 
+    class MockReceived: public Received {
+      public:
+        MockReceived(const char* sender, const void* header,
+                uint32_t headerLength, const char* body);
+        virtual ~MockReceived();
+        virtual char *steal(uint32_t *len);
+
+        // Locator corresponding to the sender argument to the constructor.
+        ServiceLocator locator;
+
+        // Address of the "sender".
+        const MockAddress senderAddress;
+
+        MockDriver* mockDriver;
+
+        DISALLOW_COPY_AND_ASSIGN(MockReceived);
+    };
+
     /// The type of a customer header serializer.  See headerToString.
     typedef string (*HeaderToString)(const void*, uint32_t);
 
     MockDriver();
     explicit MockDriver(HeaderToString headerToString);
-    virtual ~MockDriver() {}
+    virtual ~MockDriver();
     virtual void connect(IncomingPacketHandler* incomingPacketHandler);
     virtual void disconnect();
-    virtual uint32_t getMaxPacketSize() { return 1400; }
+    virtual uint32_t getMaxPacketSize() { return maxPacketSize; }
     virtual void release(char *payload);
     virtual void sendPacket(const Address* addr,
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
     virtual string getServiceLocator();
+    void receivePacket(MockReceived *received);
 
-    virtual Address* newAddress(const ServiceLocator& serviceLocator) {
+    template<typename T>
+    inline void
+    receivePacket(const char* sender, T header, const char* body = NULL)
+    {
+        receivePacket(new MockReceived(sender, &header, sizeof32(header),
+                body));
+    }
+
+    virtual Address* newAddress(const ServiceLocator* serviceLocator) {
         return new MockAddress(serviceLocator);
     }
+
+    /// Handler to invoke whenever packets arrive.
+    std::unique_ptr<IncomingPacketHandler> incomingPacketHandler;
 
     /**
      * A function that serializes the header using a specific string format.
@@ -79,10 +109,18 @@ class MockDriver : public Driver {
      */
     string outputLog;
 
+    // Return value from getMaxPacketSize.
+    uint32_t maxPacketSize;
+
     // The following variables count calls to various methods, for use
     // by tests.
     uint32_t sendPacketCount;
+    uint32_t stealCount;
     uint32_t releaseCount;
+
+    // Holds info about all of the MockReceived objects created, so
+    // they can be freed when this object is destroyed.
+    std::vector<MockReceived*> packets;
 
     DISALLOW_COPY_AND_ASSIGN(MockDriver);
 };

@@ -58,6 +58,7 @@ class InMemoryStorage : public BackupStorage {
 
         void startLoading();
         bool isLoaded();
+        bool currentlyOpen() {return isOpen;}
         void* load();
         void unload();
 

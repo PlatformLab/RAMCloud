@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -92,7 +92,7 @@ ObjectBuffer::getValue(uint32_t *valueLength)
  *      The offset of the value portion of the object
  */
 bool
-ObjectBuffer::getValueOffset(uint16_t *offset)
+ObjectBuffer::getValueOffset(uint32_t *offset)
 {
     if (!object)
         object.construct(1, 0, 0, *this);

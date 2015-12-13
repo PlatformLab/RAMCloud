@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -49,12 +49,11 @@ namespace RAMCloud {
  */
 class MembershipService : public Service {
   public:
-    explicit MembershipService(ServerList* serverList,
+    explicit MembershipService(Context* context,
+                               ServerList* serverList,
                                const ServerConfig* serverConfig);
+    ~MembershipService();
     void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
-    virtual int maxThreads() {
-        return 1;
-    }
 
   PRIVATE:
     void getServerConfig(const WireFormat::GetServerConfig::Request* reqHdr,
@@ -63,6 +62,9 @@ class MembershipService : public Service {
     void updateServerList(const WireFormat::UpdateServerList::Request* reqHdr,
                        WireFormat::UpdateServerList::Response* respHdr,
                        Rpc* rpc);
+
+    /// Shared state.
+    Context* context;
 
     /// ServerList to update in response to Coordinator's RPCs.
     ServerList* serverList;

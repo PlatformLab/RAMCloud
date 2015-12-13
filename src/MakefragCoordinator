@@ -1,9 +1,9 @@
 COORDINATOR_SRCFILES := \
+			src/ClientLeaseAuthority.cc \
 			src/CoordinatorClusterClock.cc \
 			src/CoordinatorServerList.cc \
 			src/CoordinatorService.cc \
 			src/CoordinatorUpdateManager.cc \
-			src/LeaseManager.cc \
 			src/MasterRecoveryManager.cc \
 			src/MockExternalStorage.cc \
 			src/Tablet.cc \

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +18,7 @@
 #include "ClientException.h"
 #include "Cycles.h"
 #include "InMemoryStorage.h"
+#include "PerfStats.h"
 #include "ServerConfig.h"
 #include "ShortMacros.h"
 #include "SingleFileStorage.h"
@@ -31,7 +32,8 @@ namespace RAMCloud {
  * Create a BackupService.
  *
  * \param context
- *      Overall information about the RAMCloud server.
+ *      Overall information about the RAMCloud server. The new service
+ *      will be registered in this context.
  * \param config
  *      Settings for this instance. The caller guarantees that config will
  *      exist for the duration of this BackupService's lifetime.
@@ -56,31 +58,25 @@ BackupService::BackupService(Context* context,
     , taskQueue()
     , oldReplicas(0)
 {
+    context->services[WireFormat::BACKUP_SERVICE] = this;
     if (config->backup.inMemory) {
         storage.reset(new InMemoryStorage(config->segmentSize,
                                           config->backup.numSegmentFrames,
                                           config->backup.writeRateLimit));
     } else {
-        // This is basically set to unlimited right now by default because
-        // limiting it can severely impact recovery performance or even cause it
-        // to deadlock on small clusters.
-        // (All recovery reads are prioritized over writes so backups
-        // collectively need enough non-volatile buffer to absorb the entire
-        // recovery).
-        //
-        // Unfortunately, not limiting buffers can lead to another obvious
-        // problem: an overloaded backup process may buffer enough to exhaust
-        // the server's free memory. The result is that the Linux OOM killer
-        // steps in and slays it. If a cap is provided on the commandline, we'll
-        // use that instead.
-        size_t maxNonVolatileBuffers = config->backup.numSegmentFrames;
-        if (config->backup.maxNonVolatileBuffers != 0)
-            maxNonVolatileBuffers = config->backup.maxNonVolatileBuffers;
+        size_t maxWriteBuffers = config->backup.maxNonVolatileBuffers;
+        if (maxWriteBuffers == 0) {
+            // Allow unlimited write buffers; this is risky, because an
+            // overloaded backup process may buffer enough to exhaust
+            // the server's free memory, in which case the Linux OOM killer
+            // will kill the process or, even worse, there will be paging.
+            maxWriteBuffers = config->backup.numSegmentFrames;
+        }
 
         storage.reset(new SingleFileStorage(config->segmentSize,
                                             config->backup.numSegmentFrames,
                                             config->backup.writeRateLimit,
-                                            maxNonVolatileBuffers,
+                                            maxWriteBuffers,
                                             config->backup.file.c_str(),
                                             O_DIRECT | O_SYNC));
     }
@@ -120,6 +116,7 @@ BackupService::BackupService(Context* context,
 
 BackupService::~BackupService()
 {
+    context->services[WireFormat::BACKUP_SERVICE] = NULL;
     // Stop the garbage collector.
     taskQueue.halt();
     if (gcThread)
@@ -199,10 +196,6 @@ BackupService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::BackupGetRecoveryData::opcode:
             callHandler<WireFormat::BackupGetRecoveryData, BackupService,
                         &BackupService::getRecoveryData>(rpc);
-            break;
-        case WireFormat::BackupQuiesce::opcode:
-            callHandler<WireFormat::BackupQuiesce, BackupService,
-                        &BackupService::quiesce>(rpc);
             break;
         case WireFormat::BackupRecoveryComplete::opcode:
             callHandler<WireFormat::BackupRecoveryComplete, BackupService,
@@ -335,25 +328,6 @@ BackupService::initOnceEnlisted()
     LOG(NOTICE, "Backup %s will store replicas under cluster name '%s'",
         serverId.toString().c_str(), config->clusterName.c_str());
     initCalled = true;
-}
-
-/**
- * Flush all data to storage.
- * Returns once all dirty buffers have been written to storage.
- * \param reqHdr
- *      Header of the Rpc request.
- * \param respHdr
- *      Header for the Rpc response.
- * \param rpc
- *      The Rpc being serviced.
- */
-void
-BackupService::quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
-                       WireFormat::BackupQuiesce::Response* respHdr,
-                       Rpc* rpc)
-{
-    LOG(NOTICE, "Backup at %s quiescing", config->localLocator.c_str());
-    storage->quiesce();
 }
 
 /**
@@ -614,15 +588,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
     if (reqHdr->open && !frame) {
         LOG(DEBUG, "Opening <%s,%lu>", masterId.toString().c_str(),
             segmentId);
-        try {
-            frame = storage->open(config->backup.sync);
-        } catch (const BackupStorageException& e) {
-            LOG(NOTICE, "Master tried to open replica for <%s,%lu> but "
-                "there was a problem allocating storage space; "
-                "rejecting open request: %s", masterId.toString().c_str(),
-                segmentId, e.what());
-            throw BackupOpenRejectedException(HERE);
-        }
+        frame = storage->open(config->backup.sync);
         frames[MasterSegmentIdPair(masterId, segmentId)] = frame;
     }
 
@@ -647,6 +613,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
                       reqHdr->length, reqHdr->offset,
                       metadata.get(), sizeof(*metadata));
         metrics->backup.writeCopyBytes += reqHdr->length;
+        PerfStats::threadStats.backupBytesReceived += reqHdr->length;
         bytesWritten += reqHdr->length;
     }
 

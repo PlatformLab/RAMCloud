@@ -71,8 +71,8 @@ class IndexletManagerTest : public ::testing::Test {
         config.localLocator = "mock:host=master1";
         cluster.addServer(config);
 
-        im = &cluster.contexts[0]->masterService->indexletManager;
-        tm = &cluster.contexts[0]->masterService->tabletManager;
+        im = &cluster.contexts[0]->getMasterService()->indexletManager;
+        tm = &cluster.contexts[0]->getMasterService()->tabletManager;
 
         ramcloud.construct(&context, "mock:host=coordinator");
 
@@ -322,34 +322,6 @@ TEST_F(IndexletManagerTest, hasIndexlet) {
     // key is after the range of indexlet
     EXPECT_FALSE(im->hasIndexlet(dataTableId, 2,
             key2.c_str(), (uint16_t)key2.length()));
-}
-
-TEST_F(IndexletManagerTest, isGreaterOrEqual) {
-    string key1 = "a";
-    string key2 = "zzz";
-
-    im->addIndexlet(dataTableId, 1, backingTableId, key1.c_str(),
-            (uint16_t)key1.length(), key2.c_str(), (uint16_t)key2.length());
-    im->insertEntry(dataTableId, 1, "abc", 3, 1234U);
-    im->insertEntry(dataTableId, 1, "pqr", 3, 1234U);
-    im->insertEntry(dataTableId, 1, "aaa", 3, 1234U);
-    im->insertEntry(dataTableId, 1, "zzx", 3, 1234U);
-    im->insertEntry(dataTableId, 1, "zzz", 3, 1234U); // Not in indexlet.
-
-    // This is a hack-y test. Given that we're only inserting four entries,
-    // they will all be in the root node, enabling us to determine the nodeId
-    // that is required to construct the Key for this test.
-    // This test doesn't check the case where there are many nodes,
-    // and doesn't test internal nodes.
-    // The comprehensive tests should be added to the Btree unit tests.
-    NodeId treeNodeId = ROOT_ID;
-    Key treeNodeKey(backingTableId, &treeNodeId, sizeof(NodeId));
-
-    EXPECT_TRUE(im->isGreaterOrEqual(treeNodeKey, dataTableId, 1, "a", 1));
-    EXPECT_TRUE(im->isGreaterOrEqual(treeNodeKey, dataTableId, 1, "abc", 3));
-    EXPECT_TRUE(im->isGreaterOrEqual(treeNodeKey, dataTableId, 1, "zzx", 3));
-    EXPECT_FALSE(im->isGreaterOrEqual(treeNodeKey, dataTableId, 1, "zzy", 3));
-    EXPECT_FALSE(im->isGreaterOrEqual(treeNodeKey, dataTableId, 1, "zzz", 3));
 }
 
 TEST_F(IndexletManagerTest, truncateIndexlet) {

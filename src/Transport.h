@@ -70,17 +70,12 @@ class Transport {
          * Constructor for ServerRpc.
          */
         ServerRpc()
-            : requestPayload(),
-              replyPayload(),
-              epoch(INVALID_EPOCH),
-              outstandingRpcListHook()
+            : requestPayload()
+            , replyPayload()
+            , epoch(0)
+            , activities(~0)
+            , outstandingRpcListHook()
         {}
-
-        /**
-         * Default epoch value on construction. Used to ensure that the proper
-         * value is set before the RPC is passed on to the serviceManager.
-         */
-        static const uint64_t INVALID_EPOCH = -1;
 
       public:
         /**
@@ -112,12 +107,12 @@ class Transport {
 
         /**
          * Returns false if the epoch was not set, else true. Used to assert
-         * that no RPCs are pushed through the ServiceManager without an epoch.
+         * that no RPCs are pushed through the WorkerManager without an epoch.
          */
         bool
         epochIsSet()
         {
-            return epoch != INVALID_EPOCH;
+            return epoch != 0;
         }
 
         /**
@@ -138,6 +133,24 @@ class Transport {
          * still outstanding in the system.
          */
         uint64_t epoch;
+
+        /**
+         * A bit mask indicating what sorts of actions are being performed
+         * during this RPC (default: ~0, which means all activities).
+         * Individual RPCs can replace the default with a more selective
+         * value so that the RPCs will be ignored in some cases when
+         * scanning epochs. 0 means the RPC isn't doing anything that
+         * matters to anyone.
+         */
+        int activities;
+
+        /**
+         * Bit values for activities above.
+         * READ_ACTIVITY:             RPC is reading log information
+         * APPEND_ACTIVITY:           RPC may add new entries to the log
+         */
+        static const int READ_ACTIVITY = 1;
+        static const int APPEND_ACTIVITY = 2;
 
         /**
          * Hook for the list of active server RPCs that the ServerRpcPool class
@@ -203,7 +216,7 @@ class Transport {
 
         /**
          * Returns a human-readable string containing useful information
-         * about any active  RPC(s) on this session.
+         * about any active RPC(s) on this session.
          */
         virtual string getRpcInfo() {
             return format("unknown RPC(s) on %s", serviceLocator.c_str());
@@ -276,7 +289,7 @@ class Transport {
      * An RpcNotifier is an object that transports use to notify higher-level
      * software when an RPC has completed.  The RpcNotifier also serves as a
      * unique identifier for the RPC, which can be used to cancel it.
-     * 
+     *
      */
     class RpcNotifier {
       public:
@@ -316,7 +329,7 @@ class Transport {
      * \throw TransportException
      *      The transport can't open a session for \a serviceLocator.
      */
-    virtual SessionRef getSession(const ServiceLocator& serviceLocator,
+    virtual SessionRef getSession(const ServiceLocator* serviceLocator,
             uint32_t timeoutMs = 0) = 0;
 
     /**
@@ -358,7 +371,7 @@ class Transport {
     static const uint32_t DEFAULT_TIMEOUT_MS = 500;
 
     /**
-     * One ServerPort instance is created for a lissen port 
+     * One ServerPort instance is created for a listen port
      * of the transport on the server.
      * It keeps track the port liveness with watchdog timer,
      *

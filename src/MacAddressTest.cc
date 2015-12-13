@@ -50,4 +50,11 @@ TEST(MacAddressTest, toString) {
     // tested sufficiently in constructor tests
 }
 
+TEST(MacAddressTest, isNull) {
+    uint8_t raw[] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+    MacAddress r(MacAddress::RANDOM);
+    EXPECT_TRUE(MacAddress(raw).isNull());
+    EXPECT_FALSE(r.isNull());
+}
+
 }  // namespace RAMCloud

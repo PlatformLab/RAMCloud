@@ -21,6 +21,7 @@
 #include <memory>
 
 #include "Common.h"
+#include "MultiRead.h"
 #include "RamCloud.h"
 
 namespace RAMCloud {
@@ -47,6 +48,10 @@ class ClientTransactionTask;
  * multiple transaction attempts.
  */
 class Transaction {
+  PRIVATE:
+    /// Forward declaration
+    struct ReadBatch;
+
   PUBLIC:
     explicit Transaction(RamCloud* ramcloud);
 
@@ -62,7 +67,6 @@ class Transaction {
     void write(uint64_t tableId, const void* key, uint16_t keyLength,
             const void* buf, uint32_t length);
 
-
     /**
      * Encapsulates the state of a Transaction::read operation,
      * allowing it to execute asynchronously.
@@ -70,7 +74,8 @@ class Transaction {
     class ReadOp {
       public:
         ReadOp(Transaction* transaction, uint64_t tableId, const void* key,
-                uint16_t keyLength, Buffer* value);
+               uint16_t keyLength, Buffer* value, bool batch = false);
+        bool isReady();
         void wait();
 
       PRIVATE:
@@ -79,8 +84,35 @@ class Transaction {
         Buffer keyBuf;                  /// Contains key of object to be read.
         uint16_t keyLength;             /// Length of key of object to be read.
         Buffer* value;                  /// Return value of the read.
-        ObjectBuffer buf;               /// Scratch buffer for read rpc.
-        Tub<ReadKeysAndValueRpc> rpc;   /// Read rpc use if no value is cached.
+        Tub<ObjectBuffer> buf;          /// Scratch buffer for read rpc.
+
+        bool requestBatched;            /// True if operation should be batched.
+
+        /// Request data for non-batched request.
+        struct SingleRequest{
+            SingleRequest()
+                : readRpc()
+            {}
+
+            /// If the value is already cached this rpc is unused.
+            Tub<ReadKeysAndValueRpc> readRpc;
+        };
+        Tub<SingleRequest> singleRequest;   // Use Tub to prevent misuse.
+
+        /// Request data for batched request.
+        struct BatchedRequest{
+            BatchedRequest()
+                : readBatchPtr()
+                , request()
+            {}
+
+            /// If the value is already cached this batch is unused.
+            std::shared_ptr<ReadBatch> readBatchPtr;
+            /// Index into the batch where this request is stored.
+            MultiReadObject request;
+        };
+        Tub<BatchedRequest> batchedRequest; // Use Tub to prevent misuse.
+
         DISALLOW_COPY_AND_ASSIGN(ReadOp);
     };
 
@@ -95,6 +127,21 @@ class Transaction {
     /// Keeps track of whether commit has already been called to preclude
     /// subsequent read, remove, write, and commit calls.
     bool commitStarted;
+
+    /// Keeps a batch of batch allowed ReadOps organized with its supporting
+    /// MultiRead rpc.
+    struct ReadBatch {
+        ReadBatch()
+            : rpc()
+            , requests()
+        {}
+
+        Tub<MultiRead> rpc;
+        std::vector<MultiReadObject*> requests;
+    };
+
+    /// Points to the next batch of ReadOps to be sent.
+    std::shared_ptr<ReadBatch> nextReadBatchPtr;
 
     DISALLOW_COPY_AND_ASSIGN(Transaction);
 };

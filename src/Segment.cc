@@ -373,29 +373,29 @@ uint64_t bufferAppendCount;
  *      Offset in the segment to begin appending from.
  * \param length
  *      Number of bytes in the segment to append, starting from the offset.
- *      This value must not exceed the current end of the segment.
- * \throw FatalError
- *      A FatalError is thrown if #length bytes cannot be appended from #offset,
- *      due to either or both of the parameters being invalid.
+ *      Offset+length must not exceed the current size of the segment.
  */
 void
 Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
 {
-    while (length > 0) {
+    uint32_t currentOffset = offset;
+    uint32_t currentLength = length;
+    while (currentLength > 0) {
         const void* contigPointer = NULL;
-        uint32_t contigBytes = std::min(length, peek(offset, &contigPointer));
-        if (contigBytes == 0)
-            break;
+        uint32_t contigBytes = std::min(currentLength,
+                peek(currentOffset, &contigPointer));
+        if (contigBytes == 0) {
+            DIE("invalid offset (%u) and/or length (%u); "
+                    "segment has %lu seglets, total length %lu, "
+                    "currentOffset %u",
+                    offset, length, segletBlocks.size(),
+                    segletSize * segletBlocks.size(), currentOffset);
+        }
 
         buffer.append(contigPointer, contigBytes);
 
-        offset += contigBytes;
-        length -= contigBytes;
-    }
-
-    if (length != 0) {
-        throw FatalError(HERE, format("invalid length (%u) and/or offset (%u) "
-            "parameter(s)", length, offset));
+        currentOffset += contigBytes;
+        currentLength -= contigBytes;
     }
 }
 
@@ -465,7 +465,7 @@ Segment::getEntry(uint32_t offset, Buffer* buffer, uint32_t* lengthWithMetadata)
  * pointing to the entry. This the main method used to access entries that have
  * been appended to a segment.
  *
- * \param reference 
+ * \param reference
  *      The Segment::Reference object pointing to the desired entry. This should
  *      always have been a result of a previous call to Segment::getReference().
  * \param buffer
@@ -492,7 +492,7 @@ Segment::getEntry(Reference reference,
     // If 'p' points to the first byte of a seglet, 'it' will point to the
     // seglet base address that we want. Otherwise, it will point one higher,
     // so we need to adjust.
-    if (it > segletBlocks.begin() && p != *(it - 1))
+    if (it > segletBlocks.begin() && p != *it)
         it--;
 
     assert(it != segletBlocks.end());
@@ -626,7 +626,7 @@ Segment::getEntry(Buffer* buffer, uint32_t offset,
  * Return the total number of bytes appended to the segment. Calling this method
  * before and after an append will indicate exactly how many bytes were consumed
  * in storing the appended entry, including metadata.
- * 
+ *
  * A SegmentCertificate which can be used to validate the integrity of the
  * segment's metadata is optionally passed back by value in the 'certificate'
  * parameter.  A copy must be done since the certificate will change on the
@@ -843,10 +843,17 @@ Segment::copyOut(uint32_t offset, void* buffer, uint32_t length) const
 Segment::EntryHeader
 Segment::getEntryHeader(uint32_t offset)
 {
+    if (this == NULL) {
+        DIE("Null `this` pointer");
+    }
     static_assert(sizeof(EntryHeader) == 1,
                   "Contiguity in segments not guaranteed!");
     const EntryHeader* header = NULL;
     peek(offset, reinterpret_cast<const void**>(&header));
+    if (header == NULL) {
+        DIE("Null header; offset %u, segment length %u",
+                offset, head);
+    }
     return *header;
 }
 

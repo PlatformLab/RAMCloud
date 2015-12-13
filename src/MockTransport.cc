@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -57,18 +57,18 @@ MockTransport::getServiceLocator()
 }
 
 Transport::SessionRef
-MockTransport::getSession(const ServiceLocator& serviceLocator,
+MockTransport::getSession(const ServiceLocator* serviceLocator,
         uint32_t timeoutMs)
 {
     sessionCreateCount++;
 
     // magic hook to invoke failed getSession in testing
-    if (strstr(serviceLocator.getOriginalString().c_str(),
+    if (strstr(serviceLocator->getOriginalString().c_str(),
             "host=error") != NULL)
         throw TransportException(HERE, "Failed to open session");
 
     MockSession* session = new MockSession(this, serviceLocator);
-    session->setServiceLocator(serviceLocator.getOriginalString());
+    session->setServiceLocator(serviceLocator->getOriginalString());
     return session;
 }
 
@@ -190,7 +190,7 @@ MockTransport::MockServerRpc::MockServerRpc(MockTransport* transport,
     }
 
     // set this to avoid handleRpc's sanity check
-    epoch = 0;
+    epoch = 1;
 }
 
 /**

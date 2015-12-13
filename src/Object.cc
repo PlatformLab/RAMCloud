@@ -245,12 +245,13 @@ Object::assembleForLog(void* memBlock)
  *
  * \param buffer
  *      The buffer to append the value to.
- * \param valueOffset
- *      Offset of the value in the keysAndValue portion of the object
  */
 void
-Object::appendValueToBuffer(Buffer* buffer, uint32_t valueOffset)
+Object::appendValueToBuffer(Buffer* buffer)
 {
+    uint32_t valueOffset;
+    getValueOffset(&valueOffset);
+
     // Prioritize using the keysAndValueBuffer to do a buffer-to-buffer
     // copy as the Buffer class contains additional logic to safely
     // append data from another buffer (RAM-688)
@@ -637,13 +638,13 @@ Object::getValue(uint32_t *valueLength)
  * the object.
  *
  * \param[out] offset
- *      The offset of the value within keysAndValue
+ *      The offset of the value within keysAndValue.
  *
  * \return
  *      False if the object is malformed, True otherwise
  */
 bool
-Object::getValueOffset(uint16_t *offset)
+Object::getValueOffset(uint32_t *offset)
 {
     if (!fillKeyOffsets())
         return false;
@@ -658,7 +659,7 @@ Object::getValueOffset(uint16_t *offset)
     // is called only after a readKeysAndValueRpc and it should be relative
     // to the starting of keysAndValue
     if (offset)
-        *offset = downCast<uint16_t>(valueOffset);
+        *offset = valueOffset;
     return true;
 }
 
@@ -668,7 +669,7 @@ Object::getValueOffset(uint16_t *offset)
 uint32_t
 Object::getValueLength()
 {
-    uint16_t valueOffset;
+    uint32_t valueOffset;
     if (!getValueOffset(&valueOffset))
         return 0;
     return keysAndValueLength - valueOffset;

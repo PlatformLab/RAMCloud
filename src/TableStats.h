@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -56,16 +56,30 @@ namespace TableStats {
  */
 struct Block {
     SpinLock lock;          /// Aquire this monitor lock before member access.
+    uint64_t keyHashCount;  /// Number of key hashes that reside on this master.
+                            /// If a master has total ownership this value is
+                            /// assumed to be 2^64.
+    bool totalOwnership;    /// True if this master completely owns this table.
     uint64_t byteCount;     /// Number of bytes of data related to a table.
     uint64_t recordCount;   /// Number of log records related to a table.
 
     Block()
         : lock("TableStats::lock")
+        , keyHashCount(0)
+        , totalOwnership(false)
         , byteCount(0)
         , recordCount(0)
     {}
 };
 
+void addKeyHashRange(MasterTableMetadata* mtm,
+                     uint64_t tableId,
+                     uint64_t startKeyHash,
+                     uint64_t endKeyHash);
+void deleteKeyHashRange(MasterTableMetadata* mtm,
+                        uint64_t tableId,
+                        uint64_t startKeyHash,
+                        uint64_t endKeyHash);
 void increment(MasterTableMetadata* mtm,
                uint64_t tableId,
                uint64_t byteCount,
@@ -84,8 +98,8 @@ void serialize(Buffer* buf, MasterTableMetadata *mtm);
  *
  * A threshold of 24MB was selected to both bound the max number of entries we
  * would store in the stats block and ensure that the error the results would be
- * "relatively small" compared to the target partition size.  Some assume value
- * include:
+ * "relatively small" compared to the target partition size.  Some assumed
+ * values include:
  *      SegmentSize 8MB
  *      MasterCapacity 64GB
  *      StatsEntrySize 24B
@@ -113,22 +127,25 @@ typedef std::lock_guard<SpinLock> Lock;
  * format of TableStats (aka TableStats::Digest).
  */
 struct DigestEntry {
-    uint64_t tableId;       //< Id of table whose stats are contained herein.
-    uint64_t byteCount;     //< Number of bytes of data related to a table.
-    uint64_t recordCount;   //< Number of log records related to a table.
+    /// Id of table whose stats are contained herein.
+    uint64_t tableId;
+    /// Avg num bytes per key hash for the tables with given tableId.
+    double bytesPerKeyHash;
+    /// Avg num log records per key hash for the tables with given tableId.
+    double recordsPerKeyHash;
 } __attribute__((__packed__));
 
 /**
  * Simple structure defining the header of a TableStats::Digest structure.
- * Contains the aggregated stats for those "other" tables that fall below
- * the threshold.  Also contains a count of how many TableStats::Entry
- * structures are serialized into the digest.
+ * Contains the aggregated stats for those "other" tables that are "small"
+ * enough to fall below the threshold.  Also contains a count of how many
+ * TableStats::Entry structures are serialized into the digest.
  */
 struct DigestHeader {
-    /// Number of bytes of data related to all tables that fall below threshold.
-    uint64_t otherByteCount;
-    /// Number of records related to all tables that fall below threshold.
-    uint64_t otherRecordCount;
+    /// Avg num bytes per key hash for all "small" tables.
+    double otherBytesPerKeyHash;
+    /// Avg num log records per key hash for all "small" tables.
+    double otherRecordsPerKeyHash;
     /// Number of DigestEntry structures in the Digest.
     uint64_t entryCount;
 } __attribute__((__packed__));
@@ -152,20 +169,31 @@ struct Digest {
 class Estimator {
   PUBLIC:
     /**
-     * Represents the statistics information for a single tablet, a single
-     * table, or a collection of tables.  When representing a single table,
-     * the statistics represent the aggragate of all tablets of said table on
-     * the crashed master. When representing a collection of tables, the
-     * statistics represent the aggragate of all tablets of all collected tables
-     * on the crashed master.
+     * Represents estimated statistics information for a single tablet.
+     */
+    struct Estimate {
+        uint64_t byteCount;
+        uint64_t recordCount;
+    };
+
+    explicit Estimator(const Digest* digest);
+    Estimate estimate(Tablet *tablet);
+
+    /// Flag indicating whether the estimator contains valid estimates
+    bool valid;
+
+  PRIVATE:
+    /**
+     * Represents the statistics information for a single table or a collection
+     * of tables.  When representing a single table, the statistics represent
+     * the aggregate of all tablets of said table on the crashed master. When
+     * representing a collection of tables, the statistics represent the
+     * aggregate of all tablets of all collected tables on the crashed master.
      */
     struct Entry {
-        /// Sum of keyHash ranges for tablets associated with this entry. Uses
-        /// a floating point representation to avoid overflow.
-        double keyRange;
-        uint64_t byteCount;     //< Number of bytes of log data.
-        uint64_t recordCount;   //< Number of log records.
-    } __attribute__((__packed__));
+        double bytesPerKeyHash;     /// Avg num bytes per key hash
+        double recordsPerKeyHash;   /// Avg num log records per key hash
+    };
 
     /// Type defining map between tableId and Estimator::Entry
     typedef std::unordered_map<uint64_t, Entry> StatsMap;
@@ -175,12 +203,6 @@ class Estimator {
 
     /// Contains cumulative Entry information for tables below threshold.
     Entry otherStats;
-
-    /// Flag indicating whether the estimator contains valid estimates
-    bool valid;
-
-    Estimator(const Digest* digest, vector<Tablet>* tablets);
-    Entry estimate(Tablet *tablet);
 };
 
 } // namespace TableStats

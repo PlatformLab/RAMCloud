@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -310,11 +310,6 @@ SegletAllocator::getTotalBytes()
     return block.length;
 }
 
-#ifdef TESTING
-/// Set to non-0 to return a mock memory utilization value.
-int SegletAllocator::mockMemoryUtilization = 0;
-#endif
-
 /**
  * Return the percentage of unreserved seglets currently allocated. In other
  * words, the amount of space allocated in the log, not including seglets set
@@ -325,11 +320,6 @@ int
 SegletAllocator::getMemoryUtilization()
 {
     std::lock_guard<SpinLock> guard(lock);
-
-#ifdef TESTING
-    if (mockMemoryUtilization)
-        return mockMemoryUtilization;
-#endif
 
     size_t maxDefaultPoolSize = getTotalCount() -
                                 emergencyHeadPoolReserve -

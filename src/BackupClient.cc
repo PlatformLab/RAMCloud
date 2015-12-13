@@ -185,41 +185,6 @@ GetRecoveryDataRpc::wait()
 }
 
 /**
- * Ask a backup to flush all of its data to durable storage.
- * Returns once all dirty buffers have been written to storage.
- * This is useful for measuring recovery performance accurately.
- *
- * \param context
- *      Overall information about this RAMCloud server.
- * \param backupId
- *      Backup whose data should be flushed.
- */
-void
-BackupClient::quiesce(Context* context, ServerId backupId)
-{
-    BackupQuiesceRpc rpc(context, backupId);
-    rpc.wait();
-}
-
-/**
- * Constructor for QuiesceRpc: initiates an RPC in the same way as
- * #BackupClient::quiesce, but returns once the RPC has been initiated,
- * without waiting for it to complete.
- *
- * \param context
- *      Overall information about this RAMCloud server.
- * \param backupId
- *      Backup whose data should be flushed.
- */
-BackupQuiesceRpc::BackupQuiesceRpc(Context* context, ServerId backupId)
-    : ServerIdRpcWrapper(context, backupId,
-            sizeof(WireFormat::BackupQuiesce::Response))
-{
-    allocHeader<WireFormat::BackupQuiesce>(backupId);
-    send();
-}
-
-/**
  * This RPC signals to particular backup that recovery of a particular master
  * has completed. The backup server will then free any resources it has for the
  * recovered master.

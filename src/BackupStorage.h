@@ -121,7 +121,7 @@ class BackupStorage {
             strncpy(clusterName, name, sizeof(clusterName) - 1);
         }
 
-        /// Return '\0' terminated cluster name in this superblock.
+        /// Return null terminated cluster name in this superblock.
         const char* getClusterName() { return clusterName; }
 
         /// Return the server id in this superblock.
@@ -203,6 +203,11 @@ class BackupStorage {
         virtual bool isLoaded() = 0;
 
         virtual void unload() = 0;
+
+        /**
+         * Returns true if this frame is currently open, false otherwise.
+         */
+        virtual bool currentlyOpen() = 0;
 
         /**
          * Return a pointer to the replica data for recovery. If needed, the

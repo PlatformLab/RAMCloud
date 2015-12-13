@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -471,11 +471,11 @@ TEST_F(ObjectTest, appendValueToBuffer) {
     for (uint32_t i = 0; i < arrayLength(objects); i++) {
         Object& object = *objects[i];
         Buffer buffer;
-        uint16_t valueOffset = 0;
+        uint32_t valueOffset = 0;
         object.getValueOffset(&valueOffset);
         EXPECT_EQ(16U, valueOffset);
 
-        object.appendValueToBuffer(&buffer, valueOffset);
+        object.appendValueToBuffer(&buffer);
         EXPECT_EQ(4U, buffer.size());
         EXPECT_EQ("YO!", string(reinterpret_cast<const char*>(
                         buffer.getRange(0, 4))));
@@ -734,7 +734,7 @@ TEST_F(ObjectTest, getValueContiguous) {
 }
 
 TEST_F(ObjectTest, getValueOffset) {
-    uint16_t valueOffset;
+    uint32_t valueOffset;
     EXPECT_TRUE(objects[0]->getValueOffset(&valueOffset));
     EXPECT_EQ(16U, valueOffset);
     EXPECT_TRUE(objects[1]->getValueOffset(&valueOffset));

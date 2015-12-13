@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -128,7 +128,7 @@ class FastTransport : public Transport {
     };
 
     virtual Transport::SessionRef
-    getSession(const ServiceLocator& serviceLocator, uint32_t timeoutMs = 0);
+    getSession(const ServiceLocator* serviceLocator, uint32_t timeoutMs = 0);
 
     /**
      * Serves as a unit of storage allocation for per Rpc server state.
@@ -731,7 +731,7 @@ class FastTransport : public Transport {
         }
 
         /**
-         * This session's offset in FastTransport::serverSessions and 
+         * This session's offset in FastTransport::serverSessions and
          * FastTransport::clientSessions.
          * Used to provide the remote party with a hint enabling fast
          * association of a fragment with a Session.
@@ -923,7 +923,7 @@ class FastTransport : public Transport {
         void fillHeader(Header* const header, uint8_t channelId) const;
         const Driver::Address* getAddress();
         virtual string getRpcInfo();
-        void init(const ServiceLocator& serviceLocator, uint32_t timeoutMs);
+        void init(const ServiceLocator* serviceLocator, uint32_t timeoutMs);
         bool isConnected();
         void processInboundPacket(Driver::Received* received);
         void release() { expire(); }

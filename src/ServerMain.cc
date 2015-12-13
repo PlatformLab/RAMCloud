@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -175,18 +175,20 @@ main(int argc, char *argv[])
             ("masterOnly,M",
              ProgramOptions::bool_switch(&masterOnly),
              "The server should run the master service only (no backup)")
-            ("masterServiceThreads",
+            ("maxCores",
              ProgramOptions::value<uint32_t>(
-                &config.master.masterServiceThreadCount)->default_value(3),
-             "The number of threads in MasterService determines the maximum "
-             "number of client RPCs that may be processed in parallel. "
-             "Increasing this value will use more cores and may improve client "
-             "throuphput, especially for reads.")
+                &config.maxCores)->default_value(4),
+             "Limit on number of cores to use for the dispatch and worker "
+             "threads. This value should not exceed the number of cores "
+             "available on the machine. RAMCloud will try to keep its usage "
+             "under this limit, but may occasionally need to exceed it "
+             "(e.g., to avoid distributed deadlocks). Th limit does not "
+             "include cleaner threads and some other miscellaneous functions.")
             ("maxNonVolatileBuffers",
              ProgramOptions::value<uint32_t>(
-               &config.backup.maxNonVolatileBuffers)->default_value(0),
+               &config.backup.maxNonVolatileBuffers)->default_value(10),
              "Maximum number of segments the backup will buffer in memory. The "
-             "0 value (default) is special: it tells the server to set the "
+             "value 0 is special: it tells the server to set the "
              "limit equal to the \"segmentFrames\" value, effectively making "
              "buffering unlimited.")
             ("preferredIndex",

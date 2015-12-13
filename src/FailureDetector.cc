@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -181,13 +181,13 @@ FailureDetector::pingRandomServer()
             locator.c_str(), pingee.toString().c_str());
     } catch (const CallerNotInClusterException &e) {
         // See "Zombies" in designNotes.
-        MasterService::Disabler disabler(context->masterService);
+        MasterService::Disabler disabler(context->getMasterService());
         CoordinatorClient::verifyMembership(context, ourServerId);
         probesWithoutResponse = 0;
     }
     if (probesWithoutResponse >= MAX_FAILED_PROBES) {
         // See "Zombies" in designNotes.
-        MasterService::Disabler disabler(context->masterService);
+        MasterService::Disabler disabler(context->getMasterService());
         CoordinatorClient::verifyMembership(context, ourServerId);
         probesWithoutResponse = 0;
     }

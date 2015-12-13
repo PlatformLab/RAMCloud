@@ -263,7 +263,7 @@ class TableManager {
     Table* recreateTable(const Lock& lock, ProtoBuf::Table* info);
     void serializeTable(const Lock& lock, Table* table,
             ProtoBuf::Table* externalInfo);
-    void sync(const Lock& lock);
+    void syncNextTableId(const Lock& lock);
     void syncTable(const Lock& lock, Table* table,
             ProtoBuf::Table* externalInfo);
     void testAddTablet(const Tablet& tablet);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -23,10 +23,12 @@ Driver::~Driver()
 }
 
 /**
- * Give memory resources back to this driver.
+ * Return ownership of a packet buffer  back to the driver.
  *
  * \param payload
- *      The address of the resources to give back.
+ *      The address of the first byte of data in a packet. The packet
+ *      must previously have been passed to the transport via
+ *      IncomingPacketHandler::handlePacket.
  */
 void
 Driver::release(char *payload)

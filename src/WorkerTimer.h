@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,6 +21,7 @@
 
 #include "BoostIntrusive.h"
 #include "Dispatch.h"
+#include "LogProtector.h"
 
 namespace RAMCloud {
 
@@ -94,14 +95,16 @@ class WorkerTimer {
       PUBLIC:
         explicit Manager(Dispatch* dispatch, Lock& lock);
         ~Manager();
+        void checkTimers(Lock& lock);
         virtual void handleTimerEvent();
+        static void workerThreadMain(Manager* manager);
 
         /// The dispatcher to use for low-level timer notifications.
         Dispatch* dispatch;
 
-        /// Count of WorkerTimer associated with this manager; used to
+        /// Count of WorkerTimers associated with this manager; used to
         /// delete the manager object when there are no longer any timers
-        /// for it.
+        /// for it. A value < 0 means this object is being destroyed.
         int timerCount;
 
         /// The following rdtsc time value must be no larger than the
@@ -109,10 +112,22 @@ class WorkerTimer {
         /// with this Manager.
         uint64_t earliestTriggerTime;
 
+        /// WorkerTimers associated with this Manager will execute in this
+        /// thread.
+        Tub<std::thread> workerThread;
+
+        /// workerThread waits on this when it has nothing to do.
+        std::condition_variable waitingForWork;
+
         /// Keeps track of all of the timers that are currently running (i.e.
         /// start has been called, but the timer hasn't actually fired).
+        /// The most recently added timer is at the back of the list.
         INTRUSIVE_LIST_TYPEDEF(WorkerTimer, links) TimerList;
         TimerList activeTimers;
+
+        /// Registers workerTimer to LogProtector to prevent any WorkerTimer's
+        /// timerEventHandler dereference a pointer in log unsafely.
+        LogProtector::Activity logProtectorActivity;
 
         /// Used to link Managers together in WorkerTimer::managers.
         IntrusiveListHook links;
@@ -128,27 +143,25 @@ class WorkerTimer {
      */
 
     /// Monitor-style lock: acquired by all externally visible methods,
-    /// assumed by all internal methods to be held.
+    /// assumed by all internal methods to be held, used for all condition
+    /// variables.
     static std::mutex mutex;
-
-    /// Used by WorkerTimer::handleTimerEvent to wake up workerThread.
-    static std::condition_variable timerExpired;
 
     /// Holds all managers currently in existence.
     INTRUSIVE_LIST_TYPEDEF(Manager, links) ManagerList;
     static ManagerList managers;
-
-    /// When a WorkerTimer fires, it is executed in this thread.
-    static Tub<std::thread> workerThread;
 
     /// For testing: incremented each time workerThreadMain completes
     /// doing a chunk of work ("completion" means either it waited on
     /// timerExpired or it exited).
     static int workerThreadProgressCount;
 
+    /// How long (in milliseconds) WorkerTimer::stopInternal will wait
+    /// for a handler to complete before printing a warning message.
+    /// If zero, use default value; should be nonzero only for unit tests
+    static int stopWarningMs;
+
     static Manager* findManager(Dispatch* dispatch, Lock& lock);
-    static WorkerTimer* findTriggeredTimer(Lock& lock);
-    static void workerThreadMain();
 
     DISALLOW_COPY_AND_ASSIGN(WorkerTimer);
 };

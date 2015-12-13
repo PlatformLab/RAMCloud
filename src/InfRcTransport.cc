@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -88,13 +88,13 @@
 #include "Transport.h"
 #include "InfRcTransport.h"
 #include "IpAddress.h"
-#include "ServiceLocator.h"
-#include "ServiceManager.h"
-#include "ShortMacros.h"
 #include "PerfCounter.h"
 #include "PerfStats.h"
+#include "ServiceLocator.h"
+#include "ShortMacros.h"
 #include "TimeTrace.h"
 #include "Util.h"
+#include "WorkerManager.h"
 
 #define check_error_null(x, s)                              \
     do {                                                    \
@@ -137,11 +137,13 @@ InfRcTransport::InfRcTransport(Context* context,
     , lid(0)
     , serverSetupSocket(-1)
     , clientSetupSocket(-1)
+    , clientPort(0)
     , serverPortMap()
     , clientSendQueue()
     , numUsedClientSrqBuffers(MAX_SHARED_RX_QUEUE_DEPTH)
     , numFreeServerSrqBuffers(0)
     , outstandingRpcs()
+    , pendingOutputBytes(0)
     , clientRpcsActiveTime()
     , locatorString()
     , poller(this)
@@ -173,13 +175,27 @@ InfRcTransport::InfRcTransport(Context* context,
     // Step 1:
     //  Set up the udp sockets we use for out-of-band infiniband handshaking.
 
-    // For clients, the kernel will automatically assign a dynamic port on
-    // first use.
+    // First, a UDP socket we can use to establish connections to other
+    // servers.
     clientSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
     if (clientSetupSocket == -1) {
         LOG(ERROR, "failed to create client socket: %s", strerror(errno));
         throw TransportException(HERE, format(
                 "failed to create client socket: %s", strerror(errno)));
+    }
+    struct sockaddr_in socketAddress;
+    socketAddress.sin_family = AF_INET;
+    socketAddress.sin_addr.s_addr = htonl(INADDR_ANY);
+    socketAddress.sin_port = 0;
+    if (bind(clientSetupSocket,
+            reinterpret_cast<struct sockaddr*>(&socketAddress),
+            sizeof(socketAddress)) == -1) {
+        close(clientSetupSocket);
+        LOG(WARNING, "couldn't bind port for clientSetupSocket: %s",
+                strerror(errno));
+        throw TransportException(HERE,
+                "InfRcTransport couldn't bind port for clientSetupSocket",
+                errno);
     }
     try {
         setNonBlocking(clientSetupSocket);
@@ -187,10 +203,22 @@ InfRcTransport::InfRcTransport(Context* context,
         close(clientSetupSocket);
         throw;
     }
+    socklen_t socketAddressLength = sizeof(socketAddress);
+    if (getsockname(clientSetupSocket,
+            reinterpret_cast<struct sockaddr*>(&socketAddress),
+            &socketAddressLength) != 0) {
+        close(clientSetupSocket);
+        LOG(ERROR, "couldn't get port for clientSetupSocket: %s",
+                strerror(errno));
+        throw TransportException(HERE,
+                "InfRcTransport couldn't set up clientSetupSocket",
+                errno);
+    }
+    clientPort = NTOHS(socketAddress.sin_port);
 
     // If this is a server, create a server setup socket and bind it.
     if (sl != NULL) {
-        IpAddress address(*sl);
+        IpAddress address(sl);
 
         serverSetupSocket = socket(PF_INET, SOCK_DGRAM, 0);
         if (serverSetupSocket == -1) {
@@ -330,14 +358,17 @@ InfRcTransport::setNonBlocking(int fd)
  *      There was a problem that prevented us from creating the session.
  */
 InfRcTransport::InfRcSession::InfRcSession(
-    InfRcTransport *transport, const ServiceLocator& sl, uint32_t timeoutMs)
+    InfRcTransport *transport, const ServiceLocator* sl, uint32_t timeoutMs)
     : transport(transport)
+    , serverAddress()
     , qp(NULL)
     , sessionAlarm(transport->context->sessionAlarmTimer, this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
-    setServiceLocator(sl.getOriginalString());
+    setServiceLocator(sl->getOriginalString());
     IpAddress address(sl);
+    serverAddress = reinterpret_cast<struct sockaddr_in*>(
+            &address.address)->sin_addr;
 
     // create and set up a new queue pair for this client
     // This probably doesn't need to allocate memory
@@ -350,6 +381,8 @@ InfRcTransport::InfRcSession::InfRcSession(
 InfRcTransport::InfRcSession::~InfRcSession()
 {
     abort();
+    LOG(DEBUG, "Closing session with %s (client port %d)",
+            inet_ntoa(serverAddress), transport->clientPort);
 }
 
 // See documentation for Transport::Session::abort.
@@ -407,12 +440,22 @@ InfRcTransport::InfRcSession::cancelRequest(
     }
     foreach (ClientRpc& rpc, transport->outstandingRpcs) {
         if (rpc.notifier == notifier) {
-
-            // Wait until NIC completes all ongoing transmits. This will
-            // guarantee that we don't send garbaged rpc if NIC has already
-            // started DMA transmit of data from the rpc that we want to cancel.
+            // At this point we'd lke to delay until the NIC completes all
+            // ongoing transmits. Otherwise, if a buffer gets reused after we
+            // return, then the NIC could transmit garbage. However, as of
+            // 12/2015 this can cause delays as long as 4 seconds (long
+            // timeouts in the NIC if the target died?), which locks the
+            // dispatch thread and causes this machine to be presumed dead.
+            // So, try to wait for completion, but give up after 1ms if it
+            // doesn't complete.
+            uint64_t start = Cycles::rdtsc();
             while (transport->freeTxBuffers.size() != MAX_TX_QUEUE_DEPTH) {
                 transport->reapTxBuffers();
+                if (Cycles::toSeconds(Cycles::rdtsc() - start) > 1e-03) {
+                    LOG(NOTICE, "gave up waiting for all outstanding "
+                            "transmissions after 1ms");
+                    break;
+                }
             }
             erase(transport->outstandingRpcs, rpc);
             transport->clientRpcPool.destroy(&rpc);
@@ -578,17 +621,18 @@ InfRcTransport::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
             } else if (len != sizeof(*outgoingQpt)) {
                 LOG(ERROR, "sendto returned bad length (%Zd) while "
                     "sending to ip: [%s] port: [%d]", len,
-                    inet_ntoa(sin->sin_addr), HTONS(sin->sin_port));
+                    inet_ntoa(sin->sin_addr), NTOHS(sin->sin_port));
                 throw TransportException(HERE, errno);
             } else {
                 haveSent = true;
             }
         }
 
-        socklen_t sinlen = sizeof(sin);
+        struct sockaddr_in recvSin;
+        socklen_t sinlen = sizeof(recvSin);
         ssize_t len = recvfrom(clientSetupSocket, incomingQpt,
             sizeof(*incomingQpt), 0,
-            reinterpret_cast<sockaddr *>(&sin), &sinlen);
+            reinterpret_cast<sockaddr *>(&recvSin), &sinlen);
         if (len == -1) {
             if (errno != EINTR && errno != EAGAIN) {
                 LOG(ERROR, "recvfrom returned error %d: %s",
@@ -598,15 +642,16 @@ InfRcTransport::clientTryExchangeQueuePairs(struct sockaddr_in *sin,
         } else if (len != sizeof(*incomingQpt)) {
             LOG(ERROR, "recvfrom returned bad length (%Zd) while "
                 "receiving from ip: [%s] port: [%d]", len,
-                inet_ntoa(sin->sin_addr), HTONS(sin->sin_port));
+                inet_ntoa(recvSin.sin_addr), NTOHS(recvSin.sin_port));
             throw TransportException(HERE, errno);
         } else {
             if (outgoingQpt->getNonce() == incomingQpt->getNonce())
                 return true;
 
-            LOG(WARNING,
-                "received nonce doesn't match (0x%016lx != 0x%016lx)",
-                outgoingQpt->getNonce(), incomingQpt->getNonce());
+            LOG(WARNING, "bad nonce from %s (expected 0x%016lx, "
+                "got 0x%016lx, port %d); ignoring",
+                inet_ntoa(sin->sin_addr), outgoingQpt->getNonce(),
+                incomingQpt->getNonce(), clientPort);
         }
 
         double timeLeft = usTimeout - Cycles::toSeconds(Cycles::rdtsc() -
@@ -649,11 +694,14 @@ InfRcTransport::clientTrySetupQueuePair(IpAddress& address)
                                                 commonTxCq, clientRxCq,
                                                 MAX_TX_QUEUE_DEPTH,
                                                 MAX_SHARED_RX_QUEUE_DEPTH);
+    uint64_t nonce = generateRandom();
+    LOG(DEBUG, "starting to connect to %s via local port %d, nonce 0x%lx",
+            inet_ntoa(sin->sin_addr), clientPort, nonce);
 
     for (uint32_t i = 0; i < QP_EXCHANGE_MAX_TIMEOUTS; i++) {
         QueuePairTuple outgoingQpt(downCast<uint16_t>(lid),
                                    qp->getLocalQpNumber(),
-                                   qp->getInitialPsn(), generateRandom(),
+                                   qp->getInitialPsn(), nonce,
                                    name);
         QueuePairTuple incomingQpt;
         bool gotResponse;
@@ -677,6 +725,8 @@ InfRcTransport::clientTrySetupQueuePair(IpAddress& address)
             ++metrics->transport.retrySessionOpenCount;
             continue;
         }
+        LOG(DEBUG, "connected to %s via local port %d",
+                inet_ntoa(sin->sin_addr), clientPort);
 
         // plumb up our queue pair with the server's parameters.
         qp->plumb(&incomingQpt);
@@ -684,10 +734,11 @@ InfRcTransport::clientTrySetupQueuePair(IpAddress& address)
     }
 
     LOG(WARNING, "failed to exchange with server (%s) within allotted "
-        "%u microseconds (sent request %u times)",
+        "%u microseconds (sent request %u times, local port %d)",
         address.toString().c_str(),
         QP_EXCHANGE_USEC_TIMEOUT * QP_EXCHANGE_MAX_TIMEOUTS,
-        QP_EXCHANGE_MAX_TIMEOUTS);
+        QP_EXCHANGE_MAX_TIMEOUTS,
+        clientPort);
     delete qp;
     throw TransportException(HERE, "failed to connect to host");
 }
@@ -740,6 +791,12 @@ InfRcTransport::ServerConnectHandler::handleFileEvent(int events)
             MAX_SHARED_RX_QUEUE_DEPTH);
     qp->plumb(&incomingQpt);
     qp->setPeerName(incomingQpt.getPeerName());
+    LOG(DEBUG, "New queue pair for %s:%u, nonce 0x%lx (total creates "
+            "%d, deletes %d)",
+            inet_ntoa(sin.sin_addr), HTONS(sin.sin_port),
+            incomingQpt.getNonce(),
+            transport->infiniband->totalQpCreates,
+            transport->infiniband->totalQpDeletes);
 
     // now send the client back our queue pair information so they can
     // complete the initialisation.
@@ -832,7 +889,8 @@ InfRcTransport::getTransmitBuffer()
             double waitMs = 1e03 * Cycles::toSeconds(Cycles::rdtsc() - start);
             if (waitMs > 5.0)  {
                 LOG(WARNING, "Long delay waiting for transmit buffers "
-                        "(%.1f ms); deadlock or target crashed?", waitMs);
+                        "(%.1f ms elapsed, %lu buffers now free); deadlock "
+                        "or target crashed?", waitMs, freeTxBuffers.size());
             }
         }
     }
@@ -860,6 +918,7 @@ InfRcTransport::reapTxBuffers()
     for (int i = 0; i < n; i++) {
         BufferDescriptor* bd =
             reinterpret_cast<BufferDescriptor*>(retArray[i].wr_id);
+        pendingOutputBytes -= bd->messageBytes;
         freeTxBuffers.push_back(bd);
 
         if (retArray[i].status != IBV_WC_SUCCESS) {
@@ -925,6 +984,7 @@ InfRcTransport::sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp)
     uint32_t chunksUsed = 0;
     uint32_t sgesUsed = 0;
     BufferDescriptor* bd = getTransmitBuffer();
+    bd->messageBytes = message->size();
 
     // The variables below allow us to collect several chunks from the
     // Buffer into a single sge in some situations. They describe a
@@ -1020,6 +1080,7 @@ InfRcTransport::sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp)
         if (ibv_post_send(qp->qp, &txWorkRequest, &badTxWorkRequest)) {
             throw TransportException(HERE, "ibv_post_send failed");
         }
+        pendingOutputBytes += bd->messageBytes;
     } else {
         for (int i = 0; i < txWorkRequest.num_sge; ++i) {
             const ibv_sge& sge = txWorkRequest.sg_list[i];
@@ -1357,7 +1418,7 @@ InfRcTransport::Poller::poll()
             port->portAlarm.requestArrived(); // Restarts the port watchdog
             interval.stop();
             r->rpcServiceTime.start();
-            t->context->serviceManager->handleRpc(r);
+            t->context->workerManager->handleRpc(r);
             ++metrics->transport.receive.messageCount;
             ++metrics->transport.receive.packetCount;
             metrics->transport.receive.iovecCount +=

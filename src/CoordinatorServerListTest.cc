@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -373,9 +373,11 @@ TEST_F(CoordinatorServerListTest, enlistServer_preferredIndexNotAvailable) {
 TEST_F(CoordinatorServerListTest, enlistServer_reuseSlot) {
     ServerId id1 = sl->enlistServer({WireFormat::BACKUP_SERVICE},
             0, 140, "mock:host=node1");
+    EXPECT_EQ("1.0", id1.toString());
     ServerId id2 = sl->enlistServer(
             {WireFormat::BACKUP_SERVICE, WireFormat::MASTER_SERVICE},
             0, 87, "mock:host=node2");
+    EXPECT_EQ("2.0", id2.toString());
     sl->serverList[2].entry.destroy();
     ServerId id3 = sl->enlistServer(
             {WireFormat::BACKUP_SERVICE, WireFormat::MASTER_SERVICE},
@@ -408,7 +410,7 @@ TEST_F(CoordinatorServerListTest, masterCount) {
 }
 
 TEST_F(CoordinatorServerListTest, indexWithId) {
-    ServerId id1 = sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=node1");
     ServerId id2 = sl->enlistServer(
             {WireFormat::BACKUP_SERVICE, WireFormat::MASTER_SERVICE},
@@ -429,9 +431,9 @@ TEST_F(CoordinatorServerListTest, indexWithId) {
 }
 
 TEST_F(CoordinatorServerListTest, indexWithSlotNum) {
-    ServerId id1 = sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=node1");
-    ServerId id2 = sl->enlistServer(
+    sl->enlistServer(
             {WireFormat::BACKUP_SERVICE, WireFormat::MASTER_SERVICE},
             0, 0, "mock:host=node2");
 
@@ -593,8 +595,8 @@ TEST_F(CoordinatorServerListTest, recover_incompleteUpdates) {
     storage->getChildrenValues.push(server2);
     TestLog::reset();
     storage->log.clear();
-    cluster.coordinatorContext.coordinatorService->updateManager.lastAssigned
-            = 100;
+    cluster.coordinatorContext.getCoordinatorService()
+            ->updateManager.lastAssigned = 100;
     sl->recover(10);
     EXPECT_TRUE(TestUtil::contains(TestLog::get(),
             "recover: Rescheduling update for server 2.3, version 5, "
@@ -889,8 +891,8 @@ TEST_F(CoordinatorServerListTest, persistAndPropagate) {
     CoordinatorServerList::Entry* entry = sl->getEntry({2, 3});
     TestLog::reset();
     cluster.externalStorage.log.clear();
-    cluster.coordinatorContext.coordinatorService->updateManager.lastAssigned
-            = 10;
+    cluster.coordinatorContext.getCoordinatorService()
+            ->updateManager.lastAssigned = 10;
     sl->version = 50U;
     sl->persistAndPropagate(lock, entry, ServerChangeEvent::SERVER_CRASHED);
     EXPECT_EQ(1U, entry->pendingUpdates.size());
@@ -1190,7 +1192,7 @@ TEST_F(CoordinatorServerListTest, pruneUpdates_badMaxConfirmedVersion) {
 }
 TEST_F(CoordinatorServerListTest, pruneUpdates_basics) {
     CoordinatorUpdateManager* updateManager =
-            &cluster.coordinatorContext.coordinatorService->updateManager;
+            &cluster.coordinatorContext.getCoordinatorService()->updateManager;
     updateManager->reset();
 
     // Create 10 items on the update list
@@ -1229,7 +1231,7 @@ TEST_F(CoordinatorServerListTest, pruneUpdates_basics) {
 }
 TEST_F(CoordinatorServerListTest, pruneUpdates_updateVersionLessThanEntry) {
     CoordinatorUpdateManager* updateManager =
-            &cluster.coordinatorContext.coordinatorService->updateManager;
+            &cluster.coordinatorContext.getCoordinatorService()->updateManager;
     updateManager->reset();
 
     ServerId id = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
@@ -1252,7 +1254,7 @@ TEST_F(CoordinatorServerListTest, pruneUpdates_updateVersionLessThanEntry) {
 
 TEST_F(CoordinatorServerListTest, pruneUpdates_updateVersionGreaterThanEntry) {
     CoordinatorUpdateManager* updateManager =
-            &cluster.coordinatorContext.coordinatorService->updateManager;
+            &cluster.coordinatorContext.getCoordinatorService()->updateManager;
     updateManager->reset();
 
     ServerId id = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
@@ -1448,7 +1450,7 @@ TEST_F(CoordinatorServerListTest, getWork_emptyServerList) {
 }
 
 TEST_F(CoordinatorServerListTest, getWork_noWorkFoundForEpoch) {
-    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
             "mock:host=server1");
     EXPECT_TRUE(sl->getWork(&rpc));
     EXPECT_EQ(1UL, sl->numUpdatingServers);
@@ -1470,7 +1472,7 @@ TEST_F(CoordinatorServerListTest, getWork_serverCrashed) {
 }
 
 TEST_F(CoordinatorServerListTest, getWork_noMembershipService) {
-    ServerId id1 = sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=server1");
     EXPECT_FALSE(sl->getWork(&rpc));
 }
@@ -1494,7 +1496,7 @@ TEST_F(CoordinatorServerListTest, getWork_fullListUpdate) {
 
 TEST_F(CoordinatorServerListTest, getWork_incrementalUpdates) {
     // Create a bunch of servers.
-    ServerId id1 = sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=server1");
     ServerId id2 = sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=server2");

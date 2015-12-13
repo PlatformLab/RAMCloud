@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -88,12 +88,6 @@ class SegletAllocator {
     int getMemoryUtilization();
     LogSegment* getOwnerSegment(const void* p);
     void setOwnerSegment(Seglet* seglet, LogSegment* segment);
-
-#if TESTING
-    /// Allow the reported memory utilization (from getMemoryUtilization) to be
-    /// easily mocked by setting this to the desired non-0 value.
-    static int mockMemoryUtilization;
-#endif
 
   PRIVATE:
     size_t getSegletIndex(const void* p);

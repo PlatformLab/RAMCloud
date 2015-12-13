@@ -103,6 +103,9 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     };
 
     explicit ClientTransactionTask(RamCloud* ramcloud);
+    ~ClientTransactionTask() {
+        RAMCLOUD_TEST_LOG("Destructor called.");
+    }
 
     CacheEntry* findCacheEntry(Key& key);
     /// Return the transaction commit decision if a decision has been reached.
@@ -116,8 +119,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         return (state == DONE ||
                 (state == DECISION && nextCacheEntry == commitCache.end()));
     }
-    int performTask();
-    static void start(std::shared_ptr<ClientTransactionTask>& taskPtr);
+    void performTask();
 
   PRIVATE:
     // Forward declaration of RPCs
@@ -127,6 +129,12 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// Overall client state information.
     RamCloud* ramcloud;
 
+  PUBLIC:
+    /// Flag that can be set indicating that the transaction is read-only and
+    /// the read-only optimization can be used.
+    bool readOnly;
+
+  PRIVATE:
     /// Number of participant objects/operations.
     uint32_t participantCount;
     /// Expandable raw storage for the List of participant object identifiers.
@@ -145,8 +153,8 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// Lease information for to this transaction.
     WireFormat::ClientLease lease;
 
-    /// Id of the rpcId that should be completed once the transaction is
-    /// complete.
+    /// RpcId used to identify this transaction.  Also is the rpcId that should
+    /// be completed once the transaction is complete.
     uint64_t txId;
 
     /// List of "in flight" Prepare Rpcs.
@@ -185,33 +193,11 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// commit protocol.
     CommitCacheMap::iterator nextCacheEntry;
 
-    /**
-     * The Poller drives the execution of the ClientTransactionTask.  While this
-     * object exists, ClientTransactionTask::performTask will be called.
-     */
-    class Poller : public Dispatch::Poller {
-      PUBLIC:
-        explicit Poller(Dispatch* dispatch,
-                        std::shared_ptr<ClientTransactionTask>& taskPtr);
-        virtual int poll();
-
-      PRIVATE:
-        /// Keeps track of if the poll method is already executing to prevent
-        /// recursive calls due to the use of polling in other modules.
-        bool running;
-        /// Shared pointer to the ClientTransactionTask to be run.
-        std::shared_ptr<ClientTransactionTask> taskPtr;
-
-        DISALLOW_COPY_AND_ASSIGN(Poller);
-    };
-    /// Used to delay execution of the task until commit time.
-    Tub<Poller> poller;
-
     void initTask();
-    int processDecisionRpcResults();
-    int processPrepareRpcResults();
-    int sendDecisionRpc();
-    int sendPrepareRpc();
+    void processDecisionRpcResults();
+    void processPrepareRpcResults();
+    void sendDecisionRpc();
+    void sendPrepareRpc();
     virtual void tryFinish();
 
     /// Encapsulates common state and methods of Decision and Prepare RPCs.

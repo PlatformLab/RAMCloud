@@ -1,10 +1,11 @@
-Make sure you have copied the JNI include files that come with the JDK to include/
-Make sure you have built the C++ RAMCloud project
-Use ./gradlew build to build the Java bindings
-Make sure you have built the C++ RAMCloud test library with ./buildtest.sh when running unit tests
-Use ./gradlew test to run the unit tests
+Make sure you have built the C++ RAMCloud project (make all)
+Make sure that the "javac" executable is on your path
+Use "./gradlew" or "./gradlew make" to build the Java bindings
+Use "./gradlew run -Plocator=<locatorString>" or "build/install/ramcloud/bin/ramcloud" to run TestClient
 
-Java and C++ sources for the bindings are located in src/
-Java and C++ sources for the unit tests are located in testsrc/
+Unit tests are currently non-functional.
+
+Java and C++ sources for the bindings are located in src/main/
+Java and C++ sources for the unit tests are located in src/test/
 
 Javadoc is available at: https://ramcloud.stanford.edu/docs/javadoc/

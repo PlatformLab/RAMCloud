@@ -159,7 +159,6 @@ TEST_F(LogTest, sync) {
         TestLog::get());
 
     EXPECT_EQ(4U, l.metrics.totalSyncCalls);
-    EXPECT_GT(l.metrics.totalSyncTicks, 0U);
 }
 
 TEST_F(LogTest, rollHeadOver) {

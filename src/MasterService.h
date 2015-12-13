@@ -17,6 +17,8 @@
 #define RAMCLOUD_MASTERSERVICE_H
 
 #include "Common.h"
+#include "ClientLeaseValidator.h"
+#include "ClusterClock.h"
 #include "CoordinatorClient.h"
 #include "Log.h"
 #include "LogCleaner.h"
@@ -60,7 +62,6 @@ class MasterService : public Service {
     virtual ~MasterService();
 
     void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
-    int maxThreads() { return config->master.masterServiceThreadCount; }
 
     /*
      * The following class is used to temporarily disable the servicing of
@@ -111,6 +112,17 @@ class MasterService : public Service {
     IndexletManager indexletManager;
 
     /**
+     * Keeps track of the logically most recent cluster-time that this master
+     * service either directly or indirectly received from the coordinator.
+     */
+    ClusterClock clusterClock;
+
+    /**
+     * Allows modules to check if a given client lease is still valid.
+     */
+    ClientLeaseValidator clientLeaseValidator;
+
+    /**
      * The UnackedRpcResults keeps track of those linearizable rpcs that have
      * not yet been acknowledged by the client.
      */
@@ -121,28 +133,6 @@ class MasterService : public Service {
      * transactions.
      */
     PreparedOps preparedOps;
-
-    /**
-     * Largest cluster time that this master service either directly or
-     * indirectly received from the coordinator.
-     */
-    Atomic<uint64_t> clusterTime;
-
-    /**
-     * Protecting concurrent updates on clusterTime.
-     */
-    std::mutex mutex_updateClusterTime;
-
-    /**
-     * Advances clusterTime if provided value is larger than current.
-     * \param newVal
-     *      A observed value of clusterTime.
-     */
-    void updateClusterTime(uint64_t newVal) {
-        std::lock_guard<std::mutex> lock(mutex_updateClusterTime);
-        if (clusterTime < newVal)
-            clusterTime = newVal;
-    }
 
 #ifdef TESTING
     /// Used to pause the read-increment-write cycle in incrementObject
@@ -189,7 +179,10 @@ class MasterService : public Service {
                 int64_t *asInt64,
                 double *asDouble,
                 uint64_t *newVersion,
-                Status *status);
+                Status *status,
+                const WireFormat::Increment::Request* reqHdr = NULL,
+                WireFormat::Increment::Response* respHdr = NULL,
+                uint64_t *rpcResultPtr = NULL);
     void readHashes(
                 const WireFormat::ReadHashes::Request* reqHdr,
                 WireFormat::ReadHashes::Response* respHdr,
@@ -218,12 +211,16 @@ class MasterService : public Service {
                 uint64_t& totalTombstones,
                 uint64_t& totalBytes,
                 WireFormat::SplitAndMigrateIndexlet::Response* respHdr);
-    int migrateSingleLogEntry(LogIterator& it,
+  public: // For MigrateTabletBenchmark.
+    Status migrateSingleLogEntry(SegmentIterator& it,
                 Tub<Segment>& transferSeg,
                 uint64_t entryTotals[],
                 uint64_t& totalBytes,
-                const WireFormat::MigrateTablet::Request* reqHdr,
-                WireFormat::MigrateTablet::Response* respHdr);
+                uint64_t tableId,
+                uint64_t firstKeyHash,
+                uint64_t lastKeyHash,
+                ServerId receiver);
+  PRIVATE:
     void migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
                 WireFormat::MigrateTablet::Response* respHdr,
                 Rpc* rpc);
@@ -286,6 +283,10 @@ class MasterService : public Service {
                 const WireFormat::TxDecision::Request* reqHdr,
                 WireFormat::TxDecision::Response* respHdr,
                 Rpc* rpc);
+    void txRequestAbort(
+                const WireFormat::TxRequestAbort::Request* reqHdr,
+                WireFormat::TxRequestAbort::Response* respHdr,
+                Rpc* rpc);
     void txHintFailed(
                 const WireFormat::TxHintFailed::Request* reqHdr,
                 WireFormat::TxHintFailed::Response* respHdr,
@@ -311,7 +312,7 @@ class MasterService : public Service {
      *      this response without executing rpc.
      */
     template <typename LinearizableRpcType>
-    typename LinearizableRpcType::Response parseRpcResult(void* result) {
+    typename LinearizableRpcType::Response parseRpcResult(uint64_t result) {
         if (!result) {
             throw RetryException(HERE, 50, 50,
                     "Duplicate RPC is in progress.");
@@ -319,10 +320,11 @@ class MasterService : public Service {
 
         //Obtain saved RPC response from log.
         Buffer resultBuffer;
-        Log::Reference resultRef((uint64_t)result);
+        Log::Reference resultRef(result);
         objectManager.getLog()->getEntry(resultRef, resultBuffer);
         RpcResult savedRec(resultBuffer);
-        return *((typename LinearizableRpcType::Response*) savedRec.getResp());
+        return *(reinterpret_cast<const typename LinearizableRpcType::Response*>
+                                                        (savedRec.getResp()));
     }
 
     WireFormat::TxPrepare::Vote
@@ -337,7 +339,8 @@ class MasterService : public Service {
         Log::Reference resultRef(result);
         objectManager.getLog()->getEntry(resultRef, resultBuffer);
         RpcResult savedRec(resultBuffer);
-        return *((WireFormat::TxPrepare::Vote*) savedRec.getResp());
+        return *(reinterpret_cast<const WireFormat::TxPrepare::Vote*>
+                                                        (savedRec.getResp()));
     }
 
     /**

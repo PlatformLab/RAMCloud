@@ -22,9 +22,11 @@
 #include "Common.h"
 
 #include "Context.h"
+#include "CycleCounter.h"
 #include "RamCloud.h"
 #include "OptionParser.h"
 #include "MasterClient.h"
+#include "ShortMacros.h"
 
 using namespace RAMCloud;
 
@@ -35,10 +37,13 @@ try
     Context context(true);
 
     string tableName;
-    uint64_t tableId;
     uint64_t firstKey;
     uint64_t lastKey;
     uint64_t newOwnerMasterId;
+
+    uint32_t objectCount = 0;
+    uint32_t objectSize = 0;
+    uint32_t otherObjectCount = 0;
 
     OptionsDescription migrateOptions("Migrate");
     migrateOptions.add_options()
@@ -57,64 +62,89 @@ try
         ("recipient,r",
          ProgramOptions::value<uint64_t>(&newOwnerMasterId)->
            default_value(0),
-         "ServerId of the master to migrate to");
+         "ServerId of the master to migrate to")
+        ("objectCount",
+         ProgramOptions::value<uint32_t>(&objectCount)->
+           default_value(1000000),
+         "Number of objects to pre-populate in the table to be migrated")
+        ("objectSize",
+         ProgramOptions::value<uint32_t>(&objectSize)->
+           default_value(1000),
+         "Size of objects to pre-populate in tables")
+        ("otherObjectCount",
+         ProgramOptions::value<uint32_t>(&otherObjectCount)->
+           default_value(0),
+         "Number of objects to pre-populate in the table to be "
+         "NOT TO BE migrated")
+        ("numClients",
+         "Ignored by this program")
+        ("clientIndex",
+         "Ignored by this program");
 
     OptionParser optionParser(migrateOptions, argc, argv);
 
     if (tableName == "") {
-        fprintf(stderr, "error: please specify the table name\n");
+        DIE("error: please specify the table name");
         exit(1);
     }
     if (newOwnerMasterId == 0) {
-        fprintf(stderr, "error: please specify the recipient's ServerId\n");
+        DIE("error: please specify the recipient's ServerId");
         exit(1);
     }
 
     string coordinatorLocator = optionParser.options.getCoordinatorLocator();
-    printf("client: Connecting to coordinator %s\n",
+    LOG(NOTICE, "client: Connecting to coordinator %s",
         coordinatorLocator.c_str());
 
     RamCloud client(&context, coordinatorLocator.c_str());
 
 #if 1
     // The following crud shouldn't be part of this utility
-    client.createTable(tableName.c_str());
-    for (uint64_t i = 0; i < 838860 / 4 + 1; i++) {
-        client.write(0, reinterpret_cast<char*>(&i), sizeof(i),
-            "0123456789", 10);
-    }
+    uint64_t tableId = client.createTable(tableName.c_str());
+    client.testingFill(tableId, "", 0, objectCount, objectSize);
+    const uint64_t totalBytes = objectCount * objectSize;
+
+    uint64_t otherTableId = client.createTable("junk");
+    client.testingFill(otherTableId, "", 0, otherObjectCount, objectSize);
 #endif
 
-    tableId = client.getTableId(tableName.c_str());
+    LOG(ERROR, "Issuing migration request:");
+    LOG(ERROR, "  table \"%s\" (%lu)", tableName.c_str(), tableId);
+    LOG(ERROR, "  first key %lu", firstKey);
+    LOG(ERROR, "  last key  %lu", lastKey);
+    LOG(ERROR, "  recipient master id %lu", newOwnerMasterId);
 
-    printf("Issuing migration request:\n");
-    printf("  table \"%s\" (%lu)\n", tableName.c_str(), tableId);
-    printf("  first key %lu\n", firstKey);
-    printf("  last key  %lu\n", lastKey);
-    printf("  recipient master id %lu\n", newOwnerMasterId);
+    {
+        CycleCounter<> counter{};
+        client.migrateTablet(tableId,
+                             firstKey,
+                             lastKey,
+                             ServerId(newOwnerMasterId));
+        double seconds = Cycles::toSeconds(counter.stop());
+        LOG(ERROR, "Migration took %0.2f seconds", seconds);
+        LOG(ERROR, "Migration took %0.2f MB/s",
+                double(totalBytes) / seconds / double(1 << 20));
+    }
 
-    client.migrateTablet(tableId,
-                         firstKey,
-                         lastKey,
-                         ServerId(newOwnerMasterId));
-
-#if 1
+#if 0
     // The following crud shouldn't be part of this utility
     uint64_t key = 23471324234;
-    client.write(0, reinterpret_cast<char*>(&key), sizeof(key), "YO HO!");
+    client.write(tableId, reinterpret_cast<char*>(&key), sizeof(key), "YO HO!");
 
     Buffer buf;
-    client.read(0, reinterpret_cast<char*>(&firstKey), sizeof(firstKey), &buf);
-    printf("read obj 0: \"%10s\"\n",
+    client.read(tableId, reinterpret_cast<char*>(&firstKey),
+                sizeof(firstKey), &buf);
+    LOG(ERROR, "read obj 0: \"%10s\"",
         (const char*)buf.getRange(0, buf.size()));
 
-    printf("Migrating back again!");
+    LOG(ERROR, "Migrating back again!");
     client.migrateTablet(tableId, firstKey, lastKey, ServerId(1, 0));
-    client.read(0, reinterpret_cast<char*>(&firstKey), sizeof(firstKey), &buf);
-    printf("read obj 0: \"%10s\"\n",
+    client.read(tableId, reinterpret_cast<char*>(&firstKey),
+                sizeof(firstKey), &buf);
+    LOG(ERROR, "read obj 0: \"%10s\"",
         (const char*)buf.getRange(0, buf.size()));
-    client.read(0, reinterpret_cast<char*>(&key), sizeof(key), &buf);
-    printf("read obj %lu: \"%10s\"\n", key,
+    client.read(tableId, reinterpret_cast<char*>(&key), sizeof(key), &buf);
+    LOG(ERROR, "read obj %lu: \"%10s\"", key,
         (const char*)buf.getRange(0, buf.size()));
 #endif
 

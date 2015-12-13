@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,8 +19,9 @@
  */
 
 #include "TestUtil.h"
-#include "Transport.h"
+#include "LogProtector.h"
 #include "ServerRpcPool.h"
+#include "Transport.h"
 
 namespace RAMCloud {
 
@@ -48,10 +49,7 @@ TEST(ServerRpcPoolTest, construct) {
     Context context;
     ServerRpcPool<TestServerRpc> pool;
 
-    ServerRpcPoolInternal::currentEpoch = 12;
     TestServerRpc* rpc = pool.construct();
-    EXPECT_EQ(12UL, rpc->epoch);
-    EXPECT_EQ(12UL, ServerRpcPool<>::getEarliestOutstandingEpoch(&context));
     EXPECT_EQ(true, rpc->outstandingRpcListHook.is_linked());
     EXPECT_EQ(1U, pool.outstandingAllocations);
 
@@ -65,31 +63,40 @@ TEST(ServerRpcPoolTest, destroy) {
     TestServerRpc* rpc = pool.construct();
     pool.destroy(rpc);
     EXPECT_EQ(0U, pool.outstandingAllocations);
-    EXPECT_EQ(-1UL, ServerRpcPool<>::getEarliestOutstandingEpoch(&context));
+    EXPECT_EQ(-1UL, pool.getEarliestEpoch(~0));
 }
 
-TEST(ServerRpcPoolTest, getCurrentEpoch) {
-    ServerRpcPoolInternal::currentEpoch = 28;
-    EXPECT_EQ(28U, ServerRpcPool<>::getCurrentEpoch());
-}
-
-TEST(ServerRpcPoolTest, getEarliestOutstandingEpoch) {
+TEST(ServerRpcPoolTest, getEarliestEpoch_basics) {
     Context context;
-    EXPECT_EQ(-1UL, ServerRpcPool<>::getEarliestOutstandingEpoch(&context));
 
-    ServerRpcPoolInternal::currentEpoch = 57;
+    LogProtector::currentSystemEpoch = 57;
     ServerRpcPool<TestServerRpc> pool;
     TestServerRpc* rpc = pool.construct();
-    EXPECT_EQ(57UL, ServerRpcPool<>::getEarliestOutstandingEpoch(&context));
+    EXPECT_EQ(-1UL, pool.getEarliestEpoch(~0));
+    rpc->epoch = 57;
+    EXPECT_EQ(57UL, pool.getEarliestEpoch(~0));
     pool.destroy(rpc);
 
-    EXPECT_EQ(-1UL, ServerRpcPool<>::getEarliestOutstandingEpoch(&context));
+    EXPECT_EQ(-1UL, pool.getEarliestEpoch(~0));
 }
 
-TEST(ServerRpcPoolTest, incrementCurrentEpoch) {
-    ServerRpcPoolInternal::currentEpoch = 98;
-    EXPECT_EQ(99U, ServerRpcPool<>::incrementCurrentEpoch());
-    EXPECT_EQ(99U, ServerRpcPool<>::getCurrentEpoch());
+TEST(ServerRpcPoolTest, getEarliestEpoch_activityMask) {
+    Context context;
+
+    ServerRpcPool<TestServerRpc> pool;
+    TestServerRpc* rpc1 = pool.construct();
+    rpc1->epoch = 44;
+    TestServerRpc* rpc2 = pool.construct();
+    rpc2->epoch = 6;
+    TestServerRpc* rpc3 = pool.construct();
+    rpc3->epoch = 19;
+    EXPECT_EQ(6UL, pool.getEarliestEpoch(~0));
+    rpc2->activities = Transport::ServerRpc::READ_ACTIVITY;
+    EXPECT_EQ(19UL, pool.getEarliestEpoch(
+                            Transport::ServerRpc::APPEND_ACTIVITY));
+    pool.destroy(rpc1);
+    pool.destroy(rpc2);
+    pool.destroy(rpc3);
 }
 
 TEST(ServerRpcPoolGuardTest, generic) {

@@ -19,6 +19,7 @@
 #define RAMCLOUD_CRC32C_H
 
 #include "Buffer.h"
+#include "Exception.h"
 
 /// Lookup tables for software CRC32C implementation.
 namespace Crc32CSlicingBy8 {

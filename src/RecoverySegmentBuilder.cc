@@ -71,7 +71,6 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
     // Buffer must be retained for iteration to provide storage for header.
     Buffer headerBuffer;
     const SegmentHeader* header = NULL;
-    bool supressNoPartitionWarning = false;
     for (; !it.isDone(); it.next()) {
         LogEntryType type = it.getType();
 
@@ -85,7 +84,8 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             && type != LOG_ENTRY_TYPE_RPCRESULT
             && type != LOG_ENTRY_TYPE_PREP
             && type != LOG_ENTRY_TYPE_PREPTOMB
-            && type != LOG_ENTRY_TYPE_TXDECISION)
+            && type != LOG_ENTRY_TYPE_TXDECISION
+            && type != LOG_ENTRY_TYPE_TXPLIST)
             continue;
 
         if (header == NULL) {
@@ -97,9 +97,11 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
         it.appendToBuffer(entryBuffer);
 
         uint64_t tableId = -1;
-        if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
-            // Copy SAFEVERSION to all the partitions for
-            // safeVersion recovery on all recovery masters
+        if (type == LOG_ENTRY_TYPE_SAFEVERSION ||
+            type == LOG_ENTRY_TYPE_TXPLIST)
+        {
+            // Copy SAFEVERSION and ParticipantLists to all the partitions for
+            // safeVersion and ParticipantList recovery on all recovery masters
             LogPosition position(header->segmentId, it.getOffset());
             for (int i = 0; i < numPartitions; i++) {
                 if (!recoverySegments[i].append(type, entryBuffer)) {
@@ -149,18 +151,11 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
 
         const auto* partition = whichPartition(tableId, keyHash, partitions);
         if (!partition) {
-            if (!supressNoPartitionWarning) {
-                LOG(WARNING,
-                    "Couldn't place object with <tableId, keyHash> of "
-                    "<%lu,%lu> into any of the given "
-                    "tablets for recovery; hopefully it belonged to a deleted "
-                    "tablet or lives in another log now. "
-                    "*** Only warning you once; it's likely if you are running "
-                    "recovery.py for testing you just recovered from more "
-                    "failures than you expected in a single run and your "
-                    "numbers are garbage.", tableId, keyHash);
-                supressNoPartitionWarning = true;
-            }
+            // This log record doesn't belong to any of the current
+            // partitions. This can happen when it takes several passes
+            // to complete a recovery: each pass will recover only a subset
+            // of the data.
+            TEST_LOG("Couldn't place object");
             continue;
         }
         uint64_t partitionId = partition->user_data();

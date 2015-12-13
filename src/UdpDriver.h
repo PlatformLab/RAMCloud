@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -49,7 +49,7 @@ class UdpDriver : public Driver {
                             Buffer::Iterator *payload);
     virtual string getServiceLocator();
 
-    virtual Address* newAddress(const ServiceLocator& serviceLocator) {
+    virtual Address* newAddress(const ServiceLocator* serviceLocator) {
         return new IpAddress(serviceLocator);
     }
 

@@ -17,16 +17,54 @@
 #define RAMCLOUD_PREPAREDOPS_H
 
 #include <map>
+#include <unordered_map>
 #include <utility>
 #include "Common.h"
 #include "Object.h"
 #include "SpinLock.h"
 #include "WireFormat.h"
 #include "WorkerTimer.h"
+#include "MasterClient.h"
 
 namespace RAMCloud {
 
 class ObjectManager;
+
+/**
+ * Encapsulates the unique identifier for a specific transaction.
+ */
+struct TransactionId {
+    /// Constructor for a TransactionId object.
+    TransactionId(uint64_t clientLeaseId, uint64_t clientTransactionId)
+        : clientLeaseId(clientLeaseId)
+        , clientTransactionId(clientTransactionId)
+    {}
+
+    /// Equality operator; implemented to support use of TransactionId objects
+    /// as a key in an std::unordered_map.
+    bool operator==(const TransactionId &other) const {
+        return (clientLeaseId == other.clientLeaseId
+                && clientTransactionId == other.clientTransactionId);
+    }
+
+    /// Hash operator; implemented to support use of TransactionId objects
+    /// as a key in an std::unordered_map.
+    struct Hasher {
+        std::size_t operator()(const TransactionId& txId) const {
+            std::size_t h1 = std::hash<uint64_t>()(txId.clientLeaseId);
+            std::size_t h2 = std::hash<uint64_t>()(txId.clientTransactionId);
+            return h1 ^ (h2 << 1);
+        }
+    };
+
+    /// Id of the client lease that issued this transaction.
+    uint64_t clientLeaseId;
+    /// Transaction Id given to this transaction by the client.  This value
+    /// uniquely identifies this transaction among the transactions from the
+    /// same client.  Combining this value with the clientLeaseId will provide
+    /// a system wide unique transaction identifier.
+    uint64_t clientTransactionId;
+};
 
 /**
  * This class defines the format of a prepared transaction operation stored in
@@ -37,28 +75,24 @@ class ObjectManager;
  * During RC recovery of preparedOp log, a master should lock the corresponding
  * object.
  *
- * Each preparedOp contains all TxParticipants of current transactions and
- * an instance of Object. When stored in the log, a preparedOp has the following
- * layout:
+ * Each preparedOp contains a header and an instance of Object. When stored in
+ * the log, a preparedOp has the following layout:
  *
- * +-------------------+----------------------+--------+
- * | PreparedOp Header | TxParticipant(s) ... | Object |
- * +-------------------+----------------------+--------+
+ * +-------------------+--------+
+ * | PreparedOp Header | Object |
+ * +-------------------+--------+
+ *
  * Everything except the header is of variable length.
  */
 class PreparedOp {
   public:
     PreparedOp(WireFormat::TxPrepare::OpType type,
-               uint64_t clientId, uint64_t rpcId,
-               uint32_t participantCount,
-               WireFormat::TxParticipant* participants,
+               uint64_t clientId, uint64_t clientTxId, uint64_t rpcId,
                uint64_t tableId, uint64_t version, uint32_t timestamp,
                Buffer& keysAndValueBuffer, uint32_t startDataOffset = 0,
                uint32_t length = 0);
     PreparedOp(WireFormat::TxPrepare::OpType type,
-               uint64_t clientId, uint64_t rpcId,
-               uint32_t participantCount,
-               WireFormat::TxParticipant* participants,
+               uint64_t clientId, uint64_t clientTxId, uint64_t rpcId,
                Key& key, const void* value, uint32_t valueLength,
                uint64_t version, uint32_t timestamp,
                Buffer& buffer, uint32_t *length = NULL);
@@ -72,13 +106,13 @@ class PreparedOp {
       public:
         Header(WireFormat::TxPrepare::OpType type,
                uint64_t clientId,
-               uint64_t rpcId,
-               uint32_t participantCount)
-            : type(type),
-              clientId(clientId),
-              rpcId(rpcId),
-              participantCount(participantCount),
-              checksum(0)
+               uint64_t clientTxId,
+               uint64_t rpcId)
+            : type(type)
+            , clientId(clientId)
+            , clientTxId(clientTxId)
+            , rpcId(rpcId)
+            , checksum(0)
         {
         }
 
@@ -88,11 +122,12 @@ class PreparedOp {
         /// leaseId given for this prepare.
         uint64_t clientId;
 
+        /// Combined with the clientId, the clientTxId provides a system-wide
+        /// unique identifier for the transaction.
+        uint64_t clientTxId;
+
         /// rpcId given for this prepare.
         uint64_t rpcId;
-
-        /// Number of objects participating in the current transaction.
-        uint32_t participantCount;
 
         /// CRC32C checksum covering everything but this field, including the
         /// keys and the value.
@@ -103,12 +138,6 @@ class PreparedOp {
     /// Copy of the PreparedOp header.
     Header header;
 
-    /// Pointer to the array of #WireFormat::TxParticipant which contains
-    /// all information of objects participating transaction.
-    /// The actual data reside in RPC payload or in log. This pointer should not
-    /// be passed around.
-    WireFormat::TxParticipant* participants;
-
     /// Object to be written during COMMIT phase.
     /// Its value is empty if OpType is READ or REMOVE; it only contains
     /// key information in that case.
@@ -117,6 +146,7 @@ class PreparedOp {
     void assembleForLog(Buffer& buffer);
     bool checkIntegrity();
     uint32_t computeChecksum();
+    TransactionId getTransactionId();
 
     DISALLOW_COPY_AND_ASSIGN(PreparedOp);
 };
@@ -205,6 +235,108 @@ class PreparedOpTombstone {
 };
 
 /**
+ * This class defines the format of a ParticipantList record stored in the log
+ * and provides methods to easily construct new ones to be appended and
+ * interpret ones that have already been written.
+ *
+ * In other words, this code centralizes the format and parsing of
+ * ParticipantList records (essentially serialization and deserialization).
+ * Different constructors serve these two purposes.
+ *
+ * Each record contains one or more WireFormat::TxParticipant entries and a
+ * couple other pieces of metadata.
+ */
+class ParticipantList {
+  PUBLIC:
+    ParticipantList(WireFormat::TxParticipant* participants,
+                    uint32_t participantCount,
+                    uint64_t clientLeaseId,
+                    uint64_t clientTransactionId);
+    ParticipantList(Buffer& buffer, uint32_t offset = 0);
+
+    void assembleForLog(Buffer& buffer);
+
+    bool checkIntegrity();
+    uint32_t computeChecksum();
+
+    /// Return the unique identifier for this transaction and participant list.
+    TransactionId getTransactionId()
+    {
+        return TransactionId(header.clientLeaseId, header.clientTransactionId);
+    }
+
+    /// Return the number for participants in this list.
+    uint32_t getParticipantCount()
+    {
+        return header.participantCount;
+    }
+
+    /// Return the tableId that identifies the target recovery manager.
+    uint64_t getTableId()
+    {
+        assert(header.participantCount > 0);
+        return participants[0].tableId;
+    }
+
+    /// Return the keyHash that identifies the target recovery manager.
+    uint64_t getKeyHash()
+    {
+        assert(header.participantCount > 0);
+        return participants[0].keyHash;
+    }
+
+  PRIVATE:
+    /**
+     * This data structure defines the format of a preparedOp header stored in a
+     * master server's log.
+     */
+    class Header {
+      public:
+        Header(uint64_t clientLeaseId,
+               uint64_t clientTransactionId,
+               uint32_t participantCount)
+            : clientLeaseId(clientLeaseId)
+            , clientTransactionId(clientTransactionId)
+            , participantCount(participantCount)
+            , checksum(0)
+        {
+        }
+
+        /// leaseId of the client that initiated the transaction.
+        /// A (ClientLeaseId, ClientTransactionId) tuple uniquely identifies
+        /// this transaction and this participant list.
+        uint64_t clientLeaseId;
+
+        /// Transaction Id given to this transaction by the client.  This value
+        /// uniquely identifies this transaction among the transactions from the
+        /// same client.  Combining this value with the clientLeaseId will
+        /// provide a system wide unique transaction identifier.
+        uint64_t clientTransactionId;
+
+        /// Number of objects participating in the current transaction (and
+        /// thus in this list).
+        uint32_t participantCount;
+
+        /// CRC32C checksum covering everything but this field, including the
+        /// keys and the value.
+        uint32_t checksum;
+
+    } __attribute__((__packed__));
+
+    /// Copy of the PreparedOp header.
+    Header header;
+
+  PUBLIC:
+    /// Pointer to the array of #WireFormat::TxParticipant containing the
+    /// tableId, keyHash, and rpcId of every operations in this transactions.
+    /// The actual data reside in RPC payload or in log. This pointer should not
+    /// be passed around outside the lifetime of a single RPC handler or epoch.
+    WireFormat::TxParticipant* participants;
+
+    DISALLOW_COPY_AND_ASSIGN(ParticipantList);
+};
+
+/**
  * A table for all PreparedOps for all currently executing transactions
  * on a server. Decision RPC handler fetches preparedOp from this table.
  */
@@ -240,7 +372,10 @@ class PreparedOps {
          */
         PreparedItem(Context* context, uint64_t newOpPtr)
             : WorkerTimer(context->dispatch)
-            , newOpPtr(newOpPtr) {}
+            , context(context)
+            , newOpPtr(newOpPtr)
+            , txHintFailedRpc()
+        {}
 
         /**
          * Default destructor. Stops WorkerTimer and waits for running handler
@@ -254,8 +389,15 @@ class PreparedOps {
         //              Resolve this later.
         virtual void handleTimerEvent();
 
+        /// Shared RAMCloud information.
+        Context* context;
+
         /// Log reference to PreparedOp in the log.
         uint64_t newOpPtr;
+
+        /// TxHintFailed RPC to be issued asynchronously if the transaction does
+        /// not complete within TX_TIMEOUT_US
+        Tub<TxHintFailedRpc> txHintFailedRpc;
 
         /// Timeout value for the active PreparedOp (lock record).
         /// This timeout should be larger than 2*RTT to give enough time for
@@ -265,7 +407,7 @@ class PreparedOps {
         /// However, using small timeout must be carefully chosen since large
         /// server span of a transaction increases the time gap between the
         /// first phase and the second phase of a transaction.
-        static const uint64_t TX_TIMEOUT_US = 500;
+        static const uint64_t TX_TIMEOUT_US = 50000;
       private:
         DISALLOW_COPY_AND_ASSIGN(PreparedItem);
     };

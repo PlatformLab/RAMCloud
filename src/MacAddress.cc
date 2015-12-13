@@ -86,4 +86,18 @@ MacAddress::toString() const
     return buf;
 }
 
+/**
+ * \return
+ *      True if the MacAddress consists of all zero bytes, false if not.
+ */
+bool
+MacAddress::isNull() const
+{
+    if (address[0] == 0 && address[1] == 0 && address[2] == 0 &&
+            address[3] == 0 && address[4] == 0 && address[5] == 0)
+        return true;
+    else
+        return false;
+}
+
 } // namespace RAMCloud

@@ -111,7 +111,17 @@ TEST_F(SideLogTest, commit) {
 
     EXPECT_TRUE(sl.append(LOG_ENTRY_TYPE_OBJ, "hi", 2));
     LogSegment* newSeg = sl.segments[0];
+
+    EXPECT_EQ(0lu, l.totalLiveBytes);
+    EXPECT_EQ(0lu, static_cast<AbstractLog&>(l).metrics.totalAppendCalls);
+
     sl.commit();
+
+    EXPECT_EQ(4lu, l.totalLiveBytes);
+    EXPECT_EQ(1lu, static_cast<AbstractLog&>(l).metrics.totalAppendCalls);
+    EXPECT_EQ(0lu, sl.totalLiveBytes);
+    EXPECT_EQ(0lu, sl.metrics.totalAppendCalls);
+
     EXPECT_NE(headId, l.head->id);
     EXPECT_TRUE(newSeg->closed);
     EXPECT_TRUE(sl.segments.empty());
@@ -137,6 +147,8 @@ TEST_F(SideLogTest, commit) {
     headId = l.head->id;
     sl.commit();
     EXPECT_EQ(headId, l.head->id);
+
+    EXPECT_EQ(4lu, l.totalLiveBytes);
 }
 
 static void

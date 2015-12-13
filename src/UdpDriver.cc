@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -71,7 +71,7 @@ UdpDriver::UdpDriver(Context* context,
     }
 
     if (localServiceLocator != NULL) {
-        IpAddress ipAddress(*localServiceLocator);
+        IpAddress ipAddress(localServiceLocator);
         int r = sys->bind(fd, &ipAddress.address, sizeof(ipAddress.address));
         if (r == -1) {
             int e = errno;
@@ -191,7 +191,6 @@ UdpDriver::sendPacket(const Address *addr,
     ssize_t r = sys->sendmsg(socketFd, &msg, 0);
     if (r == -1) {
         LOG(WARNING, "UdpDriver error sending to socket: %s", strerror(errno));
-        close();
         return;
     }
     assert(static_cast<size_t>(r) == totalLength);
@@ -215,7 +214,7 @@ UdpDriver::ReadHandler::handleFileEvent(int events)
     // to this method improves throughput under load by 50%.
     while (1) {
         buffer = driver->packetBufPool.construct();
-        socklen_t addrlen = sizeof(&buffer->ipAddress.address);
+        socklen_t addrlen = sizeof(buffer->ipAddress.address);
         ssize_t r = sys->recvfrom(driver->socketFd, buffer->payload,
                                   MAX_PAYLOAD_SIZE,
                                   MSG_DONTWAIT,
@@ -226,7 +225,6 @@ UdpDriver::ReadHandler::handleFileEvent(int events)
                 return;
             LOG(WARNING, "UdpDriver error receiving from socket: %s",
                     strerror(errno));
-            driver->close();
             return;
         }
         Received received;
@@ -236,7 +234,7 @@ UdpDriver::ReadHandler::handleFileEvent(int events)
         received.payload = buffer->payload;
         received.sender = &buffer->ipAddress;
         received.driver = driver;
-        (*driver->incomingPacketHandler)(&received);
+        driver->incomingPacketHandler->handlePacket(&received);
     }
 }
 

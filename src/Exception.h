@@ -46,7 +46,7 @@ struct Exception : public std::exception {
     virtual ~Exception() throw() {}
     string str() const {
         return (demangle(typeid(*this).name()) + ": " + message +
-                " thrown at " + where.str());
+                ", thrown at " + where.str());
     }
     const char* what() const throw() {
         if (whatCache)

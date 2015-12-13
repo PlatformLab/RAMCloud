@@ -461,18 +461,6 @@ TEST_F(RamCloudTest, multiIncrement) {
     delete requests[2];
 }
 
-TEST_F(RamCloudTest, quiesce) {
-    ServerConfig config = ServerConfig::forTesting();
-    config.services = {WireFormat::BACKUP_SERVICE, WireFormat::PING_SERVICE};
-    config.localLocator = "mock:host=backup1";
-    cluster.addServer(config);
-    TestLog::reset();
-    ramcloud->quiesce();
-    EXPECT_EQ("quiesce: Backup at mock:host=master2 quiescing | "
-            "quiesce: Backup at mock:host=backup1 quiescing",
-            TestLog::get());
-}
-
 TEST_F(RamCloudTest, read) {
     ramcloud->write(tableId1, "0", 1, "abcdef", 6);
     ObjectBuffer keysAndValue;
@@ -563,9 +551,6 @@ TEST_F(RamCloudTest, objectServerControl) {
                             WireFormat::STOP_DISPATCH_PROFILER,
                             " ", 1, &output);
     ASSERT_FALSE(targetServer->context->dispatch->profilerFlag);
-    ramcloud->objectServerControl(tableId1, "0", 1,
-                            WireFormat::DUMP_DISPATCH_PROFILE,
-                            "pollingTimes.txt", 17, &output);
 }
 
 TEST_F(RamCloudTest, serverControlAll) {
@@ -647,13 +632,13 @@ TEST_F(RamCloudTest, write) {
     uint64_t version;
     ramcloud->write(tableId1, "0", 1, "abcdef", 6, NULL, &version);
     EXPECT_EQ(1U, version);
-    ramcloud->write(tableId1, "0", 1, "xyzzy", 5, NULL, &version, false, true);
+    ramcloud->write(tableId1, "0", 1, "xyzzy", 5, NULL, &version);
     EXPECT_EQ(2U, version);
 
     // Checks rpcId was assigned for the linearizable write RPC
     // and acknowledged by this client.
-    EXPECT_EQ(1UL, ramcloud->rpcTracker->ackId());
-    EXPECT_EQ(2UL, ramcloud->rpcTracker->nextRpcId);
+    EXPECT_EQ(2UL, ramcloud->rpcTracker->ackId());
+    EXPECT_EQ(3UL, ramcloud->rpcTracker->nextRpcId);
 
     ObjectBuffer value;
     ramcloud->readKeysAndValue(tableId1, "0", 1, &value);

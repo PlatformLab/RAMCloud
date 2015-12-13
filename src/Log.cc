@@ -18,6 +18,7 @@
 
 #include "Log.h"
 #include "LogCleaner.h"
+#include "PerfStats.h"
 #include "ServerConfig.h"
 #include "ShortMacros.h"
 
@@ -152,7 +153,7 @@ Log::getHead() {
 void
 Log::sync()
 {
-    CycleCounter<uint64_t> __(&metrics.totalSyncTicks);
+    CycleCounter<uint64_t> __(&PerfStats::threadStats.logSyncCycles);
 
     Tub<Lock> lock;
     lock.construct(appendLock);

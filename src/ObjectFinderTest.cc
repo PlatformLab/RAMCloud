@@ -27,7 +27,7 @@ struct Refresher : public ObjectFinder::TableConfigFetcher {
                                 ObjectFinder::Indexlet>* tableIndexMap) {
 
         called++;
-        Tablet rawTablet2({1, 0, ~0, ServerId(),
+        Tablet rawTablet2({1, 0, uint64_t(~0), ServerId(),
                                 Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet2(rawTablet2, "mock:host=server1");
 
@@ -35,7 +35,7 @@ struct Refresher : public ObjectFinder::TableConfigFetcher {
                                 Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet3(rawTablet3, "mock:host=server2");
 
-        Tablet rawTablet4({2, 1000, ~0, ServerId(),
+        Tablet rawTablet4({2, 1000, uint64_t(~0), ServerId(),
                                 Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet4(rawTablet4, "mock:host=server6");
 
@@ -43,11 +43,11 @@ struct Refresher : public ObjectFinder::TableConfigFetcher {
                                 Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet5(rawTablet5, "mock:host=server3");
 
-        Tablet rawTablet8({3, 10000, ~0, ServerId(),
+        Tablet rawTablet8({3, 10000, uint64_t(~0), ServerId(),
                                 Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet8(rawTablet8, "mock:host=server3");
 
-        Tablet rawTablet6({4, 0, ~0, ServerId(),
+        Tablet rawTablet6({4, 0, uint64_t(~0), ServerId(),
                                 Tablet::NORMAL, LogPosition()});
         TabletWithLocator tablet6(rawTablet6, "mock:host=server4");
 

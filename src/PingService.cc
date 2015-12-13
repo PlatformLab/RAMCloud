@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,6 +15,7 @@
 
 #include<fstream>
 #include "Common.h"
+#include "BackupService.h"
 #include "CycleCounter.h"
 #include "Cycles.h"
 #include "MasterService.h"
@@ -36,11 +37,19 @@ namespace RAMCloud {
  *      Overall information about the RAMCloud server. The caller is assumed
  *      to have associated a serverList with this context; if not, this service
  *      will not return a valid ServerList version in response to pings.
+ *      The new service will be registered in this context.
  */
 PingService::PingService(Context* context)
     : context(context)
     , ignoreKill(false)
+    , returnUnknownId(false)
 {
+    context->services[WireFormat::PING_SERVICE] = this;
+}
+
+PingService::~PingService()
+{
+    context->services[WireFormat::PING_SERVICE] = NULL;
 }
 
 /**
@@ -69,7 +78,15 @@ PingService::getServerId(const WireFormat::GetServerId::Request* reqHdr,
              WireFormat::GetServerId::Response* respHdr,
              Rpc* rpc)
 {
-    respHdr->serverId = serverId.getId();
+    if (returnUnknownId) {
+        returnUnknownId = false;
+        respHdr->serverId = ServerId().getId();
+    } else {
+        respHdr->serverId = serverId.getId();
+        if (!serverId.isValid()) {
+            RAMCLOUD_LOG(NOTICE, "Returning invalid server id");
+        }
+    }
 }
 
 /**
@@ -151,7 +168,7 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
             // We should only get this operation if we own a
             // particular object.
             // Check if there is actually a Master Service running.
-            if (context->masterService == NULL) {
+            if (context->getMasterService() == NULL) {
                 respHdr->common.status = STATUS_UNKNOWN_TABLET;
                 return;
             }
@@ -167,8 +184,8 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
             Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
             TabletManager::Tablet tablet;
 
-            if (!context->masterService->tabletManager.getTablet(key, &tablet)
-                || tablet.state != TabletManager::NORMAL) {
+            if (!context->getMasterService()->tabletManager.getTablet(
+                    key, &tablet) || tablet.state != TabletManager::NORMAL) {
                 respHdr->common.status = STATUS_UNKNOWN_TABLET;
                 return;
             }
@@ -179,7 +196,7 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
             // We should only get this operation if we own a
             // particular indexlet.
             // Check if there is actually a Master Service running.
-            if (context->masterService == NULL) {
+            if (context->getMasterService() == NULL) {
                 respHdr->common.status = STATUS_UNKNOWN_INDEXLET;
                 return;
             }
@@ -192,9 +209,9 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
                 return;
             }
 
-            if (!context->masterService->indexletManager.hasIndexlet(
-                                        reqHdr->tableId, reqHdr->indexId,
-                                        stringKey, reqHdr->keyLength)) {
+            if (!context->getMasterService()->indexletManager.hasIndexlet(
+                    reqHdr->tableId, reqHdr->indexId, stringKey,
+                    reqHdr->keyLength)) {
                 respHdr->common.status = STATUS_UNKNOWN_INDEXLET;
                 return;
             }
@@ -292,6 +309,14 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         case WireFormat::LOG_CACHE_TRACE:
         {
             context->cacheTrace->printToLog();
+            break;
+        }
+        case WireFormat::QUIESCE:
+        {
+            LOG(NOTICE, "Backup is waiting for dirty write buffers to sync");
+            if (context->getBackupService() != NULL) {
+                context->getBackupService()->storage->quiesce();
+            }
             break;
         }
         case WireFormat::RESET_METRICS:

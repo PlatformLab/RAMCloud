@@ -737,6 +737,11 @@ TableManager::recover(uint64_t lastCompletedUpdate)
                     object.name));
         }
 
+        // Update the nextTableId if this table has a higher id than
+        // any id we have encountered so far.
+        if (info.id() >= nextTableId)
+            nextTableId = info.id() + 1;
+
         // Regenerate our internal information for the table, unless the
         // table has been deleted.
         Table* table = NULL;
@@ -1379,7 +1384,7 @@ TableManager::notifyDropTable(const Lock& lock, ProtoBuf::Table* info)
     // for the table (that record ensures that future coordinators know
     // about its table id).
     if (info->id() == (nextTableId-1)) {
-        sync(lock);
+        syncNextTableId(lock);
     }
 
     // Remove the table's record in external storage.
@@ -1565,8 +1570,6 @@ TableManager::recreateTable(const Lock& lock, ProtoBuf::Table* info)
     }
 
     Table* table = new Table(name.c_str(), id);
-    if (id >= nextTableId)
-        nextTableId = id + 1;
     int numTablets = info->tablet_size();
     for (int i = 0; i < numTablets; i++) {
         const ProtoBuf::Table::Tablet& tabletInfo = info->tablet(i);
@@ -1636,14 +1639,13 @@ TableManager::serializeTable(const Lock& lock, Table* table,
 }
 
 /**
- * Update overall information on external storage related to this class
- * (i.e., stuff that doesn't pertain to any particular table).
+ * Update next_table_id on external storage.
  *
  * \param lock
  *      Ensures that the caller holds the monitor lock; not actually used.
  */
 void
-TableManager::sync(const Lock& lock)
+TableManager::syncNextTableId(const Lock& lock)
 {
     ProtoBuf::TableManager info;
     info.set_next_table_id(nextTableId);

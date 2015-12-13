@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -63,6 +63,10 @@ LogCleaner::LogCleaner(Context* context,
       numThreads(config->master.cleanerThreadCount),
       segletSize(config->segletSize),
       segmentSize(config->segmentSize),
+      activeThreads(0),
+      disableCount(0),
+      cleanerIdle(),
+      mutex(),
       doWorkTicks(0),
       doWorkSleepTicks(0),
       inMemoryMetrics(),
@@ -235,30 +239,49 @@ LogCleaner::doWork(CleanerThreadState* state)
 {
     AtomicCycleCounter _(&doWorkTicks);
 
-    threadMetrics.noteThreadStart();
 
     bool goToSleep = false;
-    switch (balancer->requestTask(state)) {
-    case Balancer::CLEAN_DISK:
-      {
-        CycleCounter<uint64_t> __(&state->diskCleaningTicks);
-        doDiskCleaning();
-        break;
-      }
+    {
+        // See if we have been disabled.
+        Lock lock(mutex);
+        activeThreads++;
+        if (disableCount) {
+            goToSleep = true;
+        }
+    }
+    if (!goToSleep) {
+        threadMetrics.noteThreadStart();
+        switch (balancer->requestTask(state)) {
+        case Balancer::CLEAN_DISK:
+          {
+            CycleCounter<uint64_t> __(&state->diskCleaningTicks);
+            doDiskCleaning();
+            break;
+          }
 
-    case Balancer::COMPACT_MEMORY:
-      {
-        CycleCounter<uint64_t> __(&state->memoryCompactionTicks);
-        doMemoryCleaning();
-        break;
-      }
+        case Balancer::COMPACT_MEMORY:
+          {
+            CycleCounter<uint64_t> __(&state->memoryCompactionTicks);
+            doMemoryCleaning();
+            break;
+          }
 
-    case Balancer::SLEEP:
-        goToSleep = true;
-        break;
+        case Balancer::SLEEP:
+            goToSleep = true;
+            break;
+        }
+
+        threadMetrics.noteThreadStop();
     }
 
-    threadMetrics.noteThreadStop();
+    {
+        // Wake up disablers, if any are waiting for the cleaner to go idle.
+        Lock lock(mutex);
+        activeThreads--;
+        if ((activeThreads == 0) && (disableCount != 0)) {
+            cleanerIdle.notify_all();
+        }
+    }
 
     if (goToSleep) {
         AtomicCycleCounter __(&doWorkSleepTicks);
@@ -705,10 +728,16 @@ LogCleaner::relocateLiveEntries(EntryVector& entries,
     }
 
     // Ensure that the survivors have been synced to backups before proceeding.
+    double survivorMb = static_cast<double>(totalEntryBytesAppended);
+    survivorMb /= 1e06;
+    uint64_t start = Cycles::rdtsc();
     foreach (survivor, outSurvivors) {
         CycleCounter<uint64_t> __(&localMetrics->survivorSyncTicks);
         survivor->replicatedSegment->sync(survivor->getAppendedLength());
     }
+    double elapsed = Cycles::toSeconds(Cycles::rdtsc() - start);
+    LOG(NOTICE, "Cleaner finished syncing survivor segments: %.1f ms, "
+            "%.1f MB/sec", elapsed*1e03, survivorMb/elapsed);
 
     return totalEntryBytesAppended;
 }
@@ -901,6 +930,34 @@ LogCleaner::FixedBalancer::isDiskCleaningNeeded(CleanerThreadState* thread)
         return false;
 
     return true;
+}
+
+/**
+ * Construct a Disabler object. Once the constructor returns, the caller
+ * can be certain that no cleaner threads are running, or will run until
+ * the object is destroyed.
+ *
+ * \param cleaner
+ *      Identifies the cleaner that should be disabled.
+ */
+LogCleaner::Disabler::Disabler(LogCleaner* cleaner)
+    : cleaner(cleaner)
+{
+    Lock lock(cleaner->mutex);
+    cleaner->disableCount++;
+    while (cleaner->activeThreads) {
+        cleaner->cleanerIdle.wait(lock);
+    }
+}
+
+/**
+ * Destroy a Disabler object. Once all Disablers have been destroyed, log
+ * cleaning can resume.
+ */
+LogCleaner::Disabler::~Disabler()
+{
+    Lock lock(cleaner->mutex);
+    cleaner->disableCount--;
 }
 
 } // namespace

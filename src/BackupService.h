@@ -56,9 +56,6 @@ class BackupService : public Service
         WireFormat::BackupGetRecoveryData::Response* respHdr,
         Rpc* rpc);
     void killAllStorage();
-    void quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
-                 WireFormat::BackupQuiesce::Response* respHdr,
-                 Rpc* rpc);
     void recoveryComplete(
         const WireFormat::BackupRecoveryComplete::Request* reqHdr,
         WireFormat::BackupRecoveryComplete::Response* respHdr,
@@ -113,7 +110,9 @@ class BackupService : public Service
      * drops to zero when the map is destroyed won't have been destroyed yet
      * in the storage instance.
      */
+  PUBLIC:
     std::unique_ptr<BackupStorage> storage;
+  PRIVATE:
 
     /// Type of the key for the frame map.
     struct MasterSegmentIdPair {

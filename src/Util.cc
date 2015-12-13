@@ -27,6 +27,26 @@ namespace Util {
 char spinBuffer[SPIN_BUFFER_SIZE];
 
 /**
+ * Sets the allowable set of cores for the current threadto include
+ * all of the available processors. It is used to restore a previously
+ * restricted affinity set back to the default (i.e. clears any
+ * affinity setting).
+ */
+void
+clearCpuAffinity(void)
+{
+    cpu_set_t cpuSet;
+    int numCpus;
+
+    numCpus = downCast<int>(sysconf(_SC_NPROCESSORS_ONLN));
+    CPU_ZERO(&cpuSet);
+    for (int cpu = 0; cpu < numCpus; cpu++) {
+        CPU_SET(cpu, &cpuSet);
+    }
+    assert(sched_setaffinity(0, sizeof(cpuSet), &cpuSet) == 0);
+}
+
+/**
  * Generate a random string.
  *
  * \param str

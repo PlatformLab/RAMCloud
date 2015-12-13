@@ -208,13 +208,14 @@ RpcWrapper::isReady() {
                 if (message == NULL) {
                     message = "<response format error>";
                 }
-                LOG(WARNING,
+                RAMCLOUD_CLOG(NOTICE,
                         "Server %s returned STATUS_RETRY from %s request: %s",
                         session->getServiceLocator().c_str(),
                         WireFormat::opcodeSymbol(&request),
                         message);
             } else {
-                LOG(WARNING, "Server %s returned STATUS_RETRY from %s request",
+                RAMCLOUD_CLOG(NOTICE,
+                        "Server %s returned STATUS_RETRY from %s request",
                         session->getServiceLocator().c_str(),
                         WireFormat::opcodeSymbol(&request));
             }

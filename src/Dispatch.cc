@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -23,9 +23,10 @@
 #include "Cycles.h"
 #include "Dispatch.h"
 #include "Fence.h"
-#include "RawMetrics.h"
 #include "NoOp.h"
+#include "RawMetrics.h"
 #include "PerfStats.h"
+#include "Unlock.h"
 
 // Uncomment to print out a human readable name for any poller that takes longer
 // than slowPollerCycles to complete. Useful for determining which poller is
@@ -61,7 +62,7 @@ Syscall* Dispatch::sys = &defaultSyscall;
  *      themselves.
  */
 Dispatch::Dispatch(bool hasDedicatedThread)
-    : currentTime(Cycles::rdtsc())
+    : currentTime(0)
     , pollers()
     , files()
     , epollFd(-1)
@@ -69,6 +70,7 @@ Dispatch::Dispatch(bool hasDedicatedThread)
     , readyFd(-1)
     , readyEvents(0)
     , fileInvocationSerial(0)
+    , timerMutex()
     , timers()
     , earliestTriggerTime(0)
     , ownerId(ThreadId::get())
@@ -119,10 +121,13 @@ Dispatch::~Dispatch()
         }
     }
     readyFd = -1;
-    while (timers.size() > 0) {
-        Timer* t = timers.back();
-        t->stop();
-        t->owner = NULL;
+    {
+        std::lock_guard<SpinLock> lock(timerMutex);
+        while (timers.size() > 0) {
+            Timer* t = timers.back();
+            t->stopInternal(lock);
+            t->owner = NULL;
+        }
     }
     cleanProfiler();
 }
@@ -149,8 +154,9 @@ Dispatch::poll()
         pollingTimes[nextInd] = currentTime - previous;
         nextInd = (nextInd + 1) % totalElements;
     }
-    if (((currentTime - previous) > slowPollerCycles) && hasDedicatedThread) {
-        LOG(NOTICE, "Long gap in dispatcher: %.1f ms",
+    if (((currentTime - previous) > slowPollerCycles) && (previous != 0)
+            && hasDedicatedThread) {
+        LOG(WARNING, "Long gap in dispatcher: %.1f ms",
                 Cycles::toSeconds(currentTime - previous)*1e03);
     }
     if (lockNeeded.load() != 0) {
@@ -225,6 +231,7 @@ Dispatch::poll()
         }
     }
     if (currentTime >= earliestTriggerTime) {
+        std::lock_guard<SpinLock> lock(timerMutex);
         // Looks like a timer may have triggered. Check all the timers and
         // invoke any that have triggered.
         //
@@ -234,37 +241,30 @@ Dispatch::poll()
         //   handler for a timer reschedules the timer in the past, don't
         //   run it a second time; otherwise an infinite loop could result).
         //
-        // The code meets these goals, except that if the handler for one
-        // timer A stops another timer B, this could cause a third timer
-        // C to move into A's slot in the timers vector, and this could
-        // potentially cause C to be missed in this pass (if we have
-        // already passed that slot).  However, C will be invoked the
-        // next time this method is called.
-        uint32_t end = downCast<uint32_t>(timers.size());
-        for (uint32_t i = 0; i < end; ) {
+        // The goals are (mostly) met by processing the Timers in reverse
+        // order (highest array element first). If the handler for one
+        // timer A stops another timer B, this could cause a timer C that
+        // was already processed to move into B's slot in the timers
+        // vector, which could cause it to be invoked multiple times.
+        // However, we can't get stuck: i drops by 1 in each iteration
+        // through the loop.
+        for (int i = downCast<int>(timers.size()) - 1 ; i >= 0; --i) {
             Timer* timer = timers[i];
             if (timer->triggerTime <= currentTime) {
-                timer->stop();
-                timer->handleTimerEvent();
+                timer->stopInternal(lock);
+                {
+                    // Release the lock while the handler is running,
+                    // to avoid deadlocks.
+                    Unlock<SpinLock> unlock(timerMutex);
+                    timer->handleTimerEvent();
+                }
                 result++;
-
-                // Since we just removed the timer that triggered, reduce
-                // the endpoint of the loop to reflect this (this prevents
-                // the timer from being invoked a second time if its handler
-                // reschedules it; the rescheduled time or would end up at
-                // the end of the timers vector).  However, it's possible
-                // that the timer handler also deleted other timers, so
-                // shrink the endpoint even more if needed to keep it in
-                // range.
-                end--;
-                if (timers.size() < end)
-                    end = downCast<uint32_t>(timers.size());
-            } else {
-                // Only increment i if the current timer did not trigger.
-                // If it did trigger, it got removed from the vector and
-                // we need to process the timer that got moved into its
-                // slot.
-                i++;
+                if (i >= downCast<int>(timers.size())) {
+                    // A whole bunch of timers got deleted while this
+                    // handler was running; make sure we keep i inside
+                    // the bounds of the array.
+                    i = downCast<int>(timers.size());
+                }
             }
         }
 
@@ -288,7 +288,8 @@ Dispatch::poll()
  * how much time is spent doing useful work. This method never returns;
  * it is typically invoked by the dispatch thread of servers.
  */
-void Dispatch::run()
+void
+Dispatch::run()
 {
     PerfStats::registerStats(&PerfStats::threadStats);
     uint64_t prev;
@@ -527,7 +528,8 @@ Dispatch::File::~File()
  *      Indicates the conditions under which this object should be invoked
  *      (OR-ed combination of FileEvent values).
  */
-void Dispatch::File::setEvents(int events)
+void
+Dispatch::File::setEvents(int events)
 {
     if (owner == NULL) {
         // Dispatch object has already been deleted; don't do anything.
@@ -573,7 +575,8 @@ void Dispatch::File::setEvents(int events)
  * \param owner
  *      The dispatch object on whose behalf this thread is working.
  */
-void Dispatch::epollThreadMain(Dispatch* owner)
+void
+Dispatch::epollThreadMain(Dispatch* owner)
 try {
 #define MAX_EVENTS 10
     struct epoll_event events[MAX_EVENTS];
@@ -705,7 +708,8 @@ Dispatch::Timer::handleTimerEvent()
 /**
  * Returns true if the timer is currently running, false if it isn't.
  */
-bool Dispatch::Timer::isRunning()
+bool
+Dispatch::Timer::isRunning()
 {
     return slot >= 0;
 }
@@ -718,13 +722,14 @@ bool Dispatch::Timer::isRunning()
  *      large.  If the timer was already running, the old trigger time is
  *      forgotten.
  */
-void Dispatch::Timer::start(uint64_t rdtscTime)
+void
+Dispatch::Timer::start(uint64_t rdtscTime)
 {
     if (owner == NULL) {
         // Our Dispatch no longer exists, so there's nothing to do here.
         return;
     }
-    CHECK_LOCK;
+    std::lock_guard<SpinLock> lock(owner->timerMutex);
 
     triggerTime = rdtscTime;
     if (slot < 0) {
@@ -737,16 +742,15 @@ void Dispatch::Timer::start(uint64_t rdtscTime)
 }
 
 /**
- * Stop this timer, if it was running. After this call, the timer won't
- * trigger until #start is invoked again.
+ * Does all of the real work of stopping a timer.
+ *
+ * \param lock
+ *      Used to ensure that caller has acquired timerMutex.
+ *      Not actually used by the method.
  */
-void Dispatch::Timer::stop()
+void
+Dispatch::Timer::stopInternal(std::lock_guard<SpinLock>& lock)
 {
-    if (slot < 0) {
-        return;
-    }
-    CHECK_LOCK;
-
     // Remove this Timer from the timers vector by overwriting its slot
     // with the timer that used to be the last one in the vector.
     //
@@ -754,11 +758,25 @@ void Dispatch::Timer::stop()
     // to delete a Timer while executing a timer callback, which means
     // that Dispatch::poll is in the middle of scanning the list of all
     // Timers; the worst that will happen is that the Timer that got
-    // moved may not be invoked in the current scan).
+    // moved may be invoked twice in the current scan (but only if it
+    // ran, rescheduled itself, and its new trigger time has passed).
     owner->timers[slot] = owner->timers.back();
     owner->timers[slot]->slot = slot;
     owner->timers.pop_back();
     slot = -1;
+}
+
+/**
+ * Stop this timer if it was running. After this call, the timer won't
+ * trigger until #start is invoked again.
+ */
+void
+Dispatch::Timer::stop()
+{
+    std::lock_guard<SpinLock> lock(owner->timerMutex);
+    if (slot >= 0) {
+        stopInternal(lock);
+    }
 }
 
 /**

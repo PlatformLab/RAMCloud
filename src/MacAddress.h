@@ -52,6 +52,7 @@ struct MacAddress : public Driver::Address {
     MacAddress(const MacAddress& other);
     MacAddress* clone() const;
     string toString() const;
+    bool isNull() const;
 
     /// The raw bytes of the MAC address.
     uint8_t address[6];

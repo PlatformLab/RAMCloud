@@ -30,15 +30,24 @@ else
 SOLARFLARE_SRC :=
 endif
 
+ifeq ($(DPDK),yes)
+DPDK_SRC := \
+        src/DpdkDriver.cc \
+        $(NULL)
+else
+DPDK_SRC :=
+endif
 
 # these files are compiled into everything but clients
 SHARED_SRCFILES := \
 		   src/AbstractLog.cc \
 		   src/AbstractServerList.cc \
 		   src/ArpCache.cc \
+		   src/BasicTransport.cc \
 		   src/CacheTrace.cc \
 		   src/ClientException.cc \
-		   src/ClientLease.cc \
+		   src/ClientLeaseAgent.cc \
+		   src/ClientTransactionManager.cc \
 		   src/ClientTransactionTask.cc \
 		   src/Context.cc \
 		   src/CoordinatorClient.cc \
@@ -84,6 +93,7 @@ SHARED_SRCFILES := \
 		   src/LogEntryRelocator.cc \
 		   src/LogEntryTypes.cc \
 		   src/LogMetricsStringer.cc \
+		   src/LogProtector.cc \
 		   src/Logger.cc \
 		   src/LogIterator.cc \
 		   src/MacAddress.cc \
@@ -118,6 +128,7 @@ SHARED_SRCFILES := \
 		   src/RawMetrics.cc \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \
+		   src/RpcLevel.cc \
 		   src/RpcWrapper.cc \
 		   src/RpcResult.cc \
 		   src/RpcTracker.cc \
@@ -129,10 +140,8 @@ SHARED_SRCFILES := \
 		   src/ServerIdRpcWrapper.cc \
 		   src/ServerList.cc \
 		   src/ServerMetrics.cc \
-		   src/ServerRpcPool.cc \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \
-		   src/ServiceManager.cc \
 		   src/SessionAlarm.cc \
 		   src/SideLog.cc \
 		   src/SpinLock.cc \
@@ -148,6 +157,7 @@ SHARED_SRCFILES := \
 		   src/ThreadId.cc \
 		   src/TimeCounter.cc \
 		   src/TimeTrace.cc \
+		   src/TimeTraceUtil.cc \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/TxDecisionRecord.cc \
@@ -157,10 +167,12 @@ SHARED_SRCFILES := \
 		   src/Util.cc \
 		   src/WallTime.cc \
 		   src/WireFormat.cc \
+		   src/WorkerManager.cc \
 		   src/WorkerSession.cc \
 		   src/WorkerTimer.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(SOLARFLARE_SRC) \
+                   $(DPDK_SRC) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/Histogram.pb.cc \
 		   $(OBJDIR)/LogMetrics.pb.cc \
@@ -179,6 +191,10 @@ SHARED_SRCFILES := \
 SHARED_OBJFILES := $(SHARED_SRCFILES)
 SHARED_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
 SHARED_OBJFILES := $(patsubst $(OBJDIR)/%.cc, $(OBJDIR)/%.o, $(SHARED_OBJFILES))
+
+$(OBJDIR)/RpcLevel.o: $(TOP)/$(OBJDIR)/RpcLevelData.h
+$(TOP)/$(OBJDIR)/RpcLevelData.h: $(TOP)/scripts/genLevels.py $(TOP)/src/WireFormat.h
+	$(TOP)/scripts/genLevels.py > $@
 
 $(OBJDIR)/%.o: $(TOP)/src/%.cc $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)

@@ -335,7 +335,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     config.segmentSize = segmentSize;
     config.backup.numSegmentFrames = 4;
     config.localLocator = "mock:host=backup3";
-    ServerId backup3Id = addToServerList(cluster.addServer(config));
+    addToServerList(cluster.addServer(config));
 
     EXPECT_FALSE(mgr->isIdle());
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,8 +27,8 @@
 
 namespace RAMCloud {
 
-// There are cross-dependencies between this header file and ServiceManager.h;
-// the declaration below is used instead of #including ServiceManager.h to
+// There are cross-dependencies between this header file and WorkerManager.h;
+// the declaration below is used instead of #including WorkerManager.h to
 // break the circularity.
 class Worker;
 
@@ -77,7 +77,7 @@ class Service {
         /// True means that sendReply has been invoked.
         bool replied;
 
-        friend class ServiceManager;
+        friend class WorkerManager;
         DISALLOW_COPY_AND_ASSIGN(Rpc);
     };
 
@@ -93,17 +93,8 @@ class Service {
 
     static const char* getString(Buffer* buffer, uint32_t offset,
                                  uint32_t length);
-    void handleRpc(Rpc* rpc);
+    static void handleRpc(Context* context, Rpc* rpc);
     void setServerId(ServerId serverId);
-
-    /**
-     * Returns the maximum number of threads that may be executing in
-     * this service concurrently.  The default is one, which is for
-     * services that are not thread-safe.
-     */
-    virtual int maxThreads() {
-        return 1;
-    }
 
     void ping(const WireFormat::Ping::Request* reqHdr,
               WireFormat::Ping::Response* respHdr,

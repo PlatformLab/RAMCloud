@@ -15,7 +15,7 @@
 
 #include "TestUtil.h"       //Has to be first, compiler complains
 #include "ClientTransactionTask.h"
-#include "ClientLease.h"
+#include "ClientLeaseAgent.h"
 #include "MockCluster.h"
 #include "RpcTracker.h"
 
@@ -109,7 +109,7 @@ class ClientTransactionTaskTest : public ::testing::Test {
         session3 = static_cast<BindTransport::BindSession*>(session.get());
 
         transactionTask.construct(ramcloud.get());
-        transactionTask->lease = ramcloud->clientLease->getLease();
+        transactionTask->lease = ramcloud->clientLeaseAgent->getLease();
 
         mockTransactionRpc.construct(ramcloud.get(),
                                      session,
@@ -177,6 +177,7 @@ class ClientTransactionTaskTest : public ::testing::Test {
 
     void insertRemove(uint64_t tableId, const void* key, uint16_t keyLength)
     {
+        transactionTask->readOnly = false;
         insertEntry(ClientTransactionTask::CacheEntry::REMOVE,
                 tableId, key, keyLength, NULL, 0);
     }
@@ -184,6 +185,7 @@ class ClientTransactionTaskTest : public ::testing::Test {
     void insertWrite(uint64_t tableId, const void* key, uint16_t keyLength,
             const void* buf, uint32_t length)
     {
+        transactionTask->readOnly = false;
         insertEntry(ClientTransactionTask::CacheEntry::WRITE,
                 tableId, key, keyLength, buf, length);
     }
@@ -227,7 +229,8 @@ class ClientTransactionTaskTest : public ::testing::Test {
     string rpcToString(ClientTransactionTask::PrepareRpc* rpc) {
         string s;
         s.append(
-                format("PrepareRpc :: lease{%lu}", rpc->reqHdr->lease.leaseId));
+                format("PrepareRpc :: id{%lu, %lu}",
+                       rpc->reqHdr->lease.leaseId, rpc->reqHdr->clientTxId));
         s.append(format(" ackId{%lu} ", rpc->reqHdr->ackId));
         s.append(
                 format("participantCount{%u}", rpc->reqHdr->participantCount));
@@ -250,12 +253,18 @@ class ClientTransactionTaskTest : public ::testing::Test {
                             WireFormat::TxPrepare::OpType>(offset);
             switch (*type) {
                 case WireFormat::TxPrepare::READ:
+                case WireFormat::TxPrepare::READONLY:
                 {
                     WireFormat::TxPrepare::Request::ReadOp* entry =
                             rpc->request.getOffset<
                                     WireFormat::TxPrepare::Request::ReadOp>(
                                             offset);
-                    s.append(format(" READ{%lu, %lu}",
+                    if (*type == WireFormat::TxPrepare::READ) {
+                        s.append(" READ");
+                    } else {
+                        s.append(" READONLY");
+                    }
+                    s.append(format("{%lu, %lu}",
                             entry->tableId, entry->rpcId));
                     offset += sizeof32(WireFormat::TxPrepare::Request::ReadOp);
                     offset += entry->keyLength;
@@ -474,22 +483,22 @@ TEST_F(ClientTransactionTaskTest, performTask_basic) {
     insertWrite(tableId3, "test1", 5, "hello", 5);
 
     EXPECT_EQ(ClientTransactionTask::INIT, transactionTask->state);
-    EXPECT_EQ(1, transactionTask->performTask());// RPC 1 Sent, RPC 1 Processed
+    transactionTask->performTask();             // RPC 1 Sent, RPC 1 Processed
     EXPECT_EQ(ClientTransactionTask::PREPARE, transactionTask->state);
-    transactionTask->performTask();              // RPC 2 Sent, RPC 2 Processed
+    transactionTask->performTask();             // RPC 2 Sent, RPC 2 Processed
     EXPECT_EQ(ClientTransactionTask::PREPARE, transactionTask->state);
-    transactionTask->performTask();              // RPC 3 Sent, RPC 3 Processed
+    transactionTask->performTask();             // RPC 3 Sent, RPC 3 Processed
     EXPECT_EQ(ClientTransactionTask::PREPARE, transactionTask->state);
-    transactionTask->performTask();              // RPC 4 Sent, RPC 4 Processed
-                                                 // RPC 1 Sent, RPC 1 Processed
+    transactionTask->performTask();             // RPC 4 Sent, RPC 4 Processed
+                                                // RPC 1 Sent, RPC 1 Processed
     EXPECT_EQ(ClientTransactionTask::DECISION, transactionTask->state);
-    EXPECT_EQ(1, transactionTask->performTask()); // RPC 2 Sent, RPC 2 Processed
+    transactionTask->performTask();             // RPC 2 Sent, RPC 2 Processed
     EXPECT_EQ(ClientTransactionTask::DECISION, transactionTask->state);
-    transactionTask->performTask();              // RPC 3 Sent, RPC 3 Processed
+    transactionTask->performTask();             // RPC 3 Sent, RPC 3 Processed
     EXPECT_EQ(ClientTransactionTask::DECISION, transactionTask->state);
-    transactionTask->performTask();              // RPC 4 Sent, RPC 4 Processed
+    transactionTask->performTask();             // RPC 4 Sent, RPC 4 Processed
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
-    EXPECT_EQ(0, transactionTask->performTask());
+    transactionTask->performTask();
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
 }
 
@@ -501,13 +510,27 @@ TEST_F(ClientTransactionTaskTest, performTask_singleRpcOptimization) {
     TestLog::reset();
     TestLog::setPredicate("performTask");
     EXPECT_EQ(ClientTransactionTask::INIT, transactionTask->state);
-    EXPECT_EQ(1, transactionTask->performTask());// RPC 1 Sent, RPC 1 Processed
+    transactionTask->performTask();             // RPC 1 Sent, RPC 1 Processed
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
     EXPECT_EQ("performTask: Move from PREPARE to DONE phase; optimized.",
               TestLog::get());
 }
 
+TEST_F(ClientTransactionTaskTest, performTask_readOnlyOptimization) {
+    insertRead(tableId1, "test1", 5);
+
+    TestLog::reset();
+    TestLog::setPredicate("performTask");
+    EXPECT_EQ(ClientTransactionTask::INIT, transactionTask->state);
+    transactionTask->performTask();             // RPC 1 Sent, RPC 1 Processed
+    EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
+    EXPECT_EQ("performTask: Set decision to COMMIT. | "
+              "performTask: Move from PREPARE to DONE phase; optimized.",
+              TestLog::get());
+}
+
 TEST_F(ClientTransactionTaskTest, performTask_setDecision) {
+    transactionTask->readOnly = false;
     transactionTask->state = ClientTransactionTask::INIT;
     transactionTask->decision = WireFormat::TxDecision::UNDECIDED;
     TestLog::reset();
@@ -550,71 +573,11 @@ TEST_F(ClientTransactionTaskTest, performTask_ClientException) {
     TestLog::reset();
 
     EXPECT_EQ(ClientTransactionTask::INIT, transactionTask->state);
-    EXPECT_EQ(1, transactionTask->performTask());
+    transactionTask->performTask();
     EXPECT_EQ(ClientTransactionTask::DONE, transactionTask->state);
     EXPECT_EQ("performTask: Unexpected exception 'table doesn't exist' while "
               "preparing transaction commit; will result in internal error.",
               TestLog::get());
-}
-
-TEST_F(ClientTransactionTaskTest, start) {
-    std::shared_ptr<ClientTransactionTask>
-            taskPtr(new ClientTransactionTask(ramcloud.get()));
-    ClientTransactionTask* task = taskPtr.get();
-    EXPECT_FALSE(task->poller);
-    ClientTransactionTask::start(taskPtr);
-    EXPECT_TRUE(task->poller);
-    task->poller.destroy();
-}
-
-TEST_F(ClientTransactionTaskTest, Poller_poll) {
-    std::shared_ptr<ClientTransactionTask>
-            taskPtr(new ClientTransactionTask(ramcloud.get()));
-    ClientTransactionTask* task = taskPtr.get();
-    // Give it something to do.
-    ClientTransactionTask::CacheEntry* entry;
-    Key key1(tableId1, "test1", 5);
-    entry = task->insertCacheEntry(key1, "hello", 5);
-    entry->type = ClientTransactionTask::CacheEntry::WRITE;
-    Key key2(tableId2, "test2", 5);
-    entry = task->insertCacheEntry(key2, "hello", 5);
-    entry->type = ClientTransactionTask::CacheEntry::WRITE;
-
-    EXPECT_FALSE(task->isReady());
-    EXPECT_EQ(ClientTransactionTask::INIT, task->state);
-    EXPECT_FALSE(task->poller);
-    ClientTransactionTask::start(taskPtr);
-    EXPECT_TRUE(task->poller);
-    task->poller->running = true;
-
-    // Nothing should happen.
-    EXPECT_EQ(0, task->poller->poll());
-
-    EXPECT_FALSE(task->isReady());
-    EXPECT_EQ(ClientTransactionTask::INIT, task->state);
-    EXPECT_TRUE(task->poller);
-    task->poller->running = false;
-
-    // Should move to PREPARE
-    EXPECT_EQ(1, task->poller->poll());
-
-    EXPECT_FALSE(task->isReady());
-    EXPECT_EQ(ClientTransactionTask::PREPARE, task->state);
-    EXPECT_TRUE(task->poller);
-
-    // Should move to DECISION
-    EXPECT_EQ(1, task->poller->poll());
-
-    EXPECT_FALSE(task->isReady());
-    EXPECT_EQ(ClientTransactionTask::DECISION, task->state);
-    EXPECT_TRUE(task->poller);
-
-    // Should move to DONE
-    EXPECT_EQ(1, task->poller->poll());
-
-    EXPECT_TRUE(task->isReady());
-    EXPECT_EQ(ClientTransactionTask::DONE, task->state);
-    EXPECT_FALSE(task->poller);
 }
 
 TEST_F(ClientTransactionTaskTest, initTask) {
@@ -624,9 +587,9 @@ TEST_F(ClientTransactionTaskTest, initTask) {
 
     transactionTask->initTask();
     EXPECT_EQ(1U, transactionTask->txId);
-    EXPECT_EQ("ParticipantList[ {1, 14087593745509316690, 1}"
-                              " {2, 2793085152624492990, 2}"
-                              " {3, 17667676865770333572, 3} ]",
+    EXPECT_EQ("ParticipantList[ {1, 14087593745509316690, 2}"
+                              " {2, 2793085152624492990, 3}"
+                              " {3, 17667676865770333572, 4} ]",
               participantListToString(transactionTask.get()));
 }
 
@@ -639,7 +602,7 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_basic) {
 
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
     TestLog::reset();
-    EXPECT_EQ(1, transactionTask->processDecisionRpcResults());
+    transactionTask->processDecisionRpcResults();
     EXPECT_EQ("processDecisionRpcResults: STATUS_OK", TestLog::get());
     EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
 }
@@ -656,7 +619,7 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_unknownTablet) {
 
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
     TestLog::reset();
-    EXPECT_EQ(1, transactionTask->processDecisionRpcResults());
+    transactionTask->processDecisionRpcResults();
     EXPECT_EQ("processDecisionRpcResults: STATUS_UNKNOWN_TABLET",
               TestLog::get());
     EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
@@ -672,7 +635,7 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_ServerNotUp) {
 
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
     TestLog::reset();
-    EXPECT_EQ(1, transactionTask->processDecisionRpcResults());
+    transactionTask->processDecisionRpcResults();
     EXPECT_EQ("flushSession: flushing session for mock:host=master1 | "
               "processDecisionRpcResults: STATUS_SERVER_NOT_UP",
               TestLog::get());
@@ -688,11 +651,20 @@ TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_notReady) {
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
     transactionTask->decisionRpcs.begin()->state =
             ClientTransactionTask::DecisionRpc::IN_PROGRESS;
-    EXPECT_EQ(0, transactionTask->processDecisionRpcResults());
+    transactionTask->processDecisionRpcResults();
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
 }
 
-// TODO(cstlee) : Unit test processDecisionRpcResults_badStatus
+TEST_F(ClientTransactionTaskTest, processDecisionRpcResults_badStatus) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->participantCount = 10;     // Cause format error
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendDecisionRpc();
+
+    EXPECT_THROW(transactionTask->processDecisionRpcResults(),
+                 RequestFormatError);
+}
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_basic) {
     insertWrite(tableId1, "test", 4, "hello", 5);
@@ -703,7 +675,7 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_basic) {
 
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
-    EXPECT_EQ(1, transactionTask->processPrepareRpcResults());
+    transactionTask->processPrepareRpcResults();
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
 }
@@ -718,7 +690,7 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort) {
 
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
-    EXPECT_EQ(1, transactionTask->processPrepareRpcResults());
+    transactionTask->processPrepareRpcResults();
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 
     EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
@@ -748,7 +720,7 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_committed) {
 
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
-    EXPECT_EQ(1, transactionTask->processPrepareRpcResults());
+    transactionTask->processPrepareRpcResults();
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
 }
@@ -779,7 +751,7 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_unknownTablet) {
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
     TestLog::reset();
-    EXPECT_EQ(1, transactionTask->processPrepareRpcResults());
+    transactionTask->processPrepareRpcResults();
     EXPECT_EQ("processPrepareRpcResults: STATUS_UNKNOWN_TABLET",
               TestLog::get());
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
@@ -796,29 +768,24 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_ServerNotUp) {
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
     TestLog::reset();
-    EXPECT_EQ(1, transactionTask->processPrepareRpcResults());
+    transactionTask->processPrepareRpcResults();
     EXPECT_EQ("flushSession: flushing session for mock:host=master1 | "
               "processPrepareRpcResults: STATUS_SERVER_NOT_UP", TestLog::get());
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 }
 
-// TODO(cstlee) : Unit test processPrepareRpcResults_badStatus
-//TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_badStatus) {
-//    insertWrite(tableId1, "test", 4, "hello", 5);
-//    transactionTask->initTask();
-//    transactionTask->lease.leaseId = 0;
-//    transactionTask->lease.leaseExpiration = 0;
-//    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
-//    transactionTask->sendPrepareRpc();
-//
-//    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
-//    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
-//    EXPECT_EQ(STATUS_OK, transactionTask->status);
-//    transactionTask->processPrepareRpcResults();
-//    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
-//    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
-//    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, transactionTask->status);
-//}
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_badStatus) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->participantCount = 10;     // Cause format error
+    transactionTask->lease.leaseId = 0;
+    transactionTask->lease.leaseExpiration = 0;
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+
+    EXPECT_THROW(transactionTask->processPrepareRpcResults(),
+                 RequestFormatError);
+}
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_notReady) {
     insertWrite(tableId1, "test", 4, "hello", 5);
@@ -831,7 +798,7 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_notReady) {
     transactionTask->prepareRpcs.begin()->state =
             ClientTransactionTask::PrepareRpc::IN_PROGRESS;
 
-    EXPECT_EQ(0, transactionTask->processPrepareRpcResults());
+    transactionTask->processPrepareRpcResults();
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
 }
@@ -851,7 +818,7 @@ TEST_F(ClientTransactionTaskTest, sendDecisionRpc_basic) {
     EXPECT_EQ(0U, transactionTask->decisionRpcs.size());
 
     // Should issue 1 rpc to master 1 with 3 objects in it.
-    EXPECT_EQ(1, transactionTask->sendDecisionRpc());
+    transactionTask->sendDecisionRpc();
     EXPECT_EQ(1U, transactionTask->decisionRpcs.size());
     rpc = &transactionTask->decisionRpcs.back();
     EXPECT_EQ(3U, rpc->reqHdr->participantCount);
@@ -866,7 +833,7 @@ TEST_F(ClientTransactionTaskTest, sendDecisionRpc_basic) {
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
 
     // Should issue 1 rpc to master 1 with 2 objects in it.
-    EXPECT_EQ(1, transactionTask->sendDecisionRpc());
+    transactionTask->sendDecisionRpc();
     EXPECT_EQ(2U, transactionTask->decisionRpcs.size());
     rpc = &transactionTask->decisionRpcs.back();
     EXPECT_EQ(2U, rpc->reqHdr->participantCount);
@@ -877,7 +844,7 @@ TEST_F(ClientTransactionTaskTest, sendDecisionRpc_basic) {
               rpcToString(rpc));
 
     // Should issue 1 rpc to master 2 with 1 objects in it.
-    EXPECT_EQ(1, transactionTask->sendDecisionRpc());
+    transactionTask->sendDecisionRpc();
     EXPECT_EQ(3U, transactionTask->decisionRpcs.size());
     rpc = &transactionTask->decisionRpcs.back();
     EXPECT_EQ(1U, rpc->reqHdr->participantCount);
@@ -887,7 +854,7 @@ TEST_F(ClientTransactionTaskTest, sendDecisionRpc_basic) {
               rpcToString(rpc));
 
     // Should issue 1 rpc to master 3 with 1 objects in it.
-    EXPECT_EQ(1, transactionTask->sendDecisionRpc());
+    transactionTask->sendDecisionRpc();
     EXPECT_EQ(4U, transactionTask->decisionRpcs.size());
     rpc = &transactionTask->decisionRpcs.back();
     EXPECT_EQ(1U, rpc->reqHdr->participantCount);
@@ -897,7 +864,7 @@ TEST_F(ClientTransactionTaskTest, sendDecisionRpc_basic) {
               rpcToString(rpc));
 
     // Should issue nothing.
-    EXPECT_EQ(0, transactionTask->sendDecisionRpc());
+    transactionTask->sendDecisionRpc();
     EXPECT_EQ(4U, transactionTask->decisionRpcs.size());
 }
 
@@ -918,58 +885,90 @@ TEST_F(ClientTransactionTaskTest, sendPrepareRpc_basic) {
     insertWrite(tableId3, "test1", 5, "hello", 5);
 
     ClientTransactionTask::PrepareRpc* rpc;
+    transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
 
     EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
 
     // Should issue 1 rpc to master 1 with 3 objects in it.
-    EXPECT_EQ(1, transactionTask->sendPrepareRpc());
+    transactionTask->sendPrepareRpc();
     EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
     rpc = &transactionTask->prepareRpcs.back();
     EXPECT_EQ(3U, rpc->reqHdr->opCount);
     EXPECT_EQ("mock:host=master1", rpc->session.get()->serviceLocator);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{3} "
-              "ParticipantList[ ] OpSet[ WRITE{1, 0} WRITE{1, 0} WRITE{1, 0} ]",
+    EXPECT_EQ("PrepareRpc :: id{1, 1} ackId{0} participantCount{7} opCount{3} "
+                    "ParticipantList[ {1, 2318870434438256899, 2} "
+                                     "{1, 5620473113711160829, 3} "
+                                     "{1, 8393261455223623089, 4} "
+                                     "{1, 9099387403658286820, 5} "
+                                     "{1, 17025739677450802839, 6} "
+                                     "{2, 8137432257469122462, 7} "
+                                     "{3, 17123020360203364791, 8} ] "
+                    "OpSet[ WRITE{1, 2} WRITE{1, 3} WRITE{1, 4} ]",
               rpcToString(rpc));
 
     // Rest nextCacheEntry to make see if processed ops will be skipped.
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
 
     // Should issue 1 rpc to master 1 with 2 objects in it.
-    EXPECT_EQ(1, transactionTask->sendPrepareRpc());
+    transactionTask->sendPrepareRpc();
     EXPECT_EQ(2U, transactionTask->prepareRpcs.size());
     rpc = &transactionTask->prepareRpcs.back();
     EXPECT_EQ(2U, rpc->reqHdr->opCount);
     EXPECT_EQ("mock:host=master1", rpc->session.get()->serviceLocator);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{2} "
-              "ParticipantList[ ] OpSet[ WRITE{1, 0} WRITE{1, 0} ]",
+    EXPECT_EQ("PrepareRpc :: id{1, 1} ackId{0} participantCount{7} opCount{2} "
+                    "ParticipantList[ {1, 2318870434438256899, 2} "
+                                     "{1, 5620473113711160829, 3} "
+                                     "{1, 8393261455223623089, 4} "
+                                     "{1, 9099387403658286820, 5} "
+                                     "{1, 17025739677450802839, 6} "
+                                     "{2, 8137432257469122462, 7} "
+                                     "{3, 17123020360203364791, 8} ] "
+                    "OpSet[ WRITE{1, 5} WRITE{1, 6} ]",
               rpcToString(rpc));
 
     // Should issue 1 rpc to master 2 with 1 objects in it.
-    EXPECT_EQ(1, transactionTask->sendPrepareRpc());
+    transactionTask->sendPrepareRpc();
     EXPECT_EQ(3U, transactionTask->prepareRpcs.size());
     rpc = &transactionTask->prepareRpcs.back();
     EXPECT_EQ(1U, rpc->reqHdr->opCount);
     EXPECT_EQ("mock:host=master2", rpc->session.get()->serviceLocator);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
-              "ParticipantList[ ] OpSet[ WRITE{2, 0} ]", rpcToString(rpc));
+    EXPECT_EQ("PrepareRpc :: id{1, 1} ackId{0} participantCount{7} opCount{1} "
+                    "ParticipantList[ {1, 2318870434438256899, 2} "
+                                     "{1, 5620473113711160829, 3} "
+                                     "{1, 8393261455223623089, 4} "
+                                     "{1, 9099387403658286820, 5} "
+                                     "{1, 17025739677450802839, 6} "
+                                     "{2, 8137432257469122462, 7} "
+                                     "{3, 17123020360203364791, 8} ] "
+                    "OpSet[ WRITE{2, 7} ]",
+              rpcToString(rpc));
 
     // Should issue 1 rpc to master 3 with 1 objects in it.
-    EXPECT_EQ(1, transactionTask->sendPrepareRpc());
+    transactionTask->sendPrepareRpc();
     EXPECT_EQ(4U, transactionTask->prepareRpcs.size());
     rpc = &transactionTask->prepareRpcs.back();
     EXPECT_EQ(1U, rpc->reqHdr->opCount);
     EXPECT_EQ("mock:host=master3", rpc->session.get()->serviceLocator);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
-              "ParticipantList[ ] OpSet[ WRITE{3, 0} ]", rpcToString(rpc));
+    EXPECT_EQ("PrepareRpc :: id{1, 1} ackId{0} participantCount{7} opCount{1} "
+                    "ParticipantList[ {1, 2318870434438256899, 2} "
+                                     "{1, 5620473113711160829, 3} "
+                                     "{1, 8393261455223623089, 4} "
+                                     "{1, 9099387403658286820, 5} "
+                                     "{1, 17025739677450802839, 6} "
+                                     "{2, 8137432257469122462, 7} "
+                                     "{3, 17123020360203364791, 8} ] "
+                    "OpSet[ WRITE{3, 8} ]",
+              rpcToString(rpc));
 
     // Should issue nothing.
-    EXPECT_EQ(0, transactionTask->sendPrepareRpc());
+    transactionTask->sendPrepareRpc();
     EXPECT_EQ(4U, transactionTask->prepareRpcs.size());
 }
 
 TEST_F(ClientTransactionTaskTest, sendPrepareRpc_TableDoesntExist) {
     insertWrite(0, "test1", 5, "hello", 5);
+    transactionTask->initTask();
     transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
     EXPECT_THROW(transactionTask->sendPrepareRpc(),
                  TableDoesntExistException);
@@ -999,7 +998,7 @@ TEST_F(ClientTransactionTaskTest,
 
 TEST_F(ClientTransactionTaskTest, ClientTransactionRpcWrapper_send) {
     EXPECT_TRUE(RpcWrapper::NOT_STARTED == mockTransactionRpc->state);
-    EXPECT_THROW(mockTransactionRpc->send(), ServiceNotAvailableException);
+    mockTransactionRpc->send();
     EXPECT_TRUE(RpcWrapper::NOT_STARTED != mockTransactionRpc->state);
 }
 
@@ -1096,12 +1095,28 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_constructor) {
     EXPECT_EQ(transactionTask->lease.leaseId, rpc.reqHdr->lease.leaseId);
     EXPECT_EQ(1U, rpc.reqHdr->ackId);
     EXPECT_EQ(transactionTask->participantCount, rpc.reqHdr->participantCount);
-    EXPECT_EQ("PrepareRpc :: lease{42} ackId{1} participantCount{2} opCount{0}"
+    EXPECT_EQ("PrepareRpc :: id{42, 0} ackId{1} participantCount{2} opCount{0}"
               " ParticipantList[ {1, 2, 3} {4, 5, 6} ] OpSet[ ]",
               rpcToString(&rpc));
 }
 
 TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_read) {
+    insertRead(tableId1, "0", 1);
+    transactionTask->readOnly = false;
+
+    ClientTransactionTask::CommitCacheMap::iterator it =
+            transactionTask->commitCache.begin();
+    it->second.rpcId = 42;
+    EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING, it->second.state);
+    EXPECT_TRUE(prepareRpc->appendOp(it));
+    EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
+    EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
+    EXPECT_EQ("PrepareRpc :: id{1, 0} ackId{0} participantCount{0} opCount{1} "
+              "ParticipantList[ ] OpSet[ READ{1, 42} ]",
+              rpcToString(prepareRpc.get()));
+}
+
+TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_readOnly) {
     insertRead(tableId1, "0", 1);
 
     ClientTransactionTask::CommitCacheMap::iterator it =
@@ -1111,13 +1126,14 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_read) {
     EXPECT_TRUE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
     EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
-              "ParticipantList[ ] OpSet[ READ{1, 42} ]",
+    EXPECT_EQ("PrepareRpc :: id{1, 0} ackId{0} participantCount{0} opCount{1} "
+              "ParticipantList[ ] OpSet[ READONLY{1, 42} ]",
               rpcToString(prepareRpc.get()));
 }
 
 TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_remove) {
     insertRemove(2, "test", 4);
+    transactionTask->readOnly = false;
 
     ClientTransactionTask::CommitCacheMap::iterator it =
             transactionTask->commitCache.begin();
@@ -1126,13 +1142,14 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_remove) {
     EXPECT_TRUE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
     EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
+    EXPECT_EQ("PrepareRpc :: id{1, 0} ackId{0} participantCount{0} opCount{1} "
               "ParticipantList[ ] OpSet[ REMOVE{2, 42} ]",
               rpcToString(prepareRpc.get()));
 }
 
 TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_write) {
     insertWrite(3, "test", 4, "hello", 5);
+    transactionTask->readOnly = false;
 
     ClientTransactionTask::CommitCacheMap::iterator it =
             transactionTask->commitCache.begin();
@@ -1141,7 +1158,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_write) {
     EXPECT_TRUE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PREPARE, it->second.state);
     EXPECT_EQ(prepareRpc->ops[prepareRpc->reqHdr->opCount - 1], it);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{1} "
+    EXPECT_EQ("PrepareRpc :: id{1, 0} ackId{0} participantCount{0} opCount{1} "
               "ParticipantList[ ] OpSet[ WRITE{3, 42} ]",
               rpcToString(prepareRpc.get()));
 }
@@ -1158,7 +1175,7 @@ TEST_F(ClientTransactionTaskTest, PrepareRpc_appendOp_invalid) {
     EXPECT_FALSE(prepareRpc->appendOp(it));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::PENDING, it->second.state);
     EXPECT_EQ(0U, prepareRpc->reqHdr->opCount);
-    EXPECT_EQ("PrepareRpc :: lease{1} ackId{0} participantCount{0} opCount{0} "
+    EXPECT_EQ("PrepareRpc :: id{1, 0} ackId{0} participantCount{0} opCount{0} "
               "ParticipantList[ ] OpSet[ ]", rpcToString(prepareRpc.get()));
     EXPECT_EQ("appendOp: Unknown transaction op type.", TestLog::get());
 }

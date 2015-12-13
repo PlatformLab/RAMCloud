@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -17,8 +17,8 @@
 #include "Cycles.h"
 #include "Dispatch.h"
 #include "MockSyscall.h"
-#include "ServiceManager.h"
 #include "TransportManager.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 static string *localLog;
@@ -423,8 +423,8 @@ TEST_F(DispatchTest, poll_triggerTimers) {
     t4.start(170);
     Cycles::mockTscValue = 175;
     EXPECT_EQ(3, dispatch.poll());
-    EXPECT_EQ("timer t1 invoked; timer t4 invoked; "
-                "timer t2 invoked", *localLog);
+    EXPECT_EQ("timer t4 invoked; timer t2 invoked; "
+                "timer t1 invoked", *localLog);
     EXPECT_EQ(180UL, dispatch.earliestTriggerTime);
 }
 
@@ -455,7 +455,7 @@ TEST_F(DispatchTest, poll_callEachTimerOnlyOnce) {
 
     // t2 had better be invoked only once, even though it rescheduled
     // itself and is actually runnable.
-    EXPECT_EQ("timer t1 invoked; timer t2 invoked", *localLog);
+    EXPECT_EQ("timer t2 invoked; timer t1 invoked", *localLog);
     localLog->clear();
     dispatch.poll();
     EXPECT_EQ("timer t2 invoked", *localLog);
@@ -471,11 +471,11 @@ TEST_F(DispatchTest, poll_handlerDeletesTimers) {
     t2->start(160);
     t3->start(180);
     t4.start(170);
-    t1.deleteWhenInvoked(t2);
-    t1.deleteWhenInvoked(t3);
+    t4.deleteWhenInvoked(t2);
+    t4.deleteWhenInvoked(t3);
     Cycles::mockTscValue = 175;
     dispatch.poll();
-    EXPECT_EQ("timer t1 invoked; timer t4 invoked", *localLog);
+    EXPECT_EQ("timer t4 invoked; timer t1 invoked", *localLog);
 }
 
 // No tests for Dispatch::run: it doesn't return, so can't test (it's
@@ -848,6 +848,7 @@ TEST_F(DispatchTest, Timer_stop) {
     t1.stop();
     EXPECT_EQ(-1, t1.slot);
     EXPECT_EQ(2U, dispatch.timers.size());
+    EXPECT_EQ(0, t3.slot);
     t1.stop();
     EXPECT_EQ(-1, t1.slot);
     EXPECT_EQ(2U, dispatch.timers.size());

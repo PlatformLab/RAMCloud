@@ -30,10 +30,9 @@ namespace RAMCloud {
  *      externalStorage (externalStorage must be non-null).
  */
 CoordinatorClusterClock::CoordinatorClusterClock(Context *context)
-    : mutex()
-    , startingSysTimeUs(Cycles::toMicroseconds(Cycles::rdtsc()))
-    , startingClusterTimeUs(recoverClusterTime(context->externalStorage))
-    , safeClusterTimeUs(startingClusterTimeUs)
+    : startingSysTimeNS(Cycles::toNanoseconds(Cycles::rdtsc()))
+    , startingClusterTime(recoverClusterTime(context->externalStorage))
+    , safeClusterTime(startingClusterTime)
     , updater(context, this)
 {}
 
@@ -47,17 +46,21 @@ CoordinatorClusterClock::CoordinatorClusterClock(Context *context)
  *
  * This method is thread-safe.
  */
-uint64_t
+ClusterTime
 CoordinatorClusterClock::getTime()
 {
-    Lock lock(mutex);
-    uint64_t time = getInternal(lock);
+    ClusterTime time = getInternal();
+
+    // Cache current safe time for isolation; we want to avoid a time of check
+    // vs time of use problem since the safe cluster time may change while this
+    // method executes.
+    ClusterTime currentSafeTime = safeClusterTime;
     // In the unlikely event that the current time exceeds the safe time,
     // return the safe time so that an unsafe time can never be observed.
-    if (expect_false(time > safeClusterTimeUs)) {// Not sure predictor helps.
+    if (expect_false(time > currentSafeTime)) {// Not sure predictor helps.
         RAMCLOUD_CLOG(WARNING, "Returning stale time. "
                                "SafeTimeUpdater may be running behind.");
-        return safeClusterTimeUs;
+        return currentSafeTime;
     }
     return time;
 }
@@ -97,12 +100,13 @@ CoordinatorClusterClock::SafeTimeUpdater::SafeTimeUpdater(
 void
 CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
 {
+    using CoordinatorClusterClockConstants::safeTimeInterval;
+    using CoordinatorClusterClockConstants::updateIntervalS;
+
     uint64_t startTimeCycles = Cycles::rdtsc();
-    CoordinatorClusterClock::Lock lock(clock->mutex);
-    uint64_t nextSafeTimeUs = clock->getInternal(lock)
-                              + clock->safeTimeIntervalUs;
+    ClusterTime nextSafeTime = clock->getInternal() + safeTimeInterval;
     ProtoBuf::CoordinatorClusterClock info;
-    info.set_next_safe_time(nextSafeTimeUs);
+    info.set_next_safe_time(nextSafeTime.getEncoded());
     std::string str;
     info.SerializeToString(&str);
     externalStorage->set(ExternalStorage::Hint::UPDATE,
@@ -110,22 +114,22 @@ CoordinatorClusterClock::SafeTimeUpdater::handleTimerEvent()
                          str.c_str(),
                          downCast<int>(str.length()));
 
-    clock->safeClusterTimeUs = nextSafeTimeUs;
-    this->start(startTimeCycles + Cycles::fromSeconds(clock->updateIntervalS));
+    clock->safeClusterTime = nextSafeTime;
+    this->start(startTimeCycles + Cycles::fromSeconds(updateIntervalS));
 }
 
 /**
  * Returns the raw, calculated, unprotected cluster time.  Should not be used
  * by external methods.
- *
- * \param lock
- *      Ensures that caller has acquired mutex; not actually used here.
  */
-uint64_t
-CoordinatorClusterClock::getInternal(Lock &lock)
+ClusterTime
+CoordinatorClusterClock::getInternal()
 {
-    uint64_t currentSysTimeUs = Cycles::toMicroseconds(Cycles::rdtsc());
-    return (currentSysTimeUs - startingSysTimeUs) + startingClusterTimeUs;
+    uint64_t currentSysTimeNS = Cycles::toNanoseconds(Cycles::rdtsc());
+    ClusterTimeDuration duration =
+            ClusterTimeDuration::fromNanoseconds(currentSysTimeNS
+                                                 - startingSysTimeNS);
+    return startingClusterTime + duration;
 }
 
 /**
@@ -142,7 +146,7 @@ CoordinatorClusterClock::getInternal(Lock &lock)
 uint64_t
 CoordinatorClusterClock::recoverClusterTime(ExternalStorage* externalStorage)
 {
-    uint64_t startingClusterTime = 0;
+    uint64_t startingClusterTime = ClusterTime().getEncoded();
     // Recover any previously persisted safe cluster time. Cluster time starts
     // at zero if no persisted time is found.
     ProtoBuf::CoordinatorClusterClock info;

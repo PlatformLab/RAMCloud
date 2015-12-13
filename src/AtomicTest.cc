@@ -75,24 +75,38 @@ TEST(AtomicTest, exchange) {
 
 TEST(AtomicTest, inc_int64) {
     Atomic<uint64_t> i(0xffffffff);
-    i.inc();
+    uint64_t prev = i.inc();
+    EXPECT_EQ(0xffffffff, prev);
     EXPECT_EQ(0x100000000UL, i.load());
-    i.inc();
-    EXPECT_EQ(0x100000001UL, i.load());
+    prev = i.inc(10);
+    EXPECT_EQ(0x100000000UL, prev);
+    EXPECT_EQ(0x10000000AUL, i.load());
 }
 
 TEST(AtomicIntTest, inc_int) {
-    Atomic<int> i(3);
-    i.inc();
-    EXPECT_EQ(4, i.load());
-    i.inc();
-    EXPECT_EQ(5, i.load());
+    Atomic<int> i(2);
+    int prev = i.inc();
+    EXPECT_EQ(2, prev);
+    EXPECT_EQ(3, i.load());
+    prev = i.inc(8);
+    EXPECT_EQ(3, prev);
+    EXPECT_EQ(11, i.load());
+    prev = i.inc(-3);
+    EXPECT_EQ(11, prev);
+    EXPECT_EQ(8, i.load());
 }
 
 TEST(AtomicTest, inc_pointer) {
     Atomic<int*> p(reinterpret_cast<int*>(0xaaaa00000002));
-    p.inc();
+    int* prev = p.inc();
+    EXPECT_EQ(0xaaaa00000002UL, reinterpret_cast<uint64_t>(prev));
     EXPECT_EQ(0xaaaa00000006UL, reinterpret_cast<uint64_t>(p.load()));
+    prev = p.inc(0x1000000002);
+    EXPECT_EQ(0xaaaa00000006UL, reinterpret_cast<uint64_t>(prev));
+    EXPECT_EQ(0xaaea0000000eUL, reinterpret_cast<uint64_t>(p.load()));
+    prev = p.inc(-1);
+    EXPECT_EQ(0xaaea0000000eUL, reinterpret_cast<uint64_t>(prev));
+    EXPECT_EQ(0xaaea0000000aUL, reinterpret_cast<uint64_t>(p.load()));
 }
 
 TEST(AtomicTest, loadStore) {

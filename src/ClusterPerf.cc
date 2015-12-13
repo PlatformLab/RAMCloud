@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -47,6 +47,7 @@ namespace po = boost::program_options;
 
 #include "assert.h"
 #include "btreeRamCloud/Btree.h"
+#include "ClientLeaseAgent.h"
 #include "CycleCounter.h"
 #include "Cycles.h"
 #include "PerfStats.h"
@@ -60,13 +61,16 @@ namespace po = boost::program_options;
 using namespace RAMCloud;
 
 // Shared state for client library.
-Context context(true);
+Context *context;
 
 // Used to invoke RAMCloud operations.
 static RamCloud* cluster;
 
 // Total number of clients that will be participating in this test.
 static int numClients;
+
+// Number of virtual clients each physical client should simulate.
+static int numVClients;
 
 // Index of this client among all of the participating clients (between
 // 0 and numClients-1).  Client 0 acts as master to control the overall
@@ -113,6 +117,10 @@ static string workload;     // NOLINT
 // to specify the operations per second each load generating client
 // should try to achieve.
 static int targetOps;
+
+// Value of the "--txSpan" command-line option: used by some tests
+// the server span of a transaction.
+static int txSpan;
 
 // Identifier for table that is used for test-specific data.
 uint64_t dataTable = -1;
@@ -480,6 +488,48 @@ class WorkloadGenerator {
     int recordSizeB;
     int readPercent;
     Tub<ZipfianGenerator> generator;
+};
+
+/**
+ * Encapsulates the state of a single client so we can simulate multiple virtual
+ * clients with a single client executable.
+ */
+struct VirtualClient {
+    explicit VirtualClient(RamCloud* ramcloud)
+        : lease(ramcloud)
+        , rpcTracker()
+    {}
+
+    /**
+     * Used to install and uninstall the virtual client's state.  Makes it easy
+     * to "context switch" between clients.
+     */
+    struct Context {
+        explicit Context(VirtualClient* virtualClient)
+            : virtualClient(virtualClient)
+            , originalLeaseAgent(cluster->clientLeaseAgent)
+            , originalTracker(cluster->rpcTracker)
+        {
+            // Set context variables.
+            cluster->clientLeaseAgent = &virtualClient->lease;
+            cluster->rpcTracker = &virtualClient->rpcTracker;
+        }
+
+        ~Context() {
+            cluster->clientLeaseAgent = originalLeaseAgent;
+            cluster->rpcTracker = originalTracker;
+        }
+
+        VirtualClient* virtualClient;
+        ClientLeaseAgent* originalLeaseAgent;
+        RpcTracker* originalTracker;
+
+        DISALLOW_COPY_AND_ASSIGN(Context);
+    };
+
+    ClientLeaseAgent lease;
+    RpcTracker rpcTracker;
+    DISALLOW_COPY_AND_ASSIGN(VirtualClient);
 };
 
 /**
@@ -1817,12 +1867,24 @@ basic()
         // below accounts for additional overhead per object beyond the
         // key and value.
         uint32_t numObjects = 200000000/(size + keyLength + 20);
+        LOG(NOTICE, "Filling table with %d-byte objects", size);
+        cluster->logMessageAll(NOTICE,
+                "Filling table with %d-byte objects", size);
         fillTable(dataTable, numObjects, keyLength, size);
+
+        LOG(NOTICE, "Starting read test for %d-byte objects", size);
+        cluster->logMessageAll(NOTICE,
+                "Starting read test for %d-byte objects", size);
         readDists[i] = readRandomObjects(dataTable, numObjects, keyLength,
                 100000, 2.0);
+
+        LOG(NOTICE, "Starting write test for %d-byte objects", size);
+        cluster->logMessageAll(NOTICE,
+                "Starting write test for %d-byte objects", size);
         writeDists[i] =  writeRandomObjects(dataTable, numObjects, keyLength,
                 size, 100000, 2.0);
     }
+    Logger::get().sync();
 
     // Print out the results (in a different order):
     for (int i = 0; i < NUM_SIZES; i++) {
@@ -2025,7 +2087,7 @@ doMultiRead(int dataLength, uint16_t keyLength,
     for (int tableNum = 0; tableNum < numMasters; ++tableNum) {
         for (int i = 0; i < objsPerMaster; i++) {
             ObjectBuffer* output = values[tableNum][i].get();
-            uint16_t offset;
+            uint32_t offset;
             output->getValueOffset(&offset);
             checkBuffer(output, offset, dataLength, tableIds.at(tableNum),
                     keys[tableNum][i], keyLength);
@@ -2304,17 +2366,14 @@ indexLookupCommon(bool doIndexRange, uint32_t samplesPerOp)
     uint64_t firstPkHash = 0;
     char firstSecondaryKey[keyLength];
 
-    int bytesWritten;
     for (uint32_t i = 0, k = 0; i < maxNumObjects; i++) {
         char primaryKey[keyLength];
-        bytesWritten = snprintf(primaryKey, sizeof(primaryKey), "p%0*d",
+        snprintf(primaryKey, sizeof(primaryKey), "p%0*d",
                 keyLength-2, i);
-        assert(bytesWritten == keyLength-1);
 
         char secondaryKey[keyLength];
-        bytesWritten = snprintf(secondaryKey, sizeof(secondaryKey), "b%ds%0*d",
+        snprintf(secondaryKey, sizeof(secondaryKey), "b%ds%0*d",
                 i, keyLength, 0);
-        assert(bytesWritten == keyLength-1);
 
         if (doIndexRange && i == 0) {
             memcpy(firstSecondaryKey, secondaryKey, keyLength);
@@ -3812,6 +3871,7 @@ indexScalabilityCommonLookup(const uint8_t numIndexlets,
             lookupEnd = Cycles::rdtsc();
 
             // Verify data.
+            #if DEBUG_BUILD
             for (int i =0; i < concurrent; i++) {
                 Key pk(lookupTable, primaryKey[i], 30);
                 uint32_t lookupOffset;
@@ -3821,6 +3881,7 @@ indexScalabilityCommonLookup(const uint8_t numIndexlets,
                 assert(pk.getHash()==
                         *lookupResp[i].getOffset<uint64_t>(lookupOffset));
             }
+            #endif
 
             uint64_t latency = lookupEnd - lookupStart;
             opCount = opCount + concurrent;
@@ -4801,11 +4862,6 @@ doWorkload(OpType type)
         }
     }
 
-    // Dump cache traces. This amounts to almost a no-op if there are no
-    // traces, and we do not currently expect traces in production code.
-    cluster->objectServerControl(dataTable, key, keyLen,
-            WireFormat::LOG_TIME_TRACE);
-
     cluster->objectServerControl(dataTable, key, keyLen,
             WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
             &statsBuffer);
@@ -4837,6 +4893,7 @@ doWorkload(OpType type)
     printf("0.0 Max Throughput: %.0f ops\n", rate);
 
     // Output the times (several comma-separated values on each line).
+    Logger::get().sync();
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
         if (valuesInLine >= 10) {
@@ -4851,6 +4908,7 @@ doWorkload(OpType type)
         valuesInLine++;
     }
     printf("\n");
+    fflush(stdout);
     #undef NUM_KEYS
 
     // Wait for slaves to exit.
@@ -5007,6 +5065,28 @@ transactionDistRandom()
             int keyId = downCast<int>(generateRandom() % numKeys);
             keyIds.insert(keyId);
         }
+        std::unordered_set<int> tableBlacklist;
+        txSpan = std::min(txSpan, numTables);
+        size_t blacklistSize = static_cast<size_t>(numTables - txSpan);
+        while (tableBlacklist.size() < blacklistSize) {
+            int tableIndex = downCast<int>(generateRandom() % numTables);
+            tableBlacklist.insert(tableIndex);
+        }
+        std::vector<int> selectedTableIndexes;
+        std::unordered_set<int> usedTableIndexes = tableBlacklist;
+        while (selectedTableIndexes.size() < static_cast<size_t>(numObjects)) {
+            int tableIndex = downCast<int>(generateRandom() % numTables);
+            size_t before = usedTableIndexes.size();
+            usedTableIndexes.insert(tableIndex);
+            size_t after = usedTableIndexes.size();
+            if (before < after) {
+                selectedTableIndexes.push_back(tableIndex);
+            }
+            if (static_cast<int>(after) == numTables) {
+                usedTableIndexes.clear();
+                usedTableIndexes = tableBlacklist;
+            }
+        }
 
         Transaction t(cluster);
 
@@ -5017,9 +5097,11 @@ transactionDistRandom()
             Util::genRandomString(value, objectSize);
 
             Buffer buffer;
-            t.read(tableIds.at(j), key, keyLength, &buffer);
-            t.write(tableIds.at(j), key, keyLength, value, objectSize);
-            j = (j + 1) % numTables;
+            t.read(tableIds.at(selectedTableIndexes.at(j)), key, keyLength,
+                    &buffer);
+            t.write(tableIds.at(selectedTableIndexes.at(j)), key, keyLength,
+                    value, objectSize);
+            ++j;
         }
 
         // Do the benchmark
@@ -5030,6 +5112,7 @@ transactionDistRandom()
     }
 
     // Output the times (several comma-separated values on each line).
+    Logger::get().sync();
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
         if (valuesInLine >= 10) {
@@ -5144,6 +5227,28 @@ transactionThroughput()
             keyId += partitionSize * clientIndex;
             keyIds.insert(keyId);
         }
+        std::unordered_set<int> tableBlacklist;
+        txSpan = std::min(txSpan, numTables);
+        size_t blacklistSize = static_cast<size_t>(numTables - txSpan);
+        while (tableBlacklist.size() < blacklistSize) {
+            int tableIndex = downCast<int>(generateRandom() % numTables);
+            tableBlacklist.insert(tableIndex);
+        }
+        std::vector<int> selectedTableIndexes;
+        std::unordered_set<int> usedTableIndexes = tableBlacklist;
+        while (selectedTableIndexes.size() < static_cast<size_t>(numObjects)) {
+            int tableIndex = downCast<int>(generateRandom() % numTables);
+            size_t before = usedTableIndexes.size();
+            usedTableIndexes.insert(tableIndex);
+            size_t after = usedTableIndexes.size();
+            if (before < after) {
+                selectedTableIndexes.push_back(tableIndex);
+            }
+            if (static_cast<int>(after) == numTables) {
+                usedTableIndexes.clear();
+                usedTableIndexes = tableBlacklist;
+            }
+        }
 
         Transaction t(cluster);
 
@@ -5154,9 +5259,11 @@ transactionThroughput()
             Util::genRandomString(value, objectSize);
 
             Buffer buffer;
-            t.read(tableIds.at(j), key, keyLength, &buffer);
-            t.write(tableIds.at(j), key, keyLength, value, objectSize);
-            j = (j + 1) % numTables;
+            t.read(tableIds.at(selectedTableIndexes.at(j)), key, keyLength,
+                    &buffer);
+            t.write(tableIds.at(selectedTableIndexes.at(j)), key, keyLength,
+                    value, objectSize);
+            ++j;
         }
 
         // Do the benchmark
@@ -5408,7 +5515,7 @@ readAllToAll()
                 uint64_t startCycles = Cycles::rdtsc();
                 ReadRpc read(cluster, tableId, key, keyLength, &result);
                 while (!read.isReady()) {
-                    context.dispatch->poll();
+                    context->dispatch->poll();
                     double secsWaiting =
                         Cycles::toSeconds(Cycles::rdtsc() - startCycles);
                     if (secsWaiting > 1.0) {
@@ -5446,7 +5553,7 @@ readAllToAll()
         uint64_t startCycles = Cycles::rdtsc();
         ReadRpc read(cluster, tableId, key, keyLength, &result);
         while (!read.isReady()) {
-            context.dispatch->poll();
+            context->dispatch->poll();
             if (Cycles::toSeconds(Cycles::rdtsc() - startCycles) > 1.0) {
                 RAMCLOUD_LOG(ERROR,
                             "Master client %d couldn't read from tableId %lu",
@@ -5504,6 +5611,7 @@ readDist()
     }
 
     // Output the times (several comma-separated values on each line).
+    Logger::get().sync();
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
         if (valuesInLine >= 10) {
@@ -5591,6 +5699,7 @@ readDistRandom()
     }
 
     // Output the times (several comma-separated values on each line).
+    Logger::get().sync();
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
         if (valuesInLine >= 10) {
@@ -5605,6 +5714,7 @@ readDistRandom()
         valuesInLine++;
     }
     printf("\n");
+    fflush(stdout);
     for (int i = 0; i <  NUM_BUCKETS; i++) {
         LOG(NOTICE, "Number of times between %d and %d usecs: %d (%.2f%%)",
                 MICROS_PER_BUCKET*i, MICROS_PER_BUCKET*(i+1),
@@ -5907,8 +6017,12 @@ readThroughputMaster(int numObjects, int size, uint16_t keyLength)
     printf("#             (kreads/sec)    utiliz.     utiliz.\n");
     printf("#------------------------------------------------\n");
     fillTable(dataTable, numObjects, keyLength, size);
+    string stats[5];
     for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
         sendCommand("run", "running", numSlaves, 1);
+        Buffer beforeStats;
+        cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS,
+                NULL, 0, &beforeStats);
         Buffer statsBuffer;
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
@@ -5918,6 +6032,13 @@ readThroughputMaster(int numObjects, int size, uint16_t keyLength)
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
+        Buffer afterStats;
+        cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS,
+                NULL, 0, &afterStats);
+        if (numSlaves <= 5) {
+            stats[numSlaves-1] = PerfStats::printClusterStats(&beforeStats,
+                    &afterStats).c_str();
+        }
         PerfStats finishStats = *statsBuffer.getStart<PerfStats>();
         double elapsedTime = static_cast<double>(finishStats.collectionTime -
                 startStats.collectionTime)/ finishStats.cyclesPerSecond;
@@ -5935,6 +6056,11 @@ readThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 numSlaves, rate/1e03, utilization, dispatchUtilization);
     }
     sendCommand("done", "done", 1, numClients-1);
+#if 0
+    for (int i = 0; i < 5; i++) {
+        printf("\nStats for %d clients:\n%s", i+1, stats[i].c_str());
+    }
+#endif
 }
 
 // This benchmark measures total throughput of a single server (in objects
@@ -6187,6 +6313,7 @@ writeDistRandom()
     }
 
     // Output the times (several comma-separated values on each line).
+    Logger::get().sync();
     int valuesInLine = 0;
     for (int i = 0; i < count; i++) {
         if (valuesInLine >= 10) {
@@ -6227,15 +6354,20 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
     // throughput while gradually increasing the number of workers.
     printf("#\n");
     printf("# clients   throughput   worker   cleaner  compactor  "
-            "cleaner  dispatch  netOut    netIn\n");
+            "cleaner  dispatch  netOut    netIn   replic    sync\n");
     printf("#           (kops/sec)   cores     cores    free %%    "
-            "free %%   utiliz.   (MB/s)    (MB/s)\n");
+            "free %%   utiliz.   (MB/s)    (MB/s)   eff.     frac\n");
     printf("#------------------------------------------------------"
-            "--------------------------------------------\n");
+            "------------------------------------------------------\n");
     fillTable(dataTable, numObjects, keyLength, size);
+    Cycles::sleep(2000000);
+    string stats[5];
     for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
         sendCommand("run", "running", numSlaves, 1);
         Buffer statsBuffer;
+        Buffer beforeStats;
+        cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS,
+                NULL, 0, &beforeStats);
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
@@ -6244,6 +6376,13 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
+        Buffer afterStats;
+        cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS,
+                NULL, 0, &afterStats);
+        if (numSlaves <= 5) {
+            stats[numSlaves-1] = PerfStats::printClusterStats(&beforeStats,
+                    &afterStats).c_str();
+        }
         PerfStats finishStats = *statsBuffer.getStart<PerfStats>();
         double elapsedCycles = static_cast<double>(
                 finishStats.collectionTime - startStats.collectionTime);
@@ -6287,13 +6426,23 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
         double netInRate = static_cast<double>(
                 finishStats.networkInputBytes -
                 startStats.networkInputBytes) / elapsedTime;
+        double repEfficiency = static_cast<double>(finishStats.writeCount -
+                startStats.writeCount)/static_cast<double>(
+                finishStats.replicationRpcs - startStats.replicationRpcs);
+        double syncFraction = static_cast<double>(finishStats.logSyncCycles -
+                startStats.logSyncCycles) / elapsedCycles;
         printf("%5d       %8.2f   %8.3f %8.3f %8.1f  %8.1f  %8.3f "
-                "%8.2f  %8.2f\n",
+                "%8.2f  %8.2f %7.2f  %7.2f\n",
                 numSlaves, rate/1e03, utilization, cleanerUtilization,
                 compactorFreePct, cleanerFreePct, dispatchUtilization,
-                netOutRate/1e06, netInRate/1e06);
+                netOutRate/1e06, netInRate/1e06, repEfficiency, syncFraction);
     }
     sendCommand("done", "done", 1, numClients-1);
+#if 0
+    for (int i = 0; i < 5; i++) {
+        printf("\nStats for %d clients:\n%s", i+1, stats[i].c_str());
+    }
+#endif
 }
 
 // This benchmark measures total throughput of a single server (in objects
@@ -6354,7 +6503,7 @@ writeThroughput()
                             keyLength, key);
                     Util::genRandomString(value, objectSize);
                     cluster->write(dataTable, key, keyLength, value, objectSize,
-                            NULL, NULL, false, false);
+                            NULL, NULL, false);
                     ++objectsWritten;
                 } while (Cycles::rdtsc() < checkTime);
             } else if (strcmp(command, "done") == 0) {
@@ -6368,55 +6517,6 @@ writeThroughput()
             }
         }
     }
-}
-
-// With linearizable RPC, write or overwrite randomly-chosen objects from a
-// large table (so that there will be cache misses on the hash table and the
-// object) and compute a cumulative distribution of write times.
-void
-linearizableWriteDistRandom()
-{
-    int numKeys = 2000000;
-    if (clientIndex != 0)
-        return;
-
-    const uint16_t keyLength = 30;
-
-    char key[keyLength];
-    char value[objectSize];
-
-    fillTable(dataTable, numKeys, keyLength, objectSize);
-
-    // Issue the writes back-to-back, and save the times.
-    std::vector<uint64_t> ticks;
-    ticks.resize(count);
-    for (int i = 0; i < count; i++) {
-        // We generate the random number separately to avoid timing potential
-        // cache misses on the client side.
-        makeKey(downCast<int>(generateRandom() % numKeys), keyLength, key);
-        Util::genRandomString(value, objectSize);
-        // Do the benchmark
-        uint64_t start = Cycles::rdtsc();
-        cluster->write(dataTable, key, keyLength, value, objectSize,
-                       NULL, NULL, false, true);
-        ticks[i] = Cycles::rdtsc() - start;
-    }
-
-    // Output the times (several comma-separated values on each line).
-    int valuesInLine = 0;
-    for (int i = 0; i < count; i++) {
-        if (valuesInLine >= 10) {
-            valuesInLine = 0;
-            printf("\n");
-        }
-        if (valuesInLine != 0) {
-            printf(",");
-        }
-        double micros = Cycles::toSeconds(ticks[i])*1.0e06;
-        printf("%.2f", micros);
-        valuesInLine++;
-    }
-    printf("\n");
 }
 
 // This benchmark measures total throughput of a single server (in operations
@@ -6466,8 +6566,6 @@ workloadThroughput()
             printf("%5d         %8.0f        %8.3f\n", numSlaves, rate/1e03,
                     utilization);
         }
-        cluster->objectServerControl(dataTable, "abc", 3,
-                WireFormat::ControlOp::LOG_TIME_TRACE);
         cluster->dropTable("data");
         sendCommand("done", "done", 1, numClients-1);
     } else {
@@ -6506,142 +6604,6 @@ workloadThroughput()
                 return;
             }
         }
-    }
-}
-
-// This benchmark measures total throughput of a single server (in objects
-// writes per second) under a workload consisting of individual linearizable
-// random object write.
-void
-linearizableWriteThroughput()
-{
-    const uint16_t keyLength = 30;
-    int size = objectSize;
-    if (size < 0)
-        size = 100;
-    const int numObjects = 400000000/objectSize;
-    if (clientIndex == 0) {
-        // This is the master client.
-        printf("# RAMCloud linearizable write throughput of a single\n"
-                "# server with a varying number of clients issuing\n"
-                "# individual reads on randomly chosen %d-byte objects\n"
-                "# with %d-byte keys\n",
-                size, keyLength);
-        printf("# Generated by 'clusterperf.py linearizableWriteThroughput'\n");
-        writeThroughputMaster(numObjects, size, keyLength);
-    } else {
-        // Slaves execute the following code, which creates load by
-        // issuing individual reads.
-        bool running = false;
-
-        uint64_t startTime;
-        int objectsWritten;
-
-        while (true) {
-            char command[20];
-            if (running) {
-                // Write out some statistics for debugging.
-                double totalTime = Cycles::toSeconds(Cycles::rdtsc()
-                        - startTime);
-                double rate = objectsWritten/totalTime;
-                RAMCLOUD_LOG(NOTICE, "Write rate: %.1f kobjects/sec",
-                        rate/1e03);
-            }
-            getCommand(command, sizeof(command), false);
-            if (strcmp(command, "run") == 0) {
-                if (!running) {
-                    setSlaveState("running");
-                    running = true;
-                    RAMCLOUD_LOG(NOTICE,
-                            "Starting linearizableWriteThroughput benchmark");
-                }
-
-                // Perform reads for a second (then check to see
-                // if the experiment is over).
-                startTime = Cycles::rdtsc();
-                objectsWritten = 0;
-                uint64_t checkTime = startTime + Cycles::fromSeconds(1.0);
-                do {
-                    char key[keyLength];
-                    char value[objectSize];
-                    makeKey(downCast<int>(generateRandom() % numObjects),
-                            keyLength, key);
-                    Util::genRandomString(value, objectSize);
-                    cluster->write(dataTable, key, keyLength, value, objectSize,
-                            NULL, NULL, false, true);
-                    ++objectsWritten;
-                } while (Cycles::rdtsc() < checkTime);
-            } else if (strcmp(command, "done") == 0) {
-                setSlaveState("done");
-                RAMCLOUD_LOG(NOTICE,
-                             "Ending linearizableWriteThroughput benchmark");
-                return;
-            } else {
-                RAMCLOUD_LOG(ERROR, "unknown command %s", command);
-                return;
-            }
-        }
-    }
-}
-
-// Random linearizable write times for objects of different sizes
-void
-linearizableRpc()
-{
-    if (clientIndex != 0)
-        return;
-    Buffer input, output;
-#define NUM_SIZES 5
-    int sizes[] = {100, 1000, 10000, 100000, 1000000};
-    TimeDist writeDists[NUM_SIZES];
-    const char* ids[] = {"100", "1K", "10K", "100K", "1M"};
-    uint16_t keyLength = 30;
-    char name[50], description[50];
-
-    // Each iteration through the following loop measures random reads and
-    // writes of a particular object size. Start with the largest object
-    // size and work down to the smallest (this way, each iteration will
-    // replace all of the objects created by the previous iteration).
-    for (int i = NUM_SIZES-1; i >= 0; i--) {
-        int size = sizes[i];
-
-        // Generate roughly 500MB of data of the current size. The "20"
-        // below accounts for additional overhead per object beyond the
-        // key and value.
-        uint32_t numObjects = 200000000/(size + keyLength + 20);
-        fillTable(dataTable, numObjects, keyLength, size);
-        writeDists[i] =  writeRandomObjects(dataTable, numObjects, keyLength,
-                size, 100000, 2.0);
-    }
-
-    // Print out the results (in a different order):
-    for (int i = 0; i < NUM_SIZES; i++) {
-        TimeDist* dist = &writeDists[i];
-        snprintf(description, sizeof(description),
-                "write random %sB object (%uB key)", ids[i], keyLength);
-        snprintf(name, sizeof(name), "basic.write%s", ids[i]);
-        printf("%-20s %s     %s median\n", name, formatTime(dist->p50).c_str(),
-                description);
-        snprintf(name, sizeof(name), "basic.write%s.min", ids[i]);
-        printf("%-20s %s     %s minimum\n", name, formatTime(dist->min).c_str(),
-                description);
-        snprintf(name, sizeof(name), "basic.write%s.9", ids[i]);
-        printf("%-20s %s     %s 90%%\n", name, formatTime(dist->p90).c_str(),
-                description);
-        if (dist->p99 != 0) {
-            snprintf(name, sizeof(name), "basic.write%s.99", ids[i]);
-            printf("%-20s %s     %s 99%%\n", name,
-                    formatTime(dist->p99).c_str(), description);
-        }
-        if (dist->p999 != 0) {
-            snprintf(name, sizeof(name), "basic.write%s.999", ids[i]);
-            printf("%-20s %s     %s 99.9%%\n", name,
-                    formatTime(dist->p999).c_str(), description);
-        }
-        snprintf(name, sizeof(name), "basic.writeBw%s", ids[i]);
-        snprintf(description, sizeof(description),
-                "bandwidth writing %sB objects (%uB key)", ids[i], keyLength);
-        printBandwidth(name, dist->bandwidth, description);
     }
 }
 
@@ -6692,9 +6654,6 @@ TestInfo tests[] = {
     {"writeDistWorkload", writeDistWorkload},
     {"writeThroughput", writeThroughput},
     {"workloadThroughput", workloadThroughput},
-    {"linearizableWriteDistRandom", linearizableWriteDistRandom},
-    {"linearizableWriteThroughput", linearizableWriteThroughput},
-    {"linearizableRpc", linearizableRpc},
 };
 
 int
@@ -6726,6 +6685,8 @@ try
         ("help,h", "Print this help message")
         ("numClients", po::value<int>(&numClients)->default_value(1),
                 "Total number of clients running")
+        ("numVClients", po::value<int>(&numVClients)->default_value(1),
+                "Total number of virtual clients to simulate pre client")
         ("size,s", po::value<int>(&objectSize)->default_value(100),
                 "Size of objects (in bytes) to use for test")
         ("numObjects", po::value<int>(&numObjects)->default_value(1),
@@ -6743,6 +6704,8 @@ try
         ("targetOps", po::value<int>(&targetOps)->default_value(0),
                 "Operations per second that each load generating client"
                 "will try to achieve (0 means run as fast as possible)")
+        ("txSpan", po::value<int>(&txSpan)->default_value(1),
+                "Number of servers that each transaction should span")
         ("numIndexlet", po::value<int>(&numIndexlet)->default_value(1),
                 "number of Indexlets")
         ("numIndexes", po::value<int>(&numIndexes)->default_value(1),
@@ -6754,9 +6717,7 @@ try
             options(desc).positional(desc2).run(), vm);
     po::notify(vm);
     if (logFile.size() != 0) {
-        // Redirect both stdout and stderr to the log file.  Don't
-        // call logger.setLogFile, since that will not affect printf
-        // calls.
+        // Redirect both stdout and stderr to the log file.
         FILE* f = fopen(logFile.c_str(), "w");
         if (f == NULL) {
             RAMCLOUD_LOG(ERROR, "couldn't open log file '%s': %s",
@@ -6764,6 +6725,7 @@ try
             exit(1);
         }
         stdout = stderr = f;
+        Logger::get().setLogFile(fileno(f));
     }
     Logger::get().setLogLevels(logLevel);
     if (vm.count("help")) {
@@ -6775,7 +6737,9 @@ try
         exit(1);
     }
 
-    RamCloud r(&context, coordinatorLocator.c_str());
+    Context realContext;
+    context = &realContext;
+    RamCloud r(&realContext, coordinatorLocator.c_str());
     cluster = &r;
     cluster->createTable("data");
     dataTable = cluster->getTableId("data");
@@ -6804,8 +6768,13 @@ try
         }
     }
 
-    cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
-    cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
+    // Flush printout of all data before timetrace gets dumped.
+    fflush(stdout);
+
+    if (clientIndex == 0) {
+        cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
+        cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
+    }
     cluster->clientContext->timeTrace->printToLog();
 }
 catch (std::exception& e) {

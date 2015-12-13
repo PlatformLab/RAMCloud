@@ -17,6 +17,7 @@
 #define RAMCLOUD_DATABLOCK_H
 
 #include <thread>
+#include <mutex>
 #include "Buffer.h"
 
 namespace RAMCloud {

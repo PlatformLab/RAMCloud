@@ -16,15 +16,17 @@
 #ifndef RAMCLOUD_COORDINATORSERVICE_H
 #define RAMCLOUD_COORDINATORSERVICE_H
 
+#include <unordered_set>
+
 #include "ServerList.pb.h"
 #include "Tablets.pb.h"
 #include "TableConfig.pb.h"
 
 #include "Common.h"
 #include "ClientException.h"
+#include "ClientLeaseAuthority.h"
 #include "CoordinatorServerList.h"
 #include "CoordinatorUpdateManager.h"
-#include "LeaseManager.h"
 #include "MasterRecoveryManager.h"
 #include "PingClient.h"
 #include "RawMetrics.h"
@@ -45,13 +47,11 @@ class CoordinatorService : public Service {
     explicit CoordinatorService(Context* context,
                                 uint32_t deadServerTimeout,
                                 bool unitTesting = false,
-                                uint32_t maxThreads = 1,
                                 bool neverKill = false);
     ~CoordinatorService();
     void dispatch(WireFormat::Opcode opcode,
             Rpc* rpc);
     RuntimeOptions *getRuntimeOptionsFromCoordinator();
-    int maxThreads() { return threadLimit; }
 
   PRIVATE:
     // - rpc handlers -
@@ -97,9 +97,6 @@ class CoordinatorService : public Service {
             Rpc* rpc);
     void hintServerCrashed(const WireFormat::HintServerCrashed::Request* reqHdr,
             WireFormat::HintServerCrashed::Response* respHdr,
-            Rpc* rpc);
-    void quiesce(const WireFormat::BackupQuiesce::Request* reqHdr,
-            WireFormat::BackupQuiesce::Response* respHdr,
             Rpc* rpc);
     void reassignTabletOwnership(
             const WireFormat::ReassignTabletOwnership::Request* reqHdr,
@@ -188,7 +185,7 @@ class CoordinatorService : public Service {
      * Manages all client lease and serves requests for new leases and checks
      * for lease validity.
      */
-    LeaseManager leaseManager;
+    ClientLeaseAuthority leaseAuthority;
 
   PRIVATE:
     /**
@@ -204,10 +201,17 @@ class CoordinatorService : public Service {
     MasterRecoveryManager recoveryManager;
 
     /**
-     * Maximum number of threads that are allowed to execute RPC handlers in
-     * service at one time.
+     * Keeps track of the servers that we are currently checking to see if
+     * they have failed,so we don't start multiple simultaneous checks
+     * for the same server. The keys in this set are Server::getId() results.
      */
-    uint32_t threadLimit;
+    std::unordered_set<uint64_t> activeVerifications;
+
+    /**
+     * Used to synchronize access to verifications.
+     */
+    SpinLock mutex;
+    typedef std::lock_guard<SpinLock> Lock;
 
     /**
      * Used for testing only. If true, the HINT_SERVER_CRASHED handler will

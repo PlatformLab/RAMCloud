@@ -76,7 +76,7 @@ class CycleCounter {
             return 0;
         // using 1 avoids most div by zero errors
         uint64_t stopTime = (__is_empty(T) ? 0 : Cycles::rdtsc());
-        uint64_t elapsed = stopTime - startTime;
+        uint64_t elapsed = stopTime - this->startTime;
         if (total != NULL)
             *total += elapsed;
         startTime = ~0UL;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -47,7 +47,7 @@ class MembershipServiceTest : public ::testing::Test {
         , serverId(99, 2)
         , serverList(&context)
         , serverConfig(ServerConfig::forTesting())
-        , service(&serverList, &serverConfig)
+        , service(&context, &serverList, &serverConfig)
         , transport(&context)
         , mockRegistrar(&context, transport)
         , mutex()
@@ -55,8 +55,7 @@ class MembershipServiceTest : public ::testing::Test {
         , logEnabler()
     {
         context.externalStorage  = &storage;
-        transport.addService(service, "mock:host=member",
-                             WireFormat::MEMBERSHIP_SERVICE);
+        transport.registerServer(&context, "mock:host=member");
         serverList.testingAdd({serverId, "mock:host=member",
                                {WireFormat::PING_SERVICE}, 100,
                               ServerStatus::UP});

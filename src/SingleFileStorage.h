@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -76,6 +76,7 @@ class SingleFileStorage : public BackupStorage {
 
         void startLoading();
         bool isLoaded();
+        bool currentlyOpen() { return isOpen;}
         void* load();
         void unload();
 
@@ -135,6 +136,15 @@ class SingleFileStorage : public BackupStorage {
          * metadata has been written to storage.
          */
         bool sync;
+
+        /**
+         * True means this frame is/was used for accumulating new data
+         * in a head segment (i.e. it counts in writeBuffersInUse, so
+         * writeBuffersInUse must be decremented when buffer is freed).
+         * False means this frame was used for reading data during
+         * crash recovery.
+         */
+        bool isWriteBuffer;
 
         /**
          * Tracks whether append has been called on this frame during the
@@ -233,7 +243,7 @@ class SingleFileStorage : public BackupStorage {
     BufferPtr allocateBuffer();
 
     /**
-     * Intermnal use only; block size of storage. Needed to deal
+     * Internal use only; block size of storage. Needed to deal
      * with alignment constraints for O_DIRECT.
      */
     enum { BLOCK_SIZE = 512 };
@@ -319,25 +329,19 @@ class SingleFileStorage : public BackupStorage {
     char* tempFilePath;
 
     /**
-     * Tracks number of non-volatile buffers that would be needed to house
-     * data coming in from backups while it waits to drain to storage.
-     * Incremented on open(), decremented in Frame::close(),
-     * Frame::performWrite(), and Frame::free() depending on whether the data
-     * was already synced to storage or not at the time of the close. Used to
-     * pace the use of non-volatile buffers to the speed of the storage device.
+     * Tracks number of non-volatile buffers currently in use for data
+     * coming in from masters while (a) replicas are filling and (b) they
+     * are getting written to storage.  Used to throttle the creation
+     * of new replicas if too much unwritten data accumulates. Note: this
+     * affects only write buffers: it doesn't limit buffers allocated
+     * during recovery to read replicas.
      */
-    size_t nonVolatileBuffersInUse;
+    size_t writeBuffersInUse;
 
     /**
-     * Limit on the number of non-volatile buffers storage will fill with
-     * replica data queued for store before rejecting new open requests
-     * from masters. Set in BackupService. Setting this too low can severely
-     * impact recovery performance in small clusters. This is because replica
-     * loads are prioritized over stores during recovery so for recovery to
-     * proceed quickly the cluster must be able to buffer all the replicas
-     * generated during recovery.
+     * Upper limit on writeBuffersInUse.
      */
-    size_t maxNonVolatileBuffers;
+    size_t maxWriteBuffers;
 
     /**
      * Returns buffers allocated with SingleFileStorage::allocateBuffer()

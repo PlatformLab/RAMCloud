@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -37,6 +37,8 @@ namespace RAMCloud {
 class BtreeTest: public ::testing::Test {
   public:
     Context context;
+    ClusterClock clusterClock;
+    ClientLeaseValidator clientLeaseValidator;
     ServerId serverId;
     ServerList serverList;
     ServerConfig masterConfig;
@@ -50,11 +52,13 @@ class BtreeTest: public ::testing::Test {
 
     BtreeTest()
         : context()
+        , clusterClock()
+        , clientLeaseValidator(&context, &clusterClock)
         , serverId(5)
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults(&context)
+        , unackedRpcResults(&context, NULL, &clientLeaseValidator)
         , preparedOps(&context)
         , txRecoveryManager(&context)
         , tabletManager()
@@ -70,6 +74,7 @@ class BtreeTest: public ::testing::Test {
     {
         objectManager.initOnceEnlisted();
         tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+        unackedRpcResults.resetFreer(&objectManager);
     }
 
     DISALLOW_COPY_AND_ASSIGN(BtreeTest);
@@ -714,7 +719,7 @@ TEST_F(BtreeTest, inner_node_setRightMostLeafKey) {
     BtreeEntry entry3 = {"zzcccsdf", 33};
     BtreeEntry rightMost1 = {"zzzzzzzzzJLKDJFj", 55};
     BtreeEntry rightMost2 = {"zzzzzzzzzzzzzJLKDJFj", 556};
-    BtreeEntry rightMost3 = {"zzzzzzzzzzzzzzzzzzLKDJFj", 755};
+    // BtreeEntry rightMost3 = {"zzzzzzzzzzzzzzzzzzLKDJFj", 755};
 
     // Try a bunch of operations to see if the key gets overwritten
     n->setRightMostLeafKey(rightMost1);
@@ -957,7 +962,7 @@ TEST_F(BtreeTest, writeReadFreeNode) {
   bt.flush();
 
   const void *ptr = bt.readNode(1000, &buffer_out);
-  checkNodeEquals(n, (IndexBtree::LeafNode*) ptr);
+  checkNodeEquals(n, (const IndexBtree::LeafNode*) ptr);
 
   bt.freeNode(1000);
   bt.flush();
@@ -1357,12 +1362,12 @@ TEST_F(BtreeTest, InnerNode_toString_printToLog) {
             , TestLog::get().c_str());
 }
 
-TEST_F(BtreeTest, isGreaterOrEqual_nodeOnly) {
+TEST_F(BtreeTest, isGreaterOrEqual) {
     IndexBtree bt(tableId, &objectManager);
     Buffer buffer;
-    IndexBtree::InnerNode *in =
+    IndexBtree::InnerNode *innerNode =
             buffer.emplaceAppend<IndexBtree::InnerNode>(&buffer, uint16_t(10));
-    IndexBtree::LeafNode *ln =
+    IndexBtree::LeafNode *leafNode =
             buffer.emplaceAppend<IndexBtree::LeafNode>(&buffer);
 
     uint32_t numEntries = IndexBtree::innerslotmax + 1;
@@ -1372,34 +1377,36 @@ TEST_F(BtreeTest, isGreaterOrEqual_nodeOnly) {
 
     uint16_t i = 0;
     for (; i < IndexBtree::innerslotmax; i++)
-        in->insertAt(i, entries[i], i, uint16_t(i + 1));
-    in->setRightMostLeafKey(entries[i]);
+        innerNode->insertAt(i, entries[i], i, uint16_t(i + 1));
+    innerNode->setRightMostLeafKey(entries[i]);
 
     for (uint16_t i = 0; i < IndexBtree::leafslotmax; i++)
-        ln->insertAt(i, entries[i]);
+        leafNode->insertAt(i, entries[i]);
 
     BtreeEntry less = {"0000000000", 0};
     BtreeEntry mid =  entries[numEntries/2];
     BtreeEntry max = entries.back();
     BtreeEntry largest = {"lola", 9999};
 
-    NodeId inId = 200, lnId = 300;
-    Key inKey(bt.treeTableId, &inId, sizeof(NodeId));
-    Key lnKey(bt.treeTableId, &lnId, sizeof(NodeId));
-
-    bt.writeNode(in, inId);
-    bt.writeNode(ln, lnId);
+    NodeId innerId = 200, leafId = 300;
+    bt.writeNode(innerNode, innerId);
+    bt.writeNode(leafNode, leafId);
     bt.flush();
 
-    EXPECT_TRUE(bt.isGreaterOrEqual(inKey, less));
-    EXPECT_TRUE(bt.isGreaterOrEqual(inKey, mid));
-    EXPECT_TRUE(bt.isGreaterOrEqual(inKey, max));
-    EXPECT_FALSE(bt.isGreaterOrEqual(inKey, largest));
+    Buffer innerBuffer;
+    Buffer leafBuffer;
+    bt.readNode(innerId, &innerBuffer);
+    bt.readNode(leafId, &leafBuffer);
 
-    EXPECT_TRUE(bt.isGreaterOrEqual(lnKey, less));
-    EXPECT_TRUE(bt.isGreaterOrEqual(lnKey, mid));
-    EXPECT_FALSE(bt.isGreaterOrEqual(lnKey, max));
-    EXPECT_FALSE(bt.isGreaterOrEqual(lnKey, largest));
+    EXPECT_TRUE(IndexBtree::isGreaterOrEqual(&innerBuffer, less));
+    EXPECT_TRUE(IndexBtree::isGreaterOrEqual(&innerBuffer, mid));
+    EXPECT_TRUE(IndexBtree::isGreaterOrEqual(&innerBuffer, max));
+    EXPECT_FALSE(IndexBtree::isGreaterOrEqual(&innerBuffer, largest));
+
+    EXPECT_TRUE(IndexBtree::isGreaterOrEqual(&leafBuffer, less));
+    EXPECT_TRUE(IndexBtree::isGreaterOrEqual(&leafBuffer, mid));
+    EXPECT_FALSE(IndexBtree::isGreaterOrEqual(&leafBuffer, max));
+    EXPECT_FALSE(IndexBtree::isGreaterOrEqual(&leafBuffer, largest));
 }
 
 TEST_F(BtreeTest, clear) {
@@ -2197,7 +2204,7 @@ TEST_F(BtreeTest, invariant_BtreeCanOperateWithoutMetadata) {
     for (uint32_t i = 0; i < numEntries/2; i++)
         EXPECT_NE(recoveredBtree.end(), recoveredBtree.find(entries.at(i)));
 
-    // Make modifications and makes ure nothing breaks
+    // Make modifications and make sure nothing breaks
     for (uint32_t i = numEntries/2; i < numEntries; i++)
         recoveredBtree.insert(entries.at(i));
 

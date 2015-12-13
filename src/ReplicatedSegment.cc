@@ -14,6 +14,7 @@
  */
 
 #include "BitOps.h"
+#include "PerfStats.h"
 #include "ReplicatedSegment.h"
 #include "Segment.h"
 #include "ShortMacros.h"
@@ -121,6 +122,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , recoveringFromLostOpenReplicas(false)
     , listEntries()
     , replicationCounter(replicationCounter)
+    , unopenedStartCycles(Cycles::rdtsc())
     , replicas(numReplicas)
 {
     openLen = segment->getAppendedLength(&openingWriteCertificate);
@@ -297,9 +299,9 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId, bool useMinCopysets)
         LOG(DEBUG, "Segment %lu recovering from lost replica which was on "
             "backup %s", segmentId, failedId.toString().c_str());
 
-        if (!replica.committed.close && !replica.replicateAtomically) {
+        if (!replica.committed.close && !replica.replacesLostReplica) {
             someOpenReplicaLost = true;
-            LOG(DEBUG, "Lost replica(s) for segment %lu while open due to "
+            LOG(NOTICE, "Lost replica(s) for segment %lu while open due to "
                 "crash of backup %s", segmentId, failedId.toString().c_str());
             ++metrics->master.openReplicaRecoveries;
         }
@@ -308,7 +310,7 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId, bool useMinCopysets)
             --writeRpcsInFlight;
         if (replica.freeRpc)
             --freeRpcsInFlight;
-        replica.failed();
+        replica.reset(true);
         schedule();
         ++metrics->master.replicaRecoveries;
     }
@@ -529,14 +531,31 @@ void
 ReplicatedSegment::performTask()
 {
     if (freeQueued && !recoveringFromLostOpenReplicas) {
-        foreach (auto& replica, replicas)
+        foreach (Replica& replica, replicas)
             performFree(replica);
         if (!isScheduled()) // Everything is freed, destroy ourself.
             deleter.destroyAndFreeReplicatedSegment(this);
     } else if (!freeQueued) {
-        foreach (auto& replica, replicas)
+        foreach (Replica& replica, replicas)
             performWrite(replica);
     }
+
+    if (unopenedStartCycles != 0) {
+        // The segment is not yet known to be fully open. Once it gets
+        // fully open, update a performance counter with the time to
+        // open it.
+        bool open = true;
+        foreach (Replica& replica, replicas) {
+            if (!replica.committed.open)
+                open = false;
+        }
+        if (open) {
+            PerfStats::threadStats.segmentUnopenedCycles +=
+                    Cycles::rdtsc() - unopenedStartCycles;
+            unopenedStartCycles = 0;
+        }
+    }
+
     // Have to be a bit careful: these steps must be completed even if a
     // free has been enqueued, otherwise lost open replicas could still
     // be detected as the head of the log during a recovery. Hence the
@@ -719,13 +738,19 @@ ReplicatedSegment::performWrite(Replica& replica)
                 replica.writeRpc->wait();
                 TEST_LOG("Write RPC finished for replica slot %ld",
                          &replica - &replicas[0]);
+                if (replica.acked.open && !replica.sent.open) {
+                    LOG(NOTICE,
+                            "Resetting acked.open for segment %lu replica %lu",
+                            segmentId, &replica - &replicas[0]);
+                }
                 replica.acked = replica.sent;
-                if (replica.acked == queued || replica.acked.bytes == openLen) {
-                    // #committed advances whenever a certificate was sent.
-                    // Which happens in two cases:
-                    // a) all the queued data was acked or
-                    // b) the opening write was acked
+                if (replica.sentCertificate) {
                     replica.committed = replica.acked;
+                } else {
+                    // Update open bit even if certificate wasn't sent; this
+                    // is needed to avoid deadlocks over the safety
+                    // constraints during recovery of lost replicas.
+                    replica.committed.open = replica.acked.open;
                 }
                 if (getCommitted().open && followingSegment)
                     followingSegment->precedingSegmentOpenCommitted = true;
@@ -747,7 +772,7 @@ ReplicatedSegment::performWrite(Replica& replica)
                     "overloaded or may already have a replica for this segment "
                     "which was found on disk after a crash; will choose "
                     "another backup", replica.backupId.toString().c_str());
-                replica.reset();
+                replica.reset(replica.replacesLostReplica);
             } catch (const CallerNotInClusterException& e) {
                 // The backup seems to think we have crashed (or never existed).
                 // Check with the coordinator to be sure, then retry.  See
@@ -786,6 +811,9 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
             // No outstanding write, but not yet durably open.
             if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
+                RAMCLOUD_CLOG(NOTICE, "Delaying open for segment %lu, "
+                        "replica %lu: too many RPCs in flight", segmentId,
+                        &replica - &replicas[0]);
                 schedule();
                 return;
             }
@@ -794,15 +822,28 @@ ReplicatedSegment::performWrite(Replica& replica)
             // for the opening write; the replica should atomically commit when
             // it has been fully caught up.
             SegmentCertificate* certificateToSend = &openingWriteCertificate;
-            if (replica.replicateAtomically)
+            replica.sentCertificate = true;
+            uint32_t length = openLen;
+            if (replica.replacesLostReplica) {
+                // This replica was lost, and we are creating a replacement;
+                // don't send any data or certificate in the open request
+                // (we could potentially send some data, but that would make
+                // this code more complicated; better to use the normal
+                // mechanism below to transfer data).
                 certificateToSend = NULL;
+                replica.sentCertificate = false;
+                length = 0;
+            }
 
             TEST_LOG("Sending open to backup %s",
                      replica.backupId.toString().c_str());
             replica.writeRpc.construct(context, replica.backupId,
                                        masterId, segmentId, queued.epoch,
-                                       segment, 0, openLen, certificateToSend,
+                                       segment, 0, length, certificateToSend,
                                        true, false, replicaIsPrimary(replica));
+            if (replicaIsPrimary(replica)) {
+                PerfStats::threadStats.replicationRpcs++;
+            }
             ++writeRpcsInFlight;
             if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
                 LOG(DEBUG, "@%7lu: Replica <%s,%lu,%lu> write -> %7u+%7u "
@@ -810,10 +851,10 @@ ReplicatedSegment::performWrite(Replica& replica)
                     Cycles::toMicroseconds(Cycles::rdtsc() - recoveryStart),
                     masterId.toString().c_str(), segmentId,
                     &replica - &replicas[0],
-                    0, openLen, writeRpcsInFlight);
+                    0, length, writeRpcsInFlight);
             }
             replica.sent.open = true;
-            replica.sent.bytes = openLen;
+            replica.sent.bytes = length;
             replica.sent.epoch = queued.epoch;
             schedule();
             return;
@@ -839,12 +880,14 @@ ReplicatedSegment::performWrite(Replica& replica)
             uint32_t offset = replica.sent.bytes;
             uint32_t length = queued.bytes - offset;
             SegmentCertificate* certificateToSend = &queuedCertificate;
+            replica.sentCertificate = true;
 
             // Breaks atomicity of log entries, but it could happen anyway
             // if a segment gets partially written to disk.
             if (length > maxBytesPerWriteRpc) {
                 length = maxBytesPerWriteRpc;
                 certificateToSend = NULL;
+                replica.sentCertificate = false;
             }
 
             bool sendClose = queued.close && (offset + length) == queued.bytes;
@@ -865,8 +908,9 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
 
             if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
-                TEST_LOG("Cannot write segment %lu, too many writes "
-                         "in flight", segmentId);
+                RAMCLOUD_CLOG(NOTICE, "Delaying write to segment %lu, "
+                        "replica %lu: too many RPCs in flight", segmentId,
+                        &replica - &replicas[0]);
                 schedule();
                 return;
             }
@@ -879,6 +923,9 @@ ReplicatedSegment::performWrite(Replica& replica)
                                        certificateToSend,
                                        false, sendClose,
                                        replicaIsPrimary(replica));
+            if (replicaIsPrimary(replica)) {
+                PerfStats::threadStats.replicationRpcs++;
+            }
             ++writeRpcsInFlight;
             if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
                 LOG(DEBUG, "@%7lu: Replica <%s,%lu,%lu> write -> %7u+%7u "

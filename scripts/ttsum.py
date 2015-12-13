@@ -75,7 +75,7 @@ def scan(f, startingEvent):
     startTime = 0.0
     lastTime = -1.0
     for line in f:
-        match = re.match('.*TimeTrace::printInternal.* '
+        match = re.match('.*TimeTrace\\.cc:.*printInternal.* '
                 '([0-9.]+) ns \(\+ *([0-9.]+) ns\): (.*)', line)
         if not match:
             continue
@@ -203,13 +203,13 @@ if options.startEvent:
             medianTime = times[len(times)//2]
             intervals.sort()
             message = '%-*s  %8.1f %8.1f %8.1f %8.1f %8.1f %7d' % (nameLength,
-                eventName, medianTime, intervals[len(intervals)//2],
-                intervals[0], intervals[-1], sum(intervals)/len(intervals),
-                len(intervals))
+                eventName, medianTime, times[0], times[-1],
+                sum(times)/len(times), intervals[len(intervals)//2],
+                len(times))
             outputInfo.append([medianTime, message])
 
     outputInfo.sort(key=lambda item: item[0])
-    print('%-*s      Time   Median      Min      Max  Average   Count' % (nameLength,
+    print('%-*s    Median      Min      Max  Average    Delta   Count' % (nameLength,
             "Event"))
     print('%s------------------------------------------------------' %
             ('-' * nameLength))

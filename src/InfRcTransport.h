@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -66,7 +66,7 @@ class InfRcTransport : public Transport {
   public:
     explicit InfRcTransport(Context* context, const ServiceLocator* sl = NULL);
     ~InfRcTransport();
-    SessionRef getSession(const ServiceLocator& sl, uint32_t timeoutMs = 0) {
+    SessionRef getSession(const ServiceLocator* sl, uint32_t timeoutMs = 0) {
         return new InfRcSession(this, sl, timeoutMs);
     }
     string getServiceLocator();
@@ -192,7 +192,7 @@ class InfRcTransport : public Transport {
     class InfRcSession : public Session {
       public:
         explicit InfRcSession(InfRcTransport *transport,
-            const ServiceLocator& sl, uint32_t timeoutMs);
+            const ServiceLocator* sl, uint32_t timeoutMs);
         ~InfRcSession();
         virtual void abort();
         virtual void cancelRequest(RpcNotifier* notifier);
@@ -203,6 +203,8 @@ class InfRcTransport : public Transport {
       PRIVATE:
         // Transport that manages this session.
         InfRcTransport *transport;
+        // IP address for the server.
+        struct in_addr serverAddress;
         // Connection to the server; NULL means this socket has been aborted.
         QueuePair* qp;
         // Used to detect server timeouts on the client port.
@@ -218,7 +220,7 @@ class InfRcTransport : public Transport {
      * maintain the port liveness watchdog information.
      *
      * When associated client queue pair is destroyed, eg. through
-     * deletion of RamCloud instance, the other side of queue 
+     * deletion of RamCloud instance, the other side of queue
      * pair on server and its resource need to be deleted.
      * The liveness watchdog cleans up the server side queue pair.
      *
@@ -339,6 +341,8 @@ class InfRcTransport : public Transport {
     int          serverSetupSocket; // UDP socket for incoming setup requests;
                                     // -1 means we're not a server
     int          clientSetupSocket; // UDP socket for outgoing setup requests
+    int          clientPort;        // Port number associated with
+                                    // clientSetupSocket
 
     // Map ibv_wc.qp_num/qp.LocalQpNumber to InfRcServerPort*.
     // InfRcServePort contains QueuePair* and Alarm* for the port
@@ -366,6 +370,10 @@ class InfRcTransport : public Transport {
 
     /// RPCs which are awaiting their responses from the network.
     ClientRpcList outstandingRpcs;
+
+    /// Total number of bytes in messages that have been passed to the NIC,
+    /// but we have not yet reaped their transmit buffer(s).
+    uint32_t pendingOutputBytes;
 
     Tub<CycleCounter<RawMetric>> clientRpcsActiveTime;
 

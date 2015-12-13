@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -16,8 +16,8 @@
 #include "TestUtil.h"
 #include "InfRcTransport.h"
 #include "MockWrapper.h"
-#include "ServiceManager.h"
 #include "StringUtil.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 
@@ -34,6 +34,8 @@ class InfRcTransportTest : public ::testing::Test {
         , server(&context, &locator)
         , client(&context)
     {
+        context.workerManager = new WorkerManager(&context);
+        context.workerManager->testingSaveRpcs = 1;
     }
 
     ~InfRcTransportTest() {}
@@ -45,13 +47,13 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     // Verify that we can send a request, receive it, send a reply,
     // and receive it. Then try a second request with bigger chunks
     // of data.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc("abcdefg");
     // Put junk in the response buffer to make sure it gets cleared properly.
     rpc.response.fillFromString("abcde");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
-            context.serviceManager->waitForRpc(1.0);
+            context.workerManager->waitForRpc(1.0);
     ASSERT_TRUE(serverRpc != NULL);
     EXPECT_EQ("abcdefg", TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_STREQ("completed: 0, failed: 0", rpc.getState());
@@ -64,7 +66,7 @@ TEST_F(InfRcTransportTest, sanityCheck) {
     rpc.reset();
     TestUtil::fillLargeBuffer(&rpc.request, 100000);
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
-    serverRpc = context.serviceManager->waitForRpc(1.0);
+    serverRpc = context.workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("ok",
             TestUtil::checkLargeBuffer(&serverRpc->requestPayload, 100000));
@@ -81,7 +83,7 @@ bool sendZeroCopyFilter(string s) {
 }
 
 TEST_F(InfRcTransportTest, ClientRpc_sendZeroCopy) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     client.testingDontReallySend = true;
     MockWrapper rpc1("r1");
     MockWrapper rpc2("r2");
@@ -130,7 +132,7 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onClientSendQueue) {
     TestLog::Enable _;
 
     // Arrange for 2 messages on clientSendQueue.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     InfRcTransport::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
     MockWrapper rpc1("r1");
@@ -152,7 +154,7 @@ TEST_F(InfRcTransportTest, InfRcSession_abort_onOutstandingRpcs) {
     TestLog::Enable _;
 
     // Arrange for 2 messages on outstandingRpcs.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc1("r1");
     MockWrapper rpc2("r2");
     session->sendRequest(&rpc1.request, &rpc1.response, &rpc1);
@@ -169,7 +171,7 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcPending) {
     TestLog::Enable _;
 
     // Send a message, then cancel before the response is received.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     InfRcTransport::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
     MockWrapper rpc("abcdefg");
@@ -188,13 +190,13 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     TestLog::Enable _;
 
     // Send a message, then cancel before the response is received.
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     InfRcTransport::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
     MockWrapper rpc("abcdefg");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
-            context.serviceManager->waitForRpc(1.0);
+            context.workerManager->waitForRpc(1.0);
     ASSERT_TRUE(serverRpc != NULL);
     EXPECT_STREQ("completed: 0, failed: 0", rpc.getState());
     EXPECT_EQ(1U, client.outstandingRpcs.size());
@@ -218,7 +220,7 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     rpc.request.reset();
     rpc.request.fillFromString("xyzzy");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
-    serverRpc = context.serviceManager->waitForRpc(1.0);
+    serverRpc = context.workerManager->waitForRpc(1.0);
 
     // Note: the log entry for the unrecognized response to the canceled
     // RPC only appears here (InfRc doesn't check for responses unless
@@ -236,7 +238,7 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
 
 TEST_F(InfRcTransportTest, getRpcInfo) {
     TestLog::Enable _;
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     InfRcTransport::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
 
@@ -265,7 +267,7 @@ TEST_F(InfRcTransportTest, getRpcInfo) {
 }
 
 TEST_F(InfRcTransportTest, ClientRpc_sendRequest_sessionAborted) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc;
     session->abort();
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
@@ -273,11 +275,11 @@ TEST_F(InfRcTransportTest, ClientRpc_sendRequest_sessionAborted) {
 }
 
 TEST_F(InfRcTransportTest, ServerRpc_getClientServiceLocator) {
-    Transport::SessionRef session = client.getSession(locator);
+    Transport::SessionRef session = client.getSession(&locator);
     MockWrapper rpc("request");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     Transport::ServerRpc* serverRpc =
-            context.serviceManager->waitForRpc(1.0);
+            context.workerManager->waitForRpc(1.0);
     ASSERT_TRUE(serverRpc != NULL);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "infrc:host=127\\.0\\.0\\.1,port=[0-9][0-9]*",

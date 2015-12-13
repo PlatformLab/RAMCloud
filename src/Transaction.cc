@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "ClientTransactionManager.h"
 #include "ClientTransactionTask.h"
 #include "Transaction.h"
 
@@ -28,6 +29,7 @@ Transaction::Transaction(RamCloud* ramcloud)
     : ramcloud(ramcloud)
     , taskPtr(new ClientTransactionTask(ramcloud))
     , commitStarted(false)
+    , nextReadBatchPtr()
 {
 }
 
@@ -47,10 +49,11 @@ Transaction::commit()
 
     if (!commitStarted) {
         commitStarted = true;
-        ClientTransactionTask::start(taskPtr);
+        ramcloud->transactionManager->startTransactionTask(taskPtr);
     }
 
     while (!task->allDecisionsSent()) {
+        ramcloud->transactionManager->poll();
         ramcloud->poll();
     }
 
@@ -76,10 +79,11 @@ Transaction::sync()
 
     if (!commitStarted) {
         commitStarted = true;
-        ClientTransactionTask::start(taskPtr);
+        ramcloud->transactionManager->startTransactionTask(taskPtr);
     }
 
     while (!task->isReady()) {
+        ramcloud->transactionManager->poll();
         ramcloud->poll();
     }
 }
@@ -143,6 +147,7 @@ Transaction::remove(uint64_t tableId, const void* key, uint16_t keyLength)
     }
 
     ClientTransactionTask* task = taskPtr.get();
+    task->readOnly = false;
 
     Key keyObj(tableId, key, keyLength);
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
@@ -185,6 +190,7 @@ Transaction::write(uint64_t tableId, const void* key, uint16_t keyLength,
     }
 
     ClientTransactionTask* task = taskPtr.get();
+    task->readOnly = false;
 
     Key keyObj(tableId, key, keyLength);
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
@@ -219,16 +225,21 @@ Transaction::write(uint64_t tableId, const void* key, uint16_t keyLength,
  * \param[out] value
  *      After a successful return, this Buffer will hold the
  *      contents of the desired object - only the value portion of the object.
+ * \param batch
+ *      True if this operation can be batched trading latency for throughput.
+ *      Defaults to false.
  */
 Transaction::ReadOp::ReadOp(Transaction* transaction, uint64_t tableId,
-        const void* key, uint16_t keyLength, Buffer* value)
+        const void* key, uint16_t keyLength, Buffer* value, bool batch)
     : transaction(transaction)
     , tableId(tableId)
     , keyBuf()
     , keyLength(keyLength)
     , value(value)
     , buf()
-    , rpc()
+    , requestBatched(batch)
+    , singleRequest()
+    , batchedRequest()
 {
     keyBuf.appendCopy(key, keyLength);
 
@@ -237,12 +248,79 @@ Transaction::ReadOp::ReadOp(Transaction* transaction, uint64_t tableId,
     Key keyObj(tableId, key, keyLength);
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
 
+    if (!requestBatched) {
+        singleRequest.construct();
+    } else {
+        batchedRequest.construct();
+    }
+
     // If no cache entry exists an rpc should be issued.
     if (entry == NULL) {
-        rpc.construct(
-                transaction->ramcloud, tableId, key, keyLength, &buf);
+        if (!requestBatched) {
+            assert(singleRequest);
+            buf.construct();
+            singleRequest->readRpc.construct(
+                    transaction->ramcloud, tableId, key, keyLength, buf.get());
+        } else {
+            assert(batchedRequest);
+
+            if (!transaction->nextReadBatchPtr) {
+                transaction->nextReadBatchPtr = std::make_shared<ReadBatch>();
+            }
+            assert(transaction->nextReadBatchPtr);
+
+            batchedRequest->readBatchPtr = transaction->nextReadBatchPtr;
+            assert(!batchedRequest->readBatchPtr->rpc);
+
+            batchedRequest->request =
+                    {tableId, keyBuf.getRange(0, keyLength), keyLength, &buf};
+
+            batchedRequest->readBatchPtr->requests.push_back(
+                    &batchedRequest->request);
+        }
     }
     // Otherwise we will just return it from cache when wait is called.
+}
+
+/**
+ * Indicates whether a response has been received for this ReadOp and thus
+ * whether #wait will not block.  Used for asynchronous processing of RPCs.
+ * Checking that an ReadOp isReady does not include the operation in the
+ * transaction (see #wait).
+ *
+ * For a batched ReadOp, calling isReady will also trigger the execution of
+ * the batch.
+ *
+ * \return
+ *      True if ReadOp #wait will not block; false otherwise.
+ */
+bool
+Transaction::ReadOp::isReady()
+{
+    if (!requestBatched) {
+        assert(singleRequest);
+        return (!singleRequest->readRpc || singleRequest->readRpc->isReady());
+    } else {
+        assert(batchedRequest);
+
+        // Send out the batch request if it has not already been sent.
+        if (batchedRequest->readBatchPtr
+            && !batchedRequest->readBatchPtr->rpc) {
+            assert(batchedRequest->readBatchPtr
+                    == transaction->nextReadBatchPtr);
+            // Reset the batch pointer so next Op starts a new batch.
+            transaction->nextReadBatchPtr.reset();
+
+            batchedRequest->readBatchPtr->rpc.construct(
+                    transaction->ramcloud,
+                    &batchedRequest->readBatchPtr->requests[0],
+                    downCast<uint32_t>(
+                            batchedRequest->readBatchPtr->requests.size()));
+        }
+
+        return (!batchedRequest->readBatchPtr
+                || batchedRequest->readBatchPtr->rpc->isReady());
+    }
 }
 
 /**
@@ -264,19 +342,49 @@ Transaction::ReadOp::wait()
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
 
     if (entry == NULL) {
-        // If no entry exists in cache an rpc must have been issued.
-        assert(rpc);
-
         bool objectExists = true;
         uint64_t version;
         uint32_t dataLength = 0;
         const void* data = NULL;
 
-        try {
-            rpc->wait(&version);
-            data = buf.getValue(&dataLength);
-        } catch (ObjectDoesntExistException& e) {
-            objectExists = false;
+        if (!requestBatched) {
+            assert(singleRequest);
+            // If no entry exists in cache an rpc must have been issued.
+            assert(singleRequest->readRpc);
+
+            try {
+                singleRequest->readRpc->wait(&version);
+                data = buf->getValue(&dataLength);
+            } catch (ObjectDoesntExistException& e) {
+                objectExists = false;
+            }
+        } else {
+            assert(batchedRequest);
+            // If no entry exists in cache a batch must have been assigned.
+            assert(batchedRequest->readBatchPtr);
+
+            // Trigger the batch start if it has not been already.
+            isReady();
+
+            batchedRequest->readBatchPtr->rpc->wait();
+
+            switch (batchedRequest->request.status) {
+                case STATUS_OK:
+                    version = batchedRequest->request.version;
+                    data = buf->getValue(&dataLength);
+                    break;
+                case STATUS_OBJECT_DOESNT_EXIST:
+                    objectExists = false;
+                    break;
+                default:
+                    RAMCLOUD_LOG(ERROR,
+                                 "Unexpected status '%s' while processing"
+                                 "batched Transaction::ReadOp.",
+                                 statusToString(
+                                        batchedRequest->request.status));
+                    ClientException::throwException(
+                            HERE, batchedRequest->request.status);
+            }
         }
 
         entry = task->insertCacheEntry(keyObj, data, dataLength);

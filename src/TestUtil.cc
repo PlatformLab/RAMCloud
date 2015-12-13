@@ -516,5 +516,27 @@ TestUtil::readFile(const char* path)
     return result;
 }
 
+/**
+ * Waits for the TestLog to become nonempty, but gives up if a long time
+ * goes by without this happening.
+ *
+ * \param substring
+ *      If specified, the method won't return until the test log
+ *      contains this particular substring.
+ */
+void
+TestUtil::waitForLog(const char* substring)
+{
+    // See "Timing-Dependent Tests" in designNotes.
+    for (int i = 0; i < 10000; i++) {
+        if (!TestLog::get().empty()) {
+            if ((substring == NULL) ||
+                    (TestLog::get().find(substring) != std::string::npos)) {
+                return;
+            }
+        }
+        usleep(100);
+    }
+}
 
 } // namespace RAMCloud

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,7 +18,7 @@
 #include "MockTransport.h"
 #include "RawMetrics.h"
 #include "Service.h"
-#include "ServiceManager.h"
+#include "WorkerManager.h"
 
 namespace RAMCloud {
 
@@ -39,6 +39,7 @@ class ServiceTest : public ::testing::Test {
         , rpc(&worker, &request, &response)
     {
         TestLog::enable();
+        context.services[1] = &service;
     }
 
     ~ServiceTest()
@@ -106,7 +107,7 @@ TEST_F(ServiceTest, dispatch_unknown) {
 
 TEST_F(ServiceTest, handleRpc_messageTooShortForCommon) {
     request.fillFromString("x");
-    service.handleRpc(&rpc);
+    Service::handleRpc(&context, &rpc);
     EXPECT_STREQ("STATUS_MESSAGE_TOO_SHORT", TestUtil::getStatus(&response));
 }
 TEST_F(ServiceTest, handleRpc_undefinedType) {
@@ -114,22 +115,25 @@ TEST_F(ServiceTest, handleRpc_undefinedType) {
     WireFormat::RequestCommon* header =
             request.emplaceAppend<WireFormat::RequestCommon>();
     header->opcode = WireFormat::ILLEGAL_RPC_TYPE;
-    service.handleRpc(&rpc);
+    header->service = WireFormat::ServiceType(1);
+    Service::handleRpc(&context, &rpc);
     EXPECT_STREQ("STATUS_UNIMPLEMENTED_REQUEST",
             TestUtil::getStatus(&response));
     EXPECT_EQ(1U, metrics->rpc.illegal_rpc_typeCount);
 }
 TEST_F(ServiceTest, handleRpc_retryException) {
     MockService service;
+    context.services[0] = &service;
     request.fillFromString("1 2 54322 3 4");
-    service.handleRpc(&rpc);
+    Service::handleRpc(&context, &rpc);
     EXPECT_EQ("17 100 200 18 server overloaded/0",
             TestUtil::toString(&response));
 }
 TEST_F(ServiceTest, handleRpc_clientException) {
     MockService service;
+    context.services[0] = &service;
     request.fillFromString("1 2 54321 3 4");
-    service.handleRpc(&rpc);
+    Service::handleRpc(&context, &rpc);
     EXPECT_STREQ("STATUS_REQUEST_FORMAT_ERROR", TestUtil::getStatus(&response));
 }
 
@@ -247,9 +251,10 @@ TEST_F(ServiceTest, sendReply) {
     service.gate = -1;
     service.sendReply = true;
     Context context;
+    context.workerManager = new WorkerManager(&context);
+    WorkerManager* manager = context.workerManager;
     MockTransport transport(&context);
-    ServiceManager* manager = context.serviceManager;
-    manager->addService(service, WireFormat::BACKUP_SERVICE);
+    context.services[WireFormat::BACKUP_SERVICE] = &service;
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
             &transport, "0x10000 3 4");
     manager->handleRpc(rpc);

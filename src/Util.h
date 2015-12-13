@@ -27,6 +27,7 @@ namespace RAMCloud {
  */
 namespace Util {
 
+void clearCpuAffinity(void);
 void genRandomString(char* str, const int length);
 string hexDump(const void *buffer, uint64_t bytes);
 void spinAndCheckGaps(int count);

@@ -25,7 +25,7 @@ class CoordinatorClusterClockTest : public ::testing::Test {
     Context context;
     MockExternalStorage storage;
     Tub<CoordinatorClusterClock> clock;
-    const uint64_t safeTimeIntervalUs;
+    const ClusterTimeDuration safeTimeInterval;
 
 
     CoordinatorClusterClockTest()
@@ -33,7 +33,7 @@ class CoordinatorClusterClockTest : public ::testing::Test {
         , context()
         , storage(true)
         , clock()
-        , safeTimeIntervalUs(CoordinatorClusterClock::safeTimeIntervalUs)
+        , safeTimeInterval(CoordinatorClusterClockConstants::safeTimeInterval)
     {
         context.externalStorage = &storage;
         clock.construct(&context);
@@ -45,18 +45,18 @@ class CoordinatorClusterClockTest : public ::testing::Test {
 TEST_F(CoordinatorClusterClockTest, getTime) {
     // Time dependent test;
     // Set large safe time so that the test will not hit it.
-    clock->safeClusterTimeUs = 10000;
-    EXPECT_GT(clock->getTime(), 0U);
-    EXPECT_LT(clock->getTime(), 10000U);
+    clock->safeClusterTime = ClusterTime(10000000);
+    EXPECT_GT(clock->getTime(), ClusterTime(0U));
+    EXPECT_LT(clock->getTime(), ClusterTime(10000000U));
 }
 
 TEST_F(CoordinatorClusterClockTest, getTime_stale) {
     usleep(1000);
-    EXPECT_EQ(0U, clock->safeClusterTimeUs);
-    EXPECT_EQ(0U, clock->getTime());
+    EXPECT_EQ(0U, clock->safeClusterTime.getEncoded());
+    EXPECT_EQ(ClusterTime(0U), clock->getTime());
     usleep(1000);
     TestLog::reset();
-    EXPECT_EQ(0U, clock->getTime());
+    EXPECT_EQ(ClusterTime(0U), clock->getTime());
     EXPECT_EQ("getTime: "
               "Returning stale time. SafeTimeUpdater may be running behind.",
               TestLog::get());
@@ -71,23 +71,23 @@ TEST_F(CoordinatorClusterClockTest, startUpdater) {
 TEST_F(CoordinatorClusterClockTest, handleTimerEvent) {
     // Covers both the handleTimerEvent and recoverClusterTime methods.
     EXPECT_EQ(0U, clock->recoverClusterTime(context.externalStorage));
-    EXPECT_EQ(0U, clock->safeClusterTimeUs);
+    EXPECT_EQ(0U, clock->safeClusterTime.getEncoded());
     storage.log.clear();
     clock->updater.handleTimerEvent();
     EXPECT_EQ("set(UPDATE, coordinatorClusterClock)", storage.log);
     storage.getResults.push(storage.setData);
     uint64_t storedTime = clock->recoverClusterTime(context.externalStorage);
-    EXPECT_GT(storedTime, safeTimeIntervalUs);
-    EXPECT_EQ(storedTime, clock->safeClusterTimeUs);
+    EXPECT_GT(static_cast<int64_t>(storedTime),
+              safeTimeInterval.toNanoseconds());
+    EXPECT_EQ(storedTime, clock->safeClusterTime.getEncoded());
 }
 
 TEST_F(CoordinatorClusterClockTest, getInternal) {
-    CoordinatorClusterClock::Lock lock(clock->mutex);
-    uint64_t firstTime = clock->getInternal(lock);
+    ClusterTime firstTime = clock->getInternal();
     usleep(50);
-    uint64_t secondTime = clock->getInternal(lock);
+    ClusterTime secondTime = clock->getInternal();
     EXPECT_GT(secondTime, firstTime);
-    EXPECT_GT(firstTime, clock->startingClusterTimeUs);
+    EXPECT_GT(firstTime, clock->startingClusterTime);
 }
 
 // recoverClusterTime covered by handleTimerEvent test.

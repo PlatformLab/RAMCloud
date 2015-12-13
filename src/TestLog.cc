@@ -103,6 +103,9 @@ namespace TestLog {
     get()
     {
         Lock _(mutex);
+        if (!enabled) {
+            return "TestLog not enabled!";
+        }
         return message;
     }
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -131,7 +131,7 @@ class TabletManager {
                    uint64_t endKeyHash,
                    Tablet* outTablet = NULL);
     void getTablets(vector<Tablet>* outTablets);
-    void deleteTablet(uint64_t tableId,
+    bool deleteTablet(uint64_t tableId,
                       uint64_t startKeyHash,
                       uint64_t endKeyHash);
     bool splitTablet(uint64_t tableId,

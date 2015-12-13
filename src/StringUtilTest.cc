@@ -66,4 +66,22 @@ TEST(StringUtilTest, split) {
     EXPECT_EQ("bar", split("foo bar", ' ')[1]);
 }
 
+TEST(StringUtilTest, stringToInt) {
+    bool error;
+    EXPECT_EQ(12345, stringToInt("12345", &error));
+    EXPECT_FALSE(error);
+    EXPECT_EQ(-80, stringToInt(" -80", &error));
+    EXPECT_FALSE(error);
+    EXPECT_EQ(0, stringToInt("", &error));
+    EXPECT_TRUE(error);
+    EXPECT_EQ(0, stringToInt("xyz", &error));
+    EXPECT_TRUE(error);
+    EXPECT_EQ(0, stringToInt("   99xy", &error));
+    EXPECT_TRUE(error);
+    EXPECT_EQ(0, stringToInt("99999999999999999999", &error));
+    EXPECT_TRUE(error);
+    EXPECT_EQ(0, stringToInt("-9999999999999999999", &error));
+    EXPECT_TRUE(error);
+}
+
 }  // namespace RAMCloud

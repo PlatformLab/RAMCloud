@@ -137,7 +137,7 @@ class IndexletManager {
     size_t getNumIndexlets();
     bool hasIndexlet(uint64_t tableId, uint8_t indexId,
             const void *key, uint16_t keyLength);
-    bool isGreaterOrEqual(Key& treeNodeKey,  uint64_t tableId, uint8_t indexId,
+    bool isGreaterOrEqual(Buffer* nodeObjectValue,
             const void* compareKey, uint16_t compareKeyLength);
     void truncateIndexlet(uint64_t tableId, uint8_t indexId,
             const void* truncateKey, uint16_t truncateKeyLength);
@@ -217,6 +217,8 @@ class IndexletManager {
     /// Object Manager to handle mapping of index as objects
     ObjectManager* objectManager;
 
+    /////////////////////////// Meta-data related functions //////////////////
+
     IndexletManager::IndexletMap::iterator findIndexlet(
             uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength, Lock& mutex);
@@ -225,6 +227,12 @@ class IndexletManager {
             const void *firstKey, uint16_t firstKeyLength,
             const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
             Lock& mutex);
+
+    /////////////////////////// Index data related functions //////////////////
+
+    bool existsIndexEntry(
+            uint64_t tableId, uint8_t indexId,
+            const void* key, KeyLength keyLength, uint64_t pKHash);
 
     DISALLOW_COPY_AND_ASSIGN(IndexletManager);
 };

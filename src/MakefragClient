@@ -16,14 +16,24 @@ else
 SOLARFLARE_SRC :=
 endif
 
+ifeq ($(DPDK),yes)
+DPDK_SRC := \
+        src/DpdkDriver.cc \
+        $(NULL)
+else
+DPDK_SRC :=
+endif
+
 CLIENT_SRCFILES := \
 		   src/AbstractServerList.cc \
 		   src/ArpCache.cc \
+		   src/BasicTransport.cc \
 		   src/Buffer.cc \
 		   src/CRamCloud.cc \
 		   src/CacheTrace.cc \
 		   src/ClientException.cc \
-		   src/ClientLease.cc \
+		   src/ClientLeaseAgent.cc \
+		   src/ClientTransactionManager.cc \
 		   src/ClientTransactionTask.cc \
 		   src/ClusterMetrics.cc \
 		   src/CodeLocation.cc \
@@ -52,6 +62,7 @@ CLIENT_SRCFILES := \
 		   src/LogCabinLogger.cc \
 		   src/LogCabinStorage.cc \
 		   src/LogMetricsStringer.cc \
+		   src/LogProtector.cc \
 		   src/MacAddress.cc \
 		   src/MacIpAddress.cc \
 		   src/MasterClient.cc \
@@ -74,18 +85,17 @@ CLIENT_SRCFILES := \
 		   src/PortAlarm.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
+		   src/RpcLevel.cc \
 		   src/RpcTracker.cc \
+		   src/RpcWrapper.cc \
 		   src/SegletAllocator.cc \
 		   src/Seglet.cc \
 		   src/Segment.cc \
-		   src/RpcWrapper.cc \
 		   src/ServerIdRpcWrapper.cc \
 		   src/ServerList.cc \
 		   src/ServerMetrics.cc \
-		   src/ServerRpcPool.cc \
 		   src/Service.cc \
 		   src/ServiceLocator.cc \
-		   src/ServiceManager.cc \
 		   src/SessionAlarm.cc \
 		   src/SpinLock.cc \
 		   src/Status.cc \
@@ -96,17 +106,20 @@ CLIENT_SRCFILES := \
 		   src/ThreadId.cc \
 		   src/TimeCounter.cc \
 		   src/TimeTrace.cc \
+		   src/TimeTraceUtil.cc \
 		   src/Transaction.cc \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
 		   src/Util.cc \
 		   src/WireFormat.cc \
+		   src/WorkerManager.cc \
 		   src/WorkerSession.cc \
 		   src/WorkerTimer.cc \
 		   src/ZooStorage.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(SOLARFLARE_SRC) \
+		   $(DPDK_SRC) \
 		   $(OBJDIR)/Histogram.pb.cc \
 		   $(OBJDIR)/LogMetrics.pb.cc \
 		   $(OBJDIR)/MasterRecoveryInfo.pb.cc \
@@ -156,7 +169,7 @@ $(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/Histogr
 
 $(OBJDIR)/migrateTablet: $(OBJDIR)/MigrateTabletMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
-	$(CXX) $(LIBS) -o $@ $^ -L$(OBJDIR)
+	$(CXX) -o $@ $^ -L$(OBJDIR) $(LIBS)
 
 .PHONY: client client-lib client-lib-static client-lib-shared recovery ensureServers
 

@@ -262,10 +262,12 @@ try
             "with key <1,'0'>");
         uint64_t b = Cycles::rdtsc();
         client.testingFill(1, "0", 1, count * tableCount, objectDataSize);
-        LOG(NOTICE, "%d inserts took %lu ticks",
-            count * tableCount, Cycles::rdtsc() - b);
-        LOG(NOTICE, "avg insert took %lu ticks",
-                    (Cycles::rdtsc() - b) / count / tableCount);
+        double seconds = Cycles::toSeconds(Cycles::rdtsc() - b);
+        double objectsPerMicro = static_cast<double>(count*tableCount)
+                *1e-6/seconds;
+        LOG(NOTICE, "%d inserts took %.2f seconds (%.2f Mobjects/sec)",
+            count * tableCount, seconds, objectsPerMicro);
+        LOG(NOTICE, "avg insert took %.1f usec", 1.0/objectsPerMicro);
     } else {
         Buffer writeVal;
 
@@ -352,7 +354,7 @@ try
     // client.ping();
 
     LOG(NOTICE, "- quiescing writes");
-    client.quiesce();
+    client.serverControlAll(WireFormat::ControlOp::QUIESCE);
 
     // Take an initial snapshot of performance metrics.
     ClusterMetrics metricsBefore(&client);
@@ -458,6 +460,7 @@ try
                     metricIt->second);
         }
     }
+    client.serverControlAll(WireFormat::ControlOp::QUIESCE);
 
     return 0;
 } catch (RAMCloud::ClientException& e) {

@@ -62,10 +62,15 @@ WorkerSession::abort()
 void
 WorkerSession::cancelRequest(Transport::RpcNotifier* notifier)
 {
-    // Must make sure that the dispatch thread isn't running when we
-    // invoke the real cancelRequest.
-    context->dispatchExec->addRequest<CancelRequestWrapper>(
+    // This request has to run in the dispatch thread. However, it's
+    // important that this method doesn't return until the cancel
+    // operation has completed. Once this method returns, the caller may
+    // reuse various resources for the request, such as the buffers and
+    // the notifier, and it isn't safe to do that until the transport
+    // has finished the cancel operation.
+    uint64_t id = context->dispatchExec->addRequest<CancelRequestWrapper>(
             notifier, wrapped);
+    context->dispatchExec->sync(id);
 }
 
 /// \copydoc Transport::Session::getRpcInfo

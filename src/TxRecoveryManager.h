@@ -54,6 +54,12 @@ class TxRecoveryManager : public WorkerTimer {
     SpinLock lock;
     typedef std::lock_guard<SpinLock> Lock;
 
+    /// Used to ensure only one timer handler is running at a time.  We don't
+    /// use the monitor lock for this purpose because we don't want to block
+    /// other TxRecoveryManger operations while the handler is running (blocking
+    /// all operations during the timer handler caused deadlock; RAM-820).
+    SpinLock handlerLock;
+
     /// Overall information about this server.
     Context* context;
 
@@ -62,9 +68,8 @@ class TxRecoveryManager : public WorkerTimer {
     struct RecoveryId {
         /// Id of the lease with which the recovering transaction was issued.
         uint64_t leaseId;
-        /// The identifying rpcId of the recovering transaction; namely the
-        /// rpcId of the first participant in the transaction.
-        uint64_t rpcId;
+        /// Id of the recovering transaction.
+        uint64_t transactionId;
 
         /**
          * The operator < is overridden to implement the
@@ -72,7 +77,8 @@ class TxRecoveryManager : public WorkerTimer {
          */
         bool operator<(const RecoveryId& recoveryId) const {
             return leaseId < recoveryId.leaseId ||
-                (leaseId == recoveryId.leaseId && rpcId < recoveryId.rpcId);
+                    (leaseId == recoveryId.leaseId
+                            && transactionId < recoveryId.transactionId);
         }
     };
 
@@ -90,7 +96,7 @@ class TxRecoveryManager : public WorkerTimer {
         uint64_t tableId;
         uint64_t keyHash;
         uint64_t rpcId;
-        enum { PENDING, ABORT, DECIDE, FAILED } state;
+        enum State { PENDING, ABORT, DECIDE } state;
 
         Participant(uint64_t tableId, uint64_t keyHash, uint64_t rpcId)
             : tableId(tableId)
@@ -104,7 +110,7 @@ class TxRecoveryManager : public WorkerTimer {
 
     class RecoveryTask {
       PUBLIC:
-        RecoveryTask(Context* context, uint64_t leaseId,
+        RecoveryTask(Context* context, uint64_t leaseId, uint64_t transactionId,
                 Buffer& participantBuffer, uint32_t participantCount,
                 uint32_t offset = 0);
         RecoveryTask(Context* context, TxDecisionRecord& record);
@@ -112,43 +118,60 @@ class TxRecoveryManager : public WorkerTimer {
         RecoveryId getId() { return {leaseId, participants.begin()->rpcId}; }
         bool isReady() { return (state == State::DONE); }
         void performTask();
-        void wait();
 
       PRIVATE:
-        /// Encapsulates the state of a single Decision RPC sent to a single
-        /// server.
-        class DecisionRpc : public RpcWrapper {
-            friend class RecoveryTask;
-          public:
-            DecisionRpc(Context* context, Transport::SessionRef session,
-                        RecoveryTask* task);
-            ~DecisionRpc() {}
-
-            bool checkStatus();
-            bool handleTransportError();
+        /// Encapsulates common state and methods of the Decision and
+        /// RequestAbort RPCs.
+        class TxRecoveryRpcWrapper : public RpcWrapper {
+          PUBLIC:
+            TxRecoveryRpcWrapper(Context* context,
+                    Transport::SessionRef session,
+                    RecoveryTask* task,
+                    uint32_t responseHeaderLength);
+            ~TxRecoveryRpcWrapper() {}
             void send();
 
-            void appendOp(ParticipantList::iterator opEntry);
-            void retryRequest();
+          PROTECTED:
+            bool appendOp(ParticipantList::iterator opEntry,
+                          Participant::State state);
+            bool checkStatus();
+            bool handleTransportError();
+            void markOpsForRetry();
 
             /// Overall server state information.
             Context* context;
-
-            /// Session that will be used to transmit the RPC.
-            Transport::SessionRef session;
 
             /// Task that issued this rpc.
             RecoveryTask* task;
 
             /// Information about all of the ops that are being requested
             /// in this RPC.
-    #ifdef TESTING
+#ifdef TESTING
             static const uint32_t MAX_OBJECTS_PER_RPC = 3;
-    #else
+#else
             static const uint32_t MAX_OBJECTS_PER_RPC = 75;
-    #endif
+#endif
             ParticipantList::iterator ops[MAX_OBJECTS_PER_RPC];
 
+            // Pointer to participantCount field in request header.
+            // Used to provide access to field of both RequestAbort and Decision
+            // headers to common methods.
+            uint32_t* participantCount;
+
+            DISALLOW_COPY_AND_ASSIGN(TxRecoveryRpcWrapper);
+        };
+
+        /// Encapsulates the state of a single Decision RPC sent to a single
+        /// server.
+        class DecisionRpc : public TxRecoveryRpcWrapper {
+          PUBLIC:
+            DecisionRpc(Context* context, Transport::SessionRef session,
+                        RecoveryTask* task);
+            ~DecisionRpc() {}
+            bool appendOp(ParticipantList::iterator opEntry);
+            void wait();
+
+          PROTECTED:
             /// Header for the RPC (used to update count as objects are added).
             WireFormat::TxDecision::Request* reqHdr;
 
@@ -157,38 +180,15 @@ class TxRecoveryManager : public WorkerTimer {
 
         /// Encapsulates the state of a single RequestAbortRpc sent to a single
         /// server.
-        class RequestAbortRpc : public RpcWrapper {
-            friend class RecoveryTask;
-          public:
+        class RequestAbortRpc : public TxRecoveryRpcWrapper {
+          PUBLIC:
             RequestAbortRpc(Context* context, Transport::SessionRef session,
                     RecoveryTask* task);
             ~RequestAbortRpc() {}
+            bool appendOp(ParticipantList::iterator opEntry);
+            WireFormat::TxPrepare::Vote wait();
 
-            bool checkStatus();
-            bool handleTransportError();
-            void send();
-
-            void appendOp(ParticipantList::iterator opEntry);
-            void retryRequest();
-
-            /// Overall server state information.
-            Context* context;
-
-            /// Session that will be used to transmit the RPC.
-            Transport::SessionRef session;
-
-            /// Task that issued this rpc.
-            RecoveryTask* task;
-
-            /// Information about all of the ops that are being requested
-            /// in this RPC.
-        #ifdef TESTING
-            static const uint32_t MAX_OBJECTS_PER_RPC = 3;
-        #else
-            static const uint32_t MAX_OBJECTS_PER_RPC = 75;
-        #endif
-            ParticipantList::iterator ops[MAX_OBJECTS_PER_RPC];
-
+          PROTECTED:
             /// Header for the RPC (used to update count as objects are added).
             WireFormat::TxRequestAbort::Request* reqHdr;
 
@@ -199,8 +199,10 @@ class TxRecoveryManager : public WorkerTimer {
         Context* context;
         /// Id of the lease associated with the transaction being recovered.
         uint64_t leaseId;
+        /// Id of the recovering transaction.
+        uint64_t transactionId;
         /// Current phase of the recovery.
-        enum State {DONE, REQEST_ABORT, DECIDE} state;
+        enum State {REQUEST_ABORT, DECIDE, DONE} state;
         /// The decision that the transaction will be driven to.
         WireFormat::TxDecision::Decision decision;
         /// List of the participants of the transaction being recovered.
@@ -213,9 +215,9 @@ class TxRecoveryManager : public WorkerTimer {
         /// List of outstanding request abort rpcs.
         std::list<RequestAbortRpc> requestAbortRpcs;
 
-        void processDecisionRpcs();
+        void processDecisionRpcResults();
         void sendDecisionRpc();
-        void processRequestAbortRpcs();
+        void processRequestAbortRpcResults();
         void sendRequestAbortRpc();
 
         string toString();

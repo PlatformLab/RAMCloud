@@ -230,7 +230,8 @@ class ReplicatedSegment : public Task {
             , sent()
             , freeRpc()
             , writeRpc()
-            , replicateAtomically(false)
+            , replacesLostReplica(false)
+            , sentCertificate(false)
         {}
 
         ~Replica() {
@@ -254,29 +255,18 @@ class ReplicatedSegment : public Task {
         }
 
         /**
-         * Mark this replica as having failed.  This has two effects. First,
-         * the replica state will be reset so that future iterations of
-         * the ReplicaManager will start rereplication. Second, it sets a
-         * flag indicating that all future replication of this segment
-         * should be done atomically.  That is, the segment is either
-         * replicated completely to close or the backup disavows all knowledge
-         * of it.
+         * Reset all state associated with this replica to its initial
+         * state (unallocated, unopened, no bytes committed).
+         *
+         * \param replacesLostReplica
+         *      Provides a value for the replacesLostReplica member variable;
+         *      true means the replica must be managed differently to
+         *      ensure log integrity.
          */
-        void failed() {
+        void reset(bool replacesLostReplica = false) {
             this->~Replica();
             new(this) Replica;
-            replicateAtomically = true;
-        }
-
-        /**
-         * Reset all state associated with this replica.  Note that it is the
-         * boolean freeQueued in ReplicatedSegment that prevents this replica
-         * from being replicated again by the main ReplicaManager loop if the
-         * replica has been freed.
-         */
-        void reset() {
-            this->~Replica();
-            new(this) Replica;
+            this->replacesLostReplica = replacesLostReplica;
         }
 
         /**
@@ -327,17 +317,21 @@ class ReplicatedSegment : public Task {
         // Fields below survive across failed()/start() calls.
 
         /**
-         * This is set whenever replication is happening in response to a
-         * failure.  It indicates that future replication should be done
-         * atomically.  That is the if the backup receives the entire replica
-         * including its close then it can be used during recovery, otherwise
-         * if the close has not been received by the backup it will disavow
-         * all knowledge of the replica.  This is used to prevent replicas
-         * which are being recreated for closed segments in response to
-         * failures from appearing open during a recovery and silently
-         * truncating the log.
+         * True means that the original replica in this slot was lost due
+         * to a crash; this is a replacement for it. Replacement replicas
+         * must be handled differently to preserve log consistency. For
+         * example, no part of this replica will be considered committed until
+         * it contains all queued bytes (so that an incomplete replica can't
+         * be used during crash recovery).
          */
-        bool replicateAtomically;
+        bool replacesLostReplica;
+
+        /**
+         * True means that the most recent write RPC contained a certificate
+         * (thus, if it completes successfully, everything in "sent" is
+         * now committed).
+         */
+        bool sentCertificate;
 
         DISALLOW_COPY_AND_ASSIGN(Replica);
     };
@@ -478,9 +472,7 @@ class ReplicatedSegment : public Task {
     std::mutex syncMutex;
 
     /**
-     * Segment to be replicated. It is expected that the segment already
-     * contains a header when this ReplicatedSegment is constructed;
-     * see #openLen.
+     * Segment to be replicated.
      */
     const Segment* segment;
 
@@ -528,18 +520,22 @@ class ReplicatedSegment : public Task {
     SegmentCertificate queuedCertificate;
 
     /**
-     * Bytes to send atomically to backups with the opening backup write rpc.
-     * Queried from #segment when this ReplicatedSegment is constructed.
+     * Number of bytes that must be replicated to the backup before a
+     * replica can be considered "open"; consists of all the data in the
+     * segment when this ReplicatedSegment is constructed (typically
+     * contains header information such as the log digest). This applies
+     * only to initial opens, not to opens occurring during rereplication
+     * (during rereplication the replica isn't considered open until it
+     * is fully up-to-date).
      */
     uint32_t openLen;
 
     /**
-     * Similar to #queuedCertificate, except it is the certificate just for the
-     * data sent to the backup with the opening write. Must be kept separately
-     * because new data with new certificate can be queued for replication
-     * before the opening write has been sent but the opening write must be
-     * sent without any object data (due to the no-write-before-preceding-close
-     * rule).
+     * Similar to #queuedCertificate, except it is the certificate just for
+     * just the first openLen bytes of data. This is kept separately to
+     * handle cases where new data gets queued for replication before the
+     * opening write has been sent; want to be able to mark the replica
+     * ASAP, without waiting for all queued data to be replicated.
      */
     SegmentCertificate openingWriteCertificate;
 
@@ -604,6 +600,15 @@ class ReplicatedSegment : public Task {
      * Shared among ReplicatedSegments.
      */
     Tub<CycleCounter<RawMetric>>* replicationCounter;
+
+    /**
+     * Used to figure out how long it takes the segment to get to a
+     * properly opened state.  If non-zero, it means the segment has
+     * not yet reached a state where all of its replicas are open;
+     * the value indicates the time (in rdtsc cycles) when the segment
+     * was constructed.
+     */
+    uint64_t unopenedStartCycles;
 
     /**
      * An array of #ReplicaManager::replica backups on which the segment is

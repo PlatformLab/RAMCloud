@@ -13,7 +13,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ClientLease.h"
+#include "ClientLeaseAgent.h"
 #include "Logger.h"
 #include "LinearizableObjectRpcWrapper.h"
 #include "RamCloud.h"
@@ -118,6 +118,23 @@ LinearizableObjectRpcWrapper::cancel()
 }
 
 /**
+ * Indicates whether a response has been received for an RPC.  Used for
+ * asynchronous processing of RPCs.  Calling this method will also ensure
+ * the ClientLease remains valid.
+ *
+ * \return
+ *      True means that the RPC has finished or been canceled; #wait will
+ *      not block.  False means that the RPC is still being processed.
+ */
+bool
+LinearizableObjectRpcWrapper::isReady()
+{
+    // Poke the client lease to keep it valid.
+    ramcloud->clientLeaseAgent->poll();
+    return RpcWrapper::isReady();
+}
+
+/**
  * Fills request header with linearizability information.
  * This function should be invoked in the constructor of every linearizable
  * RPC.
@@ -131,7 +148,7 @@ LinearizableObjectRpcWrapper::fillLinearizabilityHeader(RpcRequest* reqHdr)
     if (linearizabilityOn) {
         assignedRpcId = ramcloud->rpcTracker->newRpcId(this);
         assert(assignedRpcId);
-        reqHdr->lease = ramcloud->clientLease->getLease();
+        reqHdr->lease = ramcloud->clientLeaseAgent->getLease();
         reqHdr->rpcId = assignedRpcId;
         reqHdr->ackId = ramcloud->rpcTracker->ackId();
     } else {
@@ -190,10 +207,14 @@ void LinearizableObjectRpcWrapper::tryFinish()
 
 /*
  * Following line is necessary to tell compiler to instantiate the templatized
- * method "fillLinearizabilityHeader" with WireFormat::Write::Request.
+ * method "fillLinearizabilityHeader" with WireFormat::Write::Request, etc.
  * This manual instantiation is necessary if the method is defined in cc file.
  */
 template void LinearizableObjectRpcWrapper::fillLinearizabilityHeader
     <WireFormat::Write::Request>(WireFormat::Write::Request* reqHdr);
+template void LinearizableObjectRpcWrapper::fillLinearizabilityHeader
+    <WireFormat::Increment::Request>(WireFormat::Increment::Request* reqHdr);
+template void LinearizableObjectRpcWrapper::fillLinearizabilityHeader
+    <WireFormat::Remove::Request>(WireFormat::Remove::Request* reqHdr);
 
 } // namespace RAMCloud

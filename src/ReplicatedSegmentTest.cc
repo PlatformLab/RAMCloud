@@ -18,6 +18,7 @@
 #include "TestUtil.h"
 #include "BackupSelector.h"
 #include "Memory.h"
+#include "PerfStats.h"
 #include "ReplicatedSegment.h"
 #include "Segment.h"
 #include "ShortMacros.h"
@@ -304,7 +305,7 @@ TEST_F(ReplicatedSegmentTest, close) {
 TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     segment->handleBackupFailure({0, 0}, false);
     foreach (auto& replica, segment->replicas)
-        EXPECT_FALSE(replica.replicateAtomically);
+        EXPECT_FALSE(replica.replacesLostReplica);
 
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
@@ -312,21 +313,21 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
     // Not active still, next performTask chooses backups and sends opens.
     segment->handleBackupFailure({0, 0}, false);
     foreach (auto& replica, segment->replicas)
-        EXPECT_FALSE(replica.replicateAtomically);
+        EXPECT_FALSE(replica.replacesLostReplica);
 
     taskQueue.performTask();
     // Replicas are now active with an outstanding open rpc.
     segment->handleBackupFailure({88888, 0}, false);
     foreach (auto& replica, segment->replicas)
-        EXPECT_FALSE(replica.replicateAtomically);
+        EXPECT_FALSE(replica.replacesLostReplica);
 
     EXPECT_EQ(2u, writeRpcsInFlight);
     segment->handleBackupFailure({0, 0}, false);
     EXPECT_EQ(1u, writeRpcsInFlight);
     // The failed replica must restart replication in atomic mode.
-    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
+    EXPECT_TRUE(segment->replicas[0].replacesLostReplica);
     // The other open replica is in normal (non-atomic) mode still.
-    EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    EXPECT_FALSE(segment->replicas[1].replacesLostReplica);
     EXPECT_EQ(1lu, segment->queued.epoch);
 
     // Failure of the second replica. This one has a free request
@@ -335,8 +336,8 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpen) {
                                            masterId, segmentId);
     freeRpcsInFlight = 2;
     segment->handleBackupFailure({1, 0}, false);
-    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
-    EXPECT_TRUE(segment->replicas[1].replicateAtomically);
+    EXPECT_TRUE(segment->replicas[0].replacesLostReplica);
+    EXPECT_TRUE(segment->replicas[1].replacesLostReplica);
     EXPECT_EQ(2lu, segment->queued.epoch);
     EXPECT_EQ(1u, freeRpcsInFlight);
 
@@ -379,8 +380,8 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileOpenDoesntSendForClosed) {
     // Handle failure on the open replica.
     TestLog::Enable _(handleBackupFailureFilter);
     segment->handleBackupFailure({1, 0}, false);
-    EXPECT_FALSE(segment->replicas[0].replicateAtomically);
-    EXPECT_TRUE(segment->replicas[1].replicateAtomically);
+    EXPECT_FALSE(segment->replicas[0].replacesLostReplica);
+    EXPECT_TRUE(segment->replicas[1].replacesLostReplica);
     EXPECT_EQ(1lu, segment->queued.epoch);
 
     transport.setInput("0 0"); // open
@@ -430,15 +431,15 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWhileHandlingFailure) {
     // Handle failure while closed. This should technically
     // "reopen" the segment, though only in atomic replication mode.
     segment->handleBackupFailure({0, 0}, false);
-    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
-    EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    EXPECT_TRUE(segment->replicas[0].replacesLostReplica);
+    EXPECT_FALSE(segment->replicas[1].replacesLostReplica);
     EXPECT_EQ(0lu, segment->queued.epoch);
 
     // Check to make sure that atomic replications aren't counted as
     // failures while open. They can't threaten the integrity of the log.
     segment->handleBackupFailure({0, 0}, false);
-    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
-    EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    EXPECT_TRUE(segment->replicas[0].replacesLostReplica);
+    EXPECT_FALSE(segment->replicas[1].replacesLostReplica);
     EXPECT_EQ(0lu, segment->queued.epoch);
 
     reset();
@@ -453,12 +454,12 @@ TEST_F(ReplicatedSegmentTest, handleBackupFailureWithMinCopysets) {
     taskQueue.performTask();
 
     TestLog::Enable _(handleBackupFailureFilter);
-    EXPECT_FALSE(segment->replicas[0].replicateAtomically);
-    EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    EXPECT_FALSE(segment->replicas[0].replacesLostReplica);
+    EXPECT_FALSE(segment->replicas[1].replacesLostReplica);
     // Should kill all replicas if any one is down.
     segment->handleBackupFailure({1, 0}, true);
-    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
-    EXPECT_TRUE(segment->replicas[1].replicateAtomically);
+    EXPECT_TRUE(segment->replicas[0].replacesLostReplica);
+    EXPECT_TRUE(segment->replicas[1].replacesLostReplica);
 }
 
 TEST_F(ReplicatedSegmentTest, sync) {
@@ -652,12 +653,12 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     EXPECT_EQ(1lu, segment->queued.epoch);
     EXPECT_TRUE(segment->recoveringFromLostOpenReplicas);
     EXPECT_FALSE(segment->replicas[0].isActive);
-    EXPECT_TRUE(segment->replicas[0].replicateAtomically);
+    EXPECT_TRUE(segment->replicas[0].replacesLostReplica);
     EXPECT_EQ(0lu, segment->replicas[0].sent.epoch);
     EXPECT_EQ(0lu, segment->replicas[0].acked.epoch);
     EXPECT_EQ(0lu, segment->replicas[0].committed.epoch);
     EXPECT_TRUE(segment->replicas[1].isActive);
-    EXPECT_FALSE(segment->replicas[1].replicateAtomically);
+    EXPECT_FALSE(segment->replicas[1].replacesLostReplica);
     EXPECT_EQ(0lu, segment->replicas[1].sent.epoch);
     EXPECT_EQ(0lu, segment->replicas[1].acked.epoch);
     EXPECT_EQ(0lu, segment->replicas[1].committed.epoch);
@@ -693,6 +694,8 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
               "performWrite: Sending write to backup 1.0 | "
               "performWrite: Write RPC finished for replica slot 0 | "
               "performWrite: Write RPC finished for replica slot 1 | "
+              "performWrite: Sending write to backup 0.0 | "
+              "performWrite: Write RPC finished for replica slot 0 | "
               // After both replicas have received a write they should try to
               // update the replication epoch on the coordinator to invalidate
               // stale replicas.
@@ -717,8 +720,8 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     // Opening primary write, no certificate, new epoch.
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
-                 999, 888, 1, 0, 10, true, false, true, false, certificate},
-                "abcdefghij", 10));
+                 999, 888, 1, 0, 0, true, false, true, false, certificate},
+                "", 0));
     createSegment->logSegment.getAppendedLength(&certificate);
     // Write to non-crashed replica includes certificate and new epoch.
     // No actual data is sent or change to the closed flag. Just need to update
@@ -726,6 +729,11 @@ TEST_F(ReplicatedSegmentTest, syncRecoveringFromLostOpenReplicas) {
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 1},
                  999, 888, 1, 10, 0, false, false, false, true, certificate}));
+    // Primary write with data, certificate.
+    EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
+                 999, 888, 1, 0, 10, false, false, true, true, certificate},
+                "abcdefghij", 10));
     EXPECT_TRUE(segment->getCommitted().open);
     EXPECT_EQ(openLen, segment->getCommitted().bytes);
     EXPECT_EQ(1lu, segment->getCommitted().epoch);
@@ -932,12 +940,12 @@ TEST_F(ReplicatedSegmentTest, swapSegmentThenBackupFailure) {
 
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
-                 999, 888, 0, 0, 10, true, false, false, false, empty},
-                "new conten", 10));
+                 999, 888, 0, 0, 0, true, false, false, false, empty},
+                "", 0));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
-                 999, 888, 0, 10, 3, false, true, false, true, certificate},
-                "t!", 3));
+                 999, 888, 0, 0, 13, false, true, false, true, certificate},
+                "new content!", 13));
 }
 
 TEST_F(ReplicatedSegmentTest, scheduleWithReplicas) {
@@ -1003,7 +1011,35 @@ TEST_F(ReplicatedSegmentTest, performTaskWrite) {
     reset();
 }
 
-TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
+TEST_F(ReplicatedSegmentTest, updateSegmentUnopenedCycles) {
+    segment->unopenedStartCycles = 1000;
+    PerfStats::threadStats.segmentUnopenedCycles = 500;
+    Cycles::mockTscValue = 2000;
+    segment->replicas[0].committed.open = true;
+    segment->replicas[1].committed.open = false;
+
+    // Segment not yet fully open.
+    taskQueue.performTask();
+    EXPECT_EQ(1000lu, segment->unopenedStartCycles);
+    EXPECT_EQ(500lu, PerfStats::threadStats.segmentUnopenedCycles);
+
+    //Segment is now fully open; record statistics.
+    segment->replicas[1].committed.open = true;
+    taskQueue.performTask();
+    EXPECT_EQ(0lu, segment->unopenedStartCycles);
+    EXPECT_EQ(1500lu, PerfStats::threadStats.segmentUnopenedCycles);
+
+    //Segment has been open for a while; don't record new information.
+    Cycles::mockTscValue = 5000;
+    taskQueue.performTask();
+    EXPECT_EQ(0lu, segment->unopenedStartCycles);
+    EXPECT_EQ(1500lu, PerfStats::threadStats.segmentUnopenedCycles);
+
+    Cycles::mockTscValue = 0;
+    reset();
+}
+
+TEST_F(ReplicatedSegmentTest, performWriteRecoveringFromLostOpenReplicas) {
     transport.setInput("0 0"); // open/write
     transport.setInput("0 0"); // open/write
     taskQueue.performTask(); // send open/writes
@@ -1020,16 +1056,23 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
     // originally failed replica (original outstanding rpc should be canceled).
     // It is atomic by virtue that it doesn't include the certificate needed
     // to read the replica data back later.
-    transport.setInput("0 0"); // open/write for replication
+    transport.setInput("0 0"); // open for rereplication
     transport.setInput("0 0"); // write for second replica to send new epoch
-    taskQueue.performTask(); // restart of replica 0, reap rpc from replica 1
+    transport.setInput("0 0"); // write for rereplication
+    taskQueue.performTask(); // reopen replica 0, reap rpc from replica 1
     // Because replica 1 already had an rpc in flight it won't be able to update
     // the epoch on the backup until the next call to performTask().
     taskQueue.performTask(); // reap replica 0, update epoch of replica 1
+    EXPECT_TRUE(segment->replicas[0].committed.open);
+    EXPECT_EQ(0u, segment->replicas[0].committed.epoch);
     TestLog::Enable _(filter);
-    taskQueue.performTask(); // reap replica 1, update epoch on coordinator
+    taskQueue.performTask(); // write replica 0, reap replica 1
+    taskQueue.performTask(); // reap replica 0, update epoch on coordinator
+    EXPECT_EQ(1u, segment->replicas[0].committed.epoch);
     EXPECT_EQ(
+        "performWrite: Sending write to backup 0.0 | "
         "performWrite: Write RPC finished for replica slot 1 | "
+        "performWrite: Write RPC finished for replica slot 0 | "
         "performTask: Updating replicationEpoch to 888,1 on coordinator to "
             "ensure lost replicas will not be reused | "
         "updateToAtLeast: request update to master recovery info for 999.0 "
@@ -1039,13 +1082,18 @@ TEST_F(ReplicatedSegmentTest, performTaskRecoveringFromLostOpenReplicas) {
     // Atomic re-replication open.
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
-                 999, 888, 1, 0, 10, true, false, true, false, certificate},
-                "abcdefghij", 10));
+                 999, 888, 1, 0, 0, true, false, true, false, certificate},
+                "", 0));
     // Surviving replica gets epoch refreshed.
     createSegment->logSegment.getAppendedLength(&certificate);
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 1},
                  999, 888, 1, 10, 0, false, false, false, true, certificate}));
+    // Re-replication write
+    EXPECT_TRUE(transport.outputMatches(2, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
+                 999, 888, 1, 0, 10, false, false, true, true, certificate},
+                "abcdefghij", 10));
     transport.clearOutput();
 
     transport.setInput("0 0"); // epoch update on coordinator
@@ -1434,38 +1482,64 @@ TEST_F(ReplicatedSegmentTest, performWriteRpcFailed) {
     reset();
 }
 
-TEST_F(ReplicatedSegmentTest, performWriteMoreToSend) {
-    transport.setInput("0 0"); // write
-    transport.setInput("0 0"); // write
+TEST_F(ReplicatedSegmentTest, performWriteDataLargerThanLimit) {
+    transport.setInput("0 0"); // open
+    transport.setInput("0 0"); // open
     transport.setInput("0 0"); // write
     transport.setInput("0 0"); // write
 
-    createSegment->logSegment.head = openLen + 20; // write queued
+    createSegment->logSegment.head =
+            segment->maxBytesPerWriteRpc + segment->openLen + 10;
     SegmentCertificate openingCertificate;
     createSegment->logSegment.getAppendedLength(&openingCertificate);
     createSegment->logSegment.checksum.result = 0xff00ff00;
     segment->close();
-    SegmentCertificate closingCertificate;
-    createSegment->logSegment.getAppendedLength(&closingCertificate);
     taskQueue.performTask(); // send open
     EXPECT_TRUE(segment->isScheduled());
     taskQueue.performTask(); // reap opens
+    EXPECT_TRUE(segment->replicas[0].committed.open);
     EXPECT_TRUE(segment->isScheduled());
     transport.clearOutput();
-    taskQueue.performTask(); // send second round
+    taskQueue.performTask(); // send first batch of writes
 
+    SegmentCertificate certificate;
     EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
-                 999, 888, 0, 10, 20, false, true, true, true,
-                 closingCertificate},
-                "klmnopqrstuvwxyzabcd", 20));
+                 999, 888, 0, 10, 21, false, false, true, false,
+                 certificate},
+                "klmnopqrstuvwxyzabcde", 21));
     EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
         WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 1},
-                 999, 888, 0, 10, 20, false, true, false, true,
-                 closingCertificate},
-                "klmnopqrstuvwxyzabcd", 20));
+                 999, 888, 0, 10, 21, false, false, false, false,
+                 certificate},
+                "klmnopqrstuvwxyzabcde", 21));
     EXPECT_TRUE(segment->isScheduled());
     EXPECT_TRUE(segment->replicas[0].writeRpc);
+
+    taskQueue.performTask(); // reap first writes
+    EXPECT_EQ(31u, segment->replicas[0].acked.bytes);
+    EXPECT_EQ(10u, segment->replicas[0].committed.bytes);
+
+    transport.setInput("0 0"); // write #2
+    transport.setInput("0 0"); // write #2
+    transport.clearOutput();
+    taskQueue.performTask(); // send second writes
+
+    createSegment->logSegment.getAppendedLength(&certificate);
+    EXPECT_TRUE(transport.outputMatches(0, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 0},
+                 999, 888, 0, 31, 10, false, true, true, true,
+                 certificate},
+                "fghijklmno", 10));
+    EXPECT_TRUE(transport.outputMatches(1, MockTransport::SEND_REQUEST,
+        WrReq{{BACKUP_WRITE, BACKUP_SERVICE, 1},
+                 999, 888, 0, 31, 10, false, true, false, true,
+                 certificate},
+                "fghijklmno", 10));
+
+    taskQueue.performTask(); // reap second writes
+    EXPECT_EQ(41u, segment->replicas[0].acked.bytes);
+    EXPECT_EQ(41u, segment->replicas[0].committed.bytes);
 
     EXPECT_EQ(0u, deleter.count);
     reset();

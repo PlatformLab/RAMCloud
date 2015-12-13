@@ -470,6 +470,8 @@ TEST_F(CoordinatorServiceTest, checkServerControlRpcs_truncated) {
 TEST_F(CoordinatorServiceTest, verifyServerFailure) {
     // Case 1: server up.
     EXPECT_FALSE(service->verifyServerFailure(masterServerId));
+    EXPECT_TRUE(service->activeVerifications.find(masterServerId.getId())
+            == service->activeVerifications.end());
 
     // Case 2: server incommunicado.
     MockTransport mockTransport(&context);
@@ -481,6 +483,10 @@ TEST_F(CoordinatorServiceTest, verifyServerFailure) {
 
     // Case 3: Never kill
     service->neverKill = true;
+    EXPECT_FALSE(service->verifyServerFailure(deadId));
+
+    // Case 4: someone else is already pinging the server.
+    service->activeVerifications.emplace(deadId.getId());
     EXPECT_FALSE(service->verifyServerFailure(deadId));
 }
 

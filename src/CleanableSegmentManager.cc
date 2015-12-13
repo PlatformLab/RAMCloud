@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,6 +23,10 @@
 #include "MasterService.h"
 
 namespace RAMCloud {
+
+#ifdef TESTING
+int CleanableSegmentManager::mockLiveObjectUtilization = 0;
+#endif
 
 CleanableSegmentManager::CleanableSegmentManager(
                                     SegmentManager& segmentManager,
@@ -54,6 +58,11 @@ CleanableSegmentManager::~CleanableSegmentManager()
 int
 CleanableSegmentManager::getLiveObjectUtilization()
 {
+#ifdef TESTING
+    if (mockLiveObjectUtilization != 0) {
+        return mockLiveObjectUtilization;
+    }
+#endif
     Lock guard(lock);
     update(guard);
 
@@ -295,8 +304,8 @@ CleanableSegmentManager::scanSegmentTombstones(Lock& guard)
         // Protect tombstones which are still in the hash table since their
         // references are removed asynchronously.
         Key key(tomb.getTableId(), tomb.getKey(), tomb.getKeyLength());
-        if (context->masterService->objectManager.keyPointsAtReference(key,
-                  s.getReference(it.getOffset())))
+        if (context->getMasterService()->objectManager.keyPointsAtReference(
+                key, s.getReference(it.getOffset())))
             continue;
         if (!segmentManager.doesIdExist(tomb.getSegmentId())) {
             deadTombstones++;

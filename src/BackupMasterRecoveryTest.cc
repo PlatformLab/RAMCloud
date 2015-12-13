@@ -374,7 +374,7 @@ TEST_F(BackupMasterRecoveryTest, buildRecoverySegments_buildThrows) {
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
         "buildRecoverySegments: Couldn't build recovery segments for "
         "<99.0,88>: RAMCloud::SegmentIteratorException: cannot iterate: "
-        "corrupt segment thrown "));
+        "corrupt segment, thrown "));
     EXPECT_TRUE(recovery->replicas.at(0).recoveryException);
     EXPECT_FALSE(recovery->replicas.at(0).recoverySegments);
     EXPECT_TRUE(recovery->replicas.at(0).built);

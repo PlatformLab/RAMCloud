@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -100,9 +100,10 @@ TEST_F(MockExternalStorageTest, set) {
 }
 
 TEST_F(MockExternalStorageTest, logAppend) {
-    storage.logAppend("x y z");
-    storage.logAppend("a b");
-    storage.logAppend("12345");
+    MockExternalStorage::Lock lock(storage.mutex);
+    storage.logAppend(lock, "x y z");
+    storage.logAppend(lock, "a b");
+    storage.logAppend(lock, "12345");
     EXPECT_EQ("x y z; a b; 12345", storage.log);
 }
 

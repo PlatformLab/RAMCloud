@@ -40,8 +40,8 @@ class PingClient {
     static void logMessage(Context* context, ServerId serverId,
             LogLevel level, const char* fmt, ...)
         __attribute__ ((format (gnu_printf, 4, 5)));
-    static bool verifyServerId(Context* context, Transport::SessionRef session,
-            ServerId expectedId);
+    static ServerId getServerId(Context* context,
+            Transport::SessionRef session);
 
   private:
     PingClient();
@@ -51,7 +51,7 @@ class PingClient {
  * Encapsulates the state of a PingClient::getServerId request, allowing
  * it to execute asynchronously. This RPC is unusual in that it's a subclass
  * of RpcWrapper; this means that it doesn't retry if there are any problems
- * (this is the correct behavior for its normal usage in verifyServerId).
+ * (this is the correct behavior for its normal usage in verifying server ids).
  */
 class GetServerIdRpc : public RpcWrapper {
     public:

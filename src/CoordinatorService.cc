@@ -33,8 +33,8 @@ bool CoordinatorService::forceSynchronousInit = false;
  * Construct a CoordinatorService.
  *
  * \param context
- *      Overall information about the RAMCloud server. A pointer to this
- *      object will be stored at context->coordinatorService.
+ *      Overall information about the RAMCloud server.  The new service
+ *      will be registered in this context.
  * \param deadServerTimeout
  *      Servers are presumed dead if they cannot respond to a ping request
  *      in this many milliseconds.
@@ -45,25 +45,25 @@ bool CoordinatorService::forceSynchronousInit = false;
 CoordinatorService::CoordinatorService(Context* context,
                                        uint32_t deadServerTimeout,
                                        bool unitTesting,
-                                       uint32_t maxThreads,
                                        bool neverKill)
     : context(context)
     , serverList(context->coordinatorServerList)
     , deadServerTimeout(deadServerTimeout)
     , updateManager(context->externalStorage)
     , tableManager(context, &updateManager)
-    , leaseManager(context)
+    , leaseAuthority(context)
     , runtimeOptions()
     , recoveryManager(context, tableManager, &runtimeOptions)
-    , threadLimit(maxThreads)
+    , activeVerifications()
+    , mutex("CoordinatorService::mutex")
     , forceServerDownForTesting(false)
     , neverKill(neverKill)
     , initFinished(false)
     , backupConfig()
     , masterConfig()
 {
+    context->services[WireFormat::COORDINATOR_SERVICE] = this;
     context->recoveryManager = &recoveryManager;
-    context->coordinatorService = this;
 
     // Invoke the rest of initialization in a separate thread (except during
     // unit tests). This is needed because some of the recovery operations
@@ -81,6 +81,7 @@ CoordinatorService::CoordinatorService(Context* context,
 
 CoordinatorService::~CoordinatorService()
 {
+    context->services[WireFormat::COORDINATOR_SERVICE] = NULL;
     recoveryManager.halt();
 }
 
@@ -102,7 +103,7 @@ CoordinatorService::init(CoordinatorService* service,
     // exceptions.
     try {
         // Recover state (and incomplete operations) from external storage.
-        service->leaseManager.recover();
+        service->leaseAuthority.recover();
         uint64_t lastCompletedUpdate = service->updateManager.init();
         service->serverList->recover(lastCompletedUpdate);
         service->tableManager.recover(lastCompletedUpdate);
@@ -116,7 +117,7 @@ CoordinatorService::init(CoordinatorService* service,
         service->serverList->startUpdater();
 
         if (!unitTesting) {
-            service->leaseManager.startUpdaters();
+            service->leaseAuthority.startUpdaters();
             // When the recovery manager starts up below, it will resume
             // recovery for crashed nodes; it isn't safe to do that until
             // after the server list and table manager have recovered (e.g.
@@ -146,10 +147,6 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
                 "coordinator service not yet initialized");
     }
     switch (opcode) {
-        case WireFormat::BackupQuiesce::opcode:
-            callHandler<WireFormat::BackupQuiesce, CoordinatorService,
-                        &CoordinatorService::quiesce>(rpc);
-            break;
         case WireFormat::CoordSplitAndMigrateIndexlet::opcode:
             callHandler<WireFormat::CoordSplitAndMigrateIndexlet,
                         CoordinatorService,
@@ -405,7 +402,7 @@ CoordinatorService::getLeaseInfo(
     WireFormat::GetLeaseInfo::Response* respHdr,
     Rpc* rpc)
 {
-    respHdr->lease = leaseManager.getLeaseInfo(reqHdr->leaseId);
+    respHdr->lease = leaseAuthority.getLeaseInfo(reqHdr->leaseId);
 }
 
 /**
@@ -537,27 +534,6 @@ CoordinatorService::hintServerCrashed(
 }
 
 /**
- * Have all backups flush their dirty segments to storage.
- * \copydetails Service::ping
- */
-void
-CoordinatorService::quiesce(
-        const WireFormat::BackupQuiesce::Request* reqHdr,
-        WireFormat::BackupQuiesce::Response* respHdr,
-        Rpc* rpc)
-{
-    for (size_t i = 0; i < serverList->size(); i++) {
-        try {
-            if ((*serverList)[i].isBackup()) {
-                BackupClient::quiesce(context, (*serverList)[i].serverId);
-            }
-        } catch (ServerListException& e) {
-            // Do nothing for the server that doesn't exist. Continue.
-        }
-    }
-}
-
-/**
  * Handle the REASSIGN_TABLET_OWNER RPC.
  *
  * \copydetails Service::ping
@@ -628,7 +604,7 @@ CoordinatorService::renewLease(
     WireFormat::RenewLease::Response* respHdr,
     Rpc* rpc)
 {
-    respHdr->lease = leaseManager.renewLease(reqHdr->leaseId);
+    respHdr->lease = leaseAuthority.renewLease(reqHdr->leaseId);
 }
 
 /**
@@ -841,29 +817,49 @@ CoordinatorService::checkServerControlRpcs(
  * \param serverId
  *      Server to investigate.
  * \return
- *      True if the server is dead, false if it is alive.
+ *      True if the server is dead, false if it is alive, or if someone
+ *      else is currently checking it.
  * \throw Exception
  *      If \a serverId is not in #serverList.
  */
 bool
-CoordinatorService::verifyServerFailure(ServerId serverId) {
+CoordinatorService::verifyServerFailure(ServerId serverId)
+{
     // Skip the real ping if this is from a unit test
     if (forceServerDownForTesting)
         return true;
     if (neverKill)
         return false;
 
+    // Don't ping this server if someone else is already doing it.
+    uint64_t id = serverId.getId();
+    {
+        Lock lock(mutex);
+        if (activeVerifications.find(id) != activeVerifications.end()) {
+            return false;
+        }
+        activeVerifications.emplace(id);
+    }
+
+    bool result;
     const string& serviceLocator = serverList->getLocator(serverId);
     PingRpc pingRpc(context, serverId, ServerId());
 
     if (pingRpc.wait(deadServerTimeout * 1000 * 1000)) {
         LOG(NOTICE, "False positive for server id %s (\"%s\")",
                     serverId.toString().c_str(), serviceLocator.c_str());
-        return false;
+        result = false;
+    } else {
+        LOG(NOTICE, "Verified host failure: id %s (\"%s\")",
+            serverId.toString().c_str(), serviceLocator.c_str());
+        result = true;
     }
-    LOG(NOTICE, "Verified host failure: id %s (\"%s\")",
-        serverId.toString().c_str(), serviceLocator.c_str());
-    return true;
+
+    {
+        Lock lock(mutex);
+        activeVerifications.erase(id);
+    }
+    return result;
 }
 
 } // namespace RAMCloud

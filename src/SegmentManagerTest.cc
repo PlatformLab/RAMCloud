@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,9 +19,11 @@
 #include "SegmentIterator.h"
 #include "LogDigest.h"
 #include "LogMetadata.h"
+#include "LogProtector.h"
 #include "ServerConfig.h"
 #include "ServerRpcPool.h"
 #include "MasterTableMetadata.h"
+#include "WorkerTimer.h"
 
 namespace RAMCloud {
 
@@ -52,6 +54,28 @@ class SegmentManagerTest : public ::testing::Test {
     {
     }
 
+    // The following class is used for testing: it generates a log message
+    // identifying this timer whenever it is invoked.
+    class DummyWorkerTimer : public WorkerTimer {
+      public:
+        explicit DummyWorkerTimer(Dispatch* dispatch)
+            : WorkerTimer(dispatch)
+            , sleepMicroseconds(0)
+        { }
+        void handleTimerEvent() {
+            if (sleepMicroseconds != 0) {
+                usleep(sleepMicroseconds);
+            }
+        }
+
+        // If non-zero, then handler will delayed for this long before
+        // returning.
+        int sleepMicroseconds;
+
+      private:
+        DISALLOW_COPY_AND_ASSIGN(DummyWorkerTimer);
+    };
+
   private:
     DISALLOW_COPY_AND_ASSIGN(SegmentManagerTest);
 };
@@ -68,7 +92,6 @@ TEST_F(SegmentManagerTest, constructor)
                  SegmentManagerException);
 
     EXPECT_EQ(1U, segmentManager.nextSegmentId);
-    EXPECT_EQ(0, segmentManager.logIteratorCount);
     EXPECT_EQ(320U, segmentManager.maxSegments);
     EXPECT_EQ(segmentManager.maxSegments - 2,
               segmentManager.freeSlots.size());
@@ -214,7 +237,7 @@ TEST_F(SegmentManagerTest, cleaningComplete) {
     LogSegment* survivor = segmentManager.allocSideSegment();
     EXPECT_NE(static_cast<LogSegment*>(NULL), survivor);
 
-    ServerRpcPoolInternal::currentEpoch = 17530;
+    LogProtector::currentSystemEpoch = 17530;
 
     LogSegmentVector survivors;
     LogSegmentVector clean;
@@ -231,7 +254,7 @@ TEST_F(SegmentManagerTest, cleaningComplete) {
         SegmentManager::FREEABLE_PENDING_DIGEST_AND_REFERENCES].size());
     EXPECT_EQ(cleaned, &segmentManager.segmentsByState[
         SegmentManager::FREEABLE_PENDING_DIGEST_AND_REFERENCES].back());
-    EXPECT_EQ(17531U, ServerRpcPoolInternal::currentEpoch);
+    EXPECT_EQ(17531U, LogProtector::currentSystemEpoch);
     EXPECT_EQ(17530U, cleaned->cleanedEpoch);
 }
 
@@ -275,23 +298,9 @@ TEST_F(SegmentManagerTest, cleanableSegments) {
     EXPECT_EQ(1U, cleanable.size());
 }
 
-TEST_F(SegmentManagerTest, logIteratorCreated_and_logIteratorDestroyed) {
-    EXPECT_EQ(0, segmentManager.logIteratorCount);
-    segmentManager.logIteratorCreated();
-    EXPECT_EQ(1, segmentManager.logIteratorCount);
-    segmentManager.logIteratorCreated();
-    EXPECT_EQ(2, segmentManager.logIteratorCount);
-    segmentManager.logIteratorDestroyed();
-    segmentManager.logIteratorDestroyed();
-    EXPECT_EQ(0, segmentManager.logIteratorCount);
-}
-
 TEST_F(SegmentManagerTest, getActiveSegments) {
     LogSegmentVector active;
 
-    EXPECT_THROW(segmentManager.getActiveSegments(1, active),
-        SegmentManagerException);
-    segmentManager.logIteratorCreated();
     EXPECT_NO_THROW(segmentManager.getActiveSegments(1, active));
     EXPECT_EQ(0U, active.size());
 
@@ -321,8 +330,6 @@ TEST_F(SegmentManagerTest, getActiveSegments) {
     active.clear();
     segmentManager.getActiveSegments(head->id + 1, active);
     EXPECT_EQ(0U, active.size());
-
-    segmentManager.logIteratorDestroyed();
 }
 
 TEST_F(SegmentManagerTest, initializeSurvivorSegmentReserve) {
@@ -604,9 +611,9 @@ TEST_F(SegmentManagerTest, freeUnreferencedSegments) {
     LogSegment* freeable = segmentManager.allocHeadSegment();
     segmentManager.allocHeadSegment();
 
-    ServerRpcPoolInternal::currentEpoch = 8;
     ServerRpcPool<TestServerRpc> pool;
     TestServerRpc* rpc = pool.construct();
+    rpc->epoch = 8;
 
     segmentManager.changeState(*freeable,
         SegmentManager::FREEABLE_PENDING_REFERENCES);
@@ -626,6 +633,128 @@ TEST_F(SegmentManagerTest, freeUnreferencedSegments) {
     EXPECT_EQ(0U, segmentManager.segmentsByState[
         SegmentManager::FREEABLE_PENDING_REFERENCES].size());
 
+    pool.destroy(rpc);
+}
+
+// Helper function that invokes Dispatch::poll in a separate thread.
+static void testPoll(Dispatch* dispatch) {
+    dispatch->poll();
+}
+
+TEST_F(SegmentManagerTest, freeUnreferencedSegments_blockByWorkerTimer) {
+    LogSegment* freeable = segmentManager.allocHeadSegment();
+    segmentManager.allocHeadSegment();
+
+    ServerRpcPool<TestServerRpc> pool;
+    TestServerRpc* rpc = pool.construct();
+    rpc->epoch = 8;
+
+    segmentManager.changeState(*freeable,
+        SegmentManager::FREEABLE_PENDING_REFERENCES);
+
+    Tub<SegmentManagerTest::DummyWorkerTimer> timer;
+    Dispatch dispatch(false);
+    timer.construct(&dispatch);
+    for (int i = 1; i < 1000; i++) {
+        if (timer->handlerRunning) {
+            break;
+        }
+        usleep(100);
+    }
+
+    timer->start(1000);
+    timer->sleepMicroseconds = 10000;
+    Cycles::mockTscValue = 2000;
+    std::thread thread(testPoll, &dispatch);
+
+    // Wait for the handler to start executing (see "Timing-Dependent Tests"
+    // in designNotes).
+    for (int i = 1; i < 1000; i++) {
+        if (timer->handlerRunning) {
+            break;
+        }
+        usleep(1000);
+    }
+    EXPECT_TRUE(timer->handlerRunning);
+    timer->manager->logProtectorActivity.epoch = 7;
+    EXPECT_EQ(7U, LogProtector::getEarliestOutstandingEpoch(~0));
+
+    // Ongoing WorkerTimer handler prevents cleaning.
+    freeable->cleanedEpoch = 7;
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+
+    // WorkerTimer handler is finished.
+    timer.destroy();
+    EXPECT_EQ(8U, LogProtector::getEarliestOutstandingEpoch(~0));
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(0U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+
+    pool.destroy(rpc);
+    thread.join();
+    Cycles::mockTscValue = 0;              // We need to measure real time!
+}
+
+TEST_F(SegmentManagerTest, freeUnreferencedSegments_logWhenStuck) {
+    TestLog::Enable _("freeUnreferencedSegments");
+    LogSegment* freeable = segmentManager.allocHeadSegment();
+    segmentManager.allocHeadSegment();
+
+    LogProtector::currentSystemEpoch = 8;
+    ServerRpcPool<TestServerRpc> pool;
+    TestServerRpc* rpc = pool.construct();
+    rpc->epoch = 8;
+
+    segmentManager.changeState(*freeable,
+        SegmentManager::FREEABLE_PENDING_REFERENCES);
+
+    freeable->cleanedEpoch = 8;
+    Cycles::mockTscValue = 1000;
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ("", TestLog::get());
+    EXPECT_EQ(1.0, segmentManager.nextMessageSeconds);
+
+    Cycles::mockTscValue += Cycles::fromSeconds(0.9);
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ("", TestLog::get());
+
+    Cycles::mockTscValue += Cycles::fromSeconds(0.11);
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ("freeUnreferencedSegments: Unfinished RPCs are preventing 1 "
+            "segments from being freed (segment epoch 8, RPC epoch 8, "
+            "current epoch 8, stuck for 1 seconds)", TestLog::get());
+    TestLog::reset();
+
+    Cycles::mockTscValue += Cycles::fromSeconds(0.5);
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ("", TestLog::get());
+
+    Cycles::mockTscValue += Cycles::fromSeconds(0.55);
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(1U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ("freeUnreferencedSegments: Unfinished RPCs are preventing 1 "
+            "segments from being freed (segment epoch 8, RPC epoch 8, "
+            "current epoch 8, stuck for 2 seconds)", TestLog::get());
+
+    Cycles::mockTscValue += Cycles::fromSeconds(2.0);
+    freeable->cleanedEpoch = 7;
+    segmentManager.freeUnreferencedSegments();
+    EXPECT_EQ(0U, segmentManager.segmentsByState[
+        SegmentManager::FREEABLE_PENDING_REFERENCES].size());
+    EXPECT_EQ(0.0, segmentManager.nextMessageSeconds);
+
+    Cycles::mockTscValue = 0;
     pool.destroy(rpc);
 }
 

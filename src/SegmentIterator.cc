@@ -43,10 +43,11 @@ SegmentIterator::SegmentIterator(Segment& segment)
       segment(&segment),
       certificate(),
       currentOffset(0),
+      offsetLimit(),
       currentHeader(segment.getEntryHeader(0)),
       currentLength()
 {
-    segment.getAppendedLength(&certificate);
+    offsetLimit = segment.getAppendedLength(&certificate);
 }
 
 /**
@@ -81,6 +82,7 @@ SegmentIterator::SegmentIterator(const void *buffer, uint32_t length,
       segment(NULL),
       certificate(certificate),
       currentOffset(0),
+      offsetLimit(certificate.segmentLength),
       currentHeader(),
       currentLength()
 {
@@ -97,6 +99,7 @@ SegmentIterator::SegmentIterator(const SegmentIterator& other)
       segment(other.segment),
       certificate(other.certificate),
       currentOffset(other.currentOffset),
+      offsetLimit(other.offsetLimit),
       currentHeader(other.currentHeader),
       currentLength(other.currentLength)
 {
@@ -116,6 +119,7 @@ SegmentIterator::operator=(const SegmentIterator& other)
     segment = other.segment;
     certificate = other.certificate;
     currentOffset = other.currentOffset;
+    offsetLimit = other.offsetLimit;
     currentHeader = other.currentHeader;
     currentLength = other.currentLength;
     if (other.wrapperSegment) {
@@ -211,6 +215,19 @@ SegmentIterator::setOffset(uint32_t offset)
     currentOffset = offset;
     currentHeader = segment->getEntryHeader(currentOffset);
     currentLength.destroy();
+}
+
+/**
+ * Set the upper bound of how much data to process from this segment.
+ *
+ * \param limit
+ *      An offset in bytes from the beginning of the segment; entries
+ *      starting at this point or later will not be considered.
+ */
+void
+SegmentIterator::setLimit(uint32_t limit)
+{
+    offsetLimit = limit;
 }
 
 /**
