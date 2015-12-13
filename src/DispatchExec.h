@@ -33,7 +33,7 @@ class DispatchExec : public Dispatch::Poller {
         /**
          * Users of the DispatchExec mechanism should subclass this class and
          * write the work and any necessary cleanup into the invoke() function,
-         * because the destructor is never called. 
+         * because the destructor is never called.
          *
          * NOTE: Subclasses of this class must be smaller than the return value
          * of Lambda::getMaxSize().
@@ -45,7 +45,7 @@ class DispatchExec : public Dispatch::Poller {
                 * dispatch thread. The code is defined by the worker thread
                 * using a subclass of Lambda, and DispatchExec::addRequest is
                 * invoked to arrange for the code to be executed in the
-                * dispatch thread. 
+                * dispatch thread.
                 */
                 virtual void invoke() = 0;
 
@@ -59,7 +59,7 @@ class DispatchExec : public Dispatch::Poller {
 
                 /**
                  * This method returns (at compile time) the largest number of
-                 * bytes that a subclass of Lambda can contain. 
+                 * bytes that a subclass of Lambda can contain.
                  */
                 static uint64_t getMaxSize() {
                     // This is a compile time check with no construction
@@ -108,19 +108,27 @@ class DispatchExec : public Dispatch::Poller {
 
         explicit DispatchExec(Dispatch* dispatch);
         virtual int poll();
+        void sync(uint64_t id);
 
         /**
          * Worker threads invoke this method to schedule work for execution in
          * the dispatch thread. It does placement new of a Lambda that
          * describes the work.
          *
-         *  \tparam T
+         * \tparam T
          *       A subclass of Lambda.
-         *  \param args
+         * \param args
          *       The arguments for the constructor of the subclass of Lambda,
          *       which describes the work to be done in the dispatch thread.
+         *
+         * \return
+         *       The return value is an identifier for this piece of work;
+         *       it can be passed to the sync method to wait for the work
+         *       to be processed.
          */
-        template<typename T, typename... Args> void addRequest(Args&&... args) {
+        template<typename T, typename... Args>
+        uint64_t
+        addRequest(Args&&... args) {
             static_assert(std::is_base_of<Lambda, T>::value,
                     "T is not a subclass of Lambda");
             std::lock_guard<SpinLock> guard(lock);
@@ -152,13 +160,14 @@ class DispatchExec : public Dispatch::Poller {
             addIndex++;
             if (addIndex == NUM_WORKER_REQUESTS)
                 addIndex = 0;
+            totalAdds++;
 
             // It is most likely that the next LambdaBox is already empty, so
             // we should prefetch it now to save time on the next invocation.
             // (It was moved to the Dispatch thread's cache when it was
             // executed).
             prefetch(&requests[addIndex], sizeof(LambdaBox));
-
+            return totalAdds;
         }
 
     PRIVATE:
@@ -174,6 +183,10 @@ class DispatchExec : public Dispatch::Poller {
         // thread will execute.
         uint16_t removeIndex;
 
+        // Counts the total number of requests that have been removed
+        // (and processed) by the dispatch thread.
+        uint64_t totalRemoves;
+
         // This pad ensures that all state above here is on a different
         // cache line than all state below, to minimize false sharing.
         // (Only workers access the information below this line.)
@@ -186,6 +199,10 @@ class DispatchExec : public Dispatch::Poller {
         // The index in requests at which the worker will place the next Lambda
         // for the dispatch thread to execute.
         uint16_t addIndex;
+
+        // Counts the total number of requests that have been inserted for
+        // processing by the dispatch thread.
+        uint64_t totalAdds;
 
         DISALLOW_COPY_AND_ASSIGN(DispatchExec);
 };

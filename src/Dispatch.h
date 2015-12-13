@@ -100,7 +100,8 @@ class Dispatch {
          *      0 means that the poller found no work to do.
          */
         virtual int poll() = 0;
-      PRIVATE:
+
+      PROTECTED:
         /// The Dispatch object that owns this Poller.  NULL means the
         /// Dispatch has been deleted.
         Dispatch* owner;
@@ -110,6 +111,7 @@ class Dispatch {
         /// in the subclass name probably makes sense.
         string pollerName;
 
+      PRIVATE:
         /// Index of this Poller in Dispatch::pollers.  Allows deletion
         /// without having to scan all the entries in pollers. -1 means
         /// this poller isn't currently in Dispatch::pollers (happens
@@ -334,7 +336,7 @@ class Dispatch {
 
     /**
      * Threshold (in cycles) used to print warnings when the poller loop is taking
-     * an unusually long time. 
+     * an unusually long time.
      */
     uint64_t slowPollerCycles;
 
