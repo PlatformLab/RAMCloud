@@ -1063,12 +1063,12 @@ TEST_F(ReplicatedSegmentTest, performWriteRecoveringFromLostOpenReplicas) {
     // Because replica 1 already had an rpc in flight it won't be able to update
     // the epoch on the backup until the next call to performTask().
     taskQueue.performTask(); // reap replica 0, update epoch of replica 1
-    EXPECT_TRUE(segment->replicas[0].acked.open);
-    EXPECT_FALSE(segment->replicas[0].committed.open);
+    EXPECT_TRUE(segment->replicas[0].committed.open);
+    EXPECT_EQ(0u, segment->replicas[0].committed.epoch);
     TestLog::Enable _(filter);
     taskQueue.performTask(); // write replica 0, reap replica 1
     taskQueue.performTask(); // reap replica 0, update epoch on coordinator
-    EXPECT_TRUE(segment->replicas[0].committed.open);
+    EXPECT_EQ(1u, segment->replicas[0].committed.epoch);
     EXPECT_EQ(
         "performWrite: Sending write to backup 0.0 | "
         "performWrite: Write RPC finished for replica slot 1 | "

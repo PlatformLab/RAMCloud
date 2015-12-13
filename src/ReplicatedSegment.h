@@ -231,6 +231,7 @@ class ReplicatedSegment : public Task {
             , freeRpc()
             , writeRpc()
             , replacesLostReplica(false)
+            , sentCertificate(false)
         {}
 
         ~Replica() {
@@ -324,6 +325,13 @@ class ReplicatedSegment : public Task {
          * be used during crash recovery).
          */
         bool replacesLostReplica;
+
+        /**
+         * True means that the most recent write RPC contained a certificate
+         * (thus, if it completes successfully, everything in "sent" is
+         * now committed).
+         */
+        bool sentCertificate;
 
         DISALLOW_COPY_AND_ASSIGN(Replica);
     };

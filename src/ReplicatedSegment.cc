@@ -744,13 +744,13 @@ ReplicatedSegment::performWrite(Replica& replica)
                             segmentId, &replica - &replicas[0]);
                 }
                 replica.acked = replica.sent;
-                if ((replica.acked.bytes == queued.bytes) ||
-                        (!replica.committed.open && replica.acked.open
-                        && !replica.replacesLostReplica)) {
-                    // #committed advances whenever a certificate was sent:
-                    // - when all queued data has been acked, or
-                    // - the initial open completes
+                if (replica.sentCertificate) {
                     replica.committed = replica.acked;
+                } else {
+                    // Update open bit even if certificate wasn't sent; this
+                    // is needed to avoid deadlocks over the safety
+                    // constraints during recovery of lost replicas.
+                    replica.committed.open = replica.acked.open;
                 }
                 if (getCommitted().open && followingSegment)
                     followingSegment->precedingSegmentOpenCommitted = true;
@@ -802,7 +802,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             return;
         }
     } else {
-        if (!replica.acked.open) {
+        if (!replica.committed.open) {
             if (OBEY_SAFETY_CONSTRAINTS && !precedingSegmentOpenCommitted) {
                 TEST_LOG("Cannot open segment %lu until preceding segment "
                          "is durably open", segmentId);
@@ -822,6 +822,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             // for the opening write; the replica should atomically commit when
             // it has been fully caught up.
             SegmentCertificate* certificateToSend = &openingWriteCertificate;
+            replica.sentCertificate = true;
             uint32_t length = openLen;
             if (replica.replacesLostReplica) {
                 // This replica was lost, and we are creating a replacement;
@@ -830,6 +831,7 @@ ReplicatedSegment::performWrite(Replica& replica)
                 // this code more complicated; better to use the normal
                 // mechanism below to transfer data).
                 certificateToSend = NULL;
+                replica.sentCertificate = false;
                 length = 0;
             }
 
@@ -878,12 +880,14 @@ ReplicatedSegment::performWrite(Replica& replica)
             uint32_t offset = replica.sent.bytes;
             uint32_t length = queued.bytes - offset;
             SegmentCertificate* certificateToSend = &queuedCertificate;
+            replica.sentCertificate = true;
 
             // Breaks atomicity of log entries, but it could happen anyway
             // if a segment gets partially written to disk.
             if (length > maxBytesPerWriteRpc) {
                 length = maxBytesPerWriteRpc;
                 certificateToSend = NULL;
+                replica.sentCertificate = false;
             }
 
             bool sendClose = queued.close && (offset + length) == queued.bytes;
