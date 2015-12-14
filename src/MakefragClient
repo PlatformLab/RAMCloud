@@ -145,7 +145,7 @@ $(OBJDIR)/libramcloud.a: $(CLIENT_OBJFILES)
 # protocol buffers seems to need -lpthread, meh
 $(OBJDIR)/libramcloud.so: $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) -shared -lpthread -o $@ $^ -Wl,--no-undefined $(LIBS)
+	$(CXX) -shared -lpthread -o $@ $^ -Wl,--no-undefined,-soname,libramcloud.so $(LIBS)
 
 $(OBJDIR)/recovery: $(OBJDIR)/RecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
