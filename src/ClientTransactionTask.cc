@@ -66,15 +66,16 @@ ClientTransactionTask::findCacheEntry(Key& key)
     while (it != commitCache.end()) {
         if (cacheKey < it->first) {
             break;
-        } else if (it->second.objectBuf) {
-            Key otherKey(it->first.tableId,
-                         it->second.objectBuf->getKey(),
-                         it->second.objectBuf->getKeyLength());
-            if (key == otherKey) {
-                entry = &it->second;
-                break;
-            }
         }
+
+        Key otherKey(it->first.tableId,
+                     it->second.objectBuf.getKey(),
+                     it->second.objectBuf.getKeyLength());
+        if (key == otherKey) {
+            entry = &it->second;
+            break;
+        }
+
         it++;
     }
     return entry;
@@ -101,11 +102,11 @@ ClientTransactionTask::insertCacheEntry(Key& key, const void* buf,
         uint32_t length)
 {
     CacheKey cacheKey = {key.getTableId(), key.getHash()};
-    CommitCacheMap::iterator it = commitCache.insert(
-            CommitCacheMap::value_type(cacheKey, CacheEntry()));
-    it->second.objectBuf = new ObjectBuffer();
+    CommitCacheMap::iterator it = commitCache.emplace(std::piecewise_construct,
+            std::forward_as_tuple(cacheKey),
+            std::forward_as_tuple());
     Object::appendKeysAndValueToBuffer(
-            key, buf, length, it->second.objectBuf, true);
+            key, buf, length, &it->second.objectBuf, true);
     return &it->second;
 }
 
@@ -653,23 +654,23 @@ ClientTransactionTask::PrepareRpc::appendOp(CommitCacheMap::iterator opEntry)
         case CacheEntry::READ:
             request.emplaceAppend<WireFormat::TxPrepare::Request::ReadOp>(
                     key->tableId, entry->rpcId,
-                    entry->objectBuf->getKeyLength(), entry->rejectRules,
+                    entry->objectBuf.getKeyLength(), entry->rejectRules,
                     task->readOnly);
-            request.appendExternal(entry->objectBuf->getKey(),
-                    entry->objectBuf->getKeyLength());
+            request.appendExternal(entry->objectBuf.getKey(),
+                    entry->objectBuf.getKeyLength());
             break;
         case CacheEntry::REMOVE:
             request.emplaceAppend<WireFormat::TxPrepare::Request::RemoveOp>(
                     key->tableId, entry->rpcId,
-                    entry->objectBuf->getKeyLength(), entry->rejectRules);
-            request.appendExternal(entry->objectBuf->getKey(),
-                    entry->objectBuf->getKeyLength());
+                    entry->objectBuf.getKeyLength(), entry->rejectRules);
+            request.appendExternal(entry->objectBuf.getKey(),
+                    entry->objectBuf.getKeyLength());
             break;
         case CacheEntry::WRITE:
             request.emplaceAppend<WireFormat::TxPrepare::Request::WriteOp>(
                     key->tableId, entry->rpcId,
-                    entry->objectBuf->size(), entry->rejectRules);
-            request.appendExternal(entry->objectBuf);
+                    entry->objectBuf.size(), entry->rejectRules);
+            request.appendExternal(&entry->objectBuf);
             break;
         default:
             RAMCLOUD_LOG(ERROR, "Unknown transaction op type.");

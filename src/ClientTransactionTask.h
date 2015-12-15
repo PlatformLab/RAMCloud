@@ -43,12 +43,8 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         /// transaction operation needs to be performed during commit.
         Type type;
         /// Cached object value.  Used to service reads and defer writes and
-        /// removes until commit-time.  Ideally this would be a unique pointer
-        /// to manage the memory automatically but std::multimap is missing the
-        /// emplace feature.  Instead, we must manually dynamically allocate
-        /// the object and ensure there is only one pointer to it so that it
-        /// will not be double freed.
-        ObjectBuffer* objectBuf;
+        /// removes until commit-time.
+        ObjectBuffer objectBuf;
         /// Conditions upon which the transaction operation associated with
         /// this object should abort.
         RejectRules rejectRules;
@@ -62,44 +58,13 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         /// Default constructor for CacheEntry.
         CacheEntry()
             : type(CacheEntry::INVALID)
-            , objectBuf(NULL)
+            , objectBuf()
             , rejectRules({0, 0, 0, 0, 0})
             , rpcId(0)
             , state(PENDING)
         {}
 
-        /// Copy constructor for CacheEntry, used to get around the missing
-        /// emplace feature in std::multimap.
-        explicit CacheEntry(const CacheEntry& other)
-            : type(other.type)
-            , objectBuf(other.objectBuf)
-            , rejectRules(other.rejectRules)
-            , rpcId(other.rpcId)
-            , state(other.state)
-        {}
-
-        /// Destructor for CacheEntry.
-        ~CacheEntry()
-        {
-            // This delete would not be necessary if std::multimap supported
-            // emplace operations.
-            if (objectBuf)
-                delete objectBuf;
-        }
-
-        /// Assignment operator for CacheEntry, used to get around the missing
-        /// emplace feature in std::multimap.
-        CacheEntry& operator=(const CacheEntry& other)
-        {
-            if (this != &other) {
-                type = other.type;
-                objectBuf = other.objectBuf;
-                rejectRules = other.rejectRules;
-                rpcId = other.rpcId;
-                state = other.state;
-            }
-            return *this;
-        }
+        DISALLOW_COPY_AND_ASSIGN(CacheEntry);
     };
 
     explicit ClientTransactionTask(RamCloud* ramcloud);

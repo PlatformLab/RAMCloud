@@ -161,9 +161,9 @@ class ClientTransactionTaskTest : public ::testing::Test {
         if (entry == NULL) {
             entry = transactionTask->insertCacheEntry(keyObj, buf, length);
         } else {
-            entry->objectBuf->reset();
+            entry->objectBuf.reset();
             Object::appendKeysAndValueToBuffer(
-                    keyObj, buf, length, entry->objectBuf, true);
+                    keyObj, buf, length, &entry->objectBuf, true);
         }
 
         entry->type = type;
@@ -334,14 +334,14 @@ TEST_F(ClientTransactionTaskTest, commitCache) {
     EXPECT_EQ(2U, it->first.tableId);
     EXPECT_EQ(Key::getHash(2, "01", 2), it->first.keyHash);
     str = reinterpret_cast<const char*>(
-            it->second.objectBuf->getValue(&dataLength));
+            it->second.objectBuf.getValue(&dataLength));
     EXPECT_EQ("hello 21", string(str, dataLength));
     it++;
 
     EXPECT_EQ(2U, it->first.tableId);
     EXPECT_EQ(Key::getHash(2, "01", 2), it->first.keyHash);
     str = reinterpret_cast<const char*>(
-            it->second.objectBuf->getValue(&dataLength));
+            it->second.objectBuf.getValue(&dataLength));
     EXPECT_EQ("goodbye 21", string(str, dataLength));
     it++;
 
@@ -365,10 +365,10 @@ TEST_F(ClientTransactionTaskTest, findCacheEntry_basic) {
     uint32_t dataLength = 0;
     const char* str;
     Key testKey(
-            1, entry->objectBuf->getKey(), entry->objectBuf->getKeyLength());
+            1, entry->objectBuf.getKey(), entry->objectBuf.getKeyLength());
     EXPECT_EQ(key, testKey);
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("hello 11", string(str, dataLength));
 }
 
@@ -394,10 +394,10 @@ TEST_F(ClientTransactionTaskTest, findCacheEntry_keyCollision) {
     EXPECT_TRUE(entry != NULL);
 
     Key testKey1(
-            2, entry->objectBuf->getKey(), entry->objectBuf->getKeyLength());
+            2, entry->objectBuf.getKey(), entry->objectBuf.getKeyLength());
     EXPECT_EQ(key, testKey1);
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("hello 21", string(str, dataLength));
 
     // Sanity check
@@ -407,31 +407,31 @@ TEST_F(ClientTransactionTaskTest, findCacheEntry_keyCollision) {
 
     entry = &it->second;
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("hello 21", string(str, dataLength));
 
     it++;
     entry = &it->second;
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("goodbye 21", string(str, dataLength));
 
     // Change first entry so as to not match.
     entry = transactionTask->findCacheEntry(key);
-    entry->objectBuf->reset();
+    entry->objectBuf.reset();
     Key badKey(2, "BAD", 3);
     Object::appendKeysAndValueToBuffer(
-            badKey, "BAD   11", 8, entry->objectBuf, true);
+            badKey, "BAD   11", 8, &entry->objectBuf, true);
 
     entry = transactionTask->findCacheEntry(key);
 
     EXPECT_TRUE(entry != NULL);
 
     Key testKey2(
-            2, entry->objectBuf->getKey(), entry->objectBuf->getKeyLength());
+            2, entry->objectBuf.getKey(), entry->objectBuf.getKeyLength());
     EXPECT_EQ(key, testKey2);
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("goodbye 21", string(str, dataLength));
 
     // Sanity check
@@ -440,13 +440,13 @@ TEST_F(ClientTransactionTaskTest, findCacheEntry_keyCollision) {
 
     entry = &it->second;
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("BAD   11", string(str, dataLength));
 
     it++;
     entry = &it->second;
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("goodbye 21", string(str, dataLength));
 }
 
@@ -463,10 +463,10 @@ TEST_F(ClientTransactionTaskTest, insertCacheEntry) {
     uint32_t dataLength = 0;
     const char* str;
     Key testKey(
-            1, entry->objectBuf->getKey(), entry->objectBuf->getKeyLength());
+            1, entry->objectBuf.getKey(), entry->objectBuf.getKeyLength());
     EXPECT_EQ(key, testKey);
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("hello world", string(str, dataLength));
 }
 

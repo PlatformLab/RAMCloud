@@ -246,7 +246,7 @@ TEST_F(TransactionTest, read_basic) {
     uint32_t dataLength = 0;
     const char* str;
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("abcdef", string(str, dataLength));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::READ, entry->type);
     EXPECT_EQ(3U, entry->rejectRules.givenVersion);
@@ -263,7 +263,7 @@ TEST_F(TransactionTest, read_noObject) {
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(key);
     EXPECT_TRUE(entry != NULL);
     uint32_t dataLength = 0;
-    entry->objectBuf->getValue(&dataLength);
+    entry->objectBuf.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);
     EXPECT_EQ(ClientTransactionTask::CacheEntry::READ, entry->type);
     EXPECT_TRUE(entry->rejectRules.exists);
@@ -294,7 +294,7 @@ TEST_F(TransactionTest, read_afterWrite) {
     EXPECT_EQ(ClientTransactionTask::CacheEntry::WRITE, entry->type);
     EXPECT_EQ(0U, entry->rejectRules.givenVersion);
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("hello", string(str, dataLength));
 }
 
@@ -365,7 +365,7 @@ TEST_F(TransactionTest, write) {
     EXPECT_EQ(ClientTransactionTask::CacheEntry::WRITE, entry->type);
     EXPECT_EQ(0U, entry->rejectRules.givenVersion);
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("hello", string(str, dataLength));
 
     entry->type = ClientTransactionTask::CacheEntry::INVALID;
@@ -376,7 +376,7 @@ TEST_F(TransactionTest, write) {
     EXPECT_EQ(ClientTransactionTask::CacheEntry::WRITE, entry->type);
     EXPECT_EQ(42U, entry->rejectRules.givenVersion);
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("goodbye", string(str, dataLength));
 
     EXPECT_EQ(entry, task->findCacheEntry(key));
@@ -527,7 +527,7 @@ TEST_F(TransactionTest, ReadOp_wait_async) {
     EXPECT_EQ(ClientTransactionTask::CacheEntry::WRITE, entry->type);
     EXPECT_EQ(0U, entry->rejectRules.givenVersion);
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("hello", string(str, dataLength));
 }
 
@@ -553,7 +553,7 @@ TEST_F(TransactionTest, ReadOp_wait_batch_basic) {
     uint32_t dataLength = 0;
     const char* str;
     str = reinterpret_cast<const char*>(
-            entry->objectBuf->getValue(&dataLength));
+            entry->objectBuf.getValue(&dataLength));
     EXPECT_EQ("abcdef", string(str, dataLength));
     EXPECT_EQ(ClientTransactionTask::CacheEntry::READ, entry->type);
     EXPECT_EQ(3U, entry->rejectRules.givenVersion);
@@ -572,7 +572,7 @@ TEST_F(TransactionTest, ReadOp_wait_batch_noObject) {
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(key);
     EXPECT_TRUE(entry != NULL);
     uint32_t dataLength = 0;
-    entry->objectBuf->getValue(&dataLength);
+    entry->objectBuf.getValue(&dataLength);
     EXPECT_EQ(0U, dataLength);
     EXPECT_EQ(ClientTransactionTask::CacheEntry::READ, entry->type);
     EXPECT_TRUE(entry->rejectRules.exists);

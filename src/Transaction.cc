@@ -155,9 +155,9 @@ Transaction::remove(uint64_t tableId, const void* key, uint16_t keyLength)
     if (entry == NULL) {
         entry = task->insertCacheEntry(keyObj, NULL, 0);
     } else {
-        entry->objectBuf->reset();
+        entry->objectBuf.reset();
         Object::appendKeysAndValueToBuffer(
-                keyObj, NULL, 0, entry->objectBuf, true);
+                keyObj, NULL, 0, &entry->objectBuf, true);
     }
 
     entry->type = ClientTransactionTask::CacheEntry::REMOVE;
@@ -198,9 +198,9 @@ Transaction::write(uint64_t tableId, const void* key, uint16_t keyLength,
     if (entry == NULL) {
         entry = task->insertCacheEntry(keyObj, buf, length);
     } else {
-        entry->objectBuf->reset();
+        entry->objectBuf.reset();
         Object::appendKeysAndValueToBuffer(
-                keyObj, buf, length, entry->objectBuf, true);
+                keyObj, buf, length, &entry->objectBuf, true);
     }
 
     entry->type = ClientTransactionTask::CacheEntry::WRITE;
@@ -410,7 +410,7 @@ Transaction::ReadOp::wait()
     }
 
     uint32_t dataLength;
-    const void* data = entry->objectBuf->getValue(&dataLength);
+    const void* data = entry->objectBuf.getValue(&dataLength);
     value->reset();
     value->appendCopy(data, dataLength);
 }
