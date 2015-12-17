@@ -23,6 +23,7 @@
 #if INFINIBAND
 #include "InfRcTransport.h"
 #endif
+#include "MemoryMonitor.h"
 #include "OptionParser.h"
 #include "PortAlarm.h"
 #include "Server.h"
@@ -318,6 +319,7 @@ main(int argc, char *argv[])
 
         // Uncomment the following line to enable regular performance logging.
         // StatsLogger logger(context.dispatch, 1.0);
+        MemoryMonitor monitor(context.dispatch, 1.0, 100);
 
         Server server(&context, &config);
         server.run(); // Never returns except for exceptions.

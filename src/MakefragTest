@@ -96,6 +96,7 @@ TESTS_SRCFILES := \
 		  src/MasterServiceTest.cc \
 		  src/MasterTableMetadataTest.cc \
 		  src/MembershipServiceTest.cc \
+		  src/MemoryMonitorTest.cc \
 		  src/MinCopysetsBackupSelectorTest.cc \
 		  src/MockCluster.cc \
 		  src/MockClusterTest.cc \
