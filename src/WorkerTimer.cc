@@ -207,9 +207,17 @@ WorkerTimer::Manager::~Manager()
 void
 WorkerTimer::Manager::handleTimerEvent()
 {
-    // There used to be a WorkerTimer::mutex here, but it is not necessary to
-    // hold a lock and it causes deadlock between dispatch thread and the
-    // WorkerTimer thread.  Just wake up the worker thread.
+    // This code has gone back and forth on whether to lock WorkerTimer::mutex
+    // here. Initially it locked, but that caused the deadlock with the
+    // dispatch thread (WorkerTimer::mutex held when restarting this
+    // Dispatch::Timer, which required the dispatch lock, which the dispatch
+    // thread can't release because it is trying to lock WorkerTimer::mutex
+    // here). So, we removed the lock. But, this caused notifications on
+    // waitingForWork to be lost if they happened before workerThreadMain
+    // executed its wait. So, now we're back to locking again. This appears to
+    // be safe because Dispatch::Timer::start now uses a mutex rather than
+    // the dispatch lock.
+    Lock lock(mutex);
     waitingForWork.notify_one();
 }
 
@@ -245,7 +253,8 @@ WorkerTimer::findManager(Dispatch* dispatch, Lock& lock)
  * This method does most of the work for the worker thread. It checks
  * to see if any WorkerTimers are ready to execute and, if so, it
  * runs one of them. In addition, it restarts the Dispatch::Timer
- * for this manager if there are WorkerTimers still waiting.
+ * for this manager if there are WorkerTimers still waiting. It only
+ * returns when there are no more timers to run.
  *
  * \param lock
  *      Used to ensure that caller has acquired WorkerTimer::mutex.
@@ -253,29 +262,33 @@ WorkerTimer::findManager(Dispatch* dispatch, Lock& lock)
  */
 void WorkerTimer::Manager::checkTimers(Lock& lock)
 {
-    // Scan the list of active timers to (a) find a timer that's ready to run
-    // (if there is one) and (b) recompute earliestTriggerTime.
-    WorkerTimer* ready = NULL;
-    uint64_t newEarliest = ~0lu;
-    uint64_t now = Cycles::rdtsc();
-    for (Manager::TimerList::iterator
-            timerIterator(activeTimers.begin());
-            timerIterator != activeTimers.end();
-            timerIterator++) {
-        // Note: if multiple WorkerTimers are ready, run the one that
-        // has been on the queue the longest (this prevents starvation).)
-        if ((timerIterator->triggerTime <= now)
-                && (ready == NULL)) {
-            ready = &(*timerIterator);
-        } else {
-            if (timerIterator->triggerTime < newEarliest) {
-                newEarliest = timerIterator->triggerTime;
+    while (1) {
+        // Scan the list of active timers to (a) find a timer that's ready
+        // to run (if there is one) and (b) recompute earliestTriggerTime.
+        WorkerTimer* ready = NULL;
+        uint64_t newEarliest = ~0lu;
+        uint64_t now = Cycles::rdtsc();
+        for (Manager::TimerList::iterator
+                timerIterator(activeTimers.begin());
+                timerIterator != activeTimers.end();
+                timerIterator++) {
+            // Note: if multiple WorkerTimers are ready, run the one that
+            // has been on the queue the longest (this prevents starvation).)
+            if ((timerIterator->triggerTime <= now)
+                    && (ready == NULL)) {
+                ready = &(*timerIterator);
+            } else {
+                if (timerIterator->triggerTime < newEarliest) {
+                    newEarliest = timerIterator->triggerTime;
+                }
             }
         }
-    }
-    earliestTriggerTime = newEarliest;
+        earliestTriggerTime = newEarliest;
 
-    if (ready != NULL) {
+        if (ready == NULL) {
+            break;
+        }
+
         // Remove the timer from the list (it can reschedule itself if
         // it wants).
         erase(activeTimers, *ready);

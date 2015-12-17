@@ -345,8 +345,8 @@ TEST_F(WorkerTimerTest, checkTimers_basics) {
     waitForWorkerProgress();               // Thread startup
     timer1.start(1000);
     timer2.start(600);
-    timer3.start(500);
-    timer4.start(1100);
+    timer3.start(1100);
+    timer4.start(500);
     WorkerTimer::Lock lock(WorkerTimer::mutex);
 
     // First test: nothing has triggered.
@@ -358,27 +358,25 @@ TEST_F(WorkerTimerTest, checkTimers_basics) {
     EXPECT_EQ(500lu, timer1.manager->earliestTriggerTime);
     EXPECT_TRUE(timer1.manager->isRunning());
 
-    // Second test: timer2 and timer3 have both triggered, but timer2
-    // should run.
+    // Second test: timer2 and timer4 have both triggered; timer2
+    // should run first.
     Cycles::mockTscValue = 700;
     timer1.manager->stop();
     timer1.manager->checkTimers(lock);
-    EXPECT_EQ("handleTimerEvent: WorkerTimer timer2 invoked", TestLog::get());
-    EXPECT_EQ(3u, timer1.manager->activeTimers.size());
-    EXPECT_EQ(500lu, timer1.manager->earliestTriggerTime);
+    EXPECT_EQ("handleTimerEvent: WorkerTimer timer2 invoked | "
+            "handleTimerEvent: WorkerTimer timer4 invoked", TestLog::get());
+    EXPECT_EQ(2u, timer1.manager->activeTimers.size());
+    EXPECT_EQ(1000lu, timer1.manager->earliestTriggerTime);
     EXPECT_FALSE(timer2.active);
     EXPECT_TRUE(timer1.manager->isRunning());
 
     // Third test: run remaining timers.
     Cycles::mockTscValue = 1200;
     TestLog::reset();
-    timer1.manager->checkTimers(lock);
-    timer1.manager->checkTimers(lock);
     timer1.manager->stop();
     timer1.manager->checkTimers(lock);
     EXPECT_EQ("handleTimerEvent: WorkerTimer timer1 invoked | "
-            "handleTimerEvent: WorkerTimer timer3 invoked | "
-            "handleTimerEvent: WorkerTimer timer4 invoked", TestLog::get());
+            "handleTimerEvent: WorkerTimer timer3 invoked", TestLog::get());
     EXPECT_EQ(0u, timer1.manager->activeTimers.size());
     EXPECT_EQ(~0lu, timer1.manager->earliestTriggerTime);
     EXPECT_FALSE(timer1.manager->isRunning());
