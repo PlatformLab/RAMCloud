@@ -64,6 +64,7 @@ BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
     , replicas()
     , nextToBuild()
     , firstSecondaryReplica()
+    , numPrimaries(0)
     , segmentIdToReplica()
     , logDigest()
     , logDigestSegmentId(~0lu)
@@ -153,6 +154,7 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
         segmentIdToReplica[replica.metadata->segmentId] = &replica;
     }
     firstSecondaryReplica = replicas.end();
+    numPrimaries = primaries.size();
     foreach (auto& frame, secondaries) {
         replicas.emplace_back(frame);
         auto& replica = replicas.back();
@@ -389,16 +391,10 @@ void
 BackupMasterRecovery::performTask()
 {
     if (freeQueued) {
-        int replicasRead = 0;
-        foreach (Replica& replica, replicas) {
-            if (replica.recoverySegments != NULL) {
-                replicasRead++;
-            }
-        }
         LOG(NOTICE, "Freeing recovery state on backup for crashed master %s "
-                "(recovery %lu), including %d filtered replicas",
+                "(recovery %lu), including %lu filtered replicas",
                 crashedMasterId.toString().c_str(), recoveryId,
-                replicasRead);
+                numPrimaries);
         // Destructor will take care of everything including dropping
         // references to the storage frames.
         delete this;
@@ -411,8 +407,8 @@ BackupMasterRecovery::performTask()
         readingDataTicks.destroy();
         uint64_t ns =
             Cycles::toNanoseconds(Cycles::rdtsc() - buildingStartTicks);
-        LOG(NOTICE, "Took %lu ms to filter %lu segments",
-            ns / 1000 / 1000, firstSecondaryReplica - replicas.begin());
+        LOG(NOTICE, "Took %lu ms to filter %lu primary replicas",
+            ns / 1000 / 1000, numPrimaries);
         return;
     }
 

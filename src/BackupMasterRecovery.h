@@ -236,6 +236,12 @@ class BackupMasterRecovery : public Task {
     std::deque<Replica>::iterator firstSecondaryReplica;
 
     /**
+     * The number of primary replicas in #replicas. This is redundant with
+     * firstSecondaryReplica.
+     */
+    size_t numPrimaries;
+
+    /**
      * Maps segment ids to the corresponding replica in #replicas.
      * Populated in start() along with #replicas. Used by getRecoverySegment()
      * to find the Replica for which a recovery segment is being requested

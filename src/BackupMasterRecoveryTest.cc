@@ -339,7 +339,8 @@ TEST_F(BackupMasterRecoveryTest, performTask) {
         TestLog::get());
     TestLog::reset();
     taskQueue.performTask();
-    EXPECT_EQ("performTask: Took 0 ms to filter 1 segments", TestLog::get());
+    EXPECT_EQ("performTask: Took 0 ms to filter 1 primary replicas",
+        TestLog::get());
 }
 
 namespace {
