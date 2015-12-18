@@ -432,7 +432,7 @@ TEST_F(BackupServiceTest, startReadingData) {
             "will clean up as next possible chance. | "
         "schedule: scheduled | "
         "start: Backup preparing for recovery 457 of crashed server 99.0; "
-            "loading replicas | "
+            "loading 0 primary replicas | "
         "populateStartResponse: Crashed master 99.0 had closed secondary "
             "replica for segment 88 | "
         "populateStartResponse: Crashed master 99.0 had closed secondary "
@@ -615,8 +615,9 @@ TEST_F(BackupServiceTest, GarbageCollectDownServerTask) {
     TestLog::Enable _;
     // Runs the now scheduled BackupMasterRecovery to free it up.
     backup->taskQueue.performTask();
-    EXPECT_EQ("performTask: State for recovery 456 for crashed master 99.0 "
-              "freed on backup", TestLog::get());
+    EXPECT_EQ("performTask: Freeing recovery state on backup for crashed "
+              "master 99.0 (recovery 456), including 0 filtered replicas",
+              TestLog::get());
 
     backup->taskQueue.performTask();
     EXPECT_EQ(backup->frames.end(), backup->frames.find({{99, 0}, 88}));

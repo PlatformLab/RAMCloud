@@ -116,10 +116,6 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
     recoveryTicks.construct(&metrics->backup.recoveryTicks);
     metrics->backup.recoveryCount++;
 
-    LOG(NOTICE, "Backup preparing for recovery %lu of crashed server %s; "
-               "loading replicas", recoveryId,
-               ServerId(crashedMasterId).toString().c_str());
-
     vector<BackupStorage::FrameRef> primaries;
     vector<BackupStorage::FrameRef> secondaries;
     foreach (auto frame, frames) {
@@ -136,6 +132,11 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
             continue;
         (metadata->primary ? primaries : secondaries).push_back(frame);
     }
+
+    LOG(NOTICE, "Backup preparing for recovery %lu of crashed server %s; "
+                "loading %lu primary replicas", recoveryId,
+                ServerId(crashedMasterId).toString().c_str(),
+                primaries.size());
 
     // Build the deque and the mapping from segment ids to replicas.
     readingDataTicks.construct(&metrics->backup.readingDataTicks);
@@ -388,8 +389,16 @@ void
 BackupMasterRecovery::performTask()
 {
     if (freeQueued) {
-        LOG(DEBUG, "State for recovery %lu for crashed master %s freed on "
-            "backup", recoveryId, crashedMasterId.toString().c_str());
+        int replicasRead = 0;
+        foreach (Replica& replica, replicas) {
+            if (replica.recoverySegments != NULL) {
+                replicasRead++;
+            }
+        }
+        LOG(NOTICE, "Freeing recovery state on backup for crashed master %s "
+                "(recovery %lu), including %d filtered replicas",
+                crashedMasterId.toString().c_str(), recoveryId,
+                replicasRead);
         // Destructor will take care of everything including dropping
         // references to the storage frames.
         delete this;

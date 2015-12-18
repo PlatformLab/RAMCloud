@@ -96,6 +96,7 @@ main(int argc, char *argv[])
             args.append(argv[i]);
         }
         LOG(NOTICE, "Command line: %s", args.c_str());
+        LOG(NOTICE, "Coordinator process id: %u", getpid());
 
         context.workerManager = new WorkerManager(&context, maxCores-1);
 
