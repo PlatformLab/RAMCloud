@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -71,19 +71,21 @@ class ParallelRun {
         : tasks(tasks)
         , numTasks(numTasks)
         , maxOutstanding(maxOutstanding)
+        , currentOutstanding(0)
         , firstNotIssued(0)
         , firstNotDone(0)
     {
         assert(maxOutstanding > 0 || numTasks == 0);
 
         // Start off first round of tasks
-        for (uint32_t i = 0; i < numTasks; ++i) {
+        for (uint32_t i = 0;
+                (i < numTasks) && (currentOutstanding < maxOutstanding); ++i) {
             auto& task = tasks[i];
-            if (task)
+            if (task) {
                 task->send();
+                ++currentOutstanding;
+            }
             ++firstNotIssued;
-            if (i + 1 == maxOutstanding)
-                break;
         }
     }
 
@@ -107,14 +109,19 @@ class ParallelRun {
             task->wait();
             if (!task->isDone())
                 continue;
+            --currentOutstanding;
             if (firstNotDone == i)
                 ++firstNotDone;
-            if (firstNotIssued < numTasks) {
-                Tub<T>& taskToIssue = tasks[firstNotIssued];
-                if (taskToIssue)
-                    taskToIssue->send();
-                ++firstNotIssued;
+        }
+
+        while ((firstNotIssued < numTasks) &&
+                (currentOutstanding < maxOutstanding)) {
+            Tub<T>& taskToIssue = tasks[firstNotIssued];
+            if (taskToIssue) {
+                taskToIssue->send();
+                ++currentOutstanding;
             }
+            ++firstNotIssued;
         }
 
         return firstNotDone == numTasks;
@@ -144,6 +151,9 @@ class ParallelRun {
     const size_t maxOutstanding;
 
   PRIVATE:
+    /// Number of tasks currently running.
+    size_t currentOutstanding;
+
     /// The first element of #tasks has not yet had start() called.
     uint32_t firstNotIssued;
 
