@@ -46,13 +46,13 @@ valgrind_command = ''
 server_locator_templates = {
     'tcp': 'tcp:host=%(host)s,port=%(port)d',
     'tcp-1g': 'tcp:host=%(host1g)s,port=%(port)d',
-    'basic+udp': 'basic+udp:host=%(host)s,port=%(port)d',
+    'basic+udp': 'basic+udp:host=%(host)s,port=%(port)d,rttMicros=25,gbs=30',
     'basic+udp-1g': 'basic+udp:host=%(host1g)s,port=%(port)d',
     'fast+udp': 'fast+udp:host=%(host)s,port=%(port)d',
     'fast+udp-1g': 'fast+udp:host=%(host1g)s,port=%(port)d',
     'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
     'infrc': 'infrc:host=%(host)s,port=%(port)d',
-    'basic+infud': 'basic+infud:host=%(host1g)s',
+    'basic+infud': 'basic+infud:host=%(host1g)s,rttMicros=6,gbs=30',
     'fast+infud': 'fast+infud:host=%(host1g)s',
     'unreliable+infud': 'unreliable+infud:host=%(host1g)s',
     'fast+infeth': 'fast+infeth:mac=00:11:22:33:44:%(id)02x',
@@ -61,7 +61,7 @@ server_locator_templates = {
 coord_locator_templates = {
     'tcp': 'tcp:host=%(host)s,port=%(port)d',
     'tcp-1g': 'tcp:host=%(host1g)s,port=%(port)d',
-    'basic+udp': 'basic+udp:host=%(host)s,port=%(port)d',
+    'basic+udp': 'basic+udp:host=%(host)s,port=%(port)d,rttMicros=25,gbs=30',
     'fast+udp': 'fast+udp:host=%(host)s,port=%(port)d',
     'basic+udp-1g': 'basic+udp:host=%(host1g)s,port=%(port)d',
     'fast+udp-1g': 'fast+udp:host=%(host1g)s,port=%(port)d',
@@ -69,7 +69,7 @@ coord_locator_templates = {
     'infrc': 'infrc:host=%(host)s,port=%(port)d',
     # Coordinator uses udp even when rest of cluster uses infud
     # or infeth.
-    'basic+infud': 'basic+udp:host=%(host)s,port=%(port)d',
+    'basic+infud': 'basic+udp:host=%(host)s,port=%(port)d,rttMicros=6,gbs=30',
     'fast+infud': 'fast+udp:host=%(host)s,port=%(port)d',
     'unreliable+infud': 'fast+udp:host=%(host)s,port=%(port)d',
     'fast+infeth': 'fast+udp:host=%(host)s,port=%(port)d',
@@ -590,7 +590,7 @@ def run(
     Then start one or more client processes and wait for them to complete.
     @return: string indicating the path to the log files for this run.
     """
-
+#    client_hosts = [('rc52', '192.168.1.152', 52)]
     if not client:
         raise Exception('You must specify a client binary to run '
                         '(try obj.master/client)')
