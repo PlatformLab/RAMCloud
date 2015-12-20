@@ -308,6 +308,9 @@ TEST_P(SegmentTest, getEntry_byOffset) {
         reinterpret_cast<const char*>(buffer.getRange(0, 21)));
 }
 
+#if 0
+// This test temporarily disabled because it takes > 10 secs to run
+// (see RAM-821).
 TEST_P(SegmentTest, getEntry_byReference) {
     char dummy[extraFragmented.segletSize * 2];
 
@@ -333,6 +336,7 @@ TEST_P(SegmentTest, getEntry_byReference) {
             reinterpret_cast<const char*>(buffer.getRange(0, 21)));
     }
 }
+#endif
 
 TEST_P(SegmentTest, getEntry_contigMem) {
     Buffer dataBuffer;
