@@ -334,6 +334,9 @@ InfRcTransport::~InfRcTransport()
         erase(outstandingRpcs, rpc);
         clientRpcPool.destroy(&rpc);
     }
+    foreach (auto& bd, *txBuffers) {
+        bd.session.reset();
+    }
 }
 
 void
