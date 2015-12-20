@@ -301,11 +301,15 @@ class Infiniband {
         uint32_t        bytes;          // length of buffer in bytes
         uint32_t        messageBytes;   // byte length of message in the buffer
         ibv_mr *        mr;             // memory region of the buffer
+        Transport::SessionRef session;  // Not used here; available for use
+                                        // by transport (e.g. to identify
+                                        // destination after packet errors).
 
         BufferDescriptor(char *buffer, uint32_t bytes, ibv_mr *mr)
-            : buffer(buffer), bytes(bytes), messageBytes(0), mr(mr) {}
+            : buffer(buffer), bytes(bytes), messageBytes(0), mr(mr),
+              session() {}
         BufferDescriptor()
-            : buffer(NULL), bytes(0), messageBytes(0), mr(NULL) {}
+            : buffer(NULL), bytes(0), messageBytes(0), mr(NULL), session() {}
 
       private:
         DISALLOW_COPY_AND_ASSIGN(BufferDescriptor);

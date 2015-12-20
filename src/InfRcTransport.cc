@@ -324,6 +324,16 @@ InfRcTransport::~InfRcTransport()
         close(serverSetupSocket);
     if (clientSetupSocket != -1)
         close(clientSetupSocket);
+    while (!clientSendQueue.empty()) {
+        ClientRpc& rpc = *clientSendQueue.begin();
+        erase(clientSendQueue, rpc);
+        clientRpcPool.destroy(&rpc);
+    }
+    while (!outstandingRpcs.empty()) {
+        ClientRpc& rpc = *outstandingRpcs.begin();
+        erase(outstandingRpcs, rpc);
+        clientRpcPool.destroy(&rpc);
+    }
 }
 
 void
@@ -884,8 +894,31 @@ InfRcTransport::getTransmitBuffer()
             // time could indicate deadlock); in the normal case this code
             // is not invoked.
             uint64_t start = Cycles::rdtsc();
-            while (freeTxBuffers.empty())
+            uint64_t oneSecond = Cycles::fromSeconds(1.0);
+            uint64_t nextLog = start + oneSecond;
+            bool printDetails = true;
+            while (freeTxBuffers.empty()) {
                 reapTxBuffers();
+                uint64_t now = Cycles::rdtsc();
+                if (now > nextLog) {
+                    LOG(WARNING, "Transmit buffers unavailable for %.1f "
+                            "seconds; deadlock or target crashed?",
+                            Cycles::toSeconds(now-nextLog));
+                    nextLog += oneSecond;
+                    // The first time this message is printed, log all of
+                    // the target addresses still outstanding.
+                    if (printDetails) {
+                        foreach (auto& bd, *txBuffers) {
+                            LOG(NOTICE, "Transmit buffer with %u bytes "
+                                    "pending for %s", bd.messageBytes,
+                                    bd.session ?
+                                    bd.session->getServiceLocator().c_str()
+                                    : "unknown target");
+                        }
+                        printDetails = false;
+                    }
+                }
+            }
             double waitMs = 1e03 * Cycles::toSeconds(Cycles::rdtsc() - start);
             if (waitMs > 5.0)  {
                 LOG(WARNING, "Long delay waiting for transmit buffers "
@@ -917,15 +950,20 @@ InfRcTransport::reapTxBuffers()
 
     for (int i = 0; i < n; i++) {
         BufferDescriptor* bd =
-            reinterpret_cast<BufferDescriptor*>(retArray[i].wr_id);
+                reinterpret_cast<BufferDescriptor*>(retArray[i].wr_id);
         pendingOutputBytes -= bd->messageBytes;
-        freeTxBuffers.push_back(bd);
-
         if (retArray[i].status != IBV_WC_SUCCESS) {
-            LOG(ERROR, "Transmit failed for buffer %lu: %s",
-                reinterpret_cast<uint64_t>(bd),
-                infiniband->wcStatusToString(retArray[i].status));
+            LOG(ERROR, "Transmit failed for buffer %lu: destination %s, "
+                    "status %s",
+                    reinterpret_cast<uint64_t>(bd),
+                    infiniband->wcStatusToString(retArray[i].status),
+                    bd->session ? bd->session->getServiceLocator().c_str()
+                    : "unknown");
         }
+        // Must clear the session (otherwise an old buffer could keep
+        // a session from being garbage-collected).
+        bd->session.reset();
+        freeTxBuffers.push_back(bd);
     }
 
     // Has TX just transitioned to idle?
@@ -966,6 +1004,10 @@ InfRcTransport::getServiceLocator()
  * scatter-gather entry limit and buffers that mix registered and
  * non-registered chunks.
  *
+ * \param session
+ *      Session on whose behalf this message is being sent (NULL means
+ *      this is a response to a client). Used only for logging messages
+ *      if there is a packet error.
  * \param nonce
  *      Unique RPC identifier to transmit before message.
  * \param message
@@ -975,7 +1017,8 @@ InfRcTransport::getServiceLocator()
  *      Queue pair on which to transmit the message.
  */
 void
-InfRcTransport::sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp)
+InfRcTransport::sendZeroCopy(InfRcSession* session, uint64_t nonce,
+        Buffer* message, QueuePair* qp)
 {
     const bool allowZeroCopy = true;
     uint32_t lastChunkIndex = message->getNumberChunks() - 1;
@@ -985,6 +1028,7 @@ InfRcTransport::sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp)
     uint32_t sgesUsed = 0;
     BufferDescriptor* bd = getTransmitBuffer();
     bd->messageBytes = message->size();
+    bd->session = session;
 
     // The variables below allow us to collect several chunks from the
     // Buffer into a single sge in some situations. They describe a
@@ -1161,7 +1205,7 @@ InfRcTransport::ServerRpc::sendReply()
                     t->getMaxRpcSize()));
     }
 
-    t->sendZeroCopy(nonce, &replyPayload, qp);
+    t->sendZeroCopy(NULL, nonce, &replyPayload, qp);
     interval.stop();
 
     // Restart port watchdog for this server port
@@ -1246,7 +1290,7 @@ InfRcTransport::ClientRpc::sendOrQueue()
         ++metrics->transport.transmit.messageCount;
         ++metrics->transport.transmit.packetCount;
 
-        t->sendZeroCopy(nonce, request, session->qp);
+        t->sendZeroCopy(session, nonce, request, session->qp);
 
         t->outstandingRpcs.push_back(*this);
         session->sessionAlarm.rpcStarted();
