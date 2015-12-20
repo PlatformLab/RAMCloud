@@ -170,16 +170,6 @@ TEST_F(MasterRecoveryManagerTest, startMasterRecovery) {
     EXPECT_EQ(0lu, mgr->waitingRecoveries.size());
 }
 
-TEST_F(MasterRecoveryManagerTest, destroyAndFreeRecovery) {
-    std::unique_ptr<Recovery> recovery{
-        new Recovery(&context, mgr->taskQueue, tableManager, &mgr->tracker, mgr,
-                     {1, 0}, {})};
-    mgr->activeRecoveries[recovery->recoveryId] = recovery.get();
-    mgr->destroyAndFreeRecovery(recovery.get());
-    recovery.release();
-    EXPECT_EQ(0lu, mgr->activeRecoveries.size());
-}
-
 TEST_F(MasterRecoveryManagerTest, trackerChangesEnqueued) {
     Lock lock(mutex); // For calls to internal functions without real lock.
     // Changes to serverList implicitly call trackerChangesEnqueued.
@@ -204,17 +194,19 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinished) {
     EXPECT_EQ(0lu, serverList->version);
     ServerId serverId = addMaster(lock, ServerStatus::CRASHED);
     EXPECT_EQ(1lu, serverList->version);
-    Recovery recovery(&context, mgr->taskQueue, tableManager, &mgr->tracker,
-                      NULL, serverId, {});
-    recovery.status = Recovery::BROADCAST_RECOVERY_COMPLETE;
+    Recovery* recovery = new Recovery(&context, mgr->taskQueue, tableManager,
+                                      &mgr->tracker, NULL, serverId, {});
+    mgr->activeRecoveries[recovery->recoveryId] = recovery;
+    recovery->status = Recovery::ALL_RECOVERY_MASTERS_FINISHED;
     ASSERT_EQ(0lu, mgr->taskQueue.outstandingTasks());
     EXPECT_EQ(1lu, serverList->version);
-    mgr->recoveryFinished(&recovery);
+    mgr->recoveryFinished(recovery);
 
     // ApplyTrackerChangesTask for crashed, one for remove, and the
     // MaybeStartRecoveryTask.
     EXPECT_EQ(2lu, mgr->taskQueue.outstandingTasks());
     EXPECT_EQ(2lu, serverList->version);
+    EXPECT_EQ(0lu, mgr->activeRecoveries.size());
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
@@ -222,15 +214,19 @@ TEST_F(MasterRecoveryManagerTest, recoveryFinishedUnsuccessful) {
     EXPECT_EQ(0lu, serverList->version);
     ServerId serverId = addMaster(lock, ServerStatus::CRASHED);
     EXPECT_EQ(1lu, serverList->version);
-    Recovery recovery(&context, mgr->taskQueue, tableManager, &mgr->tracker,
-                      NULL, serverId,  {});
+    Recovery* recovery = new Recovery(&context, mgr->taskQueue, tableManager,
+                                      &mgr->tracker, NULL, serverId,  {});
+    recovery->unsuccessfulRecoveryMasters = 1;
+    mgr->skipRescheduleDelay = true;
     ASSERT_EQ(0lu, mgr->taskQueue.outstandingTasks());
     EXPECT_EQ(1lu, serverList->version);
-    mgr->recoveryFinished(&recovery);
+    TestLog::reset();
+    mgr->recoveryFinished(recovery);
 
     // EnqueueRecoveryTask.
-    EXPECT_EQ(2lu, mgr->taskQueue.outstandingTasks());
-    EXPECT_EQ(2lu, serverList->version);
+    EXPECT_EQ(1lu, mgr->taskQueue.outstandingTasks());
+    EXPECT_EQ(1lu, serverList->version);
+    EXPECT_EQ(0lu, mgr->activeRecoveries.size());
 }
 
 TEST_F(MasterRecoveryManagerTest, recoveryMasterFinishedNoSuchRecovery) {
@@ -268,13 +264,12 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     addMaster(lock); // Recovery master.
     EXPECT_EQ(2lu, serverList->version);
 
-    std::unique_ptr<Recovery> recovery{
-        new Recovery(&context, mgr->taskQueue, tableManager, &mgr->tracker, mgr,
-                     crashedServerId, {})};
-    recovery->numPartitions = 1;
-    mgr->activeRecoveries[recovery->recoveryId] = recovery.get();
+    Recovery recovery(&context, mgr->taskQueue, tableManager, &mgr->tracker,
+                      mgr, crashedServerId, {});
+    recovery.numPartitions = 1;
+    mgr->activeRecoveries[recovery.recoveryId] = &recovery;
     // Register {2, 0} as a recovery master for this recovery.
-    mgr->tracker[ServerId(2, 0)] = recovery.get();
+    mgr->tracker[ServerId(2, 0)] = &recovery;
 
     ProtoBuf::RecoveryPartition recoveryPartition;
     ProtoBuf::Tablets recoveredTablets;
@@ -288,16 +283,13 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
     tableManager->testAddTablet(
         {0, 0, ~0lu, {1, 0}, Tablet::RECOVERING, {2, 3}});
 
-    EXPECT_EQ(2lu, serverList->version);
-
     TestLog::Enable _;
     std::thread thread(&MasterRecoveryManager::recoveryMasterFinished,
                        mgr,
-                       recovery->recoveryId,
+                       recovery.recoveryId,
                        ServerId{2, 0}, recoveryPartition, true);
     while (!mgr->taskQueue.performTask()); // Do RecoveryMasterFinishedTask.
     thread.join();
-    serverList->sync();
     EXPECT_EQ(
         "recoveryMasterFinished: Called by masterId 2.0 with 1 tablets "
         "and 0 indexlets | "
@@ -317,20 +309,11 @@ TEST_F(MasterRecoveryManagerTest, recoveryMasterFinished) {
             "Tablet { startKeyHash: 0x0, endKeyHash: 0xffffffffffffffff, "
             "serverId: 1.0, status: RECOVERING, ctime: 2.3 } } | "
         "schedule: scheduled | "
-        "recoveryFinished: Recovery 1 completed for master 1.0 | "
-        "recoveryCompleted: Removing server 1.0 from cluster/coordinator "
-            "server list | "
-        "persistAndPropagate: Persisting 1.0 | "
-        "schedule: scheduled | schedule: scheduled | "
         "recoveryMasterFinished: Notifying recovery master ok to serve tablets",
               TestLog::get());
 
-    // Recovery task which is finishing up, ApplyTrackerChangesTask (due to
-    // change in server list to remove crashed master), and MaybeStart task.
-    EXPECT_EQ(3lu, mgr->taskQueue.outstandingTasks());
-
-    // Ensure server list broadcast happened.
-    EXPECT_EQ(3lu, serverList->version);
+    // Recovery task which is finishing up.
+    EXPECT_EQ(1lu, mgr->taskQueue.outstandingTasks());
 }
 
 TEST_F(MasterRecoveryManagerTest,
@@ -344,13 +327,12 @@ TEST_F(MasterRecoveryManagerTest,
     auto crashedServerId = addMaster(lock, ServerStatus::CRASHED);
     addMaster(lock); // Recovery master.
 
-    std::unique_ptr<Recovery> recovery{
-        new Recovery(&context, mgr->taskQueue, tableManager, &mgr->tracker, mgr,
-                     crashedServerId, {})};
+    Recovery* recovery = new Recovery(&context, mgr->taskQueue, tableManager,
+                                     &mgr->tracker, mgr, crashedServerId, {});
     recovery->numPartitions = 1;
-    mgr->activeRecoveries[recovery->recoveryId] = recovery.get();
+    mgr->activeRecoveries[recovery->recoveryId] = recovery;
     // Register {2, 0} as a recovery master for this recovery.
-    mgr->tracker[ServerId(2, 0)] = recovery.get();
+    mgr->tracker[ServerId(2, 0)] = recovery;
 
     ProtoBuf::RecoveryPartition recoveryPartition;
     ProtoBuf::Tablets recoveredTablets;
@@ -382,17 +364,19 @@ TEST_F(MasterRecoveryManagerTest,
         "performTask: A recovery master failed to recover its partition | "
         "recoveryMasterFinished: Recovery master 2.0 failed to recover its "
             "partition for crashed server 1.0 | "
-        "recoveryMasterFinished: Recovery wasn't completely successful; will "
-            "not broadcast the end of recovery 1 for server 1.0 to backups | "
-        "recoveryFinished: Recovery 1 completed for master 1.0 | "
-        "recoveryFinished: Recovery of server 1.0 failed to recover some "
-            "tablets, rescheduling another recovery | "
         "schedule: scheduled | "
-        "destroyAndFreeRecovery: Recovery of server 1.0 done (now 0 active "
-            "recoveries) | "
         "recoveryMasterFinished: Asking recovery master to abort its recovery"
         , TestLog::get());
-    recovery.release();
+
+    TestLog::reset();
+    mgr->taskQueue.performTask();  // Recovery ALL_RECOVERY_MASTERS_FINISHED.
+    EXPECT_EQ("broadcastRecoveryComplete: Broadcasting the end of "
+        "recovery 1 for server 1.0 to backups | "
+        "recoveryFinished: Recovery 1 completed for master 1.0 (now "
+        "0 active recoveries) | "
+        "recoveryFinished: Recovery of server 1.0 failed to recover "
+        "some tablets, rescheduling another recovery | "
+        "schedule: scheduled", TestLog::get());
 
     TestLog::reset();
     mgr->taskQueue.performTask();  // EnqueueMasterRecoveryTask.

@@ -68,7 +68,6 @@ class MasterRecoveryManager : public Recovery::Owner
 
     virtual void trackerChangesEnqueued();
 
-    virtual void destroyAndFreeRecovery(Recovery* recovery);
     virtual void recoveryFinished(Recovery* recovery);
 
   PRIVATE:

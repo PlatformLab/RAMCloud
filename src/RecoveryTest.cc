@@ -1166,14 +1166,10 @@ TEST_F(RecoveryTest, startRecoveryMasters_tooFewIdleMasters) {
  */
 TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
     struct Owner : public Recovery::Owner {
-        Owner() : finishedCalled(), destroyCalled() {}
+        Owner() : finishedCalled() {}
         bool finishedCalled;
-        bool destroyCalled;
         void recoveryFinished(Recovery* recovery) {
             finishedCalled = true;
-        }
-        void destroyAndFreeRecovery(Recovery* recovery) {
-            destroyCalled = true;
         }
     } owner;
     Lock lock(mutex);     // To trick TableManager internal calls.
@@ -1199,17 +1195,14 @@ TEST_F(RecoveryTest, startRecoveryMasters_noIdleMasters) {
         "startRecoveryMasters: Couldn't find enough masters not already "
             "performing a recovery to recover all partitions: 3 partitions "
             "will be recovered later | "
-        "recoveryMasterFinished: Recovery wasn't completely successful; "
-            "will not broadcast the end of recovery 1 for "
-            "server 99.0 to backups",
+        "schedule: scheduled",
         TestLog::get());
     EXPECT_EQ(3u, recovery.numPartitions);
     EXPECT_EQ(0u, recovery.successfulRecoveryMasters);
     EXPECT_EQ(3u, recovery.unsuccessfulRecoveryMasters);
-    EXPECT_EQ(Recovery::DONE, recovery.status);
+    EXPECT_EQ(Recovery::ALL_RECOVERY_MASTERS_FINISHED, recovery.status);
     EXPECT_FALSE(recovery.wasCompletelySuccessful());
-    EXPECT_TRUE(owner.finishedCalled);
-    EXPECT_TRUE(owner.destroyCalled);
+    EXPECT_FALSE(owner.finishedCalled);
 }
 
 TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
@@ -1228,8 +1221,8 @@ TEST_F(RecoveryTest, startRecoveryMasters_allFailDuringRecoverRpc) {
     EXPECT_EQ(3u, recovery.numPartitions);
     EXPECT_EQ(0u, recovery.successfulRecoveryMasters);
     EXPECT_EQ(3u, recovery.unsuccessfulRecoveryMasters);
-    EXPECT_EQ(Recovery::DONE, recovery.status);
-    EXPECT_FALSE(recovery.isScheduled()); // NOT scheduled to send broadcast
+    EXPECT_EQ(Recovery::ALL_RECOVERY_MASTERS_FINISHED, recovery.status);
+    EXPECT_TRUE(recovery.isScheduled());
     EXPECT_FALSE(tracker[ServerId(1, 0)]);
     EXPECT_FALSE(tracker[ServerId(2, 0)]);
 }
@@ -1276,7 +1269,7 @@ TEST_F(RecoveryTest, recoveryMasterFinished) {
     recovery.recoveryMasterFinished({3, 0}, false);
     EXPECT_EQ(1u, recovery.successfulRecoveryMasters);
     EXPECT_EQ(1u, recovery.unsuccessfulRecoveryMasters);
-    EXPECT_EQ(Recovery::DONE, recovery.status);
+    EXPECT_EQ(Recovery::ALL_RECOVERY_MASTERS_FINISHED, recovery.status);
 }
 
 TEST_F(RecoveryTest, broadcastRecoveryComplete) {

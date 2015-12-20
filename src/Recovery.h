@@ -130,15 +130,13 @@ class Recovery : public Task {
   public:
     /**
      * Internal to MasterRecoveryManager; describes what to do when the
-     * recovery has completed or whenever we don't want to go on living.
-     * MasterRecoveryManager needs to do some special cleanup after
-     * Recoveries, but Recoveries know best when to destroy themselves.
-     * The default logic does nothing which is useful for
-     * Recovery during unit testing.
+     * recovery has completed. MasterRecoveryManager needs to do some
+     * special cleanup after Recoveries, but Recoveries know best when
+     * to destroy themselves. The default logic does nothing which is
+     * useful for Recovery during unit testing.
      */
     struct Owner {
         virtual void recoveryFinished(Recovery* recovery) {}
-        virtual void destroyAndFreeRecovery(Recovery* recovery) {}
         virtual ~Owner() {}
     };
     Recovery(Context* context,
@@ -230,10 +228,12 @@ class Recovery : public Task {
     uint64_t recoveryId;
 
     enum Status {
-        START_RECOVERY_ON_BACKUPS,   ///< Contact all backups and find replicas.
-        START_RECOVERY_MASTERS,      ///< Choose and start recovery masters.
-        WAIT_FOR_RECOVERY_MASTERS,   ///< Wait on recovery master completion.
-        BROADCAST_RECOVERY_COMPLETE, ///< Inform backups of end of recovery.
+        START_RECOVERY_ON_BACKUPS,     ///< Contact all backups and find
+                                       ///  replicas.
+        START_RECOVERY_MASTERS,        ///< Choose and start recovery masters.
+        WAIT_FOR_RECOVERY_MASTERS,     ///< Wait on recovery master completion.
+        ALL_RECOVERY_MASTERS_FINISHED, ///< All recovery managers have either
+                                       ///  succeeded or failed.
         DONE,
     };
     /**
@@ -254,8 +254,8 @@ class Recovery : public Task {
     vector<WireFormat::Recover::Replica> replicaMap;
 
     /**
-     * Number of partitions in will; determines the number of recovery
-     * masters to use for recovery.
+     * Number of partitions in recovery (i.e. number of recovery
+     * masters to use for recovery).
      * Recovery isDone() and moves to BROADCAST_RECOVERY_COMPLETE phase
      * when this is equal to the sum of successful and unsuccessful recovery
      * masters.

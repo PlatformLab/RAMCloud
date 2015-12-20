@@ -532,32 +532,6 @@ MasterRecoveryManager::trackerChangesEnqueued()
 }
 
 /**
- * Deletes a Recovery and cleans up all resources associated with
- * it in the MasterRecoveryManager. Invoked by Recovery instances
- * when they've outlived their usefulness.
- * Note, this method performs no synchronization itself and is unsafe to call
- * in general. Basically it should only be called in the context of a performTask
- * method on a Recovery which is serialized by #taskQueue.
- *
- * \param recovery
- *      Recovery that is prepared to meet its maker.
- */
-void
-MasterRecoveryManager::destroyAndFreeRecovery(Recovery* recovery)
-{
-    // Waiting until destruction to remove the activeRecoveries
-    // means another recovery won't start until after the end of
-    // recovery broadcast. To change that just move the erase
-    // to recoveryFinished().
-    activeRecoveries.erase(recovery->getRecoveryId());
-    LOG(NOTICE,
-        "Recovery of server %s done (now %lu active recoveries)",
-        recovery->crashedServerId.toString().c_str(),
-        activeRecoveries.size());
-    delete recovery;
-}
-
-/**
  * Note \a recovery as finished and either send out the updated server list
  * marked the crashed master as down or, if the recovery wasn't completely
  * successful, schedule a follow up recovery.
@@ -565,25 +539,23 @@ MasterRecoveryManager::destroyAndFreeRecovery(Recovery* recovery)
  * This means either recovery couldn't find a complete log and bailed
  * out almost immediately, or that all the recovery masters either finished
  * recovering their partition of the crashed master's will or failed.
- * This recovery may still be performing some cleanup tasks and will
- * call destroyAndFreeRecovery() when it is safe to delete it.
+ * This method is responsible for deleting the Recovery once it has done
+ * whatever it needs to do.
  * Note, this method performs no synchronization itself and is unsafe to call
  * in general. Basically it should only be called in the context of a performTask
  * method on a Recovery which is serialized by #taskQueue.
  *
  * \param recovery
- *      Recovery which is done.
+ *      Recovery that is done.
  */
 void
 MasterRecoveryManager::recoveryFinished(Recovery* recovery)
 {
-    // Waiting until destruction to remove the activeRecoveries
-    // means another recovery won't start until after the end of
-    // recovery broadcast. To change that just move the erase
-    // from destroyAndFreeRecovery() to recoveryFinished().
-    LOG(NOTICE, "Recovery %lu completed for master %s",
+    LOG(NOTICE, "Recovery %lu completed for master %s (now %lu active "
+        "recoveries)",
         recovery->getRecoveryId(),
-        recovery->crashedServerId.toString().c_str());
+        recovery->crashedServerId.toString().c_str(),
+        activeRecoveries.size() - 1);
     if (recovery->wasCompletelySuccessful()) {
         // Remove recovered server from the server list and broadcast
         // the change to the cluster.
@@ -614,6 +586,9 @@ MasterRecoveryManager::recoveryFinished(Recovery* recovery)
                                        recovery->masterRecoveryInfo))->
                                                             schedule();
     }
+
+    activeRecoveries.erase(recovery->getRecoveryId());
+    delete recovery;
 }
 
 /**

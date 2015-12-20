@@ -378,15 +378,14 @@ Recovery::partitionTablets(vector<Tablet> tablets,
 void
 Recovery::performTask()
 {
-    // set to DONE if there were no tablets in the crashed master when the
-    // constructor for this Recovery object was invoked
     if (status == DONE) {
+        // We get here only if there were no tablets in the crashed master
+        // when the constructor for this Recovery object was invoked.
         LOG(NOTICE, "No tablets in crashed server %s, removing it from"
                     " coordinator server list",
                      crashedServerId.toString().c_str());
         if (owner) {
             owner->recoveryFinished(this);
-            owner->destroyAndFreeRecovery(this);
         }
         return;
     }
@@ -404,25 +403,27 @@ Recovery::performTask()
     case WAIT_FOR_RECOVERY_MASTERS:
         // Calls to recoveryMasterFinished drive
         // recovery from WAIT_FOR_RECOVERY_MASTERS to
-        // BROADCAST_RECOVERY_COMPLETE.
+        // ALL_RECOVERY_MASTERS_FINISHED.
         assert(false);
         break;
-    case BROADCAST_RECOVERY_COMPLETE:
-// Waiting to broadcast end-of-recovery until after the driving
-// tabletsRecovered RPC completes makes sense, but it breaks recovery
-// metrics since they use this broadcast as a signal to stop their recovery
-// timers resulting in many divide by zeroes (since the client app sees
-// the tablets as being up it gathers metrics before the backups are
-// informed of the end of recovery).
-// An idea for a solution could be to have the backups stop their timers
-// when they receive the get metrics request.
+    case ALL_RECOVERY_MASTERS_FINISHED:
+        // Tell all of the backups that they can reclaim recovery state.
+        // This is the "right" place to do this (don't want to do it in
+        // recoveryMasterFinished, because that's in the middle of handling
+        // an RPC). However, this code breaks recovery metrics since they
+        // use this broadcast as a signal to stop their recovery timers,
+        // and by the time code is executed here, the client could already
+        // fetched the metrics (resulting in divide-by-zero errors). This
+        // #ifdef can be changed to move the notification for benchmarking.
+        // A better solution would be to make the backups stop their timer
+        // when metrics are fetched.
 #define BCAST_INLINE 0
 #if !BCAST_INLINE
         broadcastRecoveryComplete();
 #endif
         status = DONE;
         if (owner)
-            owner->destroyAndFreeRecovery(this);
+            owner->recoveryFinished(this);
         break;
     case DONE:
     default:
@@ -653,8 +654,12 @@ verifyLogComplete(Tub<BackupStartTask> tasks[],
     for (uint32_t i = 0; i < digest.size(); i++) {
         uint64_t id = digest[i];
         if (!contains(replicaSet, id)) {
-            LOG(NOTICE, "Segment %lu listed in the log digest but not found "
-                "among available backups", id);
+            if (missing == 0) {
+                // Only log the first missing segment; logging them all creates
+                // too much log data.
+                LOG(NOTICE, "Segment %lu listed in the log digest but not "
+                    "found among available backups", id);
+            }
             missing++;
         }
     }
@@ -837,7 +842,6 @@ Recovery::startBackups()
         status = DONE;
         if (owner) {
             owner->recoveryFinished(this);
-            owner->destroyAndFreeRecovery(this);
         }
         return;
     }
@@ -870,7 +874,6 @@ Recovery::startBackups()
             "Will retry recovery later.");
         if (owner) {
             owner->recoveryFinished(this);
-            owner->destroyAndFreeRecovery(this);
         }
         return;
     }
@@ -891,7 +894,6 @@ Recovery::startBackups()
             "Will retry recovery later.");
         if (owner) {
             owner->recoveryFinished(this);
-            owner->destroyAndFreeRecovery(this);
         }
         return;
     }
@@ -1116,24 +1118,11 @@ Recovery::recoveryMasterFinished(ServerId recoveryMasterId,
         successfulRecoveryMasters + unsuccessfulRecoveryMasters;
     if (completedRecoveryMasters == numPartitions) {
         recoveryTicks.destroy();
-        status = BROADCAST_RECOVERY_COMPLETE;
-        if (wasCompletelySuccessful()) {
-            schedule();
-            if (owner)
-                owner->recoveryFinished(this);
+        status = ALL_RECOVERY_MASTERS_FINISHED;
 #if BCAST_INLINE
-            broadcastRecoveryComplete();
+        broadcastRecoveryComplete();
 #endif
-        } else {
-            LOG(DEBUG, "Recovery wasn't completely successful; will not "
-                "broadcast the end of recovery %lu for server %s to backups",
-                recoveryId, crashedServerId.toString().c_str());
-            status = DONE;
-            if (owner) {
-                owner->recoveryFinished(this);
-                owner->destroyAndFreeRecovery(this);
-            }
-        }
+        schedule();
     }
 }
 

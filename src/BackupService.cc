@@ -177,6 +177,7 @@ void
 BackupService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
     Lock _(mutex); // Lock out GC while any RPC is being processed.
+                   // Also, prevent races between RPCs.
 
     // This is a hack. We allow the AssignGroup Rpc to be processed before
     // initCalled is set to true, since it is sent during initialization.
@@ -345,8 +346,26 @@ BackupService::recoveryComplete(
         WireFormat::BackupRecoveryComplete::Response* respHdr,
         Rpc* rpc)
 {
-    LOG(DEBUG, "masterID: %s",
-        ServerId(reqHdr->masterId).toString().c_str());
+    // Delete any state associated with this recovery (most importantly,
+    // all of the filtered log replicas). Note: this code used not to be
+    // present, since we will eventually be notified that the crashed
+    // master left the cluster (GarbageCollectDownServerTask below) and
+    // that code will take care of cleaning up the recovery state. However,
+    // the old approach resulted in servers running out of memory in some
+    // situations. Problems occur if the current recovery didn't completely
+    // recover everything from the crashed master. In this case, the server
+    // will stay in the cluster until another recovery runs, so the
+    // GarbageCollectDownServerTask cleanup won't happen right away. In the
+    // meantime, other recoveries for other masters could run; if we don't
+    // free up the resources from this recovery, which can be substantial,
+    // memory may run out during the subsequent recoveries.
+    ServerId serverId(reqHdr->masterId);
+    auto recoveryIt = recoveries.find(serverId);
+    if (recoveryIt != recoveries.end()) {
+        BackupMasterRecovery* recovery = recoveryIt->second;
+        recoveries.erase(recoveryIt);
+        recovery->free();
+    }
     rpc->sendReply();
 }
 
