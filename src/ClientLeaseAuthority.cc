@@ -39,7 +39,7 @@ const uint64_t RESERVATIONS_LOW = 250;
 const std::string STORAGE_PREFIX = "clientLeaseAuthority";
 
 ClientLeaseAuthority::ClientLeaseAuthority(Context* context)
-    : mutex()
+    : mutex("ClientLeaseAuthority")
     , context(context)
     , clock(context)
     , lastIssuedLeaseId(0)

@@ -25,7 +25,7 @@ namespace RAMCloud {
 IndexletManager::IndexletManager(Context* context, ObjectManager* objectManager)
     : context(context)
     , indexletMap()
-    , mutex()
+    , mutex("IndexletManager")
     , objectManager(objectManager)
 {
 }

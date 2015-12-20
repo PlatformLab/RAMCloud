@@ -821,7 +821,7 @@ TEST_F(TableManagerTest, splitAndMigrateIndexlet) {
 
     // Check that master1 and master2 have the correct metadata about the
     // indexlet each of them should own.
-    SpinLock indexMutex;
+    SpinLock indexMutex("TableManagerTest");
     IndexletManager::Lock indexLock(indexMutex);
     IndexletManager::IndexletMap::iterator it1 =
             master1->indexletManager.getIndexlet(

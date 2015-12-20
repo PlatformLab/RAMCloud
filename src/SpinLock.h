@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,7 +34,6 @@ namespace RAMCloud {
  */
 class SpinLock {
   public:
-    SpinLock();
     explicit SpinLock(string name);
     ~SpinLock();
     void lock();
@@ -66,6 +65,17 @@ class SpinLock {
 
     /// True means log when waiting for the lock; intended for unit tests only.
     bool logWaits;
+};
+
+/**
+ * This class can be used to create unnamed SpinLocks; it's intended
+ * for use in array constructors. Making it a subclass has the advantage
+ * that programmers must explicitly request it (they can't accidentally
+ * forget to provide a name to SpinLock).
+ */
+class UnnamedSpinLock : public SpinLock {
+  public:
+    UnnamedSpinLock() : SpinLock("unnamed") {}
 };
 
 } // end RAMCloud

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -49,23 +49,6 @@ namespace SpinLockTable {
         return &mutex;
     }
 } // namespace SpinLockTable
-
-/**
- * Construct a new, unnamed SpinLock. This method should be avoided in
- * preference of the one that takes a name argument. It exists mainly to
- * handle cases when arrays of SpinLocks are declared.
- */
-SpinLock::SpinLock()
-    : mutex(0)
-    , name("unnamed")
-    , acquisitions(0)
-    , contendedAcquisitions(0)
-    , contendedTicks(0)
-    , logWaits(false)
-{
-    std::lock_guard<std::mutex> lock(*SpinLockTable::lock());
-    SpinLockTable::allLocks()->insert(this);
-}
 
 /**
  * Construct a new SpinLock and give it the provided name.

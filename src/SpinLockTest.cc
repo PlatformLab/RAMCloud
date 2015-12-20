@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -65,7 +65,7 @@ static void blockingChild(SpinLock* lock)
 
 TEST(SpinLockTest, threadBlocks) {
     TestLog::Enable logEnabler;
-    SpinLock lock;
+    SpinLock lock("SpinLockTest");
     lock.logWaits = true;
     lock.lock();
 
@@ -104,7 +104,7 @@ TEST(SpinLockTest, contention) {
     // Create several threads contenting for a SpinLock to control access
     // to a critical section that increments a variable, and make sure that
     // none of the increments get lost.
-    SpinLock lock;
+    SpinLock lock("SpinLockTest");
     volatile int value = 0;
     volatile bool ready = false;
     // Start child threads.
@@ -124,7 +124,7 @@ TEST(SpinLockTest, contention) {
 
 TEST(SpinLockTest, printWarning) {
     TestLog::Enable logEnabler;
-    SpinLock lock("test");
+    SpinLock lock("SpinLockTest");
     lock.logWaits = true;
     lock.lock();
 
@@ -141,7 +141,7 @@ TEST(SpinLockTest, printWarning) {
     TestLog::reset();
     Cycles::mockTscValue += ticksPerSecond;
     TestUtil::waitForLog();
-    EXPECT_EQ("lock: test SpinLock locked for one second; deadlock\?",
+    EXPECT_EQ("lock: SpinLockTest SpinLock locked for one second; deadlock\?",
             TestLog::get());
     EXPECT_EQ(ticksPerSecond, lock.contendedTicks);
 
@@ -156,8 +156,8 @@ TEST(SpinLockTest, printWarning) {
 }
 
 TEST(SpinLockTest, setName) {
-    SpinLock lock;
-    EXPECT_EQ("unnamed", lock.name);
+    SpinLock lock("initial");
+    EXPECT_EQ("initial", lock.name);
     lock.setName("John Paul Jones");
     EXPECT_EQ("John Paul Jones", lock.name);
 }

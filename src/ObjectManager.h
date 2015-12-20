@@ -386,7 +386,7 @@ class ObjectManager : public LogEntryHandlers,
      * regular, parallel RPC operations from one another and from the log
      * cleaner.
      */
-    SpinLock hashTableBucketLocks[1024];
+    UnnamedSpinLock hashTableBucketLocks[1024];
 
     /**
      * Locks objects during transactions.

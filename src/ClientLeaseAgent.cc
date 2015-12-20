@@ -28,7 +28,7 @@ namespace RAMCloud {
  * Constructor for ClientLease.
  */
 ClientLeaseAgent::ClientLeaseAgent(RamCloud* ramcloud)
-    : mutex()
+    : mutex("ClientLeaseAgent")
     , ramcloud(ramcloud)
     , lease({0, 0, 0})
     , lastRenewalTimeCycles(0)

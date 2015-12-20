@@ -68,7 +68,7 @@ InfUdDriver::InfUdDriver(Context* context,
     , qp()
     , packetBufPool()
     , packetBufsUtilized(0)
-    , mutex()
+    , mutex("InfUdDriver")
     , rxBuffers()
     , txBuffers()
     , freeTxBuffers()

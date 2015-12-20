@@ -1202,7 +1202,7 @@ double sfence()
 double spinLock()
 {
     int count = 1000000;
-    SpinLock lock;
+    SpinLock lock("Perf");
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         lock.lock();

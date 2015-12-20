@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,7 +21,6 @@
 #ifndef RAMCLOUD_SERVERTRACKER_H
 #define RAMCLOUD_SERVERTRACKER_H
 
-#include <mutex>
 #include <queue>
 
 #include "Common.h"
@@ -132,7 +131,7 @@ class ServerTracker : public ServerTrackerInterface {
      */
     explicit ServerTracker(Context* context)
         : ServerTrackerInterface()
-        , mutex()
+        , mutex("ServerTracker")
         , context(context)
         , parent(NULL)
         , serverList()
@@ -163,7 +162,7 @@ class ServerTracker : public ServerTrackerInterface {
     explicit ServerTracker(Context* context,
                            Callback* eventCallback)
         : ServerTrackerInterface()
-        , mutex()
+        , mutex("ServerTracker")
         , context(context)
         , parent(NULL)
         , serverList()

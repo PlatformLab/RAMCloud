@@ -51,7 +51,7 @@ TEST_F(TabletManagerTest, addTablet) {
     EXPECT_FALSE(tm.addTablet(0, 20, 30, TabletManager::NORMAL));
     EXPECT_FALSE(tm.addTablet(0, 0, 15, TabletManager::NORMAL));
 
-    SpinLock lock;
+    SpinLock lock("TabletManagerTest");
     TabletManager::Lock fakeGuard(lock);
     TabletManager::Tablet* tablet = &tm.lookup(0, 10, fakeGuard)->second;
     EXPECT_EQ(0U, tablet->tableId);
@@ -285,7 +285,7 @@ TEST_F(TabletManagerTest, toString) {
 }
 
 TEST_F(TabletManagerTest, lookup) {
-    SpinLock lock;
+    SpinLock lock("TabletManagerTest");
     TabletManager::Lock fakeGuard(lock);
 
     EXPECT_TRUE(tm.addTablet(1000, 50, 99, TabletManager::NORMAL));

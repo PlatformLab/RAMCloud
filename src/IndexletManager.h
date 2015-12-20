@@ -71,7 +71,7 @@ class IndexletManager {
                                  firstNotOwnedKeyLength)
             , bt(bt)
             , state(state)
-            , indexletMutex()
+            , indexletMutex("Indexlet")
         {
         }
 
@@ -79,7 +79,7 @@ class IndexletManager {
             : RAMCloud::Indexlet(indexlet)
             , bt(indexlet.bt)
             , state(indexlet.state)
-            , indexletMutex()
+            , indexletMutex("Indexlet")
         {}
 
         Indexlet& operator =(const Indexlet& indexlet)

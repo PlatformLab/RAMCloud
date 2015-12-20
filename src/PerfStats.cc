@@ -21,7 +21,7 @@
 
 namespace RAMCloud {
 
-SpinLock PerfStats::mutex;
+SpinLock PerfStats::mutex("PerfStats");
 std::vector<PerfStats*> PerfStats::registeredStats;
 int PerfStats::nextThreadId = 1;
 __thread PerfStats PerfStats::threadStats;
