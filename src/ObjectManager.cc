@@ -94,8 +94,9 @@ ObjectManager::ObjectManager(Context* context, ServerId* serverId,
     , anyWrites(false)
     , hashTableBucketLocks()
     , lockTable(1000, log)
-    , replaySegmentReturnCount(0)
-    , tombstoneRemover()
+    , mutex("ObjectManager::mutex")
+    , tombstoneRemover(this, &objectMap)
+    , tombstoneProtectorCount(0)
 {
     for (size_t i = 0; i < arrayLength(hashTableBucketLocks); i++)
         hashTableBucketLocks[i].setName("hashTableBucketLock");
@@ -106,6 +107,9 @@ ObjectManager::ObjectManager(Context* context, ServerId* serverId,
  */
 ObjectManager::~ObjectManager()
 {
+    if (tombstoneProtectorCount > 0) {
+        DIE("Can't destroy ObjectManager with active TombstoneProtectors.");
+    }
     replicaManager.haltFailureMonitor();
 }
 
@@ -135,15 +139,10 @@ ObjectManager::freeLogEntry(Log::Reference ref)
 void
 ObjectManager::initOnceEnlisted()
 {
-    assert(!tombstoneRemover);
-
     replicaManager.startFailureMonitor();
 
     if (!config->master.disableLogCleaner)
         log.enableCleaner();
-
-    Dispatch::Lock lock(context->dispatch);
-    tombstoneRemover.construct(this, &objectMap);
 }
 
 /**
@@ -501,7 +500,7 @@ ObjectManager::removeOrphanedObjects()
 /**
  * This class is used by replaySegment to increment the number of times that
  * that method returns, regardless of the return path. That counter is used
- * by the RemoveTombstonePoller class to know when it need not bother scanning
+ * by the TombstoneRemover class to know when it need not bother scanning
  * the hash table.
  */
 template<typename T>
@@ -583,6 +582,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
         metrics->master.replicationPostingWriteRpcTicks;
     CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
+    if (tombstoneProtectorCount <= 0) {
+        DIE("Must hold a TombstoneProtector when replaying segments");
+    }
+
     // Metrics can be very expense (they're atomic operations), so we aggregate
     // as much as we can in local variables and update the counters once at the
     // end of this method.
@@ -598,11 +601,6 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
     uint64_t tombstoneDiscardCount = 0;
     uint64_t safeVersionRecoveryCount = 0;
     uint64_t safeVersionNonRecoveryCount = 0;
-
-    // Keep track of the number of times this method returns (or throws). See
-    // RemoveTombstonePoller for how this count is used.
-    DelayedIncrementer<std::atomic<uint64_t>>
-        returnCountIncrementer(&replaySegmentReturnCount);
 
     SegmentIterator prefetcher = it;
     prefetcher.next();
@@ -2472,63 +2470,72 @@ ObjectManager::relocate(LogEntryType type, Buffer& oldBuffer,
 /**
  * Clean tombstones from #objectMap lazily and in the background.
  *
- * Instances of this class must be allocated with new since they
- * delete themselves when the #objectMap scan is completed which
- * automatically deregisters it from Dispatch.
- *
  * \param objectManager
- *      The instance of ObjectManager which owns the #objectMap.
+ *      The instance of ObjectManager that owns the #objectMap.
  * \param objectMap
- *      The HashTable which will be purged of tombstones.
+ *      The HashTable that will be purged of tombstones.
  */
-ObjectManager::RemoveTombstonePoller::RemoveTombstonePoller(
+ObjectManager::TombstoneRemover::TombstoneRemover(
                 ObjectManager* objectManager,
                 HashTable* objectMap)
-    : Dispatch::Poller(objectManager->context->dispatch, "TombstoneRemover")
+    : WorkerTimer(objectManager->context->dispatch)
     , currentBucket(0)
-    , passes(0)
-    , lastReplaySegmentCount(0)
     , objectManager(objectManager)
     , objectMap(objectMap)
 {
-    LOG(DEBUG, "Starting cleanup of tombstones in background");
 }
 
 /**
- * Remove tombstones from a single bucket and yield to other work
- * in the system.
+ * Remove tombstones from a few buckets and then reschedule ourselves,
+ * so we don't lock out other WorkerTimers for a long time.
  */
-int
-ObjectManager::RemoveTombstonePoller::poll()
+void
+ObjectManager::TombstoneRemover::handleTimerEvent()
 {
-    if (lastReplaySegmentCount == objectManager->replaySegmentReturnCount &&
-      currentBucket == 0) {
-        return 0;
+    for (int i = 0; i < 100; i++) {
+        if (currentBucket >= objectMap->getNumBuckets()) {
+            LOG(NOTICE, "Tombstone cleanup complete");
+            return;
+        }
+
+        HashTableBucketLock lock(*objectManager, currentBucket);
+        CleanupParameters params = { objectManager, &lock };
+        objectMap->forEachInBucket(removeIfTombstone, &params, currentBucket);
+
+        ++currentBucket;
     }
 
-    // At the start of a new pass, record the number of replaySegment()
-    // calls that have completed by this point. We will then keep doing
-    // passes until this number remains constant at the beginning and
-    // end of a pass.
-    //
-    // A recovery is likely to issue many replaySegment calls, but
-    // should complete much faster than one pass here, so at worst we
-    // should hopefully only traverse the hash table an extra time per
-    // recovery.
-    if (currentBucket == 0)
-        lastReplaySegmentCount = objectManager->replaySegmentReturnCount;
+    // If we get here, it means that we haven't finished scanning the entire
+    // hash table. Reschedule ourselves to run again, after any other
+    // WorkerTimers that may be ready.
+    start(0);
+}
 
-    HashTableBucketLock lock(*objectManager, currentBucket);
-    CleanupParameters params = { objectManager, &lock };
-    objectMap->forEachInBucket(removeIfTombstone, &params, currentBucket);
+/**
+ * Constructor for TombstoneProtectors. Make sure the tombstone
+ * remover isn't running.
+ */
+ObjectManager::TombstoneProtector::TombstoneProtector(
+        ObjectManager* objectManager)
+    : objectManager(objectManager)
+{
+    SpinLock::Guard guard(objectManager->mutex);
+    ++objectManager->tombstoneProtectorCount;
+    objectManager->tombstoneRemover.stop();
+}
 
-    ++currentBucket;
-    if (currentBucket == objectMap->getNumBuckets()) {
-        LOG(DEBUG, "Cleanup of tombstones completed pass %lu", passes);
-        currentBucket = 0;
-        passes++;
+/**
+ * Destructor for TombstoneProtectors: start the remover running if
+ * there are no other protector objects in existence.
+ */
+ObjectManager::TombstoneProtector::~TombstoneProtector()
+{
+    SpinLock::Guard guard(objectManager->mutex);
+    --objectManager->tombstoneProtectorCount;
+    if (objectManager->tombstoneProtectorCount == 0) {
+        objectManager->tombstoneRemover.currentBucket = 0;
+        objectManager->tombstoneRemover.start(0);
     }
-    return 1;
 }
 
 /**
@@ -2827,7 +2834,7 @@ ObjectManager::removeIfOrphanedObject(uint64_t reference, void *cookie)
 /**
  * This function is a callback used to purge the tombstones from the hash
  * table after a recovery has taken place. It is invoked by HashTable::
- * forEach via the RemoveTombstonePoller class that runs in the dispatch
+ * forEach via the TombstoneRemover class that runs in the dispatch
  * thread.
  *
  * This function must be called with the appropriate HashTableBucketLock

@@ -3953,6 +3953,81 @@ TEST_F(MasterServiceFullSegmentSizeTest, write_maximumObjectSize) {
     delete[] key;
 }
 
+TEST_F(MasterServiceTest, MigrationMonitor_basics) {
+    Cycles::mockTscValue = 1000;
+    service->migrationMonitor.migrationStarting(1, 0, ~0ul);
+    Cycles::mockTscValue = 2000;
+    service->migrationMonitor.migrationStarting(2, 100, 200);
+    service->migrationMonitor.migrationStarting(2, 300, 400);
+    service->migrationMonitor.migrationStarting(3, 0, 1000);
+    EXPECT_TRUE(service->migrationMonitor.protector);
+    EXPECT_TRUE(service->migrationMonitor.isRunning());
+    EXPECT_EQ(1000ul, service->migrationMonitor.startTime);
+    EXPECT_EQ(4ul, service->migrationMonitor.incomingMigrations.size());
+    service->migrationMonitor.stop();
+    service->migrationMonitor.handleTimerEvent();
+    EXPECT_FALSE(service->migrationMonitor.protector);
+    EXPECT_FALSE(service->migrationMonitor.isRunning());
+    EXPECT_EQ(0ul, service->migrationMonitor.incomingMigrations.size());
+    Cycles::mockTscValue = 0;
+}
+
+TEST_F(MasterServiceTest, MigrationMonitor_migrationRunsTooLong) {
+    Cycles::mockTscValue = 1000;
+    service->migrationMonitor.migrationStarting(1, 0, ~0ul);
+    Cycles::mockTscValue = 2000;
+    service->migrationMonitor.migrationStarting(2, 100, 200);
+    service->migrationMonitor.migrationStarting(2, 300, 400);
+    service->migrationMonitor.migrationStarting(3, 0, 1000);
+    EXPECT_TRUE(service->migrationMonitor.protector);
+    EXPECT_TRUE(service->migrationMonitor.isRunning());
+    EXPECT_EQ(1000ul, service->migrationMonitor.startTime);
+    EXPECT_EQ(4ul, service->migrationMonitor.incomingMigrations.size());
+    service->migrationMonitor.stop();
+    service->migrationMonitor.handleTimerEvent();
+    EXPECT_FALSE(service->migrationMonitor.protector);
+    EXPECT_FALSE(service->migrationMonitor.isRunning());
+    EXPECT_EQ(0ul, service->migrationMonitor.incomingMigrations.size());
+    Cycles::mockTscValue = 0;
+}
+
+TEST_F(MasterServiceTest, MigrationMonitor_longRunningMigration) {
+    Cycles::mockTscValue = 1000;
+    service->tabletManager.addTablet(2, 100, 200, TabletManager::RECOVERING);
+    service->migrationMonitor.migrationStarting(2, 100, 200);
+
+    // First invocation of handleTimerEvent: time limit not yet exceeded.
+    service->migrationMonitor.stop();
+    Cycles::mockTscValue = Cycles::fromSeconds(2.0);
+    service->migrationMonitor.handleTimerEvent();
+    EXPECT_TRUE(service->migrationMonitor.protector);
+    EXPECT_TRUE(service->migrationMonitor.isRunning());
+    EXPECT_EQ(1ul, service->migrationMonitor.incomingMigrations.size());
+
+    // Second invocation of handleTimerEvent: time limit exceeded.
+    service->migrationMonitor.stop();
+    Cycles::mockTscValue = Cycles::fromSeconds(30.0) + 2000;
+    TestLog::reset();
+    service->migrationMonitor.handleTimerEvent();
+    EXPECT_TRUE(service->migrationMonitor.protector);
+    EXPECT_TRUE(service->migrationMonitor.isRunning());
+    EXPECT_EQ(1ul, service->migrationMonitor.incomingMigrations.size());
+    EXPECT_EQ("handleTimerEvent: Inbound migrations have been running "
+            "continuously for 30 seconds; is it possible that something "
+            "is hung\?", TestLog::get());
+
+    // Third invocation of handleTimerEvent: migration completed.
+    service->tabletManager.changeState(2, 100, 200, TabletManager::RECOVERING,
+            TabletManager::NORMAL);
+    service->migrationMonitor.stop();
+    service->migrationMonitor.handleTimerEvent();
+    EXPECT_FALSE(service->migrationMonitor.protector);
+    EXPECT_FALSE(service->migrationMonitor.isRunning());
+    EXPECT_EQ(0ul, service->migrationMonitor.incomingMigrations.size());
+
+    Cycles::mockTscValue = 0;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 /////Recovery related tests. This should eventually move into its own file.////
 ///////////////////////////////////////////////////////////////////////////////

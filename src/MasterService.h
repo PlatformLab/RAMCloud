@@ -371,6 +371,70 @@ class MasterService : public Service {
      */
     uint32_t maxResponseRpcLen;
 
+    /*
+     * Used to identify tablets for which migration is underway.
+     */
+    struct TabletId {
+        uint64_t tableId;          /// Identifier for the tablet's table.
+        uint64_t startKeyHash;     /// First key hash contained in tablet.
+        uint64_t endKeyHash;       /// Last key hash contained in tablet.
+        TabletId(uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash)
+                : tableId(tableId)
+                , startKeyHash(startKeyHash)
+                , endKeyHash(endKeyHash)
+        {}
+    };
+
+    /*
+     * This class monitors incoming migrations to ensure that they
+     * eventually complete, and it also maintains a TombstoneProtector
+     * as long as any migrations are active.
+     */
+    class MigrationMonitor : public WorkerTimer {
+      public:
+        explicit MigrationMonitor(MasterService* owner);
+        void handleTimerEvent();
+        void migrationStarting(uint64_t tableId, uint64_t startKeyHash,
+                uint64_t endKeyHash);
+
+      PRIVATE:
+        /**
+         * Copy of constructor argument.
+         */
+        MasterService* owner;
+
+        /*
+         * Protects accesses to contents of this structure.
+         */
+        SpinLock mutex;
+
+        /*
+         * Identifies all of the tablets for which we have begun to receive
+         * inbound migration data, but for which the migration is not yet
+         * complete.
+         */
+        std::vector<TabletId> incomingMigrations;
+
+        /*
+         * Ensures that temporary tombstones don't get deleted while a
+         * migration is underway.
+         */
+        Tub<ObjectManager::TombstoneProtector> protector;
+
+        /**
+         * Time between calls to handleTimerEvent, in rdtsc ticks.
+         */
+        uint64_t wakeupInterval;
+
+        /**
+         * Rdtsc time when incomingMigrations became nonempty.
+         */
+        uint64_t startTime;
+
+        DISALLOW_COPY_AND_ASSIGN(MigrationMonitor);
+    };
+    MigrationMonitor migrationMonitor;
+
 ///////////////////////////////////////////////////////////////////////////////
 /////Recovery related code. This should eventually move into its own file./////
 ///////////////////////////////////////////////////////////////////////////////

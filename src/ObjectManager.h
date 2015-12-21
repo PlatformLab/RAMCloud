@@ -134,6 +134,26 @@ class ObjectManager : public LogEntryHandlers,
     ReplicaManager* getReplicaManager() { return &replicaManager; }
     HashTable* getObjectMap() { return &objectMap; }
 
+    /**
+     * An object of this class must be held by any activity that places
+     * tombstones in the hash table temporarily (e.g., anyone who calls
+     * replaySegment). While there exist any of these objects, tombstones
+     * will not be removed from the hash table; however, once there are no
+     * more objects of this class, a background activity will be initiated
+     * to remove the tombstones.
+     */
+    class TombstoneProtector {
+      public:
+        explicit TombstoneProtector(ObjectManager* objectManager);
+        ~TombstoneProtector();
+
+      PRIVATE:
+        // Saved copy of the constructor argument.
+        ObjectManager* objectManager;
+
+        DISALLOW_COPY_AND_ASSIGN(TombstoneProtector);
+    };
+
   PRIVATE:
     /**
      * An instance of this class locks the bucket of the hash table that a given
@@ -229,32 +249,18 @@ class ObjectManager : public LogEntryHandlers,
     };
 
     /**
-     * A Dispatch::Poller that lazily removes tombstones that were added to the
-     * objectMap during calls to replaySegment(). ObjectManager instantiates one
-     * on creation that runs automatically as needed.
+     * This object executes in the background (as a WorkerTimer) to remove
+     * tombstones that were added to the objectMap by replaySegment().
      */
-    class RemoveTombstonePoller : public Dispatch::Poller {
+    class TombstoneRemover : public WorkerTimer {
       public:
-        RemoveTombstonePoller(ObjectManager* objectManager,
+        TombstoneRemover(ObjectManager* objectManager,
                         HashTable* objectMap);
-        virtual int poll();
+        void handleTimerEvent();
 
       PRIVATE:
         /// Which bucket of #objectMap should be cleaned out next.
         uint64_t currentBucket;
-
-        /// Number of times this tombstone remover has gone through every single
-        /// bucket in the objectMap. Used only for logging.
-        uint64_t passes;
-
-        /// Count of the number of times ObjectManager::replaySegment() was
-        /// called (and completed) at the beginning of the most recent pass
-        /// through the hash table. This is used to avoid scanning the hash
-        /// table when it does not need to be scanned. That is, when a full
-        /// pass through has been done after the last replaySegment call
-        /// completed, we can be sure that no more tombstones are left to be
-        /// removed.
-        uint64_t lastReplaySegmentCount;
 
         /// The ObjectManager that owns the hash table to remove tombstones
         /// from in the #recoveryCleanup callback.
@@ -263,7 +269,9 @@ class ObjectManager : public LogEntryHandlers,
         /// The hash table to be purged of tombstones.
         HashTable* objectMap;
 
-        DISALLOW_COPY_AND_ASSIGN(RemoveTombstonePoller);
+        friend class TombstoneProtector;
+
+        DISALLOW_COPY_AND_ASSIGN(TombstoneRemover);
     };
 
     static string dumpSegment(Segment* segment);
@@ -394,21 +402,21 @@ class ObjectManager : public LogEntryHandlers,
     LockTable lockTable;
 
     /**
-     * Number of times the replaySegment() method returned (or threw an
-     * exception). This is used by the RemoveTombstonePoller to decide when
-     * there may be tombstones in the objectMap that need removal and when it
-     * need not scan. This mechanism is simpler than trying to maintain an
-     * exact count of outstanding tombstones in the hash table.
+     * Protects access to tombstoneRemover and tombstoneProtectorCount.
      */
-    std::atomic<uint64_t> replaySegmentReturnCount;
+    SpinLock mutex;
 
     /**
-     * This object automatically garbage collects tombstones that were added to
-     * the hash table during replaySegment() calls. Wrapped in a Tub so that we
-     * can construct it after grabbing the Dispatch lock (required by the parent
-     * constructor).
+     * This object automatically garbage collects tombstones that were added
+     * to the hash table during replaySegment() calls.
      */
-    Tub<RemoveTombstonePoller> tombstoneRemover;
+    TombstoneRemover tombstoneRemover;
+
+    /**
+     * Number of TombstoneProtector objects that currently exist for this
+     * ObjectsManager.
+     */
+    int tombstoneProtectorCount;
 
     friend class CleanerCompactionBenchmark;
     friend class ObjectManagerBenchmark;

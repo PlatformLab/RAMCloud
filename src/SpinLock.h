@@ -43,6 +43,12 @@ class SpinLock {
     static void getStatistics(ProtoBuf::SpinLockStatistics* stats);
     static int numLocks();
 
+    /*
+     * This class automatically acquires a SpinLock on construction and
+     * automatically releases it on destruction.
+     */
+    typedef std::lock_guard<SpinLock> Guard;
+
   PRIVATE:
     /// Implements the lock: 0 means free, anything else means locked.
     Atomic<int> mutex;
