@@ -872,9 +872,8 @@ Recovery::startBackups()
     if (!digestInfo) {
         LOG(NOTICE, "No log digest among replicas on available backups. "
             "Will retry recovery later.");
-        if (owner) {
-            owner->recoveryFinished(this);
-        }
+        status = ALL_RECOVERY_MASTERS_FINISHED;
+        schedule();
         return;
     }
     uint64_t headId = std::get<0>(*digestInfo.get());
@@ -892,9 +891,8 @@ Recovery::startBackups()
     if (!logIsComplete) {
         LOG(NOTICE, "Some replicas from log digest not on available backups. "
             "Will retry recovery later.");
-        if (owner) {
-            owner->recoveryFinished(this);
-        }
+        status = ALL_RECOVERY_MASTERS_FINISHED;
+        schedule();
         return;
     }
 
