@@ -35,7 +35,7 @@ namespace RAMCloud {
 class SpinLock {
   public:
     explicit SpinLock(string name);
-    ~SpinLock();
+    virtual ~SpinLock();
     void lock();
     bool try_lock();
     void unlock();
