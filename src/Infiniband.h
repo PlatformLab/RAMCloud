@@ -301,15 +301,16 @@ class Infiniband {
         uint32_t        bytes;          // length of buffer in bytes
         uint32_t        messageBytes;   // byte length of message in the buffer
         ibv_mr *        mr;             // memory region of the buffer
-        Transport::SessionRef session;  // Not used here; available for use
-                                        // by transport (e.g. to identify
-                                        // destination after packet errors).
+        uint16_t        remoteLid;      // Lid of peer; used in log messages.
+        bool            response;       // True means this is a response, false
+                                        // means this is a request.
 
         BufferDescriptor(char *buffer, uint32_t bytes, ibv_mr *mr)
             : buffer(buffer), bytes(bytes), messageBytes(0), mr(mr),
-              session() {}
+              remoteLid(0), response(false) {}
         BufferDescriptor()
-            : buffer(NULL), bytes(0), messageBytes(0), mr(NULL), session() {}
+            : buffer(NULL), bytes(0), messageBytes(0), mr(NULL),
+              remoteLid(0), response(false) {}
 
       private:
         DISALLOW_COPY_AND_ASSIGN(BufferDescriptor);

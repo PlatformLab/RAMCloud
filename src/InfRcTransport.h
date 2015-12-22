@@ -291,8 +291,9 @@ class InfRcTransport : public Transport {
     };
 
     // misc helper functions
-    void sendZeroCopy(InfRcSession* session, uint64_t nonce, Buffer* message,
-            QueuePair* qp);
+    const char* getOpcodeFromBuffer(BufferDescriptor* bd);
+    void sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp,
+            bool response);
     void setNonBlocking(int fd);
 
     // Extend Infiniband::postSrqReceive by issuing queued up transmissions
