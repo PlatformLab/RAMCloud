@@ -430,8 +430,9 @@ ReplicatedSegment::sync(uint32_t offset, SegmentCertificate* certificate)
             }
         }
         double waited = Cycles::toSeconds(Cycles::rdtsc() - syncStartTicks);
-        if (waited > 1) {
-            LOG(WARNING, "Log write sync has taken over 1s; seems to be stuck");
+        if (waited > 10) {
+            LOG(WARNING, "Log write sync has taken over 10s; seems to "
+                    "be stuck");
             dumpProgress();
             syncStartTicks = Cycles::rdtsc();
         }
@@ -811,7 +812,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
             // No outstanding write, but not yet durably open.
             if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
-                RAMCLOUD_CLOG(NOTICE, "Delaying open for segment %lu, "
+                RAMCLOUD_CLOG(DEBUG, "Delaying open for segment %lu, "
                         "replica %lu: too many RPCs in flight", segmentId,
                         &replica - &replicas[0]);
                 schedule();
@@ -908,7 +909,7 @@ ReplicatedSegment::performWrite(Replica& replica)
             }
 
             if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
-                RAMCLOUD_CLOG(NOTICE, "Delaying write to segment %lu, "
+                RAMCLOUD_CLOG(DEBUG, "Delaying write to segment %lu, "
                         "replica %lu: too many RPCs in flight", segmentId,
                         &replica - &replicas[0]);
                 schedule();

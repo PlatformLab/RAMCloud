@@ -775,9 +775,9 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
                     tablet->serverId);
             entry.set_service_locator(locator);
         } catch (const ServerListException& e) {
-            LOG(NOTICE, "Server id (%s) in tablet map no longer in server "
-                "list; omitting locator for entry",
-                tablet->serverId.toString().c_str());
+            RAMCLOUD_CLOG(NOTICE, "Server id (%s) in tablet map no longer "
+                    "in server list; omitting locator for entry",
+                    tablet->serverId.toString().c_str());
         }
     }
 

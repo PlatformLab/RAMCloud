@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -131,8 +131,9 @@ BackupSelector::selectSecondary(uint32_t numBackups,
         }
     }
     if (okToLogNextProblem) {
-        LOG(WARNING, "BackupSelector could not find a suitable server in "
-            "%d attempts; may need to wait for additional servers to enlist",
+        RAMCLOUD_CLOG(WARNING, "BackupSelector could not find a suitable "
+            "server in %d attempts; may need to wait for additional "
+            "servers to enlist",
             attempts);
         okToLogNextProblem = false;
     }

@@ -134,10 +134,11 @@ void WorkerTimer::stopInternal(Lock& lock)
     // delete a timer out from underneath a running handler), but it
     // can result in deadlock if a handler tries to delete itself
     // (e.g. see RAM-806). In order to detect deadlocks, print a warning
-    // message if the handler doesn't complete quickly.
+    // message if the handler doesn't complete for a long time.
     while (handlerRunning) {
         TEST_LOG("waiting for handler");
-        std::chrono::milliseconds timeout(stopWarningMs ? stopWarningMs : 1000);
+        std::chrono::milliseconds timeout(
+                stopWarningMs ? stopWarningMs : 10000);
         if (handlerFinished.wait_until(lock, std::chrono::system_clock::now()
                 + timeout) == std::cv_status::timeout) {
             LOG(WARNING, "WorkerTimer stalled waiting for handler to "

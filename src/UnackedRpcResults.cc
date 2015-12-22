@@ -333,7 +333,7 @@ UnackedRpcResults::shouldRecover(uint64_t clientId,
         client->processAck(ackId, freer);
 
     if (client->hasRecord(rpcId)) {
-        LOG((entryType == LOG_ENTRY_TYPE_TXPLIST ? NOTICE : WARNING),
+        RAMCLOUD_CLOG((entryType == LOG_ENTRY_TYPE_TXPLIST ? NOTICE : WARNING),
                 "Duplicate %s found during recovery. <clientID, rpcID, ackId> "
                 "= <%" PRIu64 ", " "%" PRIu64 ", " "%" PRIu64 ">",
                 LogEntryTypeHelpers::toString(entryType),
