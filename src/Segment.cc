@@ -489,6 +489,15 @@ Segment::getEntry(Reference reference,
     vector<void*>::iterator it = std::lower_bound(segletBlocks.begin(),
                                                   segletBlocks.end(), p);
 
+    // The following code can be enabled to simulate a now-fixed bug that
+    // caused crashes in Jonathan Ellithorpe's graph database test case
+    // in December 2015
+#if 0
+    if (it > segletBlocks.begin() && p == *it) {
+        DIE("Simulating Jonathan's crash");
+    }
+#endif
+
     // If 'p' points to the first byte of a seglet, 'it' will point to the
     // seglet base address that we want. Otherwise, it will point one higher,
     // so we need to adjust.
