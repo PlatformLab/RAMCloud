@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -544,10 +544,16 @@ TEST_F(LoggerTest, DIE) {
 TEST_F(LoggerTest, assertionError) {
     Logger& logger = Logger::get();
     logger.setLogFile("__test.log");
-    logger.assertionError("assertion info", "file", 99, "function");
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
-            "file:99 in function .* Assertion `assertion info' failed",
-            getLog("__test.log")));
+    string exceptionMessage("No exception");
+    try {
+        logger.assertionError("assertion info", "file", 99, "function");
+    } catch (RAMCloud::FatalError& e) {
+        exceptionMessage = e.message;
+    }
+    EXPECT_EQ("Assertion `assertion info' failed at file:99 in function",
+            exceptionMessage);
+    EXPECT_TRUE(TestUtil::contains(getLog("__test.log"),
+            "Assertion `assertion info' failed at file:99 in function"));
 }
 
 }  // namespace RAMCloud

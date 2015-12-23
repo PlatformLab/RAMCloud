@@ -796,18 +796,8 @@ void
 Logger::assertionError(const char *assertion, const char *file,
                        unsigned int line, const char *function)
 {
-    Lock lock(mutex);
-    struct timespec now;
-    clock_gettime(CLOCK_REALTIME, &now);
-
-    // Compute the body of the log message except for the initial timestamp
-    char buffer[strlen(assertion) + 500];
-    int count = snprintf(buffer, sizeof(buffer),
-            "%010lu.%09lu %s:%d in %s %s[%d]: Assertion `%s' failed.\n",
-            now.tv_sec, now.tv_nsec, file, line, function,
-            logLevelNames[ERROR], ThreadId::get(), assertion);
-    addToBuffer(buffer, count);
-    sync();
+    DIE("Assertion `%s' failed at %s:%u in %s",
+            assertion, file, line, function);
 }
 
 /**
@@ -909,5 +899,5 @@ __assert_fail(const char *assertion, const char *file, unsigned int line,
         const char *function)
 {
     RAMCloud::Logger::get().assertionError(assertion, file, line, function);
-    abort();
+    abort();             // To keep the compiler happy; never gets executed.
 }
