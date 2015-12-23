@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -146,7 +146,12 @@ class LogSegment : public Segment {
     {
         uint32_t sum = 0;
         for (size_t i = 0; i < TOTAL_LOG_ENTRY_TYPES; i++) {
-            assert(entryLengths[i] >= deadEntryLengths[i]);
+            if (entryLengths[i] < deadEntryLengths[i]) {
+                RAMCLOUD_DIE("accounting error for live bytes in segment: "
+                        "entry type %lu, entryLengths[i] %u, "
+                        "deadEntryLengths %u",
+                        i, entryLengths[i].load(), deadEntryLengths[i].load());
+            }
             sum += entryLengths[i] - deadEntryLengths[i];
         }
         return sum;

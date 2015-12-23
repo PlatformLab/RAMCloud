@@ -363,7 +363,11 @@ SegletAllocator::getSegletIndex(const void* p)
 {
     uintptr_t i = reinterpret_cast<uintptr_t>(p);
     uintptr_t blockBase = reinterpret_cast<uintptr_t>(block.get());
-    assert(i >= blockBase && i < blockBase + block.length);
+    if ((i < blockBase) || (i >= (blockBase + block.length))) {
+        RAMCLOUD_DIE("pointer out of range; p: %p, blockBase: 0x%lu, "
+                "length: %lu",
+                p, blockBase, block.length);
+    }
     return (i - blockBase) >> segletSizeShift;
 }
 
