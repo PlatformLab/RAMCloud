@@ -185,7 +185,7 @@ class Infiniband {
         explicit QueuePair(Infiniband& infiniband)
             : infiniband(infiniband), type(0), ctxt(NULL), ibPhysicalPort(-1),
             pd(NULL), srq(NULL), qp(NULL), txcq(NULL), rxcq(NULL),
-            initialPsn(-1), handshakeSin() {}
+            initialPsn(-1), handshakeSin(), peerLid(0) {}
         ~QueuePair();
         uint32_t    getInitialPsn() const;
         uint32_t    getLocalQpNumber() const;
@@ -212,6 +212,7 @@ class Infiniband {
         uint32_t     initialPsn;     // initial packet sequence number
         sockaddr_in  handshakeSin;   // UDP address of the remote end used to
                                      // handshake when using RC queue pairs.
+        uint16_t     peerLid;        // Lid of the other party.
         char         peerName[50];   // Optional name for the sender
                                      // (intended for use in error messages);
                                      // null-terminated.

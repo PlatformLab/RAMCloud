@@ -516,7 +516,8 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
       txcq(txcq),
       rxcq(rxcq),
       initialPsn(generateRandom() & 0xffffff),
-      handshakeSin()
+      handshakeSin(),
+      peerLid(0)
 {
     snprintf(peerName, sizeof(peerName), "?unknown?");
     if (type != IBV_QPT_RC && type != IBV_QPT_UD && type != IBV_QPT_RAW_ETH)
@@ -672,6 +673,7 @@ Infiniband::QueuePair::plumb(QueuePairTuple *qpt)
         LOG(ERROR, "failed to transition to RTS state");
         throw TransportException(HERE, r);
     }
+    peerLid = qpt->getLid();
 
     // the queue pair should be ready to use once the client has finished
     // setting up their end.
@@ -769,8 +771,8 @@ Infiniband::QueuePair::getRemoteQpNumber() const
 
 /**
  * Get the remote infiniband address for this QueuePair, as set in #plumb().
- * LIDs are "local IDs" in infiniband terminology. They are short, locally
- * routable addresses.
+ * LIDs are "local IDs" in infiniband terminology; each LID provides a
+ * unique identifier for a particular NIC.
  *
  * \throw
  *      TransportException is thrown if querying the queue pair
@@ -779,16 +781,7 @@ Infiniband::QueuePair::getRemoteQpNumber() const
 uint16_t
 Infiniband::QueuePair::getRemoteLid() const
 {
-    ibv_qp_attr qpa;
-    ibv_qp_init_attr qpia;
-
-    int r = ibv_query_qp(qp, &qpa, IBV_QP_AV, &qpia);
-    if (r) {
-        // We should probably log something here.
-        throw TransportException(HERE, r);
-    }
-
-    return qpa.ah_attr.dlid;
+    return peerLid;
 }
 
 /**
