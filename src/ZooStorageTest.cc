@@ -15,6 +15,8 @@
 
 #if ENABLE_ZOOKEEPER
 
+#include <algorithm>
+
 #include "TestUtil.h"
 #include "ZooStorage.h"
 

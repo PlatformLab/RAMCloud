@@ -30,7 +30,7 @@
 //   as a guideline, and be sure to generate output in the same form as
 //   other tests.
 // * Create a new entry for the test in the #tests table.
-#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 5
+#if (__GNUC__ == 4 && __GNUC_MINOR__ >= 5) || (__GNUC__ > 4)
 #include <atomic>
 #else
 #include <cstdatomic>
