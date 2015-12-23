@@ -437,41 +437,34 @@ PreparedOps::bufferOp(uint64_t leaseId,
 }
 
 /**
- * Pop a pointer to preparedOp from lookup table.
+ * Remove a pointer to preparedOp from lookup table.
  *
  * \param leaseId
  *      leaseId given for the preparedOp.
  * \param rpcId
  *      rpcId given for the preparedOp.
- *
- * \return
- *      Log::Reference::toInteger() value for the preparedOp staged.
  */
-uint64_t
-PreparedOps::popOp(uint64_t leaseId,
+void
+PreparedOps::removeOp(uint64_t leaseId,
                       uint64_t rpcId)
 {
     Lock lock(mutex);
     std::map<std::pair<uint64_t, uint64_t>,
         PreparedItem*>::iterator it;
     it = items.find(std::make_pair(leaseId, rpcId));
-    if (it == items.end()) {
-        return 0;
-    } else {
-        // During recovery, must check isDeleted before using this method.
-        // It is intentionally left as assertion error. (instead of return 0.)
-        // After the end of recovery all NULL entries should be removed.
-        assert(it->second);
-
-        uint64_t newOpPtr = it->second->newOpPtr;
+    if (it != items.end()) {
         delete it->second;
         items.erase(it);
-        return newOpPtr;
     }
 }
 
 /**
- * Peek a pointer to preparedOp from lookup table.
+ * Return a log reference to the preparedOp saved by PreparedOps::bufferOp().
+ *
+ * During recovery, ObjectManager::replaySegment() must check
+ * PreparedOps::isDeleted() is false before invoking this method for checking
+ * whether the PreparedOp log entry is already in log.
+ * (isDeleted() == true already means no need to replay the PreparedOp.)
  *
  * \param leaseId
  *      leaseId given for the preparedOp.
@@ -479,11 +472,12 @@ PreparedOps::popOp(uint64_t leaseId,
  *      rpcId given for the preparedOp.
  *
  * \return
- *      Log::Reference::toInteger() value for the preparedOp staged.
+ *      Log::Reference::toInteger() value for the preparedOp in log.
+ *      0 is returned if we cannot find a reference to PreparedOp previously
+ *      buffered.
  */
 uint64_t
-PreparedOps::peekOp(uint64_t leaseId,
-                       uint64_t rpcId)
+PreparedOps::getOp(uint64_t leaseId, uint64_t rpcId)
 {
     Lock lock(mutex);
     std::map<std::pair<uint64_t, uint64_t>,
@@ -492,9 +486,12 @@ PreparedOps::peekOp(uint64_t leaseId,
     if (it == items.end()) {
         return 0;
     } else {
-        // During recovery, must check isDeleted before using this method.
+        // During recovery, must check isDeleted before using this method since
+        // we set it->second = NULL (instead of pointer to PreparedItem) to mark
+        // the PreparedOpTombstone for this PreparedOp is seen.
         // It is intentionally left as assertion error. (instead of return 0.)
-        // After the end of recovery all NULL entries should be removed.
+        // After the end of recovery all NULL entries should be removed, and
+        // this assertion check will fail if there's a bug in code.
         assert(it->second);
 
         uint64_t newOpPtr = it->second->newOpPtr;

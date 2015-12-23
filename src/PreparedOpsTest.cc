@@ -447,20 +447,19 @@ TEST_F(PreparedOpsTest, bufferWrite) {
     EXPECT_FALSE(item->isRunning());
 }
 
-TEST_F(PreparedOpsTest, popOp) {
-    EXPECT_EQ(1011UL, writes.popOp(1, 10));
-    EXPECT_EQ(0UL, writes.popOp(1, 10));
-    EXPECT_EQ(0UL, writes.popOp(1, 11));
-    EXPECT_EQ(0UL, writes.popOp(2, 10));
+TEST_F(PreparedOpsTest, removeOp) {
+    EXPECT_EQ(1011UL, writes.items[std::make_pair(1, 10)]->newOpPtr);
+    writes.removeOp(1, 10);
+    EXPECT_EQ(writes.items.end(), writes.items.find(std::make_pair(1, 10)));
 }
 
-TEST_F(PreparedOpsTest, peekOp) {
-    EXPECT_EQ(1011UL, writes.peekOp(1, 10));
-    EXPECT_EQ(1011UL, writes.peekOp(1, 10));
-    EXPECT_EQ(1011UL, writes.popOp(1, 10));
-    EXPECT_EQ(0UL, writes.peekOp(1, 10));
-    EXPECT_EQ(0UL, writes.peekOp(1, 11));
-    EXPECT_EQ(0UL, writes.peekOp(2, 10));
+TEST_F(PreparedOpsTest, getOp) {
+    EXPECT_EQ(1011UL, writes.getOp(1, 10));
+    EXPECT_EQ(1011UL, writes.getOp(1, 10));
+    writes.removeOp(1, 10);
+    EXPECT_EQ(0UL, writes.getOp(1, 10));
+    EXPECT_EQ(0UL, writes.getOp(1, 11));
+    EXPECT_EQ(0UL, writes.getOp(2, 10));
 }
 
 TEST_F(PreparedOpsTest, markDeletedAndIsDeleted) {
@@ -470,7 +469,7 @@ TEST_F(PreparedOpsTest, markDeletedAndIsDeleted) {
 
     EXPECT_FALSE(writes.isDeleted(2, 9));
     writes.bufferOp(2, 9, 1029, true);
-    EXPECT_EQ(1029UL, writes.peekOp(2, 9));
+    EXPECT_EQ(1029UL, writes.getOp(2, 9));
     EXPECT_FALSE(writes.isDeleted(2, 9));
 }
 
@@ -742,7 +741,7 @@ TEST_F(PreparedItemTest, handleTimerEvent_basic) {
 
     Cycles::mockTscValue = 100;
     service1->preparedOps.bufferOp(1, 13, opRef.toInteger());
-    EXPECT_EQ(opRef.toInteger(), service1->preparedOps.peekOp(1, 13));
+    EXPECT_EQ(opRef.toInteger(), service1->preparedOps.getOp(1, 13));
     PreparedOps::PreparedItem* item = service1->preparedOps.items[
             std::make_pair<uint64_t, uint64_t>(1, 13)];
     EXPECT_TRUE(item != NULL && item->isRunning());
@@ -778,7 +777,7 @@ TEST_F(PreparedItemTest, handleTimerEvent_noParticipantList) {
 
     Cycles::mockTscValue = 100;
     service1->preparedOps.bufferOp(1, 13, opRef.toInteger());
-    EXPECT_EQ(opRef.toInteger(), service1->preparedOps.peekOp(1, 13));
+    EXPECT_EQ(opRef.toInteger(), service1->preparedOps.getOp(1, 13));
     PreparedOps::PreparedItem* item = service1->preparedOps.items[
             std::make_pair<uint64_t, uint64_t>(1, 13)];
 

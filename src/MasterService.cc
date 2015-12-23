@@ -2516,7 +2516,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 return;
             }
 
-            uint64_t opPtr = preparedOps.peekOp(reqHdr->leaseId,
+            uint64_t opPtr = preparedOps.getOp(reqHdr->leaseId,
                                                    participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed.
@@ -2537,7 +2537,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 objectManager.commitWrite(op, opRef);
             }
 
-            preparedOps.popOp(reqHdr->leaseId,
+            preparedOps.removeOp(reqHdr->leaseId,
                                  participants[i].rpcId);
         }
     } else if (reqHdr->decision == WireFormat::TxDecision::ABORT) {
@@ -2552,7 +2552,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 return;
             }
 
-            uint64_t opPtr = preparedOps.peekOp(reqHdr->leaseId,
+            uint64_t opPtr = preparedOps.getOp(reqHdr->leaseId,
                                                 participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed
@@ -2568,7 +2568,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
 
             objectManager.commitRead(op, opRef);
 
-            preparedOps.popOp(reqHdr->leaseId,
+            preparedOps.removeOp(reqHdr->leaseId,
                               participants[i].rpcId);
         }
     } else {
@@ -2989,7 +2989,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             respHdr->common.status == STATUS_OK &&
             respHdr->vote == WireFormat::TxPrepare::PREPARED) {
         for (uint32_t i = 0; i < participantCount; ++i) {
-            uint64_t opPtr = preparedOps.peekOp(reqHdr->lease.leaseId,
+            uint64_t opPtr = preparedOps.getOp(reqHdr->lease.leaseId,
                                                    participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed.
@@ -3022,7 +3022,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                 return;
             }
 
-            preparedOps.popOp(reqHdr->lease.leaseId,
+            preparedOps.removeOp(reqHdr->lease.leaseId,
                                  participants[i].rpcId);
         }
         respHdr->vote = WireFormat::TxPrepare::COMMITTED;

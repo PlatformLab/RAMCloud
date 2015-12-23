@@ -347,8 +347,8 @@ class PreparedOps {
 
     void bufferOp(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr,
                      bool inRecovery = false);
-    uint64_t popOp(uint64_t leaseId, uint64_t rpcId);
-    uint64_t peekOp(uint64_t leaseId, uint64_t rpcId);
+    void removeOp(uint64_t leaseId, uint64_t rpcId);
+    uint64_t getOp(uint64_t leaseId, uint64_t rpcId);
     void updatePtr(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr);
 
     void markDeleted(uint64_t leaseId, uint64_t rpcId);

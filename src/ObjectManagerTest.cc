@@ -1316,7 +1316,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
 
     PreparedOps *preparedOps = objectManager.preparedOps;
 
-    EXPECT_EQ(0UL, preparedOps->peekOp(1UL, 10UL));
+    EXPECT_EQ(0UL, preparedOps->getOp(1UL, 10UL));
 
     {   // 1. Test regular PreparedOp.
         SegmentCertificate certificate;
@@ -1331,7 +1331,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_NE(0UL, preparedOps->peekOp(1UL, 10UL));
+    EXPECT_NE(0UL, preparedOps->getOp(1UL, 10UL));
 
 
     {   // 2. Ignored preparedOp due to old version number.
@@ -1354,7 +1354,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_EQ(0UL, preparedOps->peekOp(1UL, 11UL));
+    EXPECT_EQ(0UL, preparedOps->getOp(1UL, 11UL));
 
 
     {   // 3. preparedOp with higher version number.
@@ -1370,9 +1370,9 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_NE(0UL, preparedOps->peekOp(1UL, 11UL));
+    EXPECT_NE(0UL, preparedOps->getOp(1UL, 11UL));
 
-    uint64_t newOpPtr = preparedOps->peekOp(1UL, 11UL);
+    uint64_t newOpPtr = preparedOps->getOp(1UL, 11UL);
     Buffer preparedOpBuffer;
     Log::Reference resultRef(newOpPtr);
     objectManager.getLog()->getEntry(resultRef, preparedOpBuffer);
@@ -1395,7 +1395,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
 
     PreparedOps *preparedOps = objectManager.preparedOps;
 
-    EXPECT_EQ(0UL, preparedOps->peekOp(1UL, 10UL));
+    EXPECT_EQ(0UL, preparedOps->getOp(1UL, 10UL));
     EXPECT_FALSE(preparedOps->isDeleted(1UL, 10UL));
 
     ///////////////////////////////////////////////////////
@@ -1414,7 +1414,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_NE(0UL, preparedOps->peekOp(1UL, 10UL));
+    EXPECT_NE(0UL, preparedOps->getOp(1UL, 10UL));
     EXPECT_FALSE(preparedOps->isDeleted(1UL, 10UL));
 
     {   // 1B. Tombstone for PreparedOp in 1.
@@ -2720,7 +2720,7 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
                            oldReference, relocator);
     EXPECT_TRUE(relocator.didAppend);
 
-    uint64_t newOpPtr = preparedOps.peekOp(op.header.clientId,
+    uint64_t newOpPtr = preparedOps.getOp(op.header.clientId,
                                               op.header.rpcId);
     EXPECT_NE(0UL, newOpPtr);
     EXPECT_NE(oldReference.toInteger(), newOpPtr);
@@ -2761,13 +2761,13 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
 
-    preparedOps.popOp(op.header.clientId, op.header.rpcId);
+    preparedOps.removeOp(op.header.clientId, op.header.rpcId);
 
     objectManager.relocate(LOG_ENTRY_TYPE_PREP, oldBuffer,
                            oldReference, relocator);
     EXPECT_FALSE(relocator.didAppend);
 
-    uint64_t newOpPtr = preparedOps.peekOp(op.header.clientId,
+    uint64_t newOpPtr = preparedOps.getOp(op.header.clientId,
                                               op.header.rpcId);
     EXPECT_EQ(0UL, newOpPtr);
     EXPECT_NE(oldReference.toInteger(), newOpPtr);

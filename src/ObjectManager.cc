@@ -974,10 +974,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 minSuccessor = currentVersion + 1;
             }
 
-            if (!preparedOps->isDeleted(op.header.clientId,
-                                           op.header.rpcId) &&
-                !preparedOps->peekOp(op.header.clientId,
-                                        op.header.rpcId) &&
+            if (!preparedOps->isDeleted(op.header.clientId, op.header.rpcId) &&
+                !preparedOps->getOp(op.header.clientId, op.header.rpcId) &&
                 op.object.header.version >= minSuccessor) {
 
                 // write to log (with lazy backup flush) & update hash table
@@ -1014,7 +1012,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
 
             if (!preparedOps->isDeleted(opTomb.header.clientLeaseId,
                                            opTomb.header.rpcId) &&
-                !preparedOps->peekOp(opTomb.header.clientLeaseId,
+                !preparedOps->getOp(opTomb.header.clientLeaseId,
                                         opTomb.header.rpcId)) {
                 // PreparedOp log entry is either deleted or
                 // not yet recovered. We will check whether it is marked
@@ -1035,7 +1033,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                             buffer.size(),
                             1);
                 }
-                preparedOps->popOp(opTomb.header.clientLeaseId,
+                preparedOps->removeOp(opTomb.header.clientLeaseId,
                                       opTomb.header.rpcId);
 
                 // For idempodency of replaySegment.
@@ -3105,8 +3103,7 @@ ObjectManager::relocatePreparedOp(Buffer& oldBuffer,
             op.object.getKeyLength());
     HashTableBucketLock lock(*this, key);
 
-    uint64_t opPtr = preparedOps->peekOp(op.header.clientId,
-                                            op.header.rpcId);
+    uint64_t opPtr = preparedOps->getOp(op.header.clientId, op.header.rpcId);
     if (opPtr) {
         // Try to relocate it. If it fails, just return. The cleaner will
         // allocate more memory and retry.
