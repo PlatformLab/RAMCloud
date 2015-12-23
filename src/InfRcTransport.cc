@@ -1050,7 +1050,9 @@ InfRcTransport::sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp,
     uint32_t sgesUsed = 0;
     BufferDescriptor* bd = getTransmitBuffer();
     bd->messageBytes = message->size();
-    bd->remoteLid = qp->getRemoteLid();
+    // The following operation is extremely slow (50 us)!! Need to find
+    // a better way to get this information.
+    // bd->remoteLid = qp->getRemoteLid();
     bd->response = response;
 
     // The variables below allow us to collect several chunks from the
