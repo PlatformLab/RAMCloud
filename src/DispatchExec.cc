@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -56,8 +56,11 @@ DispatchExec::DispatchExec(Dispatch* dispatch)
     , addIndex(0)
     , totalAdds(0)
 {
-        posix_memalign(reinterpret_cast<void**>(&requests), CACHE_LINE_SIZE,
-                sizeof(LambdaBox) * NUM_WORKER_REQUESTS);
+        int result = posix_memalign(reinterpret_cast<void**>(&requests),
+                CACHE_LINE_SIZE, sizeof(LambdaBox) * NUM_WORKER_REQUESTS);
+        if (result != 0) {
+            DIE("posix_memalign returned %s", strerror(result));
+        }
         // Double checking to make sure we get proper cache alignment.
         assert((reinterpret_cast<uint64_t>(requests) & 0x3f) == 0);
 
