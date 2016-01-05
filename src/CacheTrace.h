@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -55,6 +55,7 @@ class CacheTrace {
     }
     void printToLog();
     string getTrace();
+    void reset();
 
   PRIVATE:
     void printInternal(string* s);

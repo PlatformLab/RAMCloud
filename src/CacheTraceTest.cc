@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permissesion to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -84,6 +84,17 @@ TEST_F(CacheTraceTest, printToLog) {
     trace.printToLog();
     EXPECT_EQ("printInternal: 0 misses (+0 misses): point a",
             TestLog::get());
+}
+
+TEST_F(CacheTraceTest, reset) {
+    trace.record("first", 100);
+    trace.record("second", 200);
+    trace.record("third", 200);
+    trace.events[20].message = "sneaky";
+    trace.reset();
+    EXPECT_TRUE(trace.events[2].message == NULL);
+    EXPECT_FALSE(trace.events[20].message == NULL);
+    EXPECT_EQ(0, trace.nextIndex);
 }
 
 TEST_F(CacheTraceTest, printInternal_emptyTrace_stringVersion) {
