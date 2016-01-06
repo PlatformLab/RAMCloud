@@ -640,10 +640,6 @@ graph_tests = [
     Test("multiRead_oneObjectPerMaster", multiOp),
     Test("multiReadThroughput", readThroughput),
     Test("multiWrite_oneMaster", multiOp),
-    Test("transaction_oneMaster", multiOp),
-    Test("transactionDistRandom", transactionDist),
-    Test("transactionThroughput", transactionThroughput),
-    Test("transactionContention", transactionThroughput),
     Test("readDist", readDist),
     Test("readDistRandom", readDistRandom),
     Test("readDistWorkload", workloadDist),
@@ -651,8 +647,11 @@ graph_tests = [
     Test("readRandom", readRandom),
     Test("readThroughput", readThroughput),
     Test("readVaryingKeyLength", default),
-    Test("transaction_oneMaster", multiOp),
     Test("transaction_collision", txCollision),
+    Test("transaction_oneMaster", multiOp),
+    Test("transactionContention", transactionThroughput),
+    Test("transactionDistRandom", transactionDist),
+    Test("transactionThroughput", transactionThroughput),
     Test("writeAsyncSync", default),
     Test("writeVaryingKeyLength", default),
     Test("writeDist", writeDist),
@@ -762,9 +761,13 @@ if __name__ == '__main__':
                         "multiReadThroughput",
                         "multiWrite_oneMaster",
                         "readDistRandom",
+                        "writeDistRandom",
                         "readThroughput",
                         "readVaryingKeyLength",
-                        "writeVaryingKeyLength"
+                        "writeVaryingKeyLength",
+                        "indexBasic",
+                        "indexMultiple",
+                        "transaction_oneMaster"
                 ]
             for name in args:
                 for test in simple_tests:
