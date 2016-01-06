@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -116,7 +116,10 @@ statusToString(Status status)
 {
     uint32_t index = status;
     if (index >= (sizeof(messages)/sizeof(char*))) {       // NOLINT
-        return "unrecognized RAMCloud error";
+        static char buffer[100];
+        snprintf(buffer, sizeof(buffer), "unrecognized Status (%u)",
+                index);
+        return buffer;
     }
     return messages[index];
 }
