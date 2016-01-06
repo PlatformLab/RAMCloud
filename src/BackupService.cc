@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -619,6 +619,16 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
             serverId.toString().c_str());
         throw BackupBadSegmentIdException(HERE);
     } else {
+        if (!frame->currentlyOpen()) {
+            // The frame has already been closed. The most likely reason
+            // is that this RPC is a retry of a previous RPC whose response
+            // was lost. Log a message, but then just return without doing
+            // anything (i.e., make the RPC idempotent)
+            LOG(NOTICE, "Write requested for closed replica <%s,%lu>; "
+                "treating the request as noop",
+                masterId.toString().c_str(), segmentId);
+            return;
+        }
         CycleCounter<RawMetric> __(&metrics->backup.writeCopyTicks);
         Tub<BackupReplicaMetadata> metadata;
         if (reqHdr->certificateIncluded) {

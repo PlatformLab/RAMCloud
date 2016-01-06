@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -483,24 +483,10 @@ TEST_F(BackupServiceTest, writeSegment_segmentNotOpen) {
 TEST_F(BackupServiceTest, writeSegment_segmentClosed) {
     openSegment(ServerId(99, 0), 88);
     closeSegment(ServerId(99, 0), 88);
-    EXPECT_THROW(
-        writeRawString({99, 0}, 88, 10, "test"),
-        BackupBadSegmentIdException);
-}
-
-TEST_F(BackupServiceTest, writeSegment_segmentClosedRedundantClosingWrite) {
-    // This may seem counterintuitive, but throwing an exception on a write
-    // after close is actually better than idempotent behavior. The backup
-    // throws a client exception on subsequent writes. If the master retried
-    // the write rpc and the backup had already received the request then the
-    // master should never receive the response with the client exception
-    // (the request will have gotten the response from the first request).
-    // If the backup never received the first request from the master then
-    // it won't generate a client exception on the retry.
-    openSegment(ServerId(99, 0), 88);
-    closeSegment(ServerId(99, 0), 88);
-    EXPECT_THROW(writeRawString({99, 0}, 88, 10, "test", true),
-                 BackupBadSegmentIdException);
+    TestLog::reset();
+    writeRawString({99, 0}, 88, 10, "test");
+    EXPECT_EQ("writeSegment: Write requested for closed replica <99.0,88>; "
+            "treating the request as noop", TestLog::get());
 }
 
 TEST_F(BackupServiceTest, writeSegment_badOffset) {
