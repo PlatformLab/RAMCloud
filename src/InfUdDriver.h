@@ -71,7 +71,7 @@ class InfUdDriver : public Driver {
   private:
     BufferDescriptor* getTransmitBuffer();
 
-    static const uint32_t MAX_RX_QUEUE_DEPTH = 64;
+    static const uint32_t MAX_RX_QUEUE_DEPTH = 2000;
     static const uint32_t MAX_TX_QUEUE_DEPTH = 8;
     static const uint32_t MAX_RX_SGE_COUNT = 1;
     static const uint32_t MAX_TX_SGE_COUNT = 1;

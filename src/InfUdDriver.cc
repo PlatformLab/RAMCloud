@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -329,7 +329,7 @@ int
 InfUdDriver::Poller::poll()
 {
     assert(driver->context->dispatch->isDispatchThread());
-    static const int MAX_COMPLETIONS = 10;
+    static const int MAX_COMPLETIONS = 8;
     ibv_wc wc[MAX_COMPLETIONS];
     int numPackets = driver->infiniband->pollCompletionQueue(driver->qp->rxcq,
             MAX_COMPLETIONS, wc);
@@ -338,6 +338,17 @@ InfUdDriver::Poller::poll()
             LOG(ERROR, "pollCompletionQueue failed with result %d", numPackets);
         }
         return 0;
+    }
+
+    // First, prefetch the initial bytes of all the incoming packets. This
+    // allows us to process multiple cache misses concurrently, which improves
+    // throughput under load.
+    for (int i = 0; i < numPackets; i++) {
+        ibv_wc* incoming = &wc[i];
+        BufferDescriptor *bd =
+                reinterpret_cast<BufferDescriptor *>(incoming->wr_id);
+        prefetch(bd->buffer,
+                incoming->byte_len > 256 ? 256 : incoming->byte_len);
     }
 
     // Each iteration of the following loop processes one incoming packet.
@@ -354,7 +365,6 @@ InfUdDriver::Poller::poll()
                 driver->infiniband->wcStatusToString(incoming->status));
             goto error;
         }
-        prefetch(bd->buffer, incoming->byte_len);
 
         if (pcapFile)
             pcapFile->append(bd->buffer, bd->messageBytes);
