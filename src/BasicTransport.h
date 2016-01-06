@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -151,7 +151,7 @@ class BasicTransport : public Transport {
         void appendFragment(char* payload, uint32_t offset, uint32_t length);
         uint32_t requestRetransmission(BasicTransport *t,
                 const Driver::Address* address, RpcId grantOffset,
-                uint32_t limit, uint32_t requestRetransmission);
+                uint32_t limit, uint32_t roundTripBytes, uint8_t whoFrom);
 
         /// Transport that is managing this object.
         BasicTransport* t;
@@ -365,9 +365,37 @@ class BasicTransport : public Transport {
     struct CommonHeader {
         uint8_t opcode;              // One of the values of PacketOpcode.
         RpcId rpcId;                 // RPC associated with this packet.
-        CommonHeader(PacketOpcode opcode, RpcId rpcId)
-            : opcode(opcode), rpcId(rpcId) {}
+        uint8_t flags;               // ORed competition a flag bits; see
+                                     // below for definitions.
+        CommonHeader(PacketOpcode opcode, RpcId rpcId, uint8_t flags)
+            : opcode(opcode), rpcId(rpcId), flags(flags) {}
     } __attribute__((packed));
+
+    // Bit values for CommonHeader flags; not all flags are valid for all
+    // opcodes.
+    // FROM_CLIENT:              Valid for all opcodes. Non-zero means this
+    //                           packet was sent from client to server; zero
+    //                           means it was sent from server to client.
+    // FROM_SERVER:              Opposite of FROM_CLIENT; provided to make
+    //                           code more readable.
+    // NEED_GRANT:               Used only in DATA packets. Nonzero means
+    //                           the sender is transmitting the entire
+    //                           message unilaterally; if not set, the last
+    //                           part of the message won't be sent without a
+    //                           GRANT from the server.
+    // RETRANSMISSION:           Used only in DATA packets. Nonzero means
+    //                           this packet is being sent in response to a
+    //                           RESEND or PING request (it has already been
+    //                           sent previously).
+    // RESTART:                  Used only in RESEND packets: indicates that
+    //                           the server has no knowledge of this request,
+    //                           so the client should reset its state to
+    //                           indicate that everything needs to be resent.
+    static const uint8_t FROM_CLIENT =    1;
+    static const uint8_t FROM_SERVER =    0;
+    static const uint8_t NEED_GRANT =     2;
+    static const uint8_t RETRANSMISSION = 4;
+    static const uint8_t RESTART = 4;
 
     /**
      * Describes the wire format for an ALL_DATA packet, which contains an
@@ -379,8 +407,8 @@ class BasicTransport : public Transport {
         // The remaining packet bytes after the header constitute the
         // entire request or response message.
 
-        explicit AllDataHeader(RpcId rpcId)
-            : common(PacketOpcode::ALL_DATA, rpcId) {}
+        explicit AllDataHeader(RpcId rpcId, uint8_t flags)
+            : common(PacketOpcode::ALL_DATA, rpcId, flags) {}
     } __attribute__((packed));
 
     /**
@@ -393,28 +421,14 @@ class BasicTransport : public Transport {
                                      // this packet!).
         uint32_t offset;             // Offset within the message of the first
                                      // byte of data in this packet.
-        uint8_t flags;               // An OR-ed combination of flag bits
-                                     // such as NEED_GRANT; see below for
-                                     // definitions.
 
         // The remaining packet bytes after the header constitute message
         // data starting at the given offset.
 
-        // Bit values for header flags.
-        // NEED_GRANT:               Means the sender is transmitting the entire
-        //                           message unilaterally; if not set, the last
-        //                           part of the message won't be sent without a
-        //                           GRANT from the server.
-        // RETRANSMISSION:           Means this packet is being sent in
-        //                           response to a RESEND or PING request (it
-        //                           has already been sent previously).
-        static const uint8_t NEED_GRANT = 1;
-        static const uint8_t RETRANSMISSION = 2;
-
         DataHeader(RpcId rpcId, uint32_t totalLength, uint32_t offset,
-                uint8_t flags = 0)
-            : common(PacketOpcode::DATA, rpcId), totalLength(totalLength),
-            offset(offset), flags(flags) {}
+                uint8_t flags)
+            : common(PacketOpcode::DATA, rpcId, flags),
+            totalLength(totalLength), offset(offset) {}
     } __attribute__((packed));
 
     /**
@@ -430,8 +444,8 @@ class BasicTransport : public Transport {
                                      // to (but not including) this offset, if
                                      // it hasn't already.
 
-        GrantHeader(RpcId rpcId, uint32_t offset)
-            : common(PacketOpcode::GRANT, rpcId), offset(offset) {}
+        GrantHeader(RpcId rpcId, uint32_t offset, uint8_t flags)
+            : common(PacketOpcode::GRANT, rpcId, flags), offset(offset) {}
     } __attribute__((packed));
 
     /**
@@ -450,8 +464,9 @@ class BasicTransport : public Transport {
                                      // this could specify a range longer than
                                      // the total message size.
 
-        ResendHeader(RpcId rpcId, uint32_t offset, uint32_t length)
-            : common(PacketOpcode::RESEND, rpcId), offset(offset),
+        ResendHeader(RpcId rpcId, uint32_t offset, uint32_t length,
+                uint8_t flags)
+            : common(PacketOpcode::RESEND, rpcId, flags), offset(offset),
               length(length) {}
     } __attribute__((packed));
 
@@ -464,8 +479,8 @@ class BasicTransport : public Transport {
     struct PingHeader {
         CommonHeader common;         // Common header fields.
 
-        explicit PingHeader(RpcId rpcId)
-            : common(PacketOpcode::PING, rpcId) {}
+        explicit PingHeader(RpcId rpcId, uint8_t flags)
+            : common(PacketOpcode::PING, rpcId, flags) {}
     } __attribute__((packed));
 
     /**
@@ -480,16 +495,17 @@ class BasicTransport : public Transport {
     struct RetryHeader {
         CommonHeader common;         // Common header fields.
 
-        explicit RetryHeader(RpcId rpcId)
-            : common(PacketOpcode::RETRY, rpcId) {}
+        explicit RetryHeader(RpcId rpcId, uint8_t flags)
+            : common(PacketOpcode::RETRY, rpcId, flags) {}
     } __attribute__((packed));
 
   PRIVATE:
     void deleteServerRpc(ServerRpc* serverRpc);
     uint32_t getRoundTripBytes(const ServiceLocator* locator);
+    static string headerToString(const void* header, uint32_t headerLength);
     static string opcodeSymbol(uint8_t opcode);
     void sendBytes(const Driver::Address* address, RpcId rpcId,
-            Buffer* message, int offset, int length, uint8_t flags = 0);
+            Buffer* message, int offset, int length, uint8_t flags);
 
     /// Shared RAMCloud information.
     Context* context;
