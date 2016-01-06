@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -542,6 +542,17 @@ Worker::sendReply()
             TimeTraceUtil::statusMsg(threadId,
             opcode, TimeTraceUtil::RequestStatus::POST_PROCESSING));
 #endif
+}
+
+
+/**
+ * Returns true if this worker has already sent a reply back to the client,
+ * false otherwise.
+ */
+bool
+Worker::replySent()
+{
+    return (state == POSTPROCESSING);
 }
 
 } // namespace RAMCloud

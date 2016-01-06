@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -517,6 +517,14 @@ TEST_F(WorkerManagerTest, Worker_handoff_callFutex) {
     waitUntilDone(1);
     manager->poll();
     EXPECT_EQ("serverReply: 0x10001 100", transport.outputLog);
+}
+
+TEST_F(WorkerManagerTest, Worker_replySent) {
+    Worker worker(&context);
+    worker.state = Worker::WORKING;
+    EXPECT_FALSE(worker.replySent());
+    worker.state = Worker::POSTPROCESSING;
+    EXPECT_TRUE(worker.replySent());
 }
 
 } // namespace RAMCloud
