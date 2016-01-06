@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -3785,6 +3785,12 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // Recovery wasn't successful.
     } catch (const OutOfSpaceException& e) {
         // Recovery wasn't successful.
+    } catch (const Exception& e) {
+        LOG(ERROR, "Unexpected exception during recovery: %s",
+                e.message.c_str());
+    } catch (const ClientException& e) {
+        LOG(ERROR, "Unexpected ClientException during recovery: %s",
+                statusToString(e.status));
     }
 
     // Once the coordinator and the recovery master agree that the
