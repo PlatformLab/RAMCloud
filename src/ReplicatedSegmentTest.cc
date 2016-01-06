@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1838,6 +1838,34 @@ TEST_F(ReplicatedSegmentTest, performWrite_CallerNotInClusterException) {
     taskQueue.performTask();
     // The second replica write retry has now succeeded.
     EXPECT_EQ("performWrite: Write RPC finished for replica slot 1",
+              TestLog::get());
+    reset();
+}
+
+TEST_F(ReplicatedSegmentTest, performWriteUnexpectedClientException) {
+    TestLog::Enable _(performWriteFilter);
+    context.coordinatorSession->setLocation("mock:host=coord");
+    // Arrange for RPC responses:
+    transport.setInput("0");  // accept write for first replica
+    transport.setInput("14"); // reject write for 2nd replica
+
+    taskQueue.performTask();
+    // At this point writes should have been issued for both replicas.
+    EXPECT_EQ("performWrite: Starting replication of segment 888 replica "
+                  "slot 0 on backup 0.0 | "
+              "performWrite: Sending open to backup 0.0 | "
+              "performWrite: Starting replication of segment 888 replica "
+                  "slot 1 on backup 1.0 | "
+              "performWrite: Sending open to backup 1.0",
+              TestLog::get());
+    TestLog::reset();
+
+    EXPECT_THROW(taskQueue.performTask(), ClientException);
+    // The first replica write has now succeeded, and the second has completed
+    // with an error.
+    EXPECT_EQ("performWrite: Write RPC finished for replica slot 0 | "
+              "performWrite: Backup write RPC for segment 888 rejected by "
+              "1.0 with status STATUS_BACKUP_SEGMENT_OVERFLOW",
               TestLog::get());
     reset();
 }
