@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -158,10 +158,21 @@ Service::handleRpc(Context* context, Rpc* rpc) {
     try {
         service->dispatch(opcode, rpc);
     } catch (RetryException& e) {
-        prepareRetryResponse(rpc->replyPayload, e.minDelayMicros,
-                e.maxDelayMicros, e.message);
+        if (rpc->worker->replySent()) {
+            DIE("Retry exception thrown after reply sent for %s RPC",
+                    WireFormat::opcodeSymbol(opcode));
+        } else {
+            prepareRetryResponse(rpc->replyPayload, e.minDelayMicros,
+                    e.maxDelayMicros, e.message);
+        }
     } catch (ClientException& e) {
-        prepareErrorResponse(rpc->replyPayload, e.status);
+        if (rpc->worker->replySent()) {
+            DIE("%s exception thrown after reply sent for %s RPC",
+                    statusToSymbol(e.status),
+                    WireFormat::opcodeSymbol(opcode));
+        } else {
+            prepareErrorResponse(rpc->replyPayload, e.status);
+        }
     }
 #ifdef TESTING
     // This code is only needed when running unit tests (without it,

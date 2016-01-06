@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,6 +29,7 @@ class ServiceTest : public ::testing::Test {
     Buffer request, response;
     Worker worker;
     Service::Rpc rpc;
+    TestLog::Enable logEnabler;
 
     ServiceTest()
         : context()
@@ -37,14 +38,13 @@ class ServiceTest : public ::testing::Test {
         , response()
         , worker(&context)
         , rpc(&worker, &request, &response)
+        , logEnabler()
     {
-        TestLog::enable();
         context.services[1] = &service;
     }
 
     ~ServiceTest()
     {
-        TestLog::disable();
     }
 };
 
@@ -129,12 +129,41 @@ TEST_F(ServiceTest, handleRpc_retryException) {
     EXPECT_EQ("17 100 200 18 server overloaded/0",
             TestUtil::toString(&response));
 }
+TEST_F(ServiceTest, handleRpc_retryExceptionAfterSendingReply) {
+    MockService service;
+    context.services[0] = &service;
+    request.fillFromString("1 2 54322 3 4");
+    worker.state = Worker::POSTPROCESSING;
+    string message = "no exception";
+    try {
+        Service::handleRpc(&context, &rpc);
+    } catch (Exception & e) {
+        message = e.message;
+    }
+    EXPECT_EQ("Retry exception thrown after reply sent for unknown(1) RPC",
+            message);
+}
 TEST_F(ServiceTest, handleRpc_clientException) {
     MockService service;
     context.services[0] = &service;
     request.fillFromString("1 2 54321 3 4");
     Service::handleRpc(&context, &rpc);
     EXPECT_STREQ("STATUS_REQUEST_FORMAT_ERROR", TestUtil::getStatus(&response));
+}
+TEST_F(ServiceTest, handleRpc_clientExceptionAfterSendingReply) {
+    MockService service;
+    context.services[0] = &service;
+    request.fillFromString("1 2 54321 3 4");
+    worker.state = Worker::POSTPROCESSING;
+    string message = "no exception";
+    try {
+        Service::handleRpc(&context, &rpc);
+    } catch (Exception & e) {
+        message = e.message;
+    }
+    EXPECT_EQ("STATUS_REQUEST_FORMAT_ERROR exception thrown after reply "
+            "sent for unknown(1) RPC",
+            message);
 }
 
 TEST_F(ServiceTest, prepareErrorResponse_bufferNotEmpty) {

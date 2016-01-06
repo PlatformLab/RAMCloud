@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -58,8 +58,7 @@ class Service {
         Rpc(Worker* worker, Buffer* requestPayload, Buffer* replyPayload)
             : requestPayload(requestPayload)
             , replyPayload(replyPayload)
-            , worker(worker)
-            , replied(false) {}
+            , worker(worker) {}
 
         void sendReply();
 
@@ -73,11 +72,8 @@ class Service {
         /// this request.
         Worker* worker;
 
-      PRIVATE:
-        /// True means that sendReply has been invoked.
-        bool replied;
-
         friend class WorkerManager;
+        friend class Service;
         DISALLOW_COPY_AND_ASSIGN(Rpc);
     };
 
@@ -137,10 +133,10 @@ class Service {
 
     /**
      * Verifies that this server is the one intended to receive an RPC.
-     * 
+     *
      * \param common
      *      The common header area from an incoming RPC.
-     * 
+     *
      * \throw WrongServerException
      *      We are not the intended server for this RPC.
      */
@@ -157,7 +153,7 @@ class Service {
     /**
      * Dummy method that "verifies" the server id for RPCs that don't
      * actually require verification: this method is a no-op.
-     * 
+     *
      * \param common
      *      The common header area from an incoming RPC.
      */
