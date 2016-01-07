@@ -308,35 +308,17 @@ TEST_P(SegmentTest, getEntry_byOffset) {
         reinterpret_cast<const char*>(buffer.getRange(0, 21)));
 }
 
-#if 0
-// This test temporarily disabled because it takes > 10 secs to run
-// (see RAM-821).
 TEST_P(SegmentTest, getEntry_byReference) {
-    char dummy[extraFragmented.segletSize * 2];
-
-    /* Varies starting offset of appending data to test edge cases especially
-     * for when data sit on seglet boundaries.
-     * Not to slow down test too much, only we only loop up to
-     * extraFragmented.seglet, which is much smaller than other test case.
-     */
-    for (uint32_t appendStartOffset = 0;
-         appendStartOffset <= extraFragmented.segletSize * 2;
-         appendStartOffset++) {
-        SegmentAndAllocator segAndAlloc(GetParam());
-        Segment&  s = *segAndAlloc.segment;
-        Segment::Reference dummyRef;
-        s.append(LOG_ENTRY_TYPE_OBJ, dummy, appendStartOffset, &dummyRef);
-        Segment::Reference ref;
-        s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21, &ref);
-
-        Buffer buffer;
-        EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, s.getEntry(ref, &buffer));
-        EXPECT_EQ(21U, buffer.size());
-        EXPECT_STREQ("this is only a test!",
-            reinterpret_cast<const char*>(buffer.getRange(0, 21)));
-    }
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+    Segment::Reference ref;
+    s.append(LOG_ENTRY_TYPE_OBJ, "this is only a test!", 21, &ref);
+    Buffer buffer;
+    EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, s.getEntry(ref, &buffer));
+    EXPECT_EQ(21U, buffer.size());
+    EXPECT_STREQ("this is only a test!",
+        reinterpret_cast<const char*>(buffer.getRange(0, 21)));
 }
-#endif
 
 TEST_P(SegmentTest, getEntry_contigMem) {
     Buffer dataBuffer;
