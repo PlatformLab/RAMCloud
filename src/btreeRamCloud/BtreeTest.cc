@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -86,6 +86,7 @@ void generateKeysInRange(int start, int end,
         int leadingZeros = 0)
 {
     char buff[1000];
+    keys.reserve(end - start + 1);
     for (int i = start; i < end; i++) {
         snprintf(buff, 1000, "%0*u", leadingZeros, i);
         keys.emplace_back(buff);
