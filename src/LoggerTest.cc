@@ -87,7 +87,8 @@ TEST_F(LoggerTest, destructor) {
 }
 
 TEST_F(LoggerTest, setLogFile_basics) {
-    Logger l(NOTICE);
+    Logger& l = Logger::get();
+    l.setLogLevels(NOTICE);
     l.setLogFile("__test.log");
     l.logMessage(false, DEFAULT_LOG_MODULE, NOTICE, HERE, "message 1\n");
     EXPECT_TRUE(TestUtil::matchesPosixRegex("message 1", getLog("__test.log")));
@@ -102,6 +103,7 @@ TEST_F(LoggerTest, setLogFile_basics) {
     EXPECT_TRUE(TestUtil::matchesPosixRegex("message 3",
             getLog("__test.log")));
 }
+
 TEST_F(LoggerTest, setLogFile_cantOpenFile) {
     Logger l(NOTICE);
     string message("no exception");
