@@ -34,8 +34,6 @@
 
 namespace RAMCloud {
 
-Logger* Logger::sharedLogger = NULL;
-
 /**
  * Friendly names for each #LogLevel value.
  * Keep this in sync with the LogLevel enum.
@@ -59,7 +57,8 @@ static_assert(unsafeArrayLength(logModuleNames) == NUM_LOG_MODULES,
               "logModuleNames size does not match NUM_LOG_MODULES");
 
 /**
- * Create a new debug logger; messages will go to stderr by default.
+ * Create a new debug logger; messages will go to stderr by default. Should
+ * not be called outside this class except during unit testing.
  * \param[in] level
  *      Messages for all modules at least as important as \a level will be
  *      logged.
@@ -128,10 +127,11 @@ Logger::~Logger()
 Logger&
 Logger::get()
 {
-    if (sharedLogger == NULL) {
-        sharedLogger = new Logger();
-    }
-    return *sharedLogger;
+    // Use static local variable to achieve efficient thread-safe lazy
+    // initialization. If multiple threads attempt to initialize sharedLogger
+    // concurrently, the initialization is guaranteed to occur exactly once.
+    static Logger sharedLogger;
+    return sharedLogger;
 }
 
 /**

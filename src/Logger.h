@@ -74,8 +74,9 @@ enum LogModule {
  * Note: this class is thread-safe.
  */
 class Logger {
-  public:
+  PRIVATE:
     explicit Logger(LogLevel level = WARNING);
+  public:
     ~Logger();
     static Logger& get();
 
@@ -167,11 +168,6 @@ class Logger {
      */
     SpinLock mutex;
     typedef std::unique_lock<SpinLock> Lock;
-
-    /**
-     * Singleton global logger that will be returned by Logger::get.
-     */
-    static Logger* sharedLogger;
 
     /**
      * Objects of the following type are used in collapseMap to keep
