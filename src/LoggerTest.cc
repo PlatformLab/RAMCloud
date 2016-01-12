@@ -251,7 +251,7 @@ TEST_F(LoggerTest, logMessage_basics) { // also tests LOG
             "LoggerTest.cc:[[:digit:]]\\{1,4\\} in TestBody "
             "ERROR\\[1\\]: rofl: 3\n$";
     EXPECT_TRUE(TestUtil::matchesPosixRegex(pattern,
-            TestUtil::readFile("__test.log")));
+            getLog("__test.log")));
 
     logger.setLogFile("__test.log", true);
     for (int i = 0; i < 3; i++) {
