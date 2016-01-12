@@ -404,10 +404,11 @@ MasterService::enumerate(const WireFormat::Enumerate::Request* reqHdr,
     EnumerationIterator iter(*rpc->requestPayload,
             downCast<uint32_t>(sizeof(*reqHdr)), reqHdr->iteratorBytes);
 
-    Buffer payload;
-    // A rough upper bound on how much space will be available in the response.
+    // Put at most maxPayloadBytes of enumerated objects in the reply. This 
+    // limit is used to leave enough room in the reply buffer for the response 
+    // header and also the serialized iteration state at the end of enumeration.
     uint32_t maxPayloadBytes = downCast<uint32_t>(
-            Transport::MAX_RPC_LEN - sizeof(*respHdr) - reqHdr->iteratorBytes);
+            Transport::MAX_RPC_LEN - sizeof(*respHdr) - (1 << 20));
     Enumeration enumeration(
             reqHdr->tableId, reqHdr->keysOnly,
             reqHdr->tabletFirstHash,
