@@ -13,6 +13,7 @@ DEBUG ?= yes
 YIELD ?= no
 SSE ?= sse4.2
 COMPILER ?= gnu
+ASAN ?= no
 VALGRIND ?= no
 ONLOAD_DIR ?= /usr/local/openonload-201405
 
@@ -62,6 +63,10 @@ COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
 	        $(DEBUGFLAGS)
 ifeq ($(COMPILER),gnu)
 COMFLAGS += -march=core2
+endif
+ifeq ($(ASAN),yes)
+COMFLAGS += -fsanitize=address -fno-omit-frame-pointer
+LDFLAGS += -fsanitize=address
 endif
 ifeq ($(VALGRIND),yes)
 COMFLAGS += -DVALGRIND
@@ -166,13 +171,13 @@ ifeq ($(YIELD),yes)
 COMFLAGS += -DYIELD=1
 endif
 
-CFLAGS_BASE := $(COMFLAGS) -std=gnu0x $(INCLUDES)
+CFLAGS_BASE := $(COMFLAGS) -std=gnu11 $(INCLUDES)
 CFLAGS_SILENT := $(CFLAGS_BASE)
 CFLAGS_NOWERROR := $(CFLAGS_BASE) $(CWARNS)
 # CFLAGS := $(CFLAGS_BASE) $(CWARNS)
 CFLAGS := $(CFLAGS_BASE) -Werror $(CWARNS)
 
-CXXFLAGS_BASE := $(COMFLAGS) -std=c++0x $(INCLUDES)
+CXXFLAGS_BASE := $(COMFLAGS) -std=c++11 $(INCLUDES)
 CXXFLAGS_SILENT := $(CXXFLAGS_BASE) $(EXTRACXXFLAGS)
 CXXFLAGS_NOWERROR := $(CXXFLAGS_BASE) $(CXXWARNS) $(EXTRACXXFLAGS)
 # CXXFLAGS := $(CXXFLAGS_BASE) $(CXXWARNS) $(EXTRACXXFLAGS) $(PERF)

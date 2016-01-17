@@ -24,6 +24,6 @@ COORDINATOR_OBJFILES := $(COORDINATOR_OBJFILES) $(SHARED_OBJFILES)
 $(OBJDIR)/coordinator: $(COORDINATOR_OBJFILES) \
                        $(OBJDIR)/CoordinatorMain.o
 	@mkdir -p $(@D)
-	$(CXX) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 all: $(OBJDIR)/coordinator
