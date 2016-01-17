@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -451,6 +451,14 @@ InfRcTransport::InfRcSession::cancelRequest(
     }
     foreach (ClientRpc& rpc, transport->outstandingRpcs) {
         if (rpc.notifier == notifier) {
+            erase(transport->outstandingRpcs, rpc);
+            transport->clientRpcPool.destroy(&rpc);
+            --transport->numUsedClientSrqBuffers;
+            sessionAlarm.rpcFinished();
+            if (transport->outstandingRpcs.empty()) {
+                transport->clientRpcsActiveTime.destroy();
+            }
+
             // At this point we'd like to delay until the NIC completes all
             // ongoing transmits. Otherwise, if a buffer gets reused after we
             // return, then the NIC could transmit garbage. However, as of
@@ -472,13 +480,6 @@ InfRcTransport::InfRcSession::cancelRequest(
                             "transmissions after 1ms");
                     break;
                 }
-            }
-            erase(transport->outstandingRpcs, rpc);
-            transport->clientRpcPool.destroy(&rpc);
-            --transport->numUsedClientSrqBuffers;
-            sessionAlarm.rpcFinished();
-            if (transport->outstandingRpcs.empty()) {
-                transport->clientRpcsActiveTime.destroy();
             }
             return;
         }
