@@ -65,7 +65,7 @@ ifeq ($(COMPILER),gnu)
 COMFLAGS += -march=core2
 endif
 ifeq ($(ASAN),yes)
-COMFLAGS += -fsanitize=address -fno-omit-frame-pointer
+COMFLAGS += -DASAN -fsanitize=address -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address
 endif
 ifeq ($(VALGRIND),yes)

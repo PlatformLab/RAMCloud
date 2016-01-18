@@ -18,7 +18,20 @@
 namespace RAMCloud {
 
 namespace LargeBlockOfMemoryInternal {
+#if ASAN
+    // On Linux/x86_64, the default `SHADOW_OFFSET` of AddressSanitizer
+    // is 0x7FFF8000 (< 2G), so there is no enough memory in the `LowMem`
+    // region for mmap. As a workaround, set the starting probing address
+    // to be the lowest gigabyte-aligned address in the `HighMem` region:
+    // [0x10007fff8000, 0x7fffffffffff].
+    // See:
+    //  https://github.com/google/sanitizers/wiki/AddressSanitizerAlgorithm
+    //  https://llvm.org/svn/llvm-project/compiler-rt/trunk/lib/asan/asan-
+    //  _mapping.h
+    uint64_t nextProbeBase = (uint64_t)16386 << 30;
+#else
     uint64_t nextProbeBase = (uint64_t)1 << 30;
+#endif
 }
 
 }
