@@ -1835,6 +1835,13 @@ ObjectManager::commitRead(PreparedOp& op, Log::Reference& refToPreparedOp)
 
     HashTableBucketLock lock(*this, key);
 
+    // Skip if object is not prepared since it is already committed.
+    // We need to check this again after holding HashTableBucketLock
+    // since there can be a concurrent TxDecision RPC.
+    if (!preparedOps->getOp(op.header.clientId, op.header.rpcId)) {
+        return STATUS_OK; // Just skip this operation.
+    }
+
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
     TabletManager::Tablet tablet;
     if (!tabletManager->getTablet(key, &tablet))
@@ -1897,6 +1904,13 @@ ObjectManager::commitRemove(PreparedOp& op,
     Key key(op.object.getTableId(), keyString, keyLength);
 
     HashTableBucketLock lock(*this, key);
+
+    // Skip if object is not prepared since it is already committed.
+    // We need to check this again after holding HashTableBucketLock
+    // since there can be a concurrent TxDecision RPC.
+    if (!preparedOps->getOp(op.header.clientId, op.header.rpcId)) {
+        return STATUS_OK; // Just skip this operation.
+    }
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
     TabletManager::Tablet tablet;
@@ -1997,6 +2011,13 @@ ObjectManager::commitWrite(PreparedOp& op,
 
     objectMap.prefetchBucket(key.getHash());
     HashTableBucketLock lock(*this, key);
+
+    // Skip if object is not prepared since it is already committed.
+    // We need to check this again after holding HashTableBucketLock
+    // since there can be a concurrent TxDecision RPC.
+    if (!preparedOps->getOp(op.header.clientId, op.header.rpcId)) {
+        return STATUS_OK; // Just skip this operation.
+    }
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
     TabletManager::Tablet tablet;

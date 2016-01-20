@@ -1951,8 +1951,17 @@ TEST_F(ObjectManagerTest, commitRead) {
     // Check object is locked.
     EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
 
-    // COMMIT read operation.
+    // Try COMMIT without PreparedOp buffered. This should be no-op.
     Log::Reference newOpRef(newOpPtr);
+    EXPECT_EQ(STATUS_OK, objectManager.commitRead(op, newOpRef));
+
+    // Check object is still locked.
+    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+
+    // COMMIT read operation.
+    objectManager.preparedOps->bufferOp(op.header.clientId,
+                                        op.header.rpcId,
+                                        newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitRead(op, newOpRef));
 
     // Check object is unlocked after commitRead.
@@ -1992,14 +2001,22 @@ TEST_F(ObjectManagerTest, commitRemove) {
     EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
 
     // Object exists.
-//    value.reset();
     EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, 0, 0, true));
     EXPECT_EQ("value", string(reinterpret_cast<const char*>(
                               value.getRange(0, value.size())),
                               value.size()));
 
-    // COMMIT remove operation.
+    // Try COMMIT without PreparedOp buffered. This should be no-op.
     Log::Reference newOpRef(newOpPtr);
+    EXPECT_EQ(STATUS_OK, objectManager.commitRemove(op, newOpRef));
+
+    // Check object is still locked.
+    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+
+    // COMMIT remove operation.
+    objectManager.preparedOps->bufferOp(op.header.clientId,
+                                        op.header.rpcId,
+                                        newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitRemove(op, newOpRef));
 
     // Check object is unlocked after commitRead.
@@ -2041,6 +2058,13 @@ TEST_F(ObjectManagerTest, commitWrite) {
     // Check object is locked.
     EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
 
+    // Try COMMIT without PreparedOp buffered. This should be no-op.
+    Log::Reference newOpRef(newOpPtr);
+    EXPECT_EQ(STATUS_OK, objectManager.commitWrite(op, newOpRef));
+
+    // Check object is still locked.
+    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+
     // Object exists.
     value.reset();
     EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, 0, &ver, true));
@@ -2050,7 +2074,9 @@ TEST_F(ObjectManagerTest, commitWrite) {
                             value.size()));
 
     // COMMIT write operation.
-    Log::Reference newOpRef(newOpPtr);
+    objectManager.preparedOps->bufferOp(op.header.clientId,
+                                        op.header.rpcId,
+                                        newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitWrite(op, newOpRef));
     // Check the updated object value.
     value.reset();
