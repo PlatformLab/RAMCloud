@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,6 +20,8 @@
 #include "Atomic.h"
 #include "Cycles.h"
 #include "Logger.h"
+#include "SpinLock.h"
+#include "WorkerTimer.h"
 
 namespace RAMCloud {
 
@@ -37,28 +39,77 @@ class TimeTrace {
   PUBLIC:
     TimeTrace();
     ~TimeTrace();
-    void record(const char* message, uint64_t timestamp = Cycles::rdtsc());
+    void record(uint64_t timestamp, const char* format, uint32_t arg0 = 0,
+            uint32_t arg1 = 0, uint32_t arg2 = 0, uint32_t arg3 = 0);
+    void record(const char* format, uint32_t arg0 = 0, uint32_t arg1 = 0,
+            uint32_t arg2 = 0, uint32_t arg3 = 0) {
+        record(Cycles::rdtsc(), format, arg0, arg1, arg2, arg3);
+    }
     void printToLog();
+    void printToLogBackground(Dispatch* dispatch);
     string getTrace();
     void reset();
 
-  public:
+  PROTECTED:
     void printInternal(string* s);
+
+    /**
+     * This class is used to print the time trace to the log in the
+     * background (as a WorkerTimer). Printing can take a long time,
+     * so doing it in the foreground can potentially make a server
+     * appear crashed.
+     */
+
+    class TraceLogger : public WorkerTimer {
+      public:
+        TraceLogger(Dispatch* dispatch, TimeTrace* timeTrace)
+                : WorkerTimer(dispatch)
+                , timeTrace(timeTrace)
+        { }
+
+        virtual void handleTimerEvent() {
+            timeTrace->printToLog();
+        }
+
+      PRIVATE:
+        // The TimeTrace to print to the log.
+        TimeTrace* timeTrace;
+        DISALLOW_COPY_AND_ASSIGN(TraceLogger);
+    };
 
     /**
      * This structure holds one entry in the TimeTrace.
      */
     struct Event {
       uint64_t timestamp;        // Time when a particular event occurred.
-      const char* message;       // Static string describing the event.
+      const char* format;        // Format string describing the event.
                                  // NULL means that this entry is unused.
+      uint32_t arg0;             // Argument that may be referenced by format
+                                 // when printing out this event.
+      uint32_t arg1;             // Argument that may be referenced by format
+                                 // when printing out this event.
+      uint32_t arg2;             // Argument that may be referenced by format
+                                 // when printing out this event.
+      uint32_t arg3;             // Argument that may be referenced by format
+                                 // when printing out this event.
     };
 
     // Total number of events that we can retain any given time.
     static const int BUFFER_SIZE = 100000;
 
+    // Number of events to prefetch ahead, in order to minimize cache
+    // misses.
+    static const int NUM_PREFETCH = 2;
+
+    // Used in a few cases where exclusive access is desirable (e.g. when
+    // printing the log).
+    SpinLock mutex;
+
     // Holds information from the most recent calls to the record method.
-    Event events[BUFFER_SIZE];
+    // Note: prefetching will cause NUM_PREFETCH extra elements past the
+    // end of the buffer, to be accessed (allocating extra space avoids
+    // the cost of being cleverer during prefetching).
+    Event events[BUFFER_SIZE + NUM_PREFETCH];
 
     // Index within events of the slot to use for the next call to the
     // record method.
@@ -69,6 +120,10 @@ class TimeTrace {
     // output from printInternal.
     volatile bool readerActive;
 
+    // For logging time traces in the background.
+    Tub<TraceLogger> backgroundLogger;
+
+  public:
     // Refers to the most recently created time trace; provides a convenient
     // global variable for situations where no other TimeTrace pointer
     // is readily available.
