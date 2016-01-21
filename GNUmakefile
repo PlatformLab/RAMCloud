@@ -13,7 +13,7 @@ DEBUG ?= yes
 YIELD ?= no
 SSE ?= sse4.2
 COMPILER ?= gnu
-ASAN ?= no
+SANITIZER ?= none
 VALGRIND ?= no
 ONLOAD_DIR ?= /usr/local/openonload-201405
 
@@ -64,9 +64,19 @@ COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
 ifeq ($(COMPILER),gnu)
 COMFLAGS += -march=core2
 endif
-ifeq ($(ASAN),yes)
+# Google sanitizers are not compatible with each other, so only apply one at a
+# time.
+ifeq ($(SANITIZER),address)
 COMFLAGS += -DASAN -fsanitize=address -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address
+else ifeq ($(SANITIZER),memory)
+# MSan is by far a unique feature in Clang and not available to GCC as of
+# version 5.3
+else ifeq ($(SANITIZER),thread)
+# TODO: add support for TSan
+else ifeq ($(SANITIZER),undefined)
+COMFLAGS += -DUBSAN -fsanitize=undefined -fno-omit-frame-pointer
+LDFLAGS += -fsanitize=undefined
 endif
 ifeq ($(VALGRIND),yes)
 COMFLAGS += -DVALGRIND
