@@ -1876,6 +1876,7 @@ ObjectManager::commitRead(PreparedOp& op, Log::Reference& refToPreparedOp)
             prepTombBuffer.size(),
             1);
     log.free(refToPreparedOp);
+    preparedOps->removeOp(op.header.clientId, op.header.rpcId);
     return STATUS_OK;
 }
 
@@ -1980,6 +1981,7 @@ ObjectManager::commitRemove(PreparedOp& op,
     segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log.free(reference);
     log.free(refToPreparedOp);
+    preparedOps->removeOp(op.header.clientId, op.header.rpcId);
     remove(lock, key);
     return STATUS_OK;
 }
@@ -2108,6 +2110,7 @@ ObjectManager::commitWrite(PreparedOp& op,
             op.object.getKeysAndValueLength() - valueLength;
 
     log.free(refToPreparedOp);
+    preparedOps->removeOp(op.header.clientId, op.header.rpcId);
 
     if (!newKey) {
         currentHashTableEntry.setReference(appends[1].reference.toInteger());

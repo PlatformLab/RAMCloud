@@ -2539,9 +2539,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 status = objectManager.commitWrite(op, opRef);
             }
 
-            if (status == STATUS_OK) {
-                preparedOps.removeOp(reqHdr->leaseId, participants[i].rpcId);
-            } else {
+            if (status != STATUS_OK) {
                 respHdr->common.status = status;
                 rpc->sendReply();
                 return;
@@ -2575,9 +2573,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
 
             Status status = objectManager.commitRead(op, opRef);
 
-            if (status == STATUS_OK) {
-                preparedOps.removeOp(reqHdr->leaseId, participants[i].rpcId);
-            } else {
+            if (status != STATUS_OK) {
                 respHdr->common.status = status;
                 rpc->sendReply();
                 return;
