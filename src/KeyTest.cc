@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -84,20 +84,20 @@ TEST_F(KeyTest, constructor_fromBuffer)
 }
 
 TEST_F(KeyTest, constructor_fromVoidPointer) {
-    Key key(74, "na-na-na-na", 13);
+    Key key(74, "na-na-na-na", 12);
     EXPECT_EQ(74U, key.getTableId());
     EXPECT_EQ("na-na-na-na", string(reinterpret_cast<const char*>(
                              key.getStringKey())));
-    EXPECT_EQ(13U, key.getStringKeyLength());
+    EXPECT_EQ(12U, key.getStringKeyLength());
     EXPECT_FALSE(key.hash);
 }
 
 TEST_F(KeyTest, getHash) {
-    Key key(82, "hey-hey-hey", 13);
+    Key key(82, "hey-hey-hey", 12);
     EXPECT_FALSE(key.hash);
-    EXPECT_EQ(0xed7cc41c7081ba0UL, key.getHash());
+    EXPECT_EQ(0x889d47d556739eebUL, key.getHash());
     EXPECT_TRUE(key.hash);
-    EXPECT_EQ(0xed7cc41c7081ba0UL, key.getHash());
+    EXPECT_EQ(0x889d47d556739eebUL, key.getHash());
 }
 
 TEST_F(KeyTest, getHash_static) {

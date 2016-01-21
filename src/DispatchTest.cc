@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -29,8 +29,7 @@ class DummyPoller : public Dispatch::Poller {
   public:
     DummyPoller(const char *name, int callsUntilTrue, Dispatch *dispatch)
         : Dispatch::Poller(dispatch, "DummyPoller"), myName(name),
-        callsUntilTrue(callsUntilTrue), pollersToDelete(),
-        returnValue(1) { }
+        callsUntilTrue(callsUntilTrue), pollersToDelete() { }
     int poll() {
         bool deleteThis = false;
         if (localLog->length() != 0) {
@@ -54,7 +53,7 @@ class DummyPoller : public Dispatch::Poller {
         if (deleteThis) {
             delete this;
         }
-        return returnValue;
+        return 1;
     }
     // Arrange to delete a given poller the next time this poller is
     // invoked (used for testing reentrancy).
@@ -64,7 +63,6 @@ class DummyPoller : public Dispatch::Poller {
     const char *myName;
     int callsUntilTrue;
     std::vector<Poller*> pollersToDelete;
-    int returnValue;
   private:
     DISALLOW_COPY_AND_ASSIGN(DummyPoller);
 };

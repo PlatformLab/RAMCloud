@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -432,7 +432,7 @@ TEST_P(SegmentTest, hasSpaceFor) {
 
     EXPECT_TRUE(s.hasSpaceFor(NULL, 0));
 
-    uint32_t lengths[2];
+    uint32_t lengths[4];
 
     s.closed = true;
     lengths[0] = 0;
