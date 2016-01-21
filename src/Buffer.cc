@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -378,8 +378,8 @@ Buffer::copy(uint32_t offset, uint32_t length, void* dest)
  *        be a decimal number, which is converted to a 4-byte signed
  *        integer in the buffer.
  *      - If a substring starts with "0x" it is assumed to be a
- *        hexadecimal number, which is converted to a 4-byte integer
- *        in the buffer.
+ *        hexadecimal number, which is converted to a 4-byte unsigned
+ *        integer in the buffer.
  *      - Otherwise the characters of the substring are appended to
  *        the buffer, with an additional null terminating character.
  */
@@ -395,7 +395,7 @@ Buffer::fillFromString(const char* s) {
         char c = s[i];
         if ((c == '0') && (s[i+1] == 'x')) {
             // Hexadecimal number
-            int value = 0;
+            uint32_t value = 0;
             i += 2;
             while (i < length) {
                 char c = s[i];
@@ -411,10 +411,12 @@ Buffer::fillFromString(const char* s) {
                     value = 16*value + 10 + (c - 'A');
                 }
             }
-            emplaceAppend<int32_t>(value);
+            emplaceAppend<uint32_t>(value);
         } else if ((c == '-') || ((c >= '0') && (c <= '9'))) {
             // Decimal number
-            int value = 0;
+            // Use int64_t to hold the intermediate value and apply downCast
+            // at the end to detect undefined signed integer overflow
+            int64_t value = 0;
             int sign = (c == '-') ? -1 : 1;
             if (c == '-') {
                 sign = -1;
@@ -428,7 +430,7 @@ Buffer::fillFromString(const char* s) {
                 }
                 value = 10*value + (c - '0');
             }
-            emplaceAppend<int32_t>(value*sign);
+            emplaceAppend<int32_t>(downCast<int32_t>(value*sign));
         } else {
             // String
             while (i < length) {
