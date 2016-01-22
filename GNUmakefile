@@ -73,7 +73,8 @@ else ifeq ($(SANITIZER),memory)
 # MSan is by far a unique feature in Clang and not available to GCC as of
 # version 5.3
 else ifeq ($(SANITIZER),thread)
-# TODO: add support for TSan
+COMFLAGS += -DTSAN -fsanitize=thread -fno-omit-frame-pointer -fPIE
+LDFLAGS += -fsanitize=thread -pie
 else ifeq ($(SANITIZER),undefined)
 COMFLAGS += -DUBSAN -fsanitize=undefined -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=undefined
