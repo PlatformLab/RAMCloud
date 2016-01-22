@@ -7,28 +7,43 @@
 #
 # For more details about building C++ code bases with Travis CI see:
 # http://docs.travis-ci.com/user/languages/cpp/
+
 language: cpp
-
-env:
- - GCC_VERSION=4.4
- - BOOST_VERSION=1.55 GCC_VERSION=4.4
-
-before_install:
- - sudo add-apt-repository -y 'deb http://ppa.launchpad.net/ubuntu-toolchain-r/test/ubuntu precise main';
- - sudo add-apt-repository -y ppa:boost-latest/ppa 
- - sudo apt-get update
- - sudo apt-get install libzookeeper-mt-dev protobuf-compiler libprotobuf-dev libboost${BOOST_VERSION}-all-dev
- - if [[ ${GCC_VERSION} ]]; then
-     sudo apt-get install g++-${GCC_VERSION};
-     export CXX="g++-${GCC_VERSION}";
-     export CC="gcc-${GCC_VERSION}"; 
-   fi
-
-before_script:
-  - sed -i 's/-Werror//' GNUmakefile 
-
-script:
-  - make ZOOKEEPER_LIB='-lzookeeper_mt' INFINIBAND=no
 
 compiler:
   - gcc
+
+env:
+# Build Checks
+  - CMD="make -j2"
+  - CMD="make DEBUG=NO -j2"
+  - CMD="make ZOOKEEPER_LIB='-lzookeeper_mt' INFINIBAND=no -j2"
+# make tests w/o timing dependent tests
+  - CMD="make -j2 obj.master/test && obj.master/test --gtest_filter=-PortAlarmTest.triple_alarm:WorkerTimerTest.stopInternal_handlerDoesntFinishQuickly"
+# Style Checks
+  - CMD="make check"
+  - CMD="make -j2 && hooks/pre-commit-90docs"
+
+before_install:
+ - git submodule update --init --recursive
+ - git checkout master
+ - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+ - sudo add-apt-repository -y 'deb http://us.archive.ubuntu.com/ubuntu/ trusty main universe'
+ - sudo apt-get update
+ - sudo apt-get install -y libzookeeper-mt-dev protobuf-compiler libprotobuf-dev libboost${BOOST_VERSION}-all-dev doxygen=1.7.6.1-2ubuntu1
+ - sudo apt-get install g++-4.9
+ - export CXX="g++-4.9"
+ - export CC="gcc-4.9"
+ - wget http://launchpadlibrarian.net/57653337/doxygen_1.7.1-2_amd64.deb
+ - sudo dpkg -i doxygen_1.7.1-2_amd64.deb
+
+## For if we ever decide to support multiple GCC versions.
+# - if [[ ${GCC_VERSION} ]]; then
+#     sudo apt-get install g++-${GCC_VERSION};
+#     export CXX="g++-${GCC_VERSION}";
+#     export CC="gcc-${GCC_VERSION}";
+#   fi
+
+script:
+  - make clean
+  - eval $CMD
