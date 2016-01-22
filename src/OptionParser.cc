@@ -103,7 +103,12 @@ void invokeGDB(int signum) {
        signal(SIGINT, SIG_DFL);
     char buf[256];
     snprintf(buf, sizeof(buf), "/usr/bin/gdb %s %d", executableName, getpid());
-    system(buf);
+    int ret = system(buf);
+
+    if (ret == -1) {
+        std::cerr << "Failed to attach gdb upon receiving the signal "
+                  << strsignal(signum) << std::endl;
+    }
 }
 
 /**
