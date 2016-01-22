@@ -228,19 +228,19 @@ TEST_F(InfRcTransportTest, InfRcSession_cancelRequest_rpcSent) {
     rpc.request.fillFromString("xyzzy");
     session->sendRequest(&rpc.request, &rpc.response, &rpc);
     serverRpc = context.workerManager->waitForRpc(1.0);
-
-    // Note: the log entry for the unrecognized response to the canceled
-    // RPC only appears here (InfRc doesn't check for responses unless
-    // there are active RPCs).
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(
-                " incoming data doesn't match active RPC (nonce .*)",
-                TestLog::get()));
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("xyzzy/0", TestUtil::toString(&serverRpc->requestPayload));
     serverRpc->replyPayload.fillFromString("response2");
     serverRpc->sendReply();
     EXPECT_TRUE(TestUtil::waitForRpc(&context, rpc));
     EXPECT_EQ("response2/0", TestUtil::toString(&rpc.response));
+
+    // Note: the log entry for the unrecognized response to the canceled
+    // RPC may not appear until here (InfRc doesn't check for responses unless
+    // there are active RPCs).
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
+                " incoming data doesn't match active RPC (nonce .*)",
+                TestLog::get()));
 }
 
 TEST_F(InfRcTransportTest, getRpcInfo) {
