@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  * Copyright (c) 2014-2015 Huawei Technologies Co. Ltd.
  * The original version of this module was contributed by Anthony Iliopoulos
  * at DBERC, Huawei
@@ -280,10 +280,9 @@ DpdkDriver::sendPacket(const Address *addr,
     mbuf = rte_pktmbuf_alloc(packetPool);
 
     if (NULL == mbuf) {
-        string msg =
-            "Failed to allocate a packet buffer";
-        LOG(WARNING, "%s", msg.c_str());
-        throw DriverException(HERE, msg.c_str(), errno);
+        RAMCLOUD_CLOG(NOTICE,
+                "Failed to allocate a packet buffer; dropping packet");
+        return;
     }
 
     data = rte_pktmbuf_append(mbuf, downCast<uint16_t>(datagramLength));
@@ -291,9 +290,10 @@ DpdkDriver::sendPacket(const Address *addr,
     char *p = data;
 
     if (NULL == data) {
-        const char* msg = "rte_pktmbuf_append call failed";
-        LOG(WARNING, "%s", msg);
-        throw DriverException(HERE, msg);
+        RAMCLOUD_CLOG(NOTICE,
+                "rte_pktmbuf_append call failed; dropping packet");
+        rte_pktmbuf_free(mbuf);
+        return;
     }
 
     NetUtil::EthernetHeader* ethHdr = reinterpret_cast<
@@ -337,7 +337,7 @@ DpdkDriver::Poller::poll()
 
     // attempt to dequeue a batch of received packets from the NIC
     // as well as from the loopback ring.
-    nbRx = rte_eth_rx_burst(driver->portId, 0, mPkts, 8);
+    nbRx = rte_eth_rx_burst(driver->portId, 0, mPkts, MAX_MBUFS_ON_STACK);
     itemCnt += rte_ring_count(driver->loopbackRing);
     totalPktRx = nbRx + itemCnt;
 
@@ -345,10 +345,8 @@ DpdkDriver::Poller::poll()
         return 0;
 
     if (totalPktRx > MAX_MBUFS_ON_STACK) {
-        string msg = format("Too many packets received (got %u, limit %u)",
+        DIE("Too many packets received (got %u, limit %u)",
                 totalPktRx, MAX_MBUFS_ON_STACK);
-        LOG(WARNING, "%s", msg.c_str());
-        throw DriverException(HERE, msg.c_str(), errno);
     }
 
     // dequeue all available packets queued on the loopback ring
