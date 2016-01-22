@@ -136,13 +136,16 @@ Logger::get()
 
 /**
  * Arrange for future log messages to go to a particular file.
+ *
+ * This should only be invoked when one is sure that printThread is not
+ * running (e.g. before any logMessage() invocations) due to a file
+ * descriptor race that can occur (RAM-839).
  * \param path
  *      The pathname for the log file, which may or may not exist already.
  * \param truncate
  *      True means the log file should be truncated if it already exists;
  *      false means an existing log file is retained, and new messages are
  *      appended.
- *      
  */
 void
 Logger::setLogFile(const char* path, bool truncate)

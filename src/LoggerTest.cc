@@ -36,6 +36,7 @@ class LoggerTest : public ::testing::Test {
 
     ~LoggerTest()
     {
+        Logger::get().sync();
         Logger::get().reset();
         unlink("__test.log");
     }
@@ -474,6 +475,7 @@ TEST_F(LoggerTest, cleanCollapseMap_print) {
 
 TEST_F(LoggerTest, addToBuffer) {
     Logger& logger = Logger::get();
+    logger.setLogFile("__test.log", true);
     logger.testingNoNotify = true;
     logger.nextToPrint = 15;
     logger.nextToInsert = logger.bufferSize - 20;
@@ -496,6 +498,9 @@ TEST_F(LoggerTest, addToBuffer) {
     // Third append: not enough space.
     EXPECT_FALSE(logger.addToBuffer("EFGHIJ", 6));
     EXPECT_EQ(9, logger.nextToInsert);
+
+    // Wakeup the print thread so that the Test destructor will finish sync()
+    logger.logDataAvailable.notify_one();
 }
 
 TEST_F(LoggerTest, printThreadMain_exit) {
