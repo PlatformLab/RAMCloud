@@ -52,5 +52,5 @@ notifications:
   email:
     recipients:
       - secure: "J3cSSL1QN91V2t6IMZISHk8WeHRJK/Oi8EDNwk1Gji1th5eEUpjiMM+95Y0kHENId+FTxdUT7OPzdpKxVYX5tN6ChCAJbH0bUON3hvVKejCuYMw+biAP41xUaChglTP92D7QqD03m43u57LxpdV6dhF/kLTr+ckXrLiR1NzyavK9wYNp4jYQLEf3yYjgCxn5Rcypib4SG3c5bhubQk+jBpzPd52LMHDwo+KpYViy9G1BksqnC0leqmqxXhCx1U2ETM0qdQe1DepyfQ89YeKYjMKup39jWr5Jw7f+d7w0OEJpVjoJYT67Q3aKvzec/lR3s0tFnj2CGwSSXHWSc4y3vTZPh1QGnZT292K8yQnU4ean5xIqEAM5gGZfy9jWTFSalKDnswXi9M3Nn3QNRCNw0UFYtsc0G/TyxKdwR3npzLte0Y+mpeehXXdbD7iqdDR9QWG/eut4ksdj7Wp8dnnHdFVexThGqKNN4H0oWmxgI6Qr/EVd6zCPLmQTUNWmLLCjPku+RkHgVX0eScpU591XrCsZy9jQ3K+HAjMSp6sRowBajxxh9dejmfWyJduBqS6MxxD22ucQvRO47I2SIvt3I1Vu0h7X9QlbJ3dSt1o0s3e2wy+ski4B9D8Ypu//2uRl+KBLCLPkTlaoEMd39ne/q2O/EYfuceKERP8DY55oWQc="
-    on_success: always
+    on_success: change
     on_failure: always
