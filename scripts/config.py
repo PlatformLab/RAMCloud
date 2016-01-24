@@ -26,8 +26,8 @@ import re
 import subprocess
 
 __all__ = ['coordinator_port', 'default_disk1','default_disk2', 'git_branch',
-           'git_ref', 'git_diff', 'obj_dir', 'obj_path', 'scripts_path',
-           'second_backup_port', 'server_port', 'top_path']
+           'git_ref', 'git_diff', 'hosts','obj_dir', 'obj_path',
+           'scripts_path', 'second_backup_port', 'server_port', 'top_path']
 
 # git_branch is the name of the current git branch, which is used
 # for purposes such as computing objDir.
@@ -100,6 +100,10 @@ default_disk1 = '-f /dev/sda2'
 # Command-line argument specifying where the second backup should
 # store its segment replicas.
 default_disk2 = '-f /dev/sdb2'
+
+# List of machines available to use as servers or clients; see
+# common.getHosts() for more information on how to set this variable.
+hosts = None
 
 # Try to include local overrides.
 try:
