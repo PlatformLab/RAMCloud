@@ -95,7 +95,7 @@ class TimeTrace {
     };
 
     // Total number of events that we can retain any given time.
-    static const int BUFFER_SIZE = 100000;
+    static const int BUFFER_SIZE = 10000;
 
     // Number of events to prefetch ahead, in order to minimize cache
     // misses.
