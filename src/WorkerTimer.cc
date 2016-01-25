@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -76,7 +76,8 @@ WorkerTimer::handleTimerEvent()
 /**
  * Returns true if the timer is currently running, false if it isn't.
  */
-bool WorkerTimer::isRunning()
+bool
+WorkerTimer::isRunning()
 {
     return active;
 }
@@ -89,7 +90,8 @@ bool WorkerTimer::isRunning()
  *      this large.  If the timer was already running, the old trigger time is
  *      forgotten.
  */
-void WorkerTimer::start(uint64_t rdtscTime)
+void
+WorkerTimer::start(uint64_t rdtscTime)
 {
     Lock _(mutex);
     if (destroyed) {
@@ -113,7 +115,8 @@ void WorkerTimer::start(uint64_t rdtscTime)
  * not currently be running, and will not trigger until #start is invoked
  * again.
  */
-void WorkerTimer::stop()
+void
+WorkerTimer::stop()
 {
     Lock lock(mutex);
     stopInternal(lock);
@@ -152,6 +155,22 @@ void WorkerTimer::stopInternal(Lock& lock)
             manager->earliestTriggerTime = ~0lu;
             manager->stop();
         }
+    }
+}
+
+/**
+ * Give all runnable WorkerTimers a chance to execute; don't return
+ * until all of them have run. This is intended for use by unit
+ * tests.
+ */
+void
+WorkerTimer::sync()
+{
+    Lock lock(mutex);
+    for (ManagerList::iterator it(managers.begin());
+            it != managers.end(); it++) {
+        Manager& manager = *it;
+        manager.checkTimers(lock);
     }
 }
 
@@ -253,9 +272,9 @@ WorkerTimer::findManager(Dispatch* dispatch, Lock& lock)
 /**
  * This method does most of the work for the worker thread. It checks
  * to see if any WorkerTimers are ready to execute and, if so, it
- * runs one of them. In addition, it restarts the Dispatch::Timer
- * for this manager if there are WorkerTimers still waiting. It only
- * returns when there are no more timers to run.
+ * runs all of the ones that are ready. In addition, it restarts the
+ * Dispatch::Timer for this manager if there are WorkerTimers still
+ * waiting. It only returns when there are no more timers to run.
  *
  * \param lock
  *      Used to ensure that caller has acquired WorkerTimer::mutex.

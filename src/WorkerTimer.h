@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -49,6 +49,7 @@ class WorkerTimer {
     bool isRunning();
     void start(uint64_t cycles);
     void stop();
+    static void sync();
 
   PRIVATE:
     class Manager;

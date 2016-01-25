@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -291,6 +291,20 @@ TEST_F(WorkerTimerTest, stopInternal_handlerDoesntFinishQuickly) {
             "complete; perhaps destructor was invoked from handler? | "
             "stopInternal: waiting for handler", TestLog::get());
     thread.join();
+}
+
+TEST_F(WorkerTimerTest, sync) {
+    Dispatch dispatch2(false);
+    DummyWorkerTimer timer1("timer1", &dispatch);
+    DummyWorkerTimer timer2("timer2", &dispatch);
+    DummyWorkerTimer timer3("timer3", &dispatch2);
+    timer1.start(0);
+    timer2.start(0);
+    timer3.start(0);
+    WorkerTimer::sync();
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(), "timer1 invoked"));
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(), "timer2 invoked"));
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(), "timer3 invoked"));
 }
 
 TEST_F(WorkerTimerTest, Manager_constructor) {
