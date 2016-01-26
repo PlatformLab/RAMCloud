@@ -328,39 +328,30 @@ DpdkDriver::Poller::poll()
 #define MAX_MBUFS_ON_STACK 32
     // avoid heap allocations on the poll path by temporarily
     // keeping a limited number of packet buffers on stack.
-    struct rte_mbuf *mPkts[MAX_MBUFS_ON_STACK];
-    struct rte_mbuf *m;
-    unsigned nbRx = 0;
-    unsigned j;
-    unsigned itemCnt = 0;
-    unsigned totalPktRx = 0;
+    struct rte_mbuf* mPkts[MAX_MBUFS_ON_STACK];
 
     // attempt to dequeue a batch of received packets from the NIC
     // as well as from the loopback ring.
-    nbRx = rte_eth_rx_burst(driver->portId, 0, mPkts, MAX_MBUFS_ON_STACK);
-    itemCnt += rte_ring_count(driver->loopbackRing);
-    totalPktRx = nbRx + itemCnt;
-
-    if (totalPktRx == 0)
-        return 0;
-
-    if (totalPktRx > MAX_MBUFS_ON_STACK) {
-        DIE("Too many packets received (got %u, limit %u)",
-                totalPktRx, MAX_MBUFS_ON_STACK);
+    uint32_t incomingPkts = rte_eth_rx_burst(driver->portId, 0, mPkts,
+            MAX_MBUFS_ON_STACK/2);
+    uint32_t loopbackPkts = rte_ring_count(driver->loopbackRing);
+    if (incomingPkts + loopbackPkts > MAX_MBUFS_ON_STACK) {
+        loopbackPkts = MAX_MBUFS_ON_STACK - incomingPkts;
     }
-
-    // dequeue all available packets queued on the loopback ring
-    for (j = 0; j < itemCnt; j++) {
+    for (uint32_t i = 0; i < loopbackPkts; i++) {
         rte_ring_dequeue(driver->loopbackRing,
-                reinterpret_cast<void**>(&mPkts[nbRx + j]));
+                reinterpret_cast<void**>(&mPkts[incomingPkts + i]));
+    }
+    uint32_t totalPkts = incomingPkts + loopbackPkts;
+    if (totalPkts == 0) {
+        return 0;
     }
 
     // process received packets by constructing appropriate Received
     // objects, copying the payload from the DPDK packet buffers and
     // passing them to the fast transport layer for further processing.
-    for (j = 0; j < totalPktRx; j++)
-    {
-        m = mPkts[j];
+    for (uint32_t i = 0; i < totalPkts; i++) {
+        struct rte_mbuf* m = mPkts[i];
         rte_prefetch0(rte_pktmbuf_mtod(m, void *));
         PacketBuf * rec_buffer = driver->packetBufPool.construct();
         driver->packetBufsUtilized++;
