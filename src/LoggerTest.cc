@@ -27,17 +27,20 @@ class LoggerTest : public ::testing::Test {
   public:
     static const uint32_t numLogLevels = static_cast<uint32_t>(NUM_LOG_LEVELS);
     struct timespec testTime;
+    Logger logger;
+    Logger* loggerUnderTest;
 
     LoggerTest()
         : testTime({3, 500000000})
+        , logger(WARNING)
+        , loggerUnderTest(&logger)
     {
-        Logger::get().testingLogTime = &testTime;
+        logger.testingLogTime = &testTime;
+        logger.setLogFile("__test.log");
     }
 
     ~LoggerTest()
     {
-        Logger::get().sync();
-        Logger::get().reset();
         unlink("__test.log");
     }
 
@@ -47,7 +50,7 @@ class LoggerTest : public ::testing::Test {
     string
     logSuffix(const char* s)
     {
-        Logger::get().sync();
+        loggerUnderTest->sync();
         string output = TestUtil::readFile("__test.log");
         size_t pos = output.find(s);
         if (pos != string::npos) {
@@ -61,13 +64,24 @@ class LoggerTest : public ::testing::Test {
     string
     getLog(const char* fileName, bool sanitizeLineNumber = false)
     {
-        Logger::get().sync();
+        loggerUnderTest->sync();
         string result = TestUtil::readFile(fileName);
         if (sanitizeLineNumber) {
             std::regex exp("\\.cc:[[:digit:]]{1,4} ");
             result = std::regex_replace(result, exp, ".cc:xxx ");
         }
         return result;
+    }
+
+    // Configure and use the shared logger in the test. Only used in test
+    // cases involving log macros where Logger::get() is hardcoded.
+    void
+    useSharedLogger() {
+        Logger& sharedLogger = Logger::get();
+        sharedLogger.reset();
+        sharedLogger.testingLogTime = &testTime;
+        sharedLogger.setLogFile("__test.log");
+        loggerUnderTest = &sharedLogger;
     }
 
     DISALLOW_COPY_AND_ASSIGN(LoggerTest);
@@ -88,17 +102,16 @@ TEST_F(LoggerTest, destructor) {
 }
 
 TEST_F(LoggerTest, setLogFile_basics) {
-    Logger& l = Logger::get();
-    l.setLogLevels(NOTICE);
-    l.setLogFile("__test.log");
-    l.logMessage(false, DEFAULT_LOG_MODULE, NOTICE, HERE, "message 1\n");
+    logger.setLogLevels(NOTICE);
+    logger.setLogFile("__test.log");
+    logger.logMessage(false, DEFAULT_LOG_MODULE, NOTICE, HERE, "message 1\n");
     EXPECT_TRUE(TestUtil::matchesPosixRegex("message 1", getLog("__test.log")));
-    l.setLogFile("__test.log", false);
-    l.logMessage(false, DEFAULT_LOG_MODULE, NOTICE, HERE, "message 2");
+    logger.setLogFile("__test.log", false);
+    logger.logMessage(false, DEFAULT_LOG_MODULE, NOTICE, HERE, "message 2");
     EXPECT_TRUE(TestUtil::matchesPosixRegex("message 1.*message 2",
             getLog("__test.log")));
-    l.setLogFile("__test.log", true);
-    l.logMessage(false, DEFAULT_LOG_MODULE, NOTICE, HERE, "message 3");
+    logger.setLogFile("__test.log", true);
+    logger.logMessage(false, DEFAULT_LOG_MODULE, NOTICE, HERE, "message 3");
     EXPECT_TRUE(TestUtil::doesNotMatchPosixRegex("message 1",
             getLog("__test.log")));
     EXPECT_TRUE(TestUtil::matchesPosixRegex("message 3",
@@ -242,20 +255,7 @@ TEST_F(LoggerTest, isLogging) {
     EXPECT_TRUE(!l.isLogging(DEFAULT_LOG_MODULE, NOTICE));
 }
 
-TEST_F(LoggerTest, logMessage_basics) { // also tests LOG
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log");
-
-    LOG(DEBUG, "x");
-    EXPECT_EQ("", getLog("__test.log"));
-
-    LOG(ERROR, "rofl: %d", 3);
-    const char* pattern = "^0000000003.500000000 "
-            "LoggerTest.cc:[[:digit:]]\\{1,4\\} in TestBody "
-            "ERROR\\[1\\]: rofl: 3\n$";
-    EXPECT_TRUE(TestUtil::matchesPosixRegex(pattern,
-            getLog("__test.log")));
-
+TEST_F(LoggerTest, logMessage_basics) {
     logger.setLogFile("__test.log", true);
     for (int i = 0; i < 3; i++) {
         logger.logMessage(false, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
@@ -268,8 +268,6 @@ TEST_F(LoggerTest, logMessage_basics) { // also tests LOG
 }
 
 TEST_F(LoggerTest, logMessage_collapseDuplicates) {
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log");
     logger.collapseIntervalMs = 2;
 
     // Log a message several times; only the first should be printed.
@@ -322,8 +320,6 @@ TEST_F(LoggerTest, logMessage_collapseDuplicates) {
 }
 
 TEST_F(LoggerTest, logMessage_restrictSizeOfCollapseMap) {
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log");
     logger.collapseIntervalMs = 2;
     logger.maxCollapseMapSize = 2;
 
@@ -337,8 +333,6 @@ TEST_F(LoggerTest, logMessage_restrictSizeOfCollapseMap) {
 }
 
 TEST_F(LoggerTest, logMessage_discardEntriesBecauseOfOverflow) {
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log");
     logger.collapseIntervalMs = 2;
     logger.maxCollapseMapSize = 2;
     logger.nextToInsert = 0;
@@ -364,8 +358,6 @@ TEST_F(LoggerTest, logMessage_discardEntriesBecauseOfOverflow) {
 TEST_F(LoggerTest, logMessage_messageTooLong) {
     // This test exercises all of the code to handle log messages that
     // are too long for the variable "buffer".
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log");
     logger.collapseIntervalMs = 2;
 
     // Overflow happens during warning about discarded entries.
@@ -434,8 +426,6 @@ TEST_F(LoggerTest, logMessage_messageTooLong) {
 }
 
 TEST_F(LoggerTest, cleanCollapseMap_deleteEntries) {
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log");
     logger.collapseMap[std::make_pair("LoggerTest.cc", 1)]
         = Logger::SkipInfo({1, 200000000}, 0, "message1\n");
     logger.collapseMap[std::make_pair("LoggerTest.cc", 2)]
@@ -453,8 +443,6 @@ TEST_F(LoggerTest, cleanCollapseMap_print) {
     auto pair1 = std::make_pair("LoggerTest.cc", 1);
     auto pair2 = std::make_pair("LoggerTest.cc", 2);
     auto pair3 = std::make_pair("LoggerTest.cc", 3);
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log");
     logger.collapseMap[pair1] = Logger::SkipInfo({1, 200000000}, 0,
             "0000000001.000000001 WARNING[1]: message1\n");
     logger.collapseMap[pair2] = Logger::SkipInfo({1, 400000000}, 8,
@@ -474,8 +462,6 @@ TEST_F(LoggerTest, cleanCollapseMap_print) {
 }
 
 TEST_F(LoggerTest, addToBuffer) {
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log", true);
     logger.testingNoNotify = true;
     logger.nextToPrint = 15;
     logger.nextToInsert = logger.bufferSize - 20;
@@ -498,9 +484,6 @@ TEST_F(LoggerTest, addToBuffer) {
     // Third append: not enough space.
     EXPECT_FALSE(logger.addToBuffer("EFGHIJ", 6));
     EXPECT_EQ(9, logger.nextToInsert);
-
-    // Wakeup the print thread so that the Test destructor will finish sync()
-    logger.logDataAvailable.notify_one();
 }
 
 TEST_F(LoggerTest, printThreadMain_exit) {
@@ -512,8 +495,6 @@ TEST_F(LoggerTest, printThreadMain_exit) {
     EXPECT_EQ("printThreadMain: print thread exiting", TestLog::get());
 }
 TEST_F(LoggerTest, printThreadMain_wrapAround) {
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log");
     logger.nextToInsert = logger.nextToPrint = logger.bufferSize - 10;
     logger.addToBuffer("abcdefghijklmnop", 16);
     EXPECT_EQ("abcdefghijklmnop", getLog("__test.log"));
@@ -524,7 +505,6 @@ TEST_F(LoggerTest, printThreadMain_wrapAround) {
 // on stderr.
 #if 0
 TEST_F(LoggerTest, printThreadMain_error) {
-    Logger& logger = Logger::get();
     logger.fd = 99;
     logger.logMessage(true, RAMCLOUD_CURRENT_LOG_MODULE, ERROR,
                 CodeLocation("file", 98, "func", "pretty"),
@@ -535,9 +515,21 @@ TEST_F(LoggerTest, printThreadMain_error) {
 }
 #endif
 
+TEST_F(LoggerTest, LOG) {
+    useSharedLogger();
+    LOG(DEBUG, "x");
+    EXPECT_EQ("", getLog("__test.log"));
+
+    LOG(ERROR, "rofl: %d", 3);
+    const char* pattern = "^0000000003.500000000 "
+            "LoggerTest.cc:[[:digit:]]\\{1,4\\} in TestBody "
+            "ERROR\\[1\\]: rofl: 3\n$";
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(pattern,
+            getLog("__test.log")));
+}
+
 TEST_F(LoggerTest, DIE) {
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log");
+    useSharedLogger();
     try {
         DIE("rofl: %d", 3);
     } catch (RAMCloud::FatalError& e) {
@@ -549,8 +541,7 @@ TEST_F(LoggerTest, DIE) {
 }
 
 TEST_F(LoggerTest, assertionError) {
-    Logger& logger = Logger::get();
-    logger.setLogFile("__test.log");
+    useSharedLogger();
     string exceptionMessage("No exception");
     try {
         logger.assertionError("assertion info", "file", 99, "function");
