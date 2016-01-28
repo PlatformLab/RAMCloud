@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -597,7 +597,7 @@ TEST_F(IndexletManagerTest, insertIndexEntry_duplicate) {
     // Lookup for duplicates is tested in lookIndexKeys_duplicate.
 }
 
-TEST_F(IndexletManagerTest, lookupIndexKeys_unknownIndex) {
+TEST_F(IndexletManagerTest, lookupIndexKeys_notInIndex) {
     ramcloud->lookupIndexKeys(dataTableId, 1, "water", 5, 0, "water", 5,
                               100, &responseBuffer, &numHashes,
                               &nextKeyLength, &nextKeyHash);
@@ -605,6 +605,51 @@ TEST_F(IndexletManagerTest, lookupIndexKeys_unknownIndex) {
     EXPECT_EQ(0U, numHashes);
     EXPECT_EQ(0U, nextKeyLength);
     EXPECT_EQ(0U, nextKeyHash);
+}
+
+TEST_F(IndexletManagerTest, lookupIndexKeys_formatError) {
+    ramcloud->createIndex(dataTableId, 1, 0);
+
+    Buffer req, resp;
+    std::string key("earth");
+    WireFormat::LookupIndexKeys::Request reqHdr;
+    WireFormat::LookupIndexKeys::Response respHdr;
+    Service::Rpc rpc(NULL, &req, &resp);
+
+    reqHdr.indexId = 1;
+    reqHdr.tableId = dataTableId;
+    reqHdr.firstKeyLength = downCast<uint16_t>(key.size());
+    reqHdr.lastKeyLength = downCast<uint16_t>(key.size());
+
+    req.append(&reqHdr, sizeof32(reqHdr));
+    im->lookupIndexKeys(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(Status::STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+
+    req.append(key.c_str(), downCast<uint32_t>(key.size()));
+    im->lookupIndexKeys(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(Status::STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+
+    req.append(key.c_str(), downCast<uint32_t>(key.size()));
+    im->lookupIndexKeys(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(Status::STATUS_OK, respHdr.common.status);
+}
+
+TEST_F(IndexletManagerTest, lookupIndexKeys_unknownIndex) {
+    Buffer req, resp;
+    std::string key("Dummy");
+    WireFormat::LookupIndexKeys::Request reqHdr;
+    WireFormat::LookupIndexKeys::Response respHdr;
+    Service::Rpc rpc(NULL, &req, &resp);
+
+    reqHdr.firstKeyLength = downCast<uint16_t>(key.size());
+    reqHdr.lastKeyLength = downCast<uint16_t>(key.size());
+
+    req.append(&reqHdr, sizeof32(reqHdr));
+    req.append(key.c_str(), downCast<uint32_t>(key.size()));
+    req.append(key.c_str(), downCast<uint32_t>(key.size()));
+
+    im->lookupIndexKeys(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(Status::STATUS_UNKNOWN_INDEXLET, respHdr.common.status);
 }
 
 TEST_F(IndexletManagerTest, lookupIndexKeys_keyNotFound) {

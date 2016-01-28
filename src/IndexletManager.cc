@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -643,6 +643,8 @@ IndexletManager::lookupIndexKeys(
                     firstKeyLength, indexletMapLock);
     if (mapIter == indexletMap.end()) {
         respHdr->common.status = STATUS_UNKNOWN_INDEXLET;
+        rpc->sendReply();
+        return;
     }
     Indexlet* indexlet = &mapIter->second;
 
