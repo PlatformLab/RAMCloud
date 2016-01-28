@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2015 Stanford University
+# Copyright (c) 2015-2016 Stanford University
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -43,7 +43,9 @@ import sys
 
 callees = {
     "COORD_SPLIT_AND_MIGRATE_INDEXLET":
-                             ["SPLIT_AND_MIGRATE_INDEXLET"],
+                             ["SPLIT_AND_MIGRATE_INDEXLET",
+                              "TAKE_TABLET_OWNERSHIP",
+                              "TAKE_INDEXLET_OWNERSHIP"],
     "CREATE_INDEX":          ["TAKE_INDEXLET_OWNERSHIP",
                               "TAKE_TABLET_OWNERSHIP"],
     "CREATE_TABLE":          ["TAKE_TABLET_OWNERSHIP"],
@@ -63,6 +65,8 @@ callees = {
     "REMOVE":                ["BACKUP_WRITE", "REMOVE_INDEX_ENTRY"],
     "REMOVE_INDEX_ENTRY":    ["BACKUP_WRITE"],
     "SERVER_CONTROL_ALL":    ["SERVER_CONTROL"],
+    "SPLIT_AND_MIGRATE_INDEXLET":
+                             ["RECEIVE_MIGRATION_DATA"],
     "TAKE_TABLET_OWNERSHIP": ["BACKUP_WRITE"],
     "TX_DECISION":           ["BACKUP_WRITE"],
     "TX_HINT_FAILED":        ["BACKUP_WRITE"],

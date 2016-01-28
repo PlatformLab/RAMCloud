@@ -107,8 +107,8 @@ TEST_F(WorkerManagerTest, sanityCheck) {
 }
 
 TEST_F(WorkerManagerTest, constructor) {
-    EXPECT_EQ(4U, manager->idleThreads.size());
-    EXPECT_EQ(3U, manager->levels.size());
+    EXPECT_EQ(5U, manager->idleThreads.size());
+    EXPECT_EQ(4U, manager->levels.size());
     WorkerManager manager1(&context, 7);
     EXPECT_EQ(9U, manager1.idleThreads.size());
 }
@@ -133,7 +133,8 @@ TEST_F(WorkerManagerTest, destructor_cleanupThreads) {
     service.gate = 3;
     manager.destroy();
     EXPECT_EQ("workerMain: exiting | workerMain: exiting | "
-            "workerMain: exiting | workerMain: exiting", TestLog::get());
+                "workerMain: exiting | workerMain: exiting | "
+                "workerMain: exiting", TestLog::get());
 }
 
 TEST_F(WorkerManagerTest, handleRpc_noHeader) {
@@ -196,7 +197,7 @@ TEST_F(WorkerManagerTest, handleRpc_handoffToWorker) {
     manager->handleRpc(rpc2);
     waitUntilDone(2);
     manager->poll();
-    EXPECT_EQ(4U, manager->idleThreads.size());
+    EXPECT_EQ(5U, manager->idleThreads.size());
 }
 
 TEST_F(WorkerManagerTest, idle) {
@@ -384,7 +385,7 @@ TEST_F(WorkerManagerTest, poll_postprocessing) {
     // At this point the state of the worker should be POSTPROCESSING.
     manager->poll();
     EXPECT_EQ("serverReply: 0x10001 4 5", transport.outputLog);
-    EXPECT_EQ(3U, manager->idleThreads.size());
+    EXPECT_EQ(4U, manager->idleThreads.size());
 
     // Now allow the worker to finish.
     service.gate = 0;
@@ -462,7 +463,8 @@ TEST_F(WorkerManagerTest, workerMain_futexError) {
 TEST_F(WorkerManagerTest, workerMain_exit) {
     manager.destroy();
     EXPECT_EQ("workerMain: exiting | workerMain: exiting | "
-            "workerMain: exiting | workerMain: exiting", TestLog::get());
+            "workerMain: exiting | workerMain: exiting | "
+            "workerMain: exiting", TestLog::get());
 }
 
 TEST_F(WorkerManagerTest, Worker_exit) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -41,8 +41,8 @@ TEST(RpcLevelTest, maxLevel) {
     EXPECT_EQ(11, RpcLevel::maxLevel());
 
     RpcLevel::savedMaxLevel = -1;
-    EXPECT_EQ(2, RpcLevel::maxLevel());
-    EXPECT_EQ(2, RpcLevel::savedMaxLevel);
+    EXPECT_EQ(3, RpcLevel::maxLevel());
+    EXPECT_EQ(3, RpcLevel::savedMaxLevel);
 }
 
 }  // namespace RAMCloud
