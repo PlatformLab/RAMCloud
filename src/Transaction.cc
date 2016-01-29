@@ -189,6 +189,10 @@ Transaction::write(uint64_t tableId, const void* key, uint16_t keyLength,
         throw TxOpAfterCommit(HERE);
     }
 
+    if (length > 1048576) { // RAMCloud doesn't support data > 1MB.
+        throw RequestTooLargeException(HERE);
+    }
+
     ClientTransactionTask* task = taskPtr.get();
     task->readOnly = false;
 
