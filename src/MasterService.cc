@@ -2530,7 +2530,7 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
             objectManager.getLog()->getEntry(opRef, opBuffer);
             PreparedOp op(opBuffer, 0, opBuffer.size());
 
-            Status status;
+            Status status = STATUS_REQUEST_FORMAT_ERROR;
             if (op.header.type == WireFormat::TxPrepare::READ) {
                 status = objectManager.commitRead(op, opRef);
             } else if (op.header.type == WireFormat::TxPrepare::REMOVE) {
@@ -3010,7 +3010,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             objectManager.getLog()->getEntry(opRef, opBuffer);
             PreparedOp op(opBuffer, 0, opBuffer.size());
 
-            Status status;
+            Status status = STATUS_REQUEST_FORMAT_ERROR;
 
             if (op.header.type == WireFormat::TxPrepare::READ) {
                 status = objectManager.commitRead(op, opRef);
