@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -224,7 +224,7 @@ TEST_F(TableManagerTest, createTable_basics) {
 }
 
 TEST_F(TableManagerTest, createTable_tableAlreadyExists) {
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
 }
@@ -363,7 +363,7 @@ TEST_F(TableManagerTest, dropTable_index) {
 
 
 TEST_F(TableManagerTest, getTableId) {
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
 
     tableManager->nextTableId = 100u;
     EXPECT_EQ(100U, tableManager->createTable("foo", 1));
@@ -402,8 +402,8 @@ TEST_F(TableManagerTest, isIndexletTable) {
 TEST_F(TableManagerTest, markAllTabletsRecovering) {
     // Create 2 tables in a cluster with 2 masters. The first has one
     // tablet, and the second has 4 tablets.
-    cluster.addServer(masterConfig)->master.get();
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
+    cluster.addServer(masterConfig);
     tableManager->createTable("table1", 1);
     tableManager->createTable("table2", 4);
 
@@ -434,7 +434,7 @@ TEST_F(TableManagerTest, markAllTabletsRecovering) {
 }
 
 TEST_F(TableManagerTest, reassignTabletOwnership_basics) {
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
     MasterService* master2 = cluster.addServer(masterConfig)->master.get();
     updateManager->reset();
     tableManager->createTable("table1", 2);
@@ -469,8 +469,8 @@ TEST_F(TableManagerTest, reassignTabletOwnership_basics) {
 }
 
 TEST_F(TableManagerTest, reassignTabletOwnership_noSuchTablet) {
-    cluster.addServer(masterConfig)->master.get();
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
+    cluster.addServer(masterConfig);
     tableManager->createTable("table1", 2);
     cluster.externalStorage.log.clear();
     TestLog::reset();
@@ -710,8 +710,8 @@ TEST_F(TableManagerTest, recover_incompleteReassignTablet) {
 }
 
 TEST_F(TableManagerTest, serializeTabletConfig) {
-    cluster.addServer(masterConfig)->master.get();
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
+    cluster.addServer(masterConfig);
     tableManager->createTable("table1", 1);
     tableManager->createTable("table2", 4);
     TestLog::reset();
@@ -743,8 +743,8 @@ TEST_F(TableManagerTest, serializeTabletConfig) {
 }
 
 TEST_F(TableManagerTest, serializeIndexConfig) {
-    cluster.addServer(masterConfig)->master.get();
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
+    cluster.addServer(masterConfig);
 
     EXPECT_EQ(1U, tableManager->createTable("foo", 1));
     EXPECT_EQ(2U, tableManager->createTable("bar", 1));
@@ -918,7 +918,7 @@ TEST_F(TableManagerTest, splitTablet_splitAlreadyExists) {
 }
 
 TEST_F(TableManagerTest, splitTablet_tabletRecovering) {
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
     tableManager->createTable("foo", 2);
     tableManager->directory["foo"]->tablets[1]->status = Tablet::RECOVERING;
     cluster.externalStorage.log.clear();
@@ -928,7 +928,7 @@ TEST_F(TableManagerTest, splitTablet_tabletRecovering) {
 }
 
 TEST_F(TableManagerTest, splitRecoveringTablet_splitAlreadyExists) {
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
     uint64_t tableId = tableManager->createTable("foo", 2);
     tableManager->markAllTabletsRecovering(cluster.servers[0]->serverId);
 
@@ -945,8 +945,8 @@ TEST_F(TableManagerTest, splitRecoveringTablet_badTableId) {
 }
 
 TEST_F(TableManagerTest, splitRecoveringTablet_success) {
-    cluster.addServer(masterConfig)->master.get();
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
+    cluster.addServer(masterConfig);
     uint64_t tableId = tableManager->createTable("foo", 2);
     tableManager->markAllTabletsRecovering(cluster.servers[0]->serverId);
 
@@ -958,7 +958,7 @@ TEST_F(TableManagerTest, splitRecoveringTablet_success) {
 }
 
 TEST_F(TableManagerTest, tabletRecovered_basics) {
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
     tableManager->createTable("foo", 2);
     tableManager->directory["foo"]->tablets[1]->status = Tablet::RECOVERING;
     cluster.externalStorage.log.clear();
@@ -978,7 +978,7 @@ TEST_F(TableManagerTest, tabletRecovered_basics) {
             cluster.externalStorage.getPbValue<ProtoBuf::Table>());
 }
 TEST_F(TableManagerTest, tabletRecovered_noSuchTablet) {
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
     tableManager->createTable("foo", 2);
     tableManager->directory["foo"]->tablets[1]->status = Tablet::RECOVERING;
     cluster.externalStorage.log.clear();
@@ -1075,7 +1075,7 @@ TEST_F(TableManagerTest, notifyCreate) {
 TEST_F(TableManagerTest, notifyDropTable_basics) {
     // Create a table with 2 tablets, using one real master and one
     // nonexistent master.
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
     cluster.externalStorage.log.clear();
     TestLog::reset();
     ProtoBuf::Table table;
@@ -1341,8 +1341,8 @@ TEST_F(TableManagerTest, syncNextTableId) {
 
 TEST_F(TableManagerTest, syncTable) {
     // Create 2 tables in a cluster with 2 masters.
-    cluster.addServer(masterConfig)->master.get();
-    cluster.addServer(masterConfig)->master.get();
+    cluster.addServer(masterConfig);
+    cluster.addServer(masterConfig);
     updateManager->reset();
     cluster.externalStorage.log.clear();
 

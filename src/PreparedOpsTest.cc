@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -278,7 +278,6 @@ TEST_F(PreparedOpTest, getTransactionId) {
     for (uint32_t i = 0; i < arrayLength(records); i++) {
         PreparedOp& record = *records[i];
 
-        record.getTransactionId();
         EXPECT_EQ(1U, record.header.clientId);
         EXPECT_EQ(9U, record.header.clientTxId);
     }

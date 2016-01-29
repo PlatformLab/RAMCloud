@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -313,7 +313,6 @@ TEST_F(RecoverySegmentBuilderTest, build_participantList) {
     participants[1] = WireFormat::TxParticipant(123, 234, 11);
     participants[2] = WireFormat::TxParticipant(111, 222, 12);
     ParticipantList record(participants, 3, 42, 9);
-    record.getTransactionId();
     Buffer buffer;
     record.assembleForLog(buffer);
 
