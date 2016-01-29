@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -666,6 +666,17 @@ UnackedRpcResults::Client::processAck(uint64_t ackId,
  */
 void
 UnackedRpcResults::Client::updateResult(uint64_t rpcId, void* result) {
+    if (rpcs[rpcId % len].id != rpcId) {
+        LOG(ERROR, "update result failed. id doesn't match"
+                   "expected: %" PRIu64 ", rpcId: %" PRIu64 ","
+                   "maxRpcId %" PRIu64 ", maxAckId %" PRIu64 ", "
+                   "numRpcsInProgress %d, len %d",
+                rpcs[rpcId % len].id, rpcId,
+                maxRpcId, maxAckId, numRpcsInProgress, len);
+        //while(1);
+    }
+
+    //TODO(seojin): restore back to assertion after debugging.
     assert(rpcs[rpcId % len].id == rpcId);
     rpcs[rpcId % len].result = result;
 }
