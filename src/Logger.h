@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -247,11 +247,6 @@ class Logger {
     // could cause the server to be considered dead.
 
     /**
-     * Used to synchronize access to buffer metadata.
-     */
-    SpinLock bufferMutex;
-
-    /**
      * The print thread uses this to sleep when it runs out of log data
      * to print.
      */
@@ -260,25 +255,25 @@ class Logger {
     /**
      * Total number of bytes available in messageBuffer.
      */
-    int bufferSize;
+    const int bufferSize;
 
     /**
      * Buffer space (dynamically allocated, must be freed).
      */
-    char* messageBuffer;
+    char* const messageBuffer;
 
     /**
      * Offset in messageBuffer of the location where the next log message
      * will be stored
      */
-    volatile int nextToInsert;
+    int nextToInsert;
 
     /**
      * Offset in messageBuffer of the first byte of data that has not yet been
      * printed. Modified only by the printer thread (and this is the only
      * shared variable modified by the printer thread).
      */
-    volatile int nextToPrint;
+    int nextToPrint;
 
     /**
      * Nonzero means that the most recently generated log entries had to be

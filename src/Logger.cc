@@ -71,10 +71,9 @@ Logger::Logger(LogLevel level)
     , collapseIntervalMs(DEFAULT_COLLAPSE_INTERVAL)
     , maxCollapseMapSize(DEFAULT_COLLAPSE_MAP_LIMIT)
     , nextCleanTime({0, 0})
-    , bufferMutex("Logger::bufferMutex")
     , logDataAvailable()
     , bufferSize(1000000)
-    , messageBuffer()
+    , messageBuffer(new char[bufferSize])
     , nextToInsert(0)
     , nextToPrint(0)
     , discardedEntries(0)
@@ -85,7 +84,6 @@ Logger::Logger(LogLevel level)
     , testingLogTime(NULL)
 {
     setLogLevels(level);
-    messageBuffer = new char[bufferSize];
 
     // Touch every page in the buffer to make sure that memory has been
     // allocated (don't want to take page faults during log operations).
@@ -106,16 +104,15 @@ Logger::Logger(LogLevel level)
  */
 Logger::~Logger()
 {
-    Lock lock(mutex);
-
     // Exit the print thread.
     {
-        Lock bufferLock(bufferMutex);
+        Lock lock(mutex);
         printThreadExit = true;
         logDataAvailable.notify_one();
     }
     printThread->join();
 
+    // No lock needed: the print thread is finished
     if (mustCloseFd)
         close(fd);
     delete[] messageBuffer;
@@ -175,6 +172,7 @@ Logger::setLogFile(const char* path, bool truncate)
 void
 Logger::setLogFile(int newFd)
 {
+    Lock lock(mutex);
     if (mustCloseFd)
         close(fd);
     fd = newFd;
@@ -192,7 +190,7 @@ Logger::setLogFile(int newFd)
 void
 Logger::setLogLevel(LogModule module, LogLevel level)
 {
-    // No lock needed: doesn't access Logger object.
+    Lock lock(mutex);
     logLevels[module] = level;
 }
 
@@ -270,8 +268,8 @@ void
 Logger::changeLogLevel(LogModule module, int delta)
 {
     Lock lock(mutex);
-    int level = static_cast<int>(logLevels[module]);
-    setLogLevel(module, level + delta);
+    LogLevel level = static_cast<LogLevel>(logLevels[module] + delta);
+    logLevels[module] = level;
 }
 
 /**
@@ -586,6 +584,8 @@ Logger::logMessage(bool collapse, LogModule module, LogLevel level,
 void
 Logger::cleanCollapseMap(struct timespec now)
 {
+    // No lock needed: already locked by caller
+
     // We won't check again for a very long time, unless there are
     // entries in the collapse map (see below).
     nextCleanTime = Util::timespecAdd(now, {1000, 0});
@@ -647,7 +647,7 @@ Logger::cleanCollapseMap(struct timespec now)
 bool
 Logger::addToBuffer(const char* src, int length)
 {
-    Lock lock(bufferMutex);
+    // No lock needed: already locked by caller
 
     // First, write data at the end of the buffer, if there's space there.
     if (nextToInsert >= nextToPrint) {
@@ -692,7 +692,7 @@ Logger::addToBuffer(const char* src, int length)
 void
 Logger::printThreadMain(Logger* logger)
 {
-    Lock lock(logger->bufferMutex);
+    Lock lock(logger->mutex);
     int bytesToPrint;
     ssize_t bytesPrinted;
     while (true) {
@@ -727,9 +727,14 @@ Logger::printThreadMain(Logger* logger)
         // buffer lock during expensive kernel calls, since this will
         // block calls to logMessage).
         {
-            Unlock<SpinLock> unlock(logger->bufferMutex);
-            bytesPrinted = write(logger->fd,
-                    logger->messageBuffer + logger->nextToPrint,
+            int fd = logger->fd;
+            int nextToPrint = logger->nextToPrint;
+            Unlock<SpinLock> unlock(logger->mutex);
+            // Since we release the lock before write, there could be a race
+            // condition when another thread acquires the lock and tries to
+            // close fd. Therefore, we must ensure that setLogFile() will only
+            // be called when the print thread is not running.
+            bytesPrinted = write(fd, logger->messageBuffer + nextToPrint,
                     bytesToPrint);
         }
         if (bytesPrinted < 0) {
@@ -749,6 +754,7 @@ Logger::printThreadMain(Logger* logger)
 void
 Logger::reset()
 {
+    Lock lock(mutex);
     if (mustCloseFd) {
         close(fd);
     }
@@ -776,7 +782,9 @@ Logger::reset()
 void
 Logger::sync()
 {
+    Lock lock(mutex);
     while (nextToInsert != nextToPrint) {
+        Unlock<SpinLock> unlock(mutex);
         usleep(100);
     }
 }
