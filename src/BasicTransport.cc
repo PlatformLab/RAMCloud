@@ -413,12 +413,15 @@ void
 BasicTransport::Session::cancelRequest(RpcNotifier* notifier)
 {
     for (ClientRpcMap::iterator it = t->outgoingRpcs.begin();
-            it != t->outgoingRpcs.end(); it++) {
+            it != t->outgoingRpcs.end(); ) {
         ClientRpc* clientRpc = it->second;
         if (clientRpc->notifier == notifier) {
-            uint64_t sequence = it->first;
-            t->outgoingRpcs.erase(sequence);
+            t->outgoingRpcs.erase(it);
             t->clientRpcPool.destroy(clientRpc);
+
+            // It's no longer safe to use "it", but at this point we're
+            // done (the RPC can't exist in the list twice).
+            return;
         }
     }
 }
