@@ -413,7 +413,7 @@ void
 BasicTransport::Session::cancelRequest(RpcNotifier* notifier)
 {
     for (ClientRpcMap::iterator it = t->outgoingRpcs.begin();
-            it != t->outgoingRpcs.end(); ) {
+            it != t->outgoingRpcs.end(); it++) {
         ClientRpc* clientRpc = it->second;
         if (clientRpc->notifier == notifier) {
             t->outgoingRpcs.erase(it);
