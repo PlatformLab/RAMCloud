@@ -272,16 +272,23 @@ TEST_F(BasicTransportTest, Session_destructor) {
 
 TEST_F(BasicTransportTest, Session_cancelRequest) {
     Transport::RpcNotifier notifier1, notifier2;
-    Buffer request1, request2;
-    Buffer response1, response2;
-    request1.append("message1", 8);
-    request1.append("message2", 8);
-    session->sendRequest(&request1, &response1, &notifier1);
-    session->sendRequest(&request2, &response2, &notifier2);
-    EXPECT_EQ(2u, transport.outgoingRpcs.size());
-    session->cancelRequest(&notifier1);
-    EXPECT_EQ(1u, transport.outgoingRpcs.size());
-    EXPECT_EQ(1u, transport.clientRpcPool.outstandingObjects);
+#define NUM_RPCS 10
+    Transport::RpcNotifier notifiers[NUM_RPCS];
+    Buffer requests[NUM_RPCS];
+    Buffer responses[NUM_RPCS];
+    for (int i = 0; i < NUM_RPCS; i++) {
+        char message[100];
+        snprintf(message, sizeof(message), "message%d", i);
+        requests[i].append(message, downCast<uint32_t>(strlen(message)));
+        session->sendRequest(&requests[i], &responses[i], &notifiers[i]);
+    }
+    EXPECT_EQ(10u, transport.outgoingRpcs.size());
+    session->cancelRequest(&notifiers[7]);
+    session->cancelRequest(&notifiers[9]);
+    session->cancelRequest(&notifiers[0]);
+    session->cancelRequest(&notifiers[2]);
+    EXPECT_EQ(6u, transport.outgoingRpcs.size());
+    EXPECT_EQ(6u, transport.clientRpcPool.outstandingObjects);
 }
 
 TEST_F(BasicTransportTest, Session_getRpcInfo) {
