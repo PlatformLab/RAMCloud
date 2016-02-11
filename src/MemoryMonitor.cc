@@ -87,6 +87,7 @@ MemoryMonitor::currentUsage()
                     strerror(errno));
         }
         size_t count = fread(buffer, 1, sizeof(buffer) - 1, f);
+        fclose(f);
         buffer[count] = 0;
         data = buffer;
     }
