@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -90,7 +90,7 @@ SideLog::~SideLog()
 void
 SideLog::commit()
 {
-    Tub<Lock> lock;
+    Tub<SpinLock::Guard> lock;
     lock.construct(appendLock);
 
     if (segments.empty())

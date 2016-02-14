@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -157,11 +157,8 @@ class TabletManager {
     /// relatively few for the same table.
     typedef std::unordered_multimap<uint64_t, Tablet> TabletMap;
 
-    /// Lock guard type used to hold the monitor spinlock and automatically
-    /// release it.
-    typedef std::lock_guard<SpinLock> Lock;
-
-    TabletMap::iterator lookup(uint64_t tableId, uint64_t keyHash, Lock& lock);
+    TabletMap::iterator lookup(uint64_t tableId, uint64_t keyHash,
+                               const SpinLock::Guard& lock);
 
     /// This unordered_multimap is used to store and access all tablet data.
     TabletMap tabletMap;

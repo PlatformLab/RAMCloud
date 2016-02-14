@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -52,7 +52,6 @@ class TxRecoveryManager : public WorkerTimer {
 
     /// Used as a monitor style lock on this module.
     SpinLock lock;
-    typedef std::lock_guard<SpinLock> Lock;
 
     /// Used to ensure only one timer handler is running at a time.  We don't
     /// use the monitor lock for this purpose because we don't want to block

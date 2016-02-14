@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -91,14 +91,14 @@ TEST_F(TableStatsTest, addKeyHashRange) {
     entry = mtm.find(0);
     EXPECT_FALSE(entry == NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(11U, entry->stats.keyHashCount);
         EXPECT_FALSE(entry->stats.totalOwnership);
     }
 
     TableStats::addKeyHashRange(&mtm, 0, 11, ~0UL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(0U, entry->stats.keyHashCount);
         EXPECT_TRUE(entry->stats.totalOwnership);
     }
@@ -115,7 +115,7 @@ TEST_F(TableStatsTest, deleteKeyHashRange) {
     entry = mtm.find(0);
     EXPECT_FALSE(entry == NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(0U, entry->stats.keyHashCount);
         EXPECT_TRUE(entry->stats.totalOwnership);
     }
@@ -123,7 +123,7 @@ TEST_F(TableStatsTest, deleteKeyHashRange) {
     TableStats::deleteKeyHashRange(&mtm, 0, 11, ~0UL);
     EXPECT_FALSE(entry == NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(11U, entry->stats.keyHashCount);
         EXPECT_FALSE(entry->stats.totalOwnership);
     }
@@ -137,14 +137,14 @@ TEST_F(TableStatsTest, increment) {
     entry = mtm.find(0);
     EXPECT_FALSE(entry == NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(2u, entry->stats.byteCount);
         EXPECT_EQ(3u, entry->stats.recordCount);
     }
 
     TableStats::increment(&mtm, 0, 4, 5);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(6u, entry->stats.byteCount);
         EXPECT_EQ(8u, entry->stats.recordCount);
     }
@@ -161,7 +161,7 @@ TEST_F(TableStatsTest, decrement) {
     entry = mtm.find(1);
     EXPECT_FALSE(entry == NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(10u, entry->stats.byteCount);
         EXPECT_EQ(10u, entry->stats.recordCount);
     }
@@ -169,7 +169,7 @@ TEST_F(TableStatsTest, decrement) {
     TableStats::decrement(&mtm, 1, 2, 3);
     EXPECT_FALSE(entry == NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(8u, entry->stats.byteCount);
         EXPECT_EQ(7u, entry->stats.recordCount);
     }
@@ -205,7 +205,7 @@ TEST_F(TableStatsTest, serialize_basic) {
     entry = mtm.find(digest->entries[0].tableId);
     EXPECT_TRUE(entry != NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(double(entry->stats.byteCount) / 10,
                   digest->entries[0].bytesPerKeyHash);
         EXPECT_EQ(double(entry->stats.recordCount) / 10,
@@ -216,7 +216,7 @@ TEST_F(TableStatsTest, serialize_basic) {
     entry = mtm.find(digest->entries[1].tableId);
     EXPECT_TRUE(entry != NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(double(entry->stats.byteCount) / 10,
                   digest->entries[1].bytesPerKeyHash);
         EXPECT_EQ(double(entry->stats.recordCount) / 10,
@@ -227,7 +227,7 @@ TEST_F(TableStatsTest, serialize_basic) {
     entry = mtm.find(digest->entries[2].tableId);
     EXPECT_TRUE(entry != NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(double(entry->stats.byteCount) / 10,
                   digest->entries[2].bytesPerKeyHash);
         EXPECT_EQ(double(entry->stats.recordCount) / 10,
@@ -290,7 +290,7 @@ TEST_F(TableStatsTest, estimator_constructor) {
     digestEntry = findDigestWithTabletId(64, digest);
     EXPECT_TRUE(entry != NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(digestEntry->bytesPerKeyHash,
                   e.tableStats[64].bytesPerKeyHash);
         EXPECT_EQ(digestEntry->recordsPerKeyHash,
@@ -302,7 +302,7 @@ TEST_F(TableStatsTest, estimator_constructor) {
     digestEntry = findDigestWithTabletId(65, digest);
     EXPECT_TRUE(entry != NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(digestEntry->bytesPerKeyHash,
                   e.tableStats[65].bytesPerKeyHash);
         EXPECT_EQ(digestEntry->recordsPerKeyHash,
@@ -314,7 +314,7 @@ TEST_F(TableStatsTest, estimator_constructor) {
     digestEntry = findDigestWithTabletId(66, digest);
     EXPECT_TRUE(entry != NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(digestEntry->bytesPerKeyHash,
                   e.tableStats[66].bytesPerKeyHash);
         EXPECT_EQ(digestEntry->recordsPerKeyHash,
@@ -347,7 +347,7 @@ TEST_F(TableStatsTest, estimator_estimate_basic) {
     entry = mtm.find(66);
     EXPECT_TRUE(entry != NULL);
     {
-        TableStats::Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         EXPECT_EQ(entry->stats.byteCount * 5 / 10, ret.byteCount);
         EXPECT_EQ(entry->stats.recordCount * 5 /10, ret.recordCount);
     }

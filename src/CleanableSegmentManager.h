@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -80,16 +80,14 @@ class CleanableSegmentManager {
     void getSegmentsToClean(LogSegmentVector& outSegsToClean);
 
   PRIVATE:
-    typedef std::lock_guard<SpinLock> Lock;
-
-    void update(Lock& guard);
-    void scanSegmentTombstones(Lock& guard);
+    void update(const SpinLock::Guard& guard);
+    void scanSegmentTombstones(const SpinLock::Guard& guard);
     uint64_t computeCleaningCostBenefitScore(LogSegment* s);
     uint64_t computeCompactionCostBenefitScore(LogSegment* s);
     uint64_t computeTombstoneScanScore(LogSegment* s);
     uint32_t computeFreeableSeglets(LogSegment* s);
-    void insertInAll(LogSegment* s, Lock& guard);
-    void eraseFromAll(LogSegment* s, Lock& guard);
+    void insertInAll(LogSegment* s, const SpinLock::Guard& guard);
+    void eraseFromAll(LogSegment* s, const SpinLock::Guard& guard);
     string toString();
 
     /// Update our data structures at most every this many microseconds. This

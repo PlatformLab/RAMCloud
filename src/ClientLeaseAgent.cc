@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -45,7 +45,7 @@ ClientLeaseAgent::ClientLeaseAgent(RamCloud* ramcloud)
 WireFormat::ClientLease
 ClientLeaseAgent::getLease()
 {
-    Lock _(mutex);
+    SpinLock::Guard _(mutex);
 
     // Block waiting for the lease to become valid; should only occur if there
     // is a long gap between issuing RPCs that require a client lease (i.e
@@ -70,7 +70,7 @@ ClientLeaseAgent::getLease()
 void
 ClientLeaseAgent::poll()
 {
-    Lock _(mutex);
+    SpinLock::Guard _(mutex);
 
     // Do nothing if it is not yet time to renew.
     if (Cycles::rdtsc() <= nextRenewalTimeCycles) {

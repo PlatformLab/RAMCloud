@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -113,7 +113,7 @@ class CleanableSegmentManagerTest : public ::testing::Test {
 
 TEST_F(CleanableSegmentManagerTest, update) {
     CleanableSegmentManager& csm = cleaner.cleanableSegments;
-    CleanableSegmentManager::Lock guard(csm.lock);
+        SpinLock::Guard guard(csm.lock);
 
     csm.update(guard);
     EXPECT_EQ("costBenefitCandidates [ ] compactionCandidates [ ] "

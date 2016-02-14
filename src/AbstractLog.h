@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -98,8 +98,6 @@ class AbstractLog {
         virtual void freeLogEntry(Reference ref) = 0;
     };
 
-    typedef std::lock_guard<SpinLock> Lock;
-
     AbstractLog(LogEntryHandlers* entryHandlers,
                 SegmentManager* segmentManager,
                 ReplicaManager* replicaManager,
@@ -137,7 +135,7 @@ class AbstractLog {
            uint32_t length,
            Reference* outReference = NULL)
     {
-        Lock lock(appendLock);
+        SpinLock::Guard lock(appendLock);
         metrics.totalAppendCalls++;
         return append(lock,
                       type,
@@ -155,7 +153,7 @@ class AbstractLog {
            Buffer& buffer,
            Reference* outReference = NULL)
     {
-        Lock lock(appendLock);
+        SpinLock::Guard lock(appendLock);
         metrics.totalAppendCalls++;
         return append(lock,
                       type,
@@ -191,18 +189,18 @@ class AbstractLog {
      */
     virtual LogSegment* allocNextSegment(bool mustNotFail) = 0;
 
-    bool append(Lock& lock,
+    bool append(const SpinLock::Guard& lock,
                 LogEntryType type,
                 const void* data,
                 uint32_t length,
                 Reference* outReference = NULL,
                 uint64_t* outTickCounter = NULL);
-    bool append(Lock& lock,
+    bool append(const SpinLock::Guard& lock,
                 const void* data,
                 uint32_t *entryLength = NULL,
                 Reference* outReference = NULL,
                 uint64_t* outTickCounter = NULL);
-    bool append(Lock& lock,
+    bool append(const SpinLock::Guard& lock,
                 LogEntryType type,
                 Buffer& buffer,
                 Reference* outReference = NULL,

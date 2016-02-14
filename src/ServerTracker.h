@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -194,7 +194,7 @@ class ServerTracker : public ServerTrackerInterface {
     void
     enqueueChange(const ServerDetails& server, ServerChangeEvent event)
     {
-        Lock lock(mutex);
+        SpinLock::Guard lock(mutex);
 
         // Make sure the server status is consistent with the event being
         // enqueued.
@@ -230,7 +230,7 @@ class ServerTracker : public ServerTrackerInterface {
     bool
     hasChanges()
     {
-        Lock lock(mutex);
+        SpinLock::Guard lock(mutex);
         return !changes.empty();
     }
 
@@ -294,7 +294,7 @@ class ServerTracker : public ServerTrackerInterface {
     bool
     getChange(ServerDetails& server, ServerChangeEvent& event)
     {
-        Lock lock(mutex);
+        SpinLock::Guard lock(mutex);
         if (lastRemovedIndex != static_cast<uint32_t>(-1)) {
             if ((serverList[lastRemovedIndex].pointer != NULL)
                     && !testing_avoidGetChangeAssertion) {
@@ -651,7 +651,6 @@ class ServerTracker : public ServerTrackerInterface {
     /// Used to synchronize calls to enqueueChange with calls to getChange.
     /// Other methods of the class are unprotected and not thread-safe.
     SpinLock mutex;
-    typedef std::lock_guard<SpinLock> Lock;
 
     /// Shared RAMCloud information.
     Context* context;

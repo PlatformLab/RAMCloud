@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -222,7 +222,6 @@ class SegmentManager {
 
     INTRUSIVE_LIST_TYPEDEF(LogSegment, listEntries) SegmentList;
     INTRUSIVE_LIST_TYPEDEF(LogSegment, allListEntries) AllSegmentList;
-    typedef std::lock_guard<SpinLock> Lock;
 
     /// The private alloc() routine allocates segments for four different
     /// purposes: heads, emergency heads, regular SideLog segments, and
@@ -257,8 +256,10 @@ class SegmentManager {
     LogSegment* alloc(AllocPurpose purpose,
                       uint64_t segmentId,
                       uint32_t creationTimestamp);
-    void injectSideSegment(LogSegment* segment, State nextState, Lock& lock);
-    void freeSegment(LogSegment* segment, bool waitForDigest, Lock& lock);
+    void injectSideSegment(LogSegment* segment, State nextState,
+                           const SpinLock::Guard& lock);
+    void freeSegment(LogSegment* segment, bool waitForDigest,
+                     const SpinLock::Guard& lock);
     void writeHeader(LogSegment* segment);
     void writeDigest(LogSegment* newHead, LogSegment* prevHead);
     void writeSafeVersion(LogSegment* head);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -47,7 +47,7 @@ addKeyHashRange(MasterTableMetadata* mtm,
     MasterTableMetadata::Entry* entry;
     entry = mtm->findOrCreate(tableId);
 
-    Lock guard(entry->stats.lock);
+    SpinLock::Guard _(entry->stats.lock);
     // We assuming that calls to addTablet will only overflow keyHashCount if
     // the master has total ownership (in that case the keyHashCount will
     // overflow to 0).
@@ -88,7 +88,7 @@ deleteKeyHashRange(MasterTableMetadata* mtm,
     entry = mtm->find(tableId);
 
     if (entry != NULL) {
-        Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         // We assuming that calls to deleteTablet will not cause keyHashCount
         // underflow except when moving from a state where the master owns the
         // whole table.
@@ -126,7 +126,7 @@ increment(MasterTableMetadata* mtm,
     MasterTableMetadata::Entry* entry;
     entry = mtm->findOrCreate(tableId);
 
-    Lock guard(entry->stats.lock);
+    SpinLock::Guard _(entry->stats.lock);
     entry->stats.byteCount += byteCount;
     entry->stats.recordCount += recordCount;
 }
@@ -158,7 +158,7 @@ decrement(MasterTableMetadata* mtm,
     entry = mtm->find(tableId);
 
     if (entry != NULL) {
-        Lock guard(entry->stats.lock);
+        SpinLock::Guard _(entry->stats.lock);
         entry->stats.byteCount -= byteCount;
         entry->stats.recordCount -= recordCount;
     }
@@ -202,7 +202,7 @@ serialize(Buffer *buf, MasterTableMetadata *mtm)
     while (sc.hasNext()) {
         MasterTableMetadata::Entry* entry = sc.next();
         {
-            Lock guard(entry->stats.lock);
+            SpinLock::Guard _(entry->stats.lock);
             double keyHashCount;
             if (entry->stats.totalOwnership) {
                 keyHashCount = double(entry->stats.keyHashCount - 1);

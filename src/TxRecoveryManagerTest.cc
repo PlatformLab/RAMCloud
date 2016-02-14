@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -233,7 +233,7 @@ TEST_F(TxRecoveryManagerTest, handleTimerEvent_duplicate) {
     TestLog::reset();
     EXPECT_FALSE(txRecoveryManager.isRunning());
     {
-        TxRecoveryManager::Lock _(txRecoveryManager.handlerLock);
+        SpinLock::Guard _(txRecoveryManager.handlerLock);
         txRecoveryManager.handleTimerEvent();
     }
     EXPECT_EQ("handleTimerEvent: Handler already running.", TestLog::get());

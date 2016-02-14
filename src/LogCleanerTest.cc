@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -128,7 +128,7 @@ class LogCleanerTest : public ::testing::Test {
     void getNewCandidates() {
         LogSegmentVector newCandidates;
         segmentManager.cleanableSegments(newCandidates);
-        CleanableSegmentManager::Lock guard(cleaner.cleanableSegments.lock);
+        SpinLock::Guard guard(cleaner.cleanableSegments.lock);
         foreach (LogSegment* segment, newCandidates) {
             segment->cachedCleaningCostBenefitScore =
                     cleaner.cleanableSegments.computeCleaningCostBenefitScore(

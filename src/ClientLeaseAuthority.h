@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -86,7 +86,6 @@ class ClientLeaseAuthority {
 
     /// Monitor-style lock
     SpinLock mutex;
-    typedef std::lock_guard<SpinLock> Lock;
 
     /// Shared information about the server.
     Context* context;
@@ -141,8 +140,9 @@ class ClientLeaseAuthority {
 
     bool cleanNextLease();
     std::string getLeaseObjName(uint64_t leaseId);
-    WireFormat::ClientLease renewLeaseInternal(uint64_t leaseId, Lock &lock);
-    void reserveNextLease(Lock &lock);
+    WireFormat::ClientLease renewLeaseInternal(uint64_t leaseId,
+                                               const SpinLock::Guard& lock);
+    void reserveNextLease(const SpinLock::Guard& lock);
 
     DISALLOW_COPY_AND_ASSIGN(ClientLeaseAuthority);
 };

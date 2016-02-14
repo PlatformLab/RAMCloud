@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -82,11 +82,6 @@ class MasterTableMetadata {
     scanner getScanner();
 
   PRIVATE:
-
-    /// Lock guard type used to hold the monitor spinlock and automatically
-    /// release it.
-    typedef std::lock_guard<SpinLock> Lock;
-
     /// Maps tableIds to TableMetadata entries.
     typedef std::unordered_map<uint64_t, Entry*> TableMetadataMap;
 

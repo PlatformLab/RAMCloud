@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -123,7 +123,7 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
  */
 LogPosition
 Log::getHead() {
-    Lock lock(appendLock);
+    SpinLock::Guard _(appendLock);
     return LogPosition(head->id, head->getAppendedLength());
 }
 
@@ -155,7 +155,7 @@ Log::sync()
 {
     CycleCounter<uint64_t> __(&PerfStats::threadStats.logSyncCycles);
 
-    Tub<Lock> lock;
+    Tub<SpinLock::Guard> lock;
     lock.construct(appendLock);
     metrics.totalSyncCalls++;
 
@@ -187,7 +187,7 @@ Log::sync()
     // log while we wait. Once we grab the sync lock, take the append lock again
     // to ensure our new view of the head is consistent.
     lock.destroy();
-    Lock _(syncLock);
+    SpinLock::Guard _(syncLock);
     lock.construct(appendLock);
 
     // See if we still have work to do. It's possible that another thread
@@ -229,8 +229,8 @@ Log::sync()
 LogPosition
 Log::rollHeadOver()
 {
-    Lock lock(syncLock);
-    Lock lock2(appendLock);
+    SpinLock::Guard lock(syncLock);
+    SpinLock::Guard lock2(appendLock);
 
     // Allocate the new head and sync the log. This will ensure that the
     // position returned is stable on backups. This is paricularly important

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -63,7 +63,7 @@ CleanableSegmentManager::getLiveObjectUtilization()
         return mockLiveObjectUtilization;
     }
 #endif
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
     update(guard);
 
     uint64_t totalSegletBytes = segmentManager.getAllocator().getTotalCount(
@@ -76,7 +76,7 @@ CleanableSegmentManager::getLiveObjectUtilization()
 int
 CleanableSegmentManager::getUndeadTombstoneUtilization()
 {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
     update(guard);
 
     uint64_t totalSegletBytes = segmentManager.getAllocator().getTotalCount(
@@ -89,7 +89,7 @@ CleanableSegmentManager::getUndeadTombstoneUtilization()
 LogSegment*
 CleanableSegmentManager::getSegmentToCompact()
 {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
     update(guard);
 
     if (compactionCandidates.empty())
@@ -104,7 +104,7 @@ CleanableSegmentManager::getSegmentToCompact()
 void
 CleanableSegmentManager::getSegmentsToClean(LogSegmentVector& outSegsToClean)
 {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
     update(guard);
 
     foreach (LogSegment& segment, costBenefitCandidates) {
@@ -166,7 +166,7 @@ CleanableSegmentManager::computeCompactionCostBenefitScore(LogSegment* segment)
 }
 
 void
-CleanableSegmentManager::update(Lock& guard)
+CleanableSegmentManager::update(const SpinLock::Guard& guard)
 {
     scanSegmentTombstones(guard);
 
@@ -264,7 +264,7 @@ CleanableSegmentManager::update(Lock& guard)
  * The lock is reacquired before returning.
  */
 void
-CleanableSegmentManager::scanSegmentTombstones(Lock& guard)
+CleanableSegmentManager::scanSegmentTombstones(const SpinLock::Guard& guard)
 {
     if (SCAN_TOMBSTONES_EVERY_N_SEGMENTS == 0)
         return;
@@ -367,7 +367,8 @@ CleanableSegmentManager::computeTombstoneScanScore(LogSegment* s)
 }
 
 void
-CleanableSegmentManager::insertInAll(LogSegment* s, Lock& guard)
+CleanableSegmentManager::insertInAll(LogSegment* s,
+                                     const SpinLock::Guard& guard)
 {
     costBenefitCandidates.insert(*s);
     compactionCandidates.insert(*s);
@@ -375,7 +376,8 @@ CleanableSegmentManager::insertInAll(LogSegment* s, Lock& guard)
 }
 
 void
-CleanableSegmentManager::eraseFromAll(LogSegment* s, Lock& guard)
+CleanableSegmentManager::eraseFromAll(LogSegment* s,
+                                      const SpinLock::Guard& guard)
 {
     erase(costBenefitCandidates, *s);
     erase(compactionCandidates, *s);

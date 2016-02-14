@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -41,7 +41,7 @@ MasterTableMetadata::MasterTableMetadata()
 MasterTableMetadata::Entry*
 MasterTableMetadata::find(uint64_t tableId) const
 {
-    Lock guard(lock);
+    SpinLock::Guard _(lock);
 
     Entry* entry = NULL;
     TableMetadataMap::const_iterator it = tableMetadataMap.find(tableId);
@@ -66,7 +66,7 @@ MasterTableMetadata::find(uint64_t tableId) const
 MasterTableMetadata::Entry*
 MasterTableMetadata::findOrCreate(uint64_t tableId)
 {
-    Lock guard(lock);
+    SpinLock::Guard _(lock);
 
     Entry* entry = NULL;
     TableMetadataMap::iterator it = tableMetadataMap.find(tableId);

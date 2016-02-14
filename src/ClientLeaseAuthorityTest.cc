@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -239,7 +239,7 @@ TEST_F(ClientLeaseAuthorityTest, getLeaseObjName) {
 }
 
 TEST_F(ClientLeaseAuthorityTest, renewLeaseInternal_renew) {
-    ClientLeaseAuthority::Lock lock(leaseAuthority->mutex);
+    SpinLock::Guard lock(leaseAuthority->mutex);
     leaseAuthority->leaseMap[1] = ClusterTime(1);
     leaseAuthority->expirationOrder.insert({ClusterTime(1), 1});
     EXPECT_EQ(1U, leaseAuthority->leaseMap.size());
@@ -259,7 +259,7 @@ TEST_F(ClientLeaseAuthorityTest, renewLeaseInternal_renew) {
 }
 
 TEST_F(ClientLeaseAuthorityTest, renewLeaseInternal_new) {
-    ClientLeaseAuthority::Lock lock(leaseAuthority->mutex);
+    SpinLock::Guard lock(leaseAuthority->mutex);
     EXPECT_EQ(0U, leaseAuthority->lastIssuedLeaseId);
     EXPECT_EQ(0U, leaseAuthority->maxReservedLeaseId);
 
@@ -304,7 +304,7 @@ TEST_F(ClientLeaseAuthorityTest, renewLeaseInternal_new) {
 }
 
 TEST_F(ClientLeaseAuthorityTest, renewLeaseInternal_reservationsNotKeepingUp) {
-    ClientLeaseAuthority::Lock lock(leaseAuthority->mutex);
+    SpinLock::Guard lock(leaseAuthority->mutex);
     EXPECT_EQ(0U, leaseAuthority->lastIssuedLeaseId);
     EXPECT_EQ(0U, leaseAuthority->maxReservedLeaseId);
 
@@ -327,7 +327,7 @@ TEST_F(ClientLeaseAuthorityTest, renewLeaseInternal_reservationsNotKeepingUp) {
 }
 
 TEST_F(ClientLeaseAuthorityTest, reserveNextLease) {
-    ClientLeaseAuthority::Lock lock(leaseAuthority->mutex);
+    SpinLock::Guard lock(leaseAuthority->mutex);
     storage.log.clear();
     leaseAuthority->maxReservedLeaseId = 4294967296;
     EXPECT_EQ(4294967296U, leaseAuthority->maxReservedLeaseId);

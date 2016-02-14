@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -82,7 +82,7 @@ bool
 AbstractLog::append(AppendVector* appends, uint32_t numAppends)
 {
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
-    Lock lock(appendLock);
+    SpinLock::Guard lock(appendLock);
     metrics.totalAppendCalls++;
 
     uint32_t lengths[numAppends];
@@ -132,7 +132,7 @@ AbstractLog::append(Buffer *logBuffer, Reference *references,
                     uint32_t numEntries)
 {
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
-    Lock lock(appendLock);
+    SpinLock::Guard lock(appendLock);
     metrics.totalAppendCalls++;
 
     if (head == NULL || !head->hasSpaceFor(logBuffer->size())) {
@@ -322,10 +322,8 @@ AbstractLog::getSegment(Reference reference)
  * sync() method must be invoked after appending. Until sync() is called, the
  * data may or may not have been made durable.
  *
- * \param appendLock
- *      The append lock must have already been acquired before entering this
- *      method. This parameter exists in the hopes that you don't forget to
- *      do that.
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
  * \param buffer
@@ -344,7 +342,7 @@ AbstractLog::getSegment(Reference reference)
  *      to complete the operation.
  */
 bool
-AbstractLog::append(Lock& appendLock,
+AbstractLog::append(const SpinLock::Guard& lock,
             LogEntryType type,
             const void* buffer,
             uint32_t length,
@@ -408,10 +406,8 @@ AbstractLog::append(Lock& appendLock,
  * sync() method must be invoked after appending. Until sync() is called, the
  * data may or may not have been made durable.
  *
- * \param appendLock
- *      The append lock must have already been acquired before entering this
- *      method. This parameter exists in the hopes that you don't forget to
- *      do that.
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
  * \param buffer
  *      Pointer to buffer containing the entry to be appended.
  * \param[out] entryLength
@@ -429,7 +425,7 @@ AbstractLog::append(Lock& appendLock,
  *      to complete the operation.
  */
 bool
-AbstractLog::append(Lock& appendLock,
+AbstractLog::append(const SpinLock::Guard& lock,
             const void* buffer,
             uint32_t *entryLength,
             Reference* outReference,
@@ -499,10 +495,8 @@ AbstractLog::append(Lock& appendLock,
  * sync() method must be invoked after appending. Until sync() is called, the
  * data may or may not have been made durable.
  *
- * \param appendLock
- *      The append lock must have already been acquired before entering this
- *      method. This parameter exists in the hopes that you don't forget to
- *      do that.
+ * \param lock
+ *      Ensures that the caller holds the monitor lock; not actually used.
  * \param type
  *      Type of the entry. See LogEntryTypes.h.
  * \param buffer
@@ -519,13 +513,13 @@ AbstractLog::append(Lock& appendLock,
  *      complete the operation.
  */
 bool
-AbstractLog::append(Lock& appendLock,
+AbstractLog::append(const SpinLock::Guard& lock,
             LogEntryType type,
             Buffer& buffer,
             Reference* outReference,
             uint64_t* outTickCounter)
 {
-    return append(appendLock,
+    return append(lock,
                   type,
                   buffer.getRange(0, buffer.size()),
                   buffer.size(),

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -117,10 +117,6 @@ void serialize(Buffer* buf, MasterTableMetadata *mtm);
  * store in order to compensate.
  */
 const uint64_t threshold = 24*1024*1024;  // 24 MB.
-
-/// Lock guard type used to hold the monitor spinlock and automatically
-/// release it.
-typedef std::lock_guard<SpinLock> Lock;
 
 /**
  * Simple structure representing a stats information entry in the serialized

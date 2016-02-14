@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -50,7 +50,7 @@ TabletManager::addTablet(uint64_t tableId,
                          uint64_t endKeyHash,
                          TabletState state)
 {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
 
     // If an existing tablet overlaps this range at all, fail.
     if (lookup(tableId, startKeyHash, guard) != tabletMap.end() ||
@@ -76,7 +76,7 @@ TabletManager::addTablet(uint64_t tableId,
  */
 bool
 TabletManager::checkAndIncrementReadCount(Key& key) {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
     TabletMap::iterator it = lookup(key.getTableId(), key.getHash(), guard);
 
     if (it == tabletMap.end())
@@ -131,7 +131,7 @@ TabletManager::getTablet(Key& key, Tablet* outTablet)
 bool
 TabletManager::getTablet(uint64_t tableId, uint64_t keyHash, Tablet* outTablet)
 {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
 
     TabletMap::iterator it = lookup(tableId, keyHash, guard);
     if (it == tabletMap.end())
@@ -167,7 +167,7 @@ TabletManager::getTablet(uint64_t tableId,
                          uint64_t endKeyHash,
                          Tablet* outTablet)
 {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
 
     TabletMap::iterator it = lookup(tableId, startKeyHash, guard);
     if (it == tabletMap.end())
@@ -192,7 +192,7 @@ TabletManager::getTablet(uint64_t tableId,
 void
 TabletManager::getTablets(vector<Tablet>* outTablets)
 {
-    Lock guard(lock);
+    SpinLock::Guard _(lock);
 
     TabletMap::iterator it = tabletMap.begin();
     for (size_t i = 0; it != tabletMap.end(); i++) {
@@ -223,7 +223,7 @@ TabletManager::deleteTablet(uint64_t tableId,
                             uint64_t startKeyHash,
                             uint64_t endKeyHash)
 {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
 
     TabletMap::iterator it = lookup(tableId, startKeyHash, guard);
     if (it == tabletMap.end()) {
@@ -267,7 +267,7 @@ bool
 TabletManager::splitTablet(uint64_t tableId,
                            uint64_t splitKeyHash)
 {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
 
     TabletMap::iterator it = lookup(tableId, splitKeyHash, guard);
     if (it == tabletMap.end())
@@ -321,7 +321,7 @@ TabletManager::changeState(uint64_t tableId,
                            TabletState oldState,
                            TabletState newState)
 {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
 
     TabletMap::iterator it = lookup(tableId, startKeyHash, guard);
     if (it == tabletMap.end())
@@ -355,7 +355,7 @@ TabletManager::incrementReadCount(Key& key)
 void
 TabletManager::incrementReadCount(uint64_t tableId, KeyHash keyHash)
 {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
     TabletMap::iterator it = lookup(tableId, keyHash, guard);
     if (it != tabletMap.end())
         it->second.readCount++;
@@ -378,7 +378,7 @@ TabletManager::incrementWriteCount(Key& key)
 void
 TabletManager::incrementWriteCount(uint64_t tableId, KeyHash keyHash)
 {
-    Lock guard(lock);
+    SpinLock::Guard guard(lock);
     TabletMap::iterator it = lookup(tableId, keyHash, guard);
     if (it != tabletMap.end())
         it->second.writeCount++;
@@ -391,7 +391,7 @@ TabletManager::incrementWriteCount(uint64_t tableId, KeyHash keyHash)
 void
 TabletManager::getStatistics(ProtoBuf::ServerStatistics* serverStatistics)
 {
-    Lock guard(lock);
+    SpinLock::Guard _(lock);
 
     TabletMap::iterator it = tabletMap.begin();
     while (it != tabletMap.end()) {
@@ -414,7 +414,7 @@ TabletManager::getStatistics(ProtoBuf::ServerStatistics* serverStatistics)
 size_t
 TabletManager::getNumTablets()
 {
-    Lock guard(lock);
+    SpinLock::Guard _(lock);
     return tabletMap.size();
 }
 
@@ -459,7 +459,7 @@ compareTablet(const TabletManager::Tablet &a,
 string
 TabletManager::toString()
 {
-    Lock guard(lock);
+    SpinLock::Guard _(lock);
     string output;
 
 // Sort output on debug
@@ -492,9 +492,7 @@ TabletManager::toString()
  * \param keyHash
  *      Key hash value corresponding to the desired tablet.
  * \param lock
- *      This internal method is not thread-safe, so the caller must hold the
- *      monitor lock while calling. This parameter ensures they don't forget
- *      to.
+ *      Ensures that the caller holds the monitor lock; not actually used.
  * \return
  *      A TabletMap::iterator is returned. If no tablet was found, it will be
  *      equal to tabletMap.end(). Otherwise, it will refer to the desired
@@ -504,7 +502,8 @@ TabletManager::toString()
  *      efficient deletion.
  */
 TabletManager::TabletMap::iterator
-TabletManager::lookup(uint64_t tableId, uint64_t keyHash, Lock& lock)
+TabletManager::lookup(uint64_t tableId, uint64_t keyHash,
+                      const SpinLock::Guard& lock)
 {
     auto range = tabletMap.equal_range(tableId);
     TabletMap::iterator end = range.second;

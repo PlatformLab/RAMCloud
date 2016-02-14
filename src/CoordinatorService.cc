@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -833,7 +833,7 @@ CoordinatorService::verifyServerFailure(ServerId serverId)
     // Don't ping this server if someone else is already doing it.
     uint64_t id = serverId.getId();
     {
-        Lock lock(mutex);
+        SpinLock::Guard _(mutex);
         if (activeVerifications.find(id) != activeVerifications.end()) {
             return false;
         }
@@ -855,7 +855,7 @@ CoordinatorService::verifyServerFailure(ServerId serverId)
     }
 
     {
-        Lock lock(mutex);
+        SpinLock::Guard _(mutex);
         activeVerifications.erase(id);
     }
     return result;

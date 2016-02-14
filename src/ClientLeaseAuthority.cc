@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -64,7 +64,7 @@ ClientLeaseAuthority::ClientLeaseAuthority(Context* context)
 WireFormat::ClientLease
 ClientLeaseAuthority::getLeaseInfo(uint64_t leaseId)
 {
-    Lock lock(mutex);
+    SpinLock::Guard _(mutex);
     WireFormat::ClientLease clientLease;
 
     // Populate the lease information if it is found.
@@ -89,7 +89,7 @@ ClientLeaseAuthority::getLeaseInfo(uint64_t leaseId)
 void
 ClientLeaseAuthority::recover()
 {
-    Lock lock(mutex);
+    SpinLock::Guard _(mutex);
 
     // Fetch all lease information from external storage.
     vector<ExternalStorage::Object> objects;
@@ -142,7 +142,7 @@ ClientLeaseAuthority::recover()
 WireFormat::ClientLease
 ClientLeaseAuthority::renewLease(uint64_t leaseId)
 {
-    Lock lock(mutex);
+    SpinLock::Guard lock(mutex);
     WireFormat::ClientLease clientLease = renewLeaseInternal(leaseId, lock);
 
     // Poke reservation agent if we are getting close to running out of leases.
@@ -188,7 +188,7 @@ ClientLeaseAuthority::LeaseReservationAgent::LeaseReservationAgent(
 void
 ClientLeaseAuthority::LeaseReservationAgent::handleTimerEvent()
 {
-    ClientLeaseAuthority::Lock lock(leaseAuthority->mutex);
+    SpinLock::Guard lock(leaseAuthority->mutex);
     leaseAuthority->reserveNextLease(lock);
     uint64_t reservationCount = leaseAuthority->maxReservedLeaseId -
                                 leaseAuthority->lastIssuedLeaseId;
@@ -242,7 +242,7 @@ ClientLeaseAuthority::LeaseCleaner::handleTimerEvent()
 bool
 ClientLeaseAuthority::cleanNextLease()
 {
-    Lock lock(mutex);
+    SpinLock::Guard _(mutex);
     ExpirationOrderSet::iterator it = expirationOrder.begin();
     if (it != expirationOrder.end() && it->leaseExpiration < clock.getTime()) {
         uint64_t leaseId = it->leaseId;
@@ -276,7 +276,8 @@ ClientLeaseAuthority::getLeaseObjName(uint64_t leaseId)
  *      See "renewLease".
  */
 WireFormat::ClientLease
-ClientLeaseAuthority::renewLeaseInternal(uint64_t leaseId, Lock &lock)
+ClientLeaseAuthority::renewLeaseInternal(uint64_t leaseId,
+                                         const SpinLock::Guard& lock)
 {
     WireFormat::ClientLease clientLease;
 
@@ -319,7 +320,7 @@ ClientLeaseAuthority::renewLeaseInternal(uint64_t leaseId, Lock &lock)
  *      Ensures that caller has acquired mutex; not actually used here.
  */
 void
-ClientLeaseAuthority::reserveNextLease(Lock &lock)
+ClientLeaseAuthority::reserveNextLease(const SpinLock::Guard& lock)
 {
     uint64_t nextLeaseId = maxReservedLeaseId + 1;
     context->externalStorage->set(ExternalStorage::Hint::CREATE,

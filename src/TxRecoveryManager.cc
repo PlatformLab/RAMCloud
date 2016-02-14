@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -43,7 +43,7 @@ TxRecoveryManager::TxRecoveryManager(Context* context)
 void
 TxRecoveryManager::handleTimerEvent()
 {
-    Lock lockMonitor(lock);
+    SpinLock::Guard lockMonitor(lock);
 
     // Make sure only one handler is running at a time.  If there is another
     // handler already running, just reschedule the timer.
@@ -52,7 +52,7 @@ TxRecoveryManager::handleTimerEvent()
         this->start(0);
         return;
     }
-    Lock running(handlerLock, std::adopt_lock);
+    SpinLock::Guard running(handlerLock, std::adopt_lock);
 
     // See if any of the recoveries need to do more work.
     RecoveryList::iterator it = recoveries.begin();
@@ -109,7 +109,7 @@ TxRecoveryManager::handleTxHintFailed(Buffer* rpcReq)
     RecoveryId recoveryId = {leaseId, txId};
 
     /*** Make sure we did not already receive this request. ***/
-    Lock _(lock);
+    SpinLock::Guard _(lock);
     if (recoveringIds.find(recoveryId) != recoveringIds.end()) {
         // This transaction is already recovering.
         return;
@@ -135,7 +135,7 @@ TxRecoveryManager::handleTxHintFailed(Buffer* rpcReq)
 bool
 TxRecoveryManager::isTxDecisionRecordNeeded(TxDecisionRecord& record)
 {
-    Lock _(lock);
+    SpinLock::Guard _(lock);
 
     uint64_t leaseId = record.getLeaseId();
     uint64_t transactionId = record.getTransactionId();
@@ -165,7 +165,7 @@ TxRecoveryManager::recoverRecovery(TxDecisionRecord& record)
                              record.getTransactionId()};
 
     /*** Make sure we did not already receive this request. ***/
-    Lock _(lock);
+    SpinLock::Guard _(lock);
     if (expect_false(recoveringIds.find(recoveryId) != recoveringIds.end())) {
         // This transaction is already recovering.
         return false;

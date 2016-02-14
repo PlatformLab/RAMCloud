@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -66,8 +66,6 @@ namespace RAMCloud {
  */
 class SideLog : public AbstractLog {
   public:
-    typedef std::lock_guard<SpinLock> Lock;
-
     explicit SideLog(Log* log);
     SideLog(Log* log, LogCleaner* cleaner);
     ~SideLog();

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -70,8 +70,6 @@ class ServerConfig;
  */
 class Log : public AbstractLog {
   public:
-    typedef std::lock_guard<SpinLock> Lock;
-
     Log(Context* context,
         const ServerConfig* config,
         LogEntryHandlers* entryHandlers,

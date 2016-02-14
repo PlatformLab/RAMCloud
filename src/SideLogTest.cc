@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -160,7 +160,7 @@ freeSegmentSoon(SegmentManager* segmentManager, LogSegment* segment) {
 
 TEST_F(SideLogTest, allocNextSegment_basics) {
     SideLog sl(&l);
-    SideLog::Lock lock(sl.appendLock);
+    SpinLock::Guard _(sl.appendLock);
 
     LogSegment* segment = segmentManager.allocSideSegment(0, NULL);
     EXPECT_NE(static_cast<LogSegment*>(NULL), segment);
@@ -181,7 +181,7 @@ TEST_F(SideLogTest, allocNextSegment_basics) {
 
 TEST_F(SideLogTest, allocNextSegment_closePrevious) {
     SideLog sl(&l);
-    SideLog::Lock lock(sl.appendLock);
+    SpinLock::Guard _(sl.appendLock);
 
     LogSegment* s1 = sl.allocNextSegment(false);
     EXPECT_FALSE(s1->replicatedSegment->queued.close);
