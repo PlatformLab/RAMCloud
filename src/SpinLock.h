@@ -16,6 +16,8 @@
 #ifndef RAMCLOUD_SPINLOCK_H
 #define RAMCLOUD_SPINLOCK_H
 
+#include <mutex>
+
 #include "Atomic.h"
 #include "SpinLockStatistics.pb.h"
 
