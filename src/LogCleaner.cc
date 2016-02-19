@@ -380,8 +380,7 @@ LogCleaner::doMemoryCleaning()
     }
 
     survivor->close();
-    uint32_t segletsToFree = computeFreeableSeglets(survivor);
-    bool r = survivor->freeUnusedSeglets(segletsToFree);
+    bool r = survivor->freeUnusedSeglets();
     assert(r);
     assert(segment->getSegletsAllocated() >= survivor->getSegletsAllocated());
 
@@ -537,32 +536,6 @@ LogCleaner::getSegmentsToClean(LogSegmentVector& outSegmentsToClean)
     cleanableSegments.getSegmentsToClean(outSegmentsToClean);
 }
 
-uint32_t
-LogCleaner::computeFreeableSeglets(LogSegment* survivor)
-{
-    uint32_t segletsAllocated = survivor->getSegletsAllocated();
-    assert(segletsAllocated == segmentSize / segletSize);
-
-    // The survivor segment has at least as many seglets allocated as the one we
-    // compacted since it was freshly allocated it has the maximum number of
-    // seglets. We can therefore free the difference, which ensures a
-    // 0 net gain, plus perhaps some extra seglets from space reclaimed from
-    // dead entries.
-    //
-    // We need to be careful not to free every seglet, however, as we must
-    // ensure that disk cleaning is guaranteed to make forward progress (recall
-    // that reordering of entries and segment boundaries can increase the amount
-    // of space occupied by live objects if we're unlucky).
-    uint32_t liveBytes = survivor->getLiveBytes();
-    uint32_t segletsNeeded = (100 * (liveBytes + segletSize)) /
-        segletSize / LogCleaner::MAX_CLEANABLE_MEMORY_UTILIZATION;
-
-    if (segletsAllocated > segletsNeeded)
-        return segletsAllocated - segletsNeeded;
-
-    return 0;
-}
-
 /**
  * Sort the given segment entries by their timestamp. Used to sort the survivor
  * data that is written out to multiple segments during disk cleaning. This
@@ -632,7 +605,7 @@ LogCleaner::getSortedEntries(LogSegmentVector& segmentsToClean,
  * survivor segments in order and alert their owning module (MasterService,
  * usually), that they've been relocated.
  *
- * \param entries 
+ * \param entries
  *      Vector the entries from segments being cleaned that may need to be
  *      relocated.
  * \param outSurvivors
@@ -766,8 +739,7 @@ LogCleaner::closeSurvivor(LogSegment* survivor)
     survivor->replicatedSegment->close();
 
     // Immediately free any unused seglets.
-    bool r = survivor->freeUnusedSeglets(survivor->getSegletsAllocated() -
-                                         survivor->getSegletsInUse());
+    bool r = survivor->freeUnusedSeglets();
     assert(r);
 }
 

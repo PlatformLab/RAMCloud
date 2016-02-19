@@ -232,7 +232,6 @@ class LogCleaner {
     void sortSegmentsByCostBenefit(LogSegmentVector& segments);
     void debugDumpSegments(LogSegmentVector& segments);
     void getSegmentsToClean(LogSegmentVector& outSegmentsToClean);
-    uint32_t computeFreeableSeglets(LogSegment* survivor);
     void sortEntriesByTimestamp(EntryVector& entries);
     void getSortedEntries(LogSegmentVector& segmentsToClean,
                           EntryVector& outEntries,
@@ -266,7 +265,7 @@ class LogCleaner {
      * Helper method that relocates a log entry and updates various metrics
      * to track relocation performance. It is templated so that it may be
      * used to track both relocations due to disk cleaning and in-memory
-     * cleaning (compaction). 
+     * cleaning (compaction).
      *
      * During cleaning, this is invoked on every entry in the segments being
      * cleaned. It is up to the LogEntryHandlers callee to decide whether or not

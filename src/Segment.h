@@ -306,7 +306,7 @@ class Segment {
     uint32_t getAppendedLength(SegmentCertificate* certificate = NULL) const;
     uint32_t getSegletsAllocated();
     uint32_t getSegletsInUse();
-    bool freeUnusedSeglets(uint32_t count);
+    bool freeUnusedSeglets();
     bool checkMetadataIntegrity(const SegmentCertificate& certificate);
     uint32_t copyOut(uint32_t offset, void* buffer, uint32_t length) const;
     Reference getReference(uint32_t offset);
@@ -324,7 +324,7 @@ class Segment {
      *      Pointer to contiguous memory corresponding to the given offset.
      * \return
      *      The number of contiguous bytes accessible from the returned pointer
-     *      (outAddress). 
+     *      (outAddress).
      */
     uint32_t
     peek(uint32_t offset, const void** outAddress) const

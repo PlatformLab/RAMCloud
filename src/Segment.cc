@@ -688,27 +688,23 @@ Segment::getSegletsInUse()
 }
 
 /**
- * Free the given number of unused seglets from the end of a closed segment.
+ * Free the unused seglets from the end of a closed segment.
  *
  * \return
  *      True if the operation succeeded. False if no action was taken because
- *      the segment is not closed or the given count exceeds the number of
- *      unused seglets.
+ *      the segment is not closed or no seglets were allocated.
  */
 bool
-Segment::freeUnusedSeglets(uint32_t count)
+Segment::freeUnusedSeglets()
 {
-    // If we're closed or don't have any seglets allocated (either because
-    // they've all been freed or we started with a static or heap allocation
-    // not backed by Seglet classes), there's nothing to be done.
+    // If segment is not closed or don't have any seglets allocated (either
+    // because they've all been freed or we started with a static or heap
+    // allocation not backed by Seglet classes), there's nothing to be done.
     if (!closed || seglets.size() == 0)
         return false;
 
     size_t unusedSeglets = seglets.size() - getSegletsInUse();
-    if (count > unusedSeglets)
-        return false;
-
-    for (uint32_t i = 0; i < count; i++) {
+    for (uint32_t i = 0; i < unusedSeglets; i++) {
         assert(seglets.back()->get() == segletBlocks.back());
         seglets.back()->free();
         seglets.pop_back();
