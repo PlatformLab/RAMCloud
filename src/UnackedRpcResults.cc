@@ -622,8 +622,13 @@ UnackedRpcResults::Client::result(uint64_t rpcId) {
  */
 void
 UnackedRpcResults::Client::recordNewRpc(uint64_t rpcId) {
-    if (rpcs[rpcId % len].id > maxAckId)
-        resizeRpcs(10);
+    if (rpcs[rpcId % len].id > maxAckId) {
+        uint64_t difference = (rpcId > rpcs[rpcId % len].id) ?
+                                rpcId - rpcs[rpcId % len].id :
+                                rpcs[rpcId % len].id - rpcId;
+        resizeRpcs(static_cast<int>(difference * 2));
+    }
+    assert(rpcs[rpcId % len].id <= maxAckId);
     rpcs[rpcId % len] = UnackedRpc(rpcId, NULL);
 }
 
@@ -666,17 +671,6 @@ UnackedRpcResults::Client::processAck(uint64_t ackId,
  */
 void
 UnackedRpcResults::Client::updateResult(uint64_t rpcId, void* result) {
-    if (rpcs[rpcId % len].id != rpcId) {
-        LOG(ERROR, "update result failed. id doesn't match"
-                   "expected: %" PRIu64 ", rpcId: %" PRIu64 ","
-                   "maxRpcId %" PRIu64 ", maxAckId %" PRIu64 ", "
-                   "numRpcsInProgress %d, len %d",
-                rpcs[rpcId % len].id, rpcId,
-                maxRpcId, maxAckId, numRpcsInProgress, len);
-        //while(1);
-    }
-
-    //TODO(seojin): restore back to assertion after debugging.
     assert(rpcs[rpcId % len].id == rpcId);
     rpcs[rpcId % len].result = result;
 }
@@ -685,18 +679,17 @@ UnackedRpcResults::Client::updateResult(uint64_t rpcId, void* result) {
  * Resizes Client's rpcs size. This function is called when the size of
  * Client's rpcs is not enough to keep all valid RPCs' info.
  *
- * \param increment
- *      The increment of the size of the dynamic array, #Client::rpcs
+ * \param newLen
+ *      The new size of the dynamic array, #Client::rpcs
  */
 void
-UnackedRpcResults::Client::resizeRpcs(int increment) {
-    //int newLen = len + increment;
-    int newLen = len * 2;
+UnackedRpcResults::Client::resizeRpcs(int newLen) {
     UnackedRpc* to = new UnackedRpc[newLen](); //initialize with <0, NULL>
 
     for (int i = 0; i < len; ++i) {
         if (rpcs[i].id <= maxAckId)
             continue;
+        assert(to[rpcs[i].id % newLen].id == 0);
         to[rpcs[i].id % newLen] = rpcs[i];
     }
     delete[] rpcs;

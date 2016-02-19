@@ -368,6 +368,27 @@ TEST_F(UnackedRpcResultsTest, recordNewRpc) {
     EXPECT_EQ(1010UL, (uint64_t)client->result(10));
 }
 
+TEST_F(UnackedRpcResultsTest, recordNewRpc_jumResizeTest) {
+    UnackedRpcResults::Client *client = results.clients[1];
+    uint64_t rpcId1 = 11;
+    client->recordNewRpc(rpcId1);
+    EXPECT_TRUE(client->hasRecord(rpcId1));
+    client->updateResult(rpcId1, reinterpret_cast<void*>(1011));
+
+    //Invoke resizing and test if all of the records are kept.
+    //Tests specifically for non-sequential increment of rpcIds.
+    int originalLen = client->len;
+    uint64_t rpcId2 = rpcId1 + 2 * originalLen;
+    client->recordNewRpc(rpcId2);
+
+    EXPECT_TRUE(client->hasRecord(rpcId1));
+    EXPECT_TRUE(client->hasRecord(rpcId2));
+    EXPECT_EQ(0UL, (uint64_t)client->result(rpcId2));
+    EXPECT_EQ(1011UL, (uint64_t)client->result(rpcId1));
+    EXPECT_NE(originalLen, client->len);
+    EXPECT_EQ(1010UL, (uint64_t)client->result(10));
+}
+
 TEST_F(UnackedRpcResultsTest, updateResult) {
     UnackedRpcResults::Client *client = results.clients[1];
     EXPECT_EQ(1010UL, (uint64_t)client->result(10));

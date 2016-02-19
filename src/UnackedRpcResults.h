@@ -142,6 +142,7 @@ class UnackedRpcResults {
         void recordNewRpc(uint64_t rpcId);
         void updateResult(uint64_t rpcId, void* result);
         void processAck(uint64_t ackId, AbstractLog::ReferenceFreer* freer);
+        void resizeRpcs(int newLen);
 
         /**
          * Keeps the largest RpcId from the client seen in this master.
@@ -171,9 +172,6 @@ class UnackedRpcResults {
          * with rpcs in progress.
          */
         int numRpcsInProgress;
-
-      //PRIVATE:
-        void resizeRpcs(int increment);
 
         /**
          * Dynamically allocated array keeping #UnackedRpc of this client.
