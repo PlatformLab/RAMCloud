@@ -403,12 +403,16 @@ class BasicTransport : public Transport {
      */
     struct AllDataHeader {
         CommonHeader common;         // Common header fields.
+        uint16_t messageLength;      // Total # bytes in the message (i.e.,
+                                     // the bytes following this header).
 
         // The remaining packet bytes after the header constitute the
         // entire request or response message.
 
-        explicit AllDataHeader(RpcId rpcId, uint8_t flags)
-            : common(PacketOpcode::ALL_DATA, rpcId, flags) {}
+        explicit AllDataHeader(RpcId rpcId, uint8_t flags,
+                uint16_t messageLength)
+            : common(PacketOpcode::ALL_DATA, rpcId, flags)
+            , messageLength(messageLength) {}
     } __attribute__((packed));
 
     /**

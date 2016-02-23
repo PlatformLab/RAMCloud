@@ -62,7 +62,7 @@ class BasicTransportTest : public ::testing::Test {
     {
         driver->receivePacket("mock:client=1",
                 BasicTransport::AllDataHeader(BasicTransport::RpcId(100, 101),
-                BasicTransport::FROM_CLIENT), "message1");
+                BasicTransport::FROM_CLIENT, 8), "message1");
         BasicTransport::ServerRpc* serverRpc =
                 static_cast<BasicTransport::ServerRpc*>(
                 context.workerManager->waitForRpc(0));
@@ -335,22 +335,34 @@ TEST_F(BasicTransportTest, handlePacket_noHeader) {
 TEST_F(BasicTransportTest, handlePacket_clientPacketWithUnknownSequence) {
     driver->receivePacket("mock:server=1",
             BasicTransport::AllDataHeader(BasicTransport::RpcId(666, 1),
-            BasicTransport::FROM_SERVER), "response1");
+            BasicTransport::FROM_SERVER, 9), "response1");
     EXPECT_EQ("handlePacket: Received packet from mock:server=1 for unknown "
             "RPC: ALL_DATA FROM_SERVER, rpcId 666.1",
             TestLog::get());
     EXPECT_EQ(0u, driver->stealCount);
 }
-TEST_F(BasicTransportTest, handlePacket_allDataFromServer) {
+TEST_F(BasicTransportTest, handlePacket_allDataFromServer_basics) {
     MockWrapper wrapper("message1");
     session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
     driver->receivePacket("mock:server=1",
             BasicTransport::AllDataHeader(BasicTransport::RpcId(666, 1),
-            BasicTransport::FROM_SERVER), "response1");
+            BasicTransport::FROM_SERVER, 9), "response1");
     EXPECT_STREQ("completed: 1, failed: 0", wrapper.getState());
     EXPECT_EQ("response1", TestUtil::toString(&wrapper.response));
     EXPECT_EQ(0lu, transport.outgoingRpcs.size());
     EXPECT_EQ(1u, driver->stealCount);
+}
+TEST_F(BasicTransportTest, handlePacket_allDataFromServer_tooShort) {
+    MockWrapper wrapper("message1");
+    session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
+    driver->receivePacket("mock:server=1",
+            BasicTransport::AllDataHeader(BasicTransport::RpcId(666, 1),
+            BasicTransport::FROM_SERVER, 10), "response1");
+    EXPECT_STREQ("completed: 0, failed: 0", wrapper.getState());
+    EXPECT_EQ(1u, driver->releaseCount);
+    EXPECT_EQ("handlePacket: ALL_DATA response from mock:server=1 too short "
+            "(got 29 bytes, expected 30)",
+            TestLog::get());
 }
 TEST_F(BasicTransportTest, handlePacket_dataFromServer_incompleteHeader) {
     MockWrapper wrapper("message1");
@@ -389,6 +401,26 @@ TEST_F(BasicTransportTest, handlePacket_dataFromServer_basics) {
     EXPECT_EQ("", driver->outputLog);
     EXPECT_EQ(0lu, transport.outgoingRpcs.size());
     EXPECT_EQ(2u, driver->stealCount);
+}
+TEST_F(BasicTransportTest, handlePacket_dataFromServer_extraData) {
+    MockWrapper wrapper("message1");
+    session->roundTripBytes = 1000;
+    session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
+    driver->outputLog.clear();
+    transport.grantIncrement = 500;
+
+    // First packet of response.
+    driver->receivePacket("mock:server=1",
+            BasicTransport::DataHeader(BasicTransport::RpcId(666, 1), 10, 0,
+            BasicTransport::NEED_GRANT | BasicTransport::FROM_SERVER), "abcde");
+
+    // Final packet of response has extra data.
+    driver->outputLog.clear();
+    driver->receivePacket("mock:server=1",
+            BasicTransport::DataHeader(BasicTransport::RpcId(666, 1), 10, 5,
+            BasicTransport::FROM_SERVER), "1234567890");
+    EXPECT_STREQ("completed: 1, failed: 0", wrapper.getState());
+    EXPECT_EQ("abcde12345", TestUtil::toString(&wrapper.response));
 }
 TEST_F(BasicTransportTest, handlePacket_dataFromServer_dontIssueGrant) {
     MockWrapper wrapper("message1");
@@ -574,7 +606,7 @@ TEST_F(BasicTransportTest, handlePacket_unknownOpcodeFromServer) {
 TEST_F(BasicTransportTest, handlePacket_allDataFromClient) {
     driver->receivePacket("mock:client=1",
             BasicTransport::AllDataHeader(BasicTransport::RpcId(100, 101),
-            BasicTransport::FROM_CLIENT), "message1");
+            BasicTransport::FROM_CLIENT, 8), "message1");
     BasicTransport::ServerRpc* serverRpc =
             static_cast<BasicTransport::ServerRpc*>(
             context.workerManager->waitForRpc(0));
@@ -585,15 +617,24 @@ TEST_F(BasicTransportTest, handlePacket_allDataFromClient) {
 TEST_F(BasicTransportTest, handlePacket_allDataFromClient_duplicate) {
     driver->receivePacket("mock:client=1",
             BasicTransport::AllDataHeader(BasicTransport::RpcId(100, 101),
-            BasicTransport::FROM_CLIENT), "message1");
+            BasicTransport::FROM_CLIENT, 8), "message1");
     BasicTransport::ServerRpc* serverRpc =
             static_cast<BasicTransport::ServerRpc*>(
             context.workerManager->waitForRpc(0));
     ASSERT_TRUE(serverRpc != NULL);
     driver->receivePacket("mock:client=1",
             BasicTransport::AllDataHeader(BasicTransport::RpcId(100, 101),
-            BasicTransport::FROM_CLIENT), "0123457890abcdefghij");
+            BasicTransport::FROM_CLIENT, 20), "0123457890abcdefghij");
     EXPECT_EQ("message1", TestUtil::toString(&serverRpc->requestPayload));
+}
+TEST_F(BasicTransportTest, handlePacket_allDataFromClient_tooShort) {
+    driver->receivePacket("mock:client=1",
+            BasicTransport::AllDataHeader(BasicTransport::RpcId(100, 101),
+            BasicTransport::FROM_CLIENT, 9), "message1");
+    EXPECT_EQ(1u, driver->releaseCount);
+    EXPECT_EQ("handlePacket: ALL_DATA request from mock:client=1 too short "
+            "(got 28 bytes, expected 29)",
+            TestLog::get());
 }
 TEST_F(BasicTransportTest, handlePacket_dataFromClient_basics) {
     // Send a message in three packets. The first packet should result
@@ -634,6 +675,30 @@ TEST_F(BasicTransportTest, handlePacket_dataFromClient_basics) {
     EXPECT_EQ("0123456789abcde",
             TestUtil::toString(&serverRpc->requestPayload));
 }
+TEST_F(BasicTransportTest, handlePacket_dataFromClient_extraBytes) {
+    // Send a message in two packets; the second packet contains more
+    // than enough data to complete the message.
+    transport.roundTripBytes = 1000;
+    transport.grantIncrement = 500;
+    driver->receivePacket("mock:client=1",
+            BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 10,
+            0, BasicTransport::NEED_GRANT|BasicTransport::FROM_CLIENT),
+            "abcde");
+    BasicTransport::ServerRpcMap::iterator it = transport.incomingRpcs.find(
+            BasicTransport::RpcId(100, 101));
+    ASSERT_TRUE(it != transport.incomingRpcs.end());
+    BasicTransport::ServerRpc* serverRpc = it->second;
+    EXPECT_FALSE(serverRpc->requestComplete);
+
+    // Second packet.
+    driver->receivePacket("mock:client=1",
+            BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 10,
+            5, BasicTransport::NEED_GRANT|BasicTransport::FROM_CLIENT),
+            "0123456789");
+    EXPECT_TRUE(serverRpc->requestComplete);
+    EXPECT_EQ("abcde01234",
+            TestUtil::toString(&serverRpc->requestPayload));
+}
 TEST_F(BasicTransportTest, handlePacket_dataFromClient_dontIssueGrant) {
     transport.roundTripBytes = 1000;
     transport.grantIncrement = 500;
@@ -646,7 +711,7 @@ TEST_F(BasicTransportTest, handlePacket_dataFromClient_extraneousPacket) {
     // Send an extra packet after the message is complete.
     driver->receivePacket("mock:client=1",
             BasicTransport::AllDataHeader(BasicTransport::RpcId(100, 101),
-            BasicTransport::FROM_CLIENT), "message1");
+            BasicTransport::FROM_CLIENT, 8), "message1");
     driver->receivePacket("mock:client=1",
             BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 13,
             8, BasicTransport::NEED_GRANT|BasicTransport::FROM_CLIENT),

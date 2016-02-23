@@ -243,7 +243,7 @@ BasicTransport::sendBytes(const Driver::Address* address, RpcId rpcId,
     if ((offset == 0) && (length <= maxDataPerPacket) &&
             (length == messageSize)) {
         // Message fits entirely in a single packet.
-        AllDataHeader header(rpcId, flags);
+        AllDataHeader header(rpcId, flags, downCast<uint16_t>(length));
         Buffer::Iterator iter(message, 0, length);
         driver->sendPacket(address, &header, &iter);
     } else {
@@ -510,10 +510,20 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     goto packetLengthError;
                 uint32_t length;
                 char *payload = received->steal(&length);
+                uint32_t requiredLength =
+                        downCast<uint32_t>(header->messageLength) +
+                        sizeof32(AllDataHeader);
+                if (length < requiredLength) {
+                    t->driver->release(payload);
+                    RAMCLOUD_CLOG(WARNING, "ALL_DATA response from %s too "
+                            "short (got %u bytes, expected %u)",
+                            received->sender->toString().c_str(),
+                            received->len, requiredLength);
+                    return;
+                }
                 Driver::PayloadChunk::appendToBuffer(clientRpc->response,
                         payload + sizeof32(AllDataHeader),
-                        length - sizeof32(AllDataHeader),
-                        t->driver, payload);
+                        header->messageLength, t->driver, payload);
                 t->outgoingRpcs.erase(header->common.rpcId.sequence);
                 clientRpc->notifier->completed();
                 t->clientRpcPool.destroy(clientRpc);
@@ -530,6 +540,14 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 clientRpc->accumulator->addPacket(received, header);
                 if (clientRpc->response->size() >= header->totalLength) {
                     // Response complete.
+                    if (clientRpc->response->size()
+                            > header->totalLength) {
+                        // We have more bytes than we want. This can happen
+                        // if the last packet gets padded by the network
+                        // layer to meet minimum size requirements. Just
+                        // truncate the response.
+                        clientRpc->response->truncate(header->totalLength);
+                    }
                     t->outgoingRpcs.erase(header->common.rpcId.sequence);
                     clientRpc->notifier->completed();
                     t->clientRpcPool.destroy(clientRpc);
@@ -641,15 +659,25 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     // a duplicate, so we can just discard it.
                     return;
                 }
+                uint32_t length;
+                char *payload = received->steal(&length);
+                uint32_t requiredLength =
+                        downCast<uint32_t>(header->messageLength) +
+                        sizeof32(AllDataHeader);
+                if (length < requiredLength) {
+                    t->driver->release(payload);
+                    RAMCLOUD_CLOG(WARNING, "ALL_DATA request from %s too "
+                            "short (got %u bytes, expected %u)",
+                            received->sender->toString().c_str(),
+                            received->len, requiredLength);
+                    return;
+                }
                 serverRpc = t->serverRpcPool.construct(t, received->sender,
                         header->common.rpcId);
                 t->incomingRpcs[header->common.rpcId] = serverRpc;
-                uint32_t length;
-                char *payload = received->steal(&length);
                 Driver::PayloadChunk::appendToBuffer(&serverRpc->requestPayload,
                         payload + sizeof32(AllDataHeader),
-                        length - sizeof32(AllDataHeader),
-                        t->driver, payload);
+                        header->messageLength, t->driver, payload);
                 serverRpc->requestComplete = true;
                 t->context->workerManager->handleRpc(serverRpc);
                 return;
@@ -673,8 +701,16 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     goto serverDataDone;
                 }
                 serverRpc->accumulator->addPacket(received, header);
-                if ((serverRpc->requestPayload.size() >= header->totalLength)) {
+                if (serverRpc->requestPayload.size() >= header->totalLength) {
                     // Message complete; start servicing the RPC.
+                    if (serverRpc->requestPayload.size()
+                            > header->totalLength) {
+                        // We have more bytes than we want. This can happen
+                        // if the last packet gets padded by the network
+                        // layer to meet minimum size requirements. Just
+                        // truncate the request.
+                        serverRpc->requestPayload.truncate(header->totalLength);
+                    }
                     erase(t->serverTimerList, *serverRpc);
                     serverRpc->requestComplete = true;
                     t->context->workerManager->handleRpc(serverRpc);
