@@ -266,13 +266,18 @@ CoordinatorService::coordSplitAndMigrateIndexlet(
 
     if (splitKey == NULL) {
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
-        rpc->sendReply();
         return;
     }
 
-    tableManager.coordSplitAndMigrateIndexlet(
-            ServerId(reqHdr->newOwnerId), reqHdr->tableId, reqHdr->indexId,
-            splitKey, reqHdr->splitKeyLength);
+    try {
+        tableManager.coordSplitAndMigrateIndexlet(
+                ServerId(reqHdr->newOwnerId), reqHdr->tableId, reqHdr->indexId,
+                splitKey, reqHdr->splitKeyLength);
+    } catch (const TableManager::NoSuchIndexlet& e) {
+        respHdr->common.status = STATUS_UNKNOWN_INDEXLET;
+    } catch (const TableManager::NoSuchTable& e) {
+        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
+    }
 }
 
 /**
@@ -300,8 +305,7 @@ CoordinatorService::createTable(
         Rpc* rpc)
 {
     if (serverList->masterCount() == 0) {
-        respHdr->common.status = STATUS_RETRY;
-        return;
+        throw RetryException(HERE, 5000000, 10000000, "no masters in cluster");
     }
 
     const char* name = getString(rpc->requestPayload, sizeof(*reqHdr),
@@ -561,11 +565,16 @@ CoordinatorService::reassignTabletOwnership(
         tableManager.reassignTabletOwnership(
                 newOwner, tableId, startKeyHash, endKeyHash,
                 reqHdr->ctimeSegmentId, reqHdr->ctimeSegmentOffset);
+    } catch (const TableManager::NoSuchTable& e) {
+        LOG(WARNING, "Could not reassign tablet [0x%lx,0x%lx] in tableId %lu: "
+            "table not found",
+            startKeyHash, endKeyHash, tableId);
+        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
     } catch (const TableManager::NoSuchTablet& e) {
         LOG(WARNING, "Could not reassign tablet [0x%lx,0x%lx] in tableId %lu: "
             "tablet not found",
             startKeyHash, endKeyHash, tableId);
-        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
+        respHdr->common.status = STATUS_TABLET_DOESNT_EXIST;
     }
 }
 
@@ -727,12 +736,6 @@ CoordinatorService::splitTablet(
         LOG(NOTICE,
             "In table '%s' I split the tablet at key %lu",
             name, reqHdr->splitKeyHash);
-    } catch (const TableManager::NoSuchTablet& e) {
-        respHdr->common.status = STATUS_TABLET_DOESNT_EXIST;
-        return;
-    } catch (const TableManager::BadSplit& e) {
-        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
-        return;
     } catch (TableManager::NoSuchTable& e) {
         respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
         return;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -43,11 +43,6 @@ class TableManager {
     struct NoSuchTable : public Exception {
         explicit NoSuchTable(const CodeLocation& where)
                 : Exception(where) {}
-    };
-
-    /// Thrown in response to invalid splitTablet() arguments.
-    struct BadSplit : public Exception {
-        explicit BadSplit(const CodeLocation& where) : Exception(where) {}
     };
 
     /**

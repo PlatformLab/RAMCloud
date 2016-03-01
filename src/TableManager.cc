@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -205,6 +205,11 @@ TableManager::coordSplitAndMigrateIndexlet(
  *      Number of indexlets to partition the index key space.
  *      This is only for performance testing, and value should always be 1 for
  *      real use.
+ *
+ * \throw NoSuchTable
+ *      If tableId does not specify an existing table.
+ * \throw NoSuchTablet
+ *      If the backing tablet of the index is not created properly.
  */
 void
 TableManager::createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
@@ -514,6 +519,12 @@ TableManager::getIndexletInfoByBackingTableId(uint64_t backingTableId,
  *      Indexlet is updated to indicate that it is owned by \a serverId.
  * \param backingTableId
  *      Id of the backing table that will hold objects for this indexlet.
+ *
+ * \throw NoSuchIndexlet
+ *      If the arguments do not identify a indexlet currently in the indexlet
+ *      map.
+ * \throw NoSuchTablet
+ *      If the arguments do not identify a tablet currently in the tablet map.
  */
 void
 TableManager::indexletRecovered(
@@ -619,6 +630,8 @@ TableManager::markAllTabletsRecovering(ServerId serverId)
  * \param ctimeSegmentOffset
  *      Offset in log head before migration.
  *
+ * \throw NoSuchTable
+ *      If tableId does not specify an existing table.
  * \throw NoSuchTablet
  *      If the arguments do not identify a tablet currently in the tablet map.
  */
@@ -631,12 +644,17 @@ TableManager::reassignTabletOwnership(
     Lock lock(mutex);
     IdMap::iterator it = idMap.find(tableId);
     if (it == idMap.end())
-        throw NoSuchTablet(HERE);
+        throw NoSuchTable(HERE);
     Table* table = it->second;
     Tablet* tablet = findTablet(lock, table, startKeyHash);
     if ((tablet->startKeyHash != startKeyHash)
             || (tablet->endKeyHash != endKeyHash))
         throw NoSuchTablet(HERE);
+    if (tablet->serverId == newOwner) {
+        RAMCLOUD_LOG(NOTICE, "Ownership of tablet [0x%lx,0x%lx] in tableId %lu"
+                " already transfered", startKeyHash, endKeyHash, tableId);
+        return;
+    }
 
     LOG(NOTICE, "Reassigning tablet [0x%lx,0x%lx] in tableId %lu "
         "from %s to %s",
@@ -1585,7 +1603,7 @@ TableManager::recreateTable(const Lock& lock, ProtoBuf::Table* info)
  *      Ensures that the caller holds the monitor lock; not actually used.
  * \param table
  *      Table whose information should be serialized into the protocol buffer.
- * \param externalInfo
+ * \param[out] externalInfo
  *      Information gets serialized here; we assume that this is a
  *      clean, freshly-allocated object.
  */

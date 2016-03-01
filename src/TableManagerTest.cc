@@ -442,6 +442,13 @@ TEST_F(TableManagerTest, reassignTabletOwnership_basics) {
     TestLog::reset();
     TestLog::Enable _("reassignTabletOwnership");
 
+    tableManager->reassignTabletOwnership(ServerId(1), 1, 0, 0x7fffffffffffffff,
+                99, 100);
+    EXPECT_EQ("reassignTabletOwnership: Ownership of tablet "
+            "[0x0,0x7fffffffffffffff] in tableId 1 already transfered",
+            TestLog::get());
+    TestLog::reset();
+
     tableManager->reassignTabletOwnership(ServerId(2), 1, 0, 0x7fffffffffffffff,
                 99, 100);
     EXPECT_EQ("reassignTabletOwnership: Reassigning tablet "
@@ -468,7 +475,7 @@ TEST_F(TableManagerTest, reassignTabletOwnership_basics) {
     EXPECT_EQ(2U, master2->tabletManager.getNumTablets());
 }
 
-TEST_F(TableManagerTest, reassignTabletOwnership_noSuchTablet) {
+TEST_F(TableManagerTest, reassignTabletOwnership_exceptions) {
     cluster.addServer(masterConfig);
     cluster.addServer(masterConfig);
     tableManager->createTable("table1", 2);
@@ -476,7 +483,7 @@ TEST_F(TableManagerTest, reassignTabletOwnership_noSuchTablet) {
     TestLog::reset();
 
     EXPECT_THROW(tableManager->reassignTabletOwnership(ServerId(2), 7,
-            0, 0x7fffffffffffffff, 99, 100), TableManager::NoSuchTablet);
+            0, 0x7fffffffffffffff, 99, 100), TableManager::NoSuchTable);
     EXPECT_THROW(tableManager->reassignTabletOwnership(ServerId(2), 1,
             0, 0x7ffffffffffffffe, 99, 100), TableManager::NoSuchTablet);
     EXPECT_THROW(tableManager->reassignTabletOwnership(ServerId(2), 1,
