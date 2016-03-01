@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -116,6 +116,21 @@ double atomicIntInc()
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
          prevValue = value.inc(prevValue);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    // printf("Final value: %d\n", prevValue);
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of std::atomic<int>::fetch_add with relaxed memory order.
+double cppAtomicIntInc()
+{
+    int count = 1000000;
+    std::atomic<int> value(11);
+    int prevValue = 1;
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        prevValue = value.fetch_add(prevValue, std::memory_order_relaxed);
     }
     uint64_t stop = Cycles::rdtsc();
     // printf("Final value: %d\n", prevValue);
@@ -1436,6 +1451,8 @@ TestInfo tests[] = {
      "Atomic<int>::compareExchange"},
     {"atomicIntInc", atomicIntInc,
      "Atomic<int>::inc"},
+    {"atomicIntInc", cppAtomicIntInc,
+     "std::atomic<int>::fetch_add"},
     {"atomicIntLoad", atomicIntLoad,
      "Atomic<int>::load"},
     {"atomicIntStore", atomicIntStore,
