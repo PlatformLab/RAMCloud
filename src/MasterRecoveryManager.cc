@@ -284,7 +284,7 @@ class RecoveryMasterFinishedTask : public Task {
                         ServerId(indexlet.server_id()),
                         indexlet.backing_table_id());
                 } catch (const Exception& e) {
-                    // TODO: JIRA Issue: RAM-661: What should we do here?
+                    // JIRA Issue: RAM-661: What should we do here?
                     DIE("Entry wasn't in the list anymore; "
                         "we need to handle this sensibly.");
                 }
