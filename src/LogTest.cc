@@ -136,7 +136,7 @@ TEST_F(LogTest, getHead) {
 static bool
 syncFilter(string s)
 {
-    return s == "sync";
+    return s == "sync" || s == "syncTo";
 }
 
 TEST_F(LogTest, sync) {
@@ -156,6 +156,31 @@ TEST_F(LogTest, sync) {
     TestLog::reset();
     l.sync();
     EXPECT_EQ("sync: sync not needed: already fully replicated",
+        TestLog::get());
+
+    EXPECT_EQ(4U, l.metrics.totalSyncCalls);
+}
+
+TEST_F(LogTest, syncTo) {
+    TestLog::Enable _(syncFilter);
+    l.sync();
+    EXPECT_EQ("sync: sync not needed: already fully replicated",
+        TestLog::get());
+
+    TestLog::reset();
+    Log::Reference reference;
+    l.append(LOG_ENTRY_TYPE_OBJ, "hi", 2, &reference);
+    EXPECT_NE(l.head->syncedLength, l.head->getAppendedLength());
+    l.syncTo(reference);
+    EXPECT_EQ("sync: syncing segment 1 to offset 84 | syncTo: log synced",
+        TestLog::get());
+    EXPECT_EQ(l.head->syncedLength, l.head->getAppendedLength());
+
+    TestLog::reset();
+    l.append(LOG_ENTRY_TYPE_OBJ, "ho", 2);
+    EXPECT_NE(l.head->syncedLength, l.head->getAppendedLength());
+    l.syncTo(reference);
+    EXPECT_EQ("syncTo: sync not needed: entry is already replicated",
         TestLog::get());
 
     EXPECT_EQ(4U, l.metrics.totalSyncCalls);

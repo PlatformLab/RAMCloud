@@ -64,7 +64,7 @@ enum { LOG_RECOVERY_REPLICATION_RPC_TIMING = false };
  * has failed its state is reset to the same state as if the replica had never
  * been created to begin with.  Because of this the code order itself is
  * generally *not* used to sequence operations which means the code is
- * ambivelent if some replica's state reverts (due to a failure); whether its
+ * ambivalent if some replica's state reverts (due to a failure); whether its
  * the first time or the 30th the segment simply queues up the next step needed
  * to get the replicas in the state the log module has requested.  Continuing
  * the example, the segment would inspect its replicas' states and find it was

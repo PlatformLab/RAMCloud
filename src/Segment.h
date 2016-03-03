@@ -290,6 +290,7 @@ class Segment {
                         uint32_t offset,
                         uint32_t length) const;
     uint32_t appendToBuffer(Buffer& buffer);
+    uint32_t getOffset(Reference reference);
     LogEntryType getEntry(uint32_t offset,
                           Buffer* buffer,
                           uint32_t* lengthWithMetadata = NULL);

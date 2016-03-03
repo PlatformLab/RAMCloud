@@ -417,6 +417,48 @@ Segment::appendToBuffer(Buffer& buffer)
 }
 
 /**
+ * Calculate the logical offset of a log entry within a segment.
+ *
+ * \param reference
+ *      The Segment::Reference object pointing to the desired entry. This should
+ *      always have been a result of a previous call to Segment::getReference().
+ * \return
+ *      The logical offset of the log entry in the segment.
+ */
+uint32_t
+Segment::getOffset(Reference reference)
+{
+    // Binary search our seglets to find out which one this entry starts in and
+    // compute the offset in the segment.
+    void* p = reinterpret_cast<void*>(reference.toInteger());
+    vector<void*>::iterator it = std::lower_bound(segletBlocks.begin(),
+                                                  segletBlocks.end(), p);
+
+    // The following code can be enabled to simulate a now-fixed bug that
+    // caused crashes in Jonathan Ellithorpe's graph database test case
+    // in December 2015
+#if 0
+    if (it > segletBlocks.begin() && p == *it) {
+        DIE("Simulating Jonathan's crash");
+    }
+#endif
+
+    // If 'p' points to the first byte of a seglet, 'it' will point to the
+    // seglet base address that we want. Otherwise, it will point one higher,
+    // so we need to adjust.
+    if (it > segletBlocks.begin() && p != *it)
+        it--;
+
+    assert(it != segletBlocks.end());
+    uint64_t segletOffset = reinterpret_cast<uintptr_t>(p) -
+                            reinterpret_cast<uintptr_t>(*it);
+    assert(segletOffset < segletSize);
+    uint64_t offset = (it - segletBlocks.begin()) << segletSizeShift;
+    offset += segletOffset;
+    return downCast<uint32_t>(offset);
+}
+
+/**
  * Get access to an entry stored in this segment after it has been appended by
  * specifying the logical offset of the entry in the Segment. This method is
  * primarily used as a helper function when looking up entries by their
@@ -483,34 +525,7 @@ Segment::getEntry(Reference reference,
                   Buffer* buffer,
                   uint32_t* lengthWithMetadata)
 {
-    // Binary search our seglets to find out which one this entry starts in and
-    // compute the offset in the segment.
-    void* p = reinterpret_cast<void*>(reference.toInteger());
-    vector<void*>::iterator it = std::lower_bound(segletBlocks.begin(),
-                                                  segletBlocks.end(), p);
-
-    // The following code can be enabled to simulate a now-fixed bug that
-    // caused crashes in Jonathan Ellithorpe's graph database test case
-    // in December 2015
-#if 0
-    if (it > segletBlocks.begin() && p == *it) {
-        DIE("Simulating Jonathan's crash");
-    }
-#endif
-
-    // If 'p' points to the first byte of a seglet, 'it' will point to the
-    // seglet base address that we want. Otherwise, it will point one higher,
-    // so we need to adjust.
-    if (it > segletBlocks.begin() && p != *it)
-        it--;
-
-    assert(it != segletBlocks.end());
-    uint64_t segletOffset = reinterpret_cast<uintptr_t>(p) -
-                            reinterpret_cast<uintptr_t>(*it);
-    assert(segletOffset < segletSize);
-    uint64_t offset = (it - segletBlocks.begin()) << segletSizeShift;
-    offset += segletOffset;
-    return getEntry(downCast<uint32_t>(offset), buffer, lengthWithMetadata);
+    return getEntry(getOffset(reference), buffer, lengthWithMetadata);
 }
 
 /**
