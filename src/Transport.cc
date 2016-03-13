@@ -20,8 +20,6 @@
 
 namespace RAMCloud {
 
-bool Transport::Session::testingSimulateConflict = false;
-
 /**
  * This method is invoked in the dispatch thread by a transport when
  * a response message is successfully received for RPC.
@@ -42,6 +40,19 @@ Transport::RpcNotifier::failed() {
 
 /**
  * This method is invoked by boost::intrusive_ptr as part of the
+ * implementation of SessionRef; do not call explicitly.
+ *
+ * \param session
+ *      WorkerSession for which a new WorkerSessionRef  is being
+ *      created.
+ */
+void
+intrusive_ptr_add_ref(Transport::Session* session) {
+    session->refCount.fetch_add(1, std::memory_order_relaxed);
+}
+
+/**
+ * This method is invoked by boost::intrusive_ptr as part of the
  * implementation of SessionRef; do not call explicitly. It decrements
  * the reference count on workerSession and frees session when the
  * reference count becomes zero.
@@ -51,35 +62,13 @@ Transport::RpcNotifier::failed() {
  */
 void
 intrusive_ptr_release(Transport::Session* session) {
-    // This code is tricky. In order to be thread-safe, we must atomically
-    // decrement refCount. Furthermore, if all remaining references are
-    // deleted at the same time, we must make sure that the underlying
-    // object is released exactly once (i.e. it it must not be possible for
-    // two calls to this method both to see a zero reference count).
-    //
-    // An alternative to this approach would be to use a lock to synchronize
-    // access to refCount (both here and in intrusive_ptr_add_ref) but that
-    // is considerably more expensive.
-
-    int before, after;
-    while (1) {
-        before = session->refCount;
-        after = before-1;
-#ifdef TESTING
-        if (Transport::Session::testingSimulateConflict) {
-            // During tests, pretend that a concurrent call to this method
-            // modified the reference count: the compareExchange should
-            // fail.
-            before--;
-        }
-#endif
-        // This ensures that no-one else sees the same "before" and "after"
-        // values that we see.
-        if (session->refCount.compareExchange(before, after) == before) {
-            break;
-        }
-    }
-    if (after == 0) {
+    // Inter-thread ordering constraint: any possible access to the Session
+    // object in one thread must happen before the destruction of this object
+    // in a different thread. This is enforced by a "release" operation after
+    // dropping a reference, and an "acquire" operation before destructing
+    // the session.
+    if (session->refCount.fetch_sub(1, std::memory_order_release) == 1) {
+        std::atomic_thread_fence(std::memory_order_acquire);
         session->release();
     }
 }

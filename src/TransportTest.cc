@@ -31,37 +31,6 @@ class TransportTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(TransportTest);
 };
 
-// The following test ensures that intrusive_ptr_release retries if
-// needed to ensure atomicity. This first method runs in a separate
-// thread and tries to decrement the reference count on a WorkerSession.
-static void releaseThread(Transport::SessionRef* ref, bool* done)
-{
-    *ref = NULL;
-    *done = true;
-}
-
-TEST_F(TransportTest, intrusive_ptr_release) {
-    Transport::SessionRef wrappedSession = new Transport::Session();
-    bool done = false;
-    Transport::Session::testingSimulateConflict = true;
-    std::thread child(releaseThread, &wrappedSession, &done);
-
-    // Make sure the other thread hangs in intrusive_ptr_release (continuous
-    // conflicts) until we turn off conflict simulation.
-    usleep(1000);
-    EXPECT_FALSE(done);
-    Transport::Session::testingSimulateConflict = false;
-    // See "Timing-Dependent Tests" in designNotes.
-    for (int i = 0; i < 1000; i++) {
-        if (done) {
-            break;
-        }
-        usleep(1000);
-    }
-    EXPECT_TRUE(done);
-    child.join();
-}
-
 // The following test makes sure that reference counts are thread-safe;
 // it uses two threads incrementing and decrementing the reference count
 // simultaneously.
@@ -74,6 +43,7 @@ static void contentionThread(Transport::SessionRef* ref, bool* done)
         }
     }
 }
+
 TEST_F(TransportTest, sessionRef_contention) {
     Transport::SessionRef wrappedSession = new Transport::Session();
     Transport::SessionRef copy = wrappedSession;

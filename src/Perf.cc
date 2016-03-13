@@ -1190,8 +1190,7 @@ double serialize() {
 double sessionRefCount()
 {
     int count = 1000000;
-    Transport::Session session;
-    Transport::SessionRef ref1(&session);
+    Transport::SessionRef ref1(new Transport::Session);
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         Transport::SessionRef ref2 = ref1;
@@ -1577,10 +1576,8 @@ TestInfo tests[] = {
      "Sort a Segment full of avg. 100-byte Objects by age"},
     {"segmentIterator", segmentIterator<50, 150>,
      "Iterate a Segment full of avg. 100-byte Objects"},
-#if 0  // Causes a double free.
     {"sessionRefCount", sessionRefCount,
      "Create/delete SessionRef"},
-#endif
     {"serialize", serialize,
      "cpuid instruction for serialize"},
     {"sfence", sfence,

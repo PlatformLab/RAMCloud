@@ -16,10 +16,10 @@
 #ifndef RAMCLOUD_TRANSPORT_H
 #define RAMCLOUD_TRANSPORT_H
 
+#include <atomic>
 #include <string>
 #include <boost/intrusive_ptr.hpp>
 
-#include "Atomic.h"
 #include "BoostIntrusive.h"
 #include "Buffer.h"
 #include "CodeLocation.h"
@@ -245,30 +245,15 @@ class Transport {
          */
         virtual void abort() {}
 
-        /**
-         * This method is invoked by boost::intrusive_ptr as part of the
-         * implementation of SessionRef; do not call explicitly.
-         *
-         * \param session
-         *      WorkerSession for which a new WorkerSessionRef  is being
-         *      created.
-         */
-        friend void intrusive_ptr_add_ref(Session* session) {
-            session->refCount.inc();
-        }
+        friend void intrusive_ptr_add_ref(Session* session);
 
         friend void intrusive_ptr_release(Session* session);
 
-
       PROTECTED:
-        Atomic<int> refCount;          /// Count of SessionRefs that exist
-                                       /// for this Session.
+        std::atomic<int> refCount;      /// Count of SessionRefs that exist
+                                        /// for this Session.
       PRIVATE:
         string serviceLocator;
-
-        // The following variable is used to simulate simultaneous calls to
-        // intrusive_ptr_release in order to test its conflict handling.
-        static bool testingSimulateConflict;
 
         DISALLOW_COPY_AND_ASSIGN(Session);
     };
