@@ -116,6 +116,13 @@ TEST(AtomicTest, loadStore) {
     EXPECT_EQ(0x000a000b000c000UL, i.load());
 }
 
+TEST(AtomicTest, operatorArrow) {
+    Atomic<std::vector<int>*> vp(new std::vector<int>());
+    vp->push_back(1);
+    vp->push_back(2);
+    EXPECT_EQ(2u, vp->size());
+}
+
 TEST(AtomicTest, operatorEquals) {
     Atomic<int64_t> i(3);
     int64_t j = i = 0x0001000200030004;

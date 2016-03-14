@@ -166,6 +166,20 @@ class Atomic {
         return value;
     }
 
+
+    /**
+     * Return the current (pointer) value.
+     *
+     * This specialized template function is only enabled when ValueType is
+     * a pointer type.
+     */
+    template<typename P = ValueType>
+    typename std::pointer_traits<P>::pointer
+    operator->() const
+    {
+        return load();
+    }
+
     /**
      * Assign to an Atomic.
      *
@@ -183,7 +197,7 @@ class Atomic {
     /**
      * Return the current value.
      */
-    operator ValueType()
+    operator ValueType() const
     {
         return load();
     }
