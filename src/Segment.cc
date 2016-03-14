@@ -37,7 +37,8 @@ segletLessThan(const Seglet* a, const Seglet* b)
  * temporary segment is needed to move data between servers.
  */
 Segment::Segment()
-    : segletSize(DEFAULT_SEGMENT_SIZE),
+    : closedCommitted(false),
+      segletSize(DEFAULT_SEGMENT_SIZE),
       segletSizeShift(0),
       seglets(),
       segletBlocks(),
@@ -53,7 +54,8 @@ Segment::Segment()
  * Construct a segment using the provided seglets of the specified size.
  */
 Segment::Segment(const vector<Seglet*>& allocatedSeglets, uint32_t segletSize)
-    : segletSize(segletSize),
+    : closedCommitted(false),
+      segletSize(segletSize),
       segletSizeShift(BitOps::findFirstSet(segletSize) - 1),
       seglets(allocatedSeglets),
       segletBlocks(),
@@ -88,7 +90,8 @@ Segment::Segment(const vector<Seglet*>& allocatedSeglets, uint32_t segletSize)
  *      Length of the buffer in bytes.
  */
 Segment::Segment(const void* buffer, uint32_t length)
-    : segletSize(length),
+    : closedCommitted(false),
+      segletSize(length),
       segletSizeShift(0),
       seglets(),
       segletBlocks(),

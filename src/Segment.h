@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_SEGMENT_H
 #define RAMCLOUD_SEGMENT_H
 
+#include <atomic>
 #include <vector>
 
 #include "Common.h"
@@ -369,6 +370,10 @@ class Segment {
 
         return segletSize - segletOffset;
     }
+
+    /// Tells the close state of this segment is replicated durably.
+    /// This is used to decide Log::syncTo() needs to sync the current segment.
+    std::atomic<bool> closedCommitted;
 
   PRIVATE:
     EntryHeader getEntryHeader(uint32_t offset);

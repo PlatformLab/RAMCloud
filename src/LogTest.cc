@@ -20,6 +20,8 @@
 #include "Log.h"
 #include "LogEntryTypes.h"
 #include "Memory.h"
+#include "MockCluster.h"
+#include "RamCloud.h"
 #include "ServerConfig.h"
 #include "StringUtil.h"
 #include "Transport.h"
@@ -71,6 +73,73 @@ class LogTest : public ::testing::Test {
 
   private:
     DISALLOW_COPY_AND_ASSIGN(LogTest);
+};
+
+/**
+ * Unit tests for Log sync (especially syncTo).
+ * Here, we build a mockCluster with a backup, and log has non-zero replica.
+ * This real replica is necessary to test subtleties in checking previously
+ * closed segment is fully replicated.
+ */
+class LogSyncTest : public ::testing::Test {
+  public:
+    TestLog::Enable logEnabler;
+    Context context;
+    ServerList serverList;
+    MockCluster cluster;
+    Tub<RamCloud> ramcloud;
+    ServerConfig backup1Config;
+    ServerId backup1Id;
+
+    ServerConfig masterConfig;
+    MasterService* service;
+    Server* masterServer;
+    Log *l;
+
+    // To make tests that don't need big segments faster, set a smaller default
+    // segmentSize. Since we can't provide arguments to it in gtest, nor can we
+    // apparently template easily on that, we need to subclass this if we want
+    // to provide a fixture with a different value.
+    explicit LogSyncTest(uint32_t segmentSize = 256 * 1024)
+        : logEnabler()
+        , context()
+        , serverList(&context)
+        , cluster(&context)
+        , ramcloud()
+        , backup1Config(ServerConfig::forTesting())
+        , backup1Id()
+        , masterConfig(ServerConfig::forTesting())
+        , service()
+        , masterServer()
+        , l()
+    {
+        //Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+
+        backup1Config.localLocator = "mock:host=backup1";
+        backup1Config.services = {WireFormat::BACKUP_SERVICE,
+                WireFormat::MEMBERSHIP_SERVICE};
+        backup1Config.segmentSize = segmentSize;
+        backup1Config.backup.numSegmentFrames = 30;
+        Server* server = cluster.addServer(backup1Config);
+        server->backup->testingSkipCallerIdCheck = true;
+        backup1Id = server->serverId;
+
+        masterConfig = ServerConfig::forTesting();
+        masterConfig.segmentSize = segmentSize;
+        masterConfig.maxObjectDataSize = segmentSize / 4;
+        masterConfig.localLocator = "mock:host=master";
+        masterConfig.services = {WireFormat::MASTER_SERVICE,
+                WireFormat::MEMBERSHIP_SERVICE};
+        masterConfig.master.logBytes = segmentSize * 30;
+        masterConfig.master.numReplicas = 1;
+        masterServer = cluster.addServer(masterConfig);
+        service = masterServer->master.get();
+        service->objectManager.log.sync();
+        l = &service->objectManager.log;
+    }
+
+  private:
+    DISALLOW_COPY_AND_ASSIGN(LogSyncTest);
 };
 
 TEST_F(LogTest, constructor) {
@@ -158,32 +227,55 @@ TEST_F(LogTest, sync) {
     EXPECT_EQ("sync: sync not needed: already fully replicated",
         TestLog::get());
 
-    EXPECT_EQ(4U, l.metrics.totalSyncCalls);
+    // Test sync if preceding segment is not closed durably.
+    TestLog::reset();
+    l.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
+    {
+        SpinLock::Guard lock(l.appendLock);
+        l.allocNewWritableHead();
+    }
+    l.sync();
+    EXPECT_EQ("sync: syncing segment 2 to offset 88 | sync: log synced",
+        TestLog::get());
+
+    EXPECT_EQ(5U, l.metrics.totalSyncCalls);
 }
 
-TEST_F(LogTest, syncTo) {
+TEST_F(LogSyncTest, syncTo) {
     TestLog::Enable _(syncFilter);
-    l.sync();
+    l->sync();
     EXPECT_EQ("sync: sync not needed: already fully replicated",
         TestLog::get());
 
     TestLog::reset();
-    Log::Reference reference;
-    l.append(LOG_ENTRY_TYPE_OBJ, "hi", 2, &reference);
-    EXPECT_NE(l.head->syncedLength, l.head->getAppendedLength());
-    l.syncTo(reference);
+    Log::Reference reference, reference2;
+    l->append(LOG_ENTRY_TYPE_OBJ, "hi", 2, &reference);
+    EXPECT_NE(l->head->syncedLength, l->head->getAppendedLength());
+    l->syncTo(reference);
     EXPECT_EQ("sync: syncing segment 1 to offset 84 | syncTo: log synced",
         TestLog::get());
-    EXPECT_EQ(l.head->syncedLength, l.head->getAppendedLength());
+    EXPECT_EQ(l->head->syncedLength, l->head->getAppendedLength());
 
     TestLog::reset();
-    l.append(LOG_ENTRY_TYPE_OBJ, "ho", 2);
-    EXPECT_NE(l.head->syncedLength, l.head->getAppendedLength());
-    l.syncTo(reference);
+    l->append(LOG_ENTRY_TYPE_OBJ, "ho", 2, &reference2);
+    EXPECT_NE(l->head->syncedLength, l->head->getAppendedLength());
+    l->syncTo(reference);
     EXPECT_EQ("syncTo: sync not needed: entry is already replicated",
         TestLog::get());
 
-    EXPECT_EQ(4U, l.metrics.totalSyncCalls);
+    // Test sync if preceding segment is not closed durably.
+    TestLog::reset();
+    {
+        SpinLock::Guard lock(l->appendLock);
+        l->allocNewWritableHead();
+    }
+    EXPECT_FALSE(l->getSegment(reference2)->closedCommitted);
+    l->syncTo(reference2);
+    EXPECT_TRUE(l->getSegment(reference2)->closedCommitted);
+    EXPECT_EQ("sync: syncing segment 2 to offset 88 | syncTo: log synced",
+        TestLog::get());
+
+    EXPECT_EQ(5U, l->metrics.totalSyncCalls);
 }
 
 TEST_F(LogTest, rollHeadOver) {

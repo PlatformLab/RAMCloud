@@ -250,10 +250,13 @@ ReplicatedSegment::close()
     // no chance to clear it, which breaks calls to free().
     if (getCommitted().open && followingSegment)
         followingSegment->precedingSegmentOpenCommitted = true;
-    if (getCommitted().close && followingSegment) {
-        followingSegment->precedingSegmentCloseCommitted = true;
-        // Don't poke at potentially non-existent segments later.
-        followingSegment = NULL;
+    if (getCommitted().close) {
+        const_cast<Segment*>(segment)->closedCommitted = true;
+        if (followingSegment) {
+            followingSegment->precedingSegmentCloseCommitted = true;
+            // Don't poke at potentially non-existent segments later.
+            followingSegment = NULL;
+        }
     }
     schedule();
 
@@ -755,10 +758,13 @@ ReplicatedSegment::performWrite(Replica& replica)
                 }
                 if (getCommitted().open && followingSegment)
                     followingSegment->precedingSegmentOpenCommitted = true;
-                if (getCommitted().close && followingSegment) {
-                    followingSegment->precedingSegmentCloseCommitted = true;
-                    // Don't poke at potentially non-existent segments later.
-                    followingSegment = NULL;
+                if (getCommitted().close) {
+                    const_cast<Segment*>(segment)->closedCommitted = true;
+                    if (followingSegment) {
+                        followingSegment->precedingSegmentCloseCommitted = true;
+                        // Don't poke at potentially non-existent segments later
+                        followingSegment = NULL;
+                    }
                 }
             } catch (const ServerNotUpException& e) {
                 // Retry; wait for BackupFailureMonitor to call
