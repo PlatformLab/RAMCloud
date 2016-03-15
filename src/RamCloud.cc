@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1611,12 +1611,9 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
     send();
 }
 
-/**
- * Handle the case where the RPC cannot be completed as the indexlet containing
- * the key(s) was not found.
- */
+// See IndexRpcWrapper for documentation.
 void
-LookupIndexKeysRpc::indexletNotFound()
+LookupIndexKeysRpc::handleIndexDoesntExist()
 {
     response->reset();
     WireFormat::LookupIndexKeys::Response* respHdr =

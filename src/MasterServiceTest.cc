@@ -45,11 +45,11 @@ namespace RAMCloud {
 class MasterServiceRefresher : public ObjectFinder::TableConfigFetcher {
   public:
     MasterServiceRefresher() : refreshCount(1) {}
-    void getTableConfig(
+    bool tryGetTableConfig(
             uint64_t tableId,
             std::map<TabletKey, TabletWithLocator>* tableMap,
             std::multimap< std::pair<uint64_t, uint8_t>,
-                    ObjectFinder::Indexlet>* tableIndexMap) {
+                    IndexletWithLocator>* tableIndexMap) {
         tableMap->clear();
 
         Tablet rawEntry({1, 0, uint64_t(~0), ServerId(),
@@ -69,6 +69,7 @@ class MasterServiceRefresher : public ObjectFinder::TableConfigFetcher {
 
         }
         refreshCount--;
+        return true;
     }
     // After this many refreshes we stop including table 99 in the
     // map; used to detect that misdirected requests are rejected by

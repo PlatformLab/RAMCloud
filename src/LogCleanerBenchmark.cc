@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1838,6 +1838,9 @@ try
     ramcloud.createTable(options.tableName.c_str());
     uint64_t tableId = ramcloud.getTableId(options.tableName.c_str());
 
+    // TODO(YilongL): The synchronous lookupTablet is now deprecated; rewrite
+    // the following code to use the ServerControlRpc and eliminate the use
+    // of the synchronous lookupTablet.
     string locator =
         context.objectFinder->lookupTablet(tableId, 0)->serviceLocator;
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -26,11 +26,14 @@ namespace RAMCloud {
 class ObjRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
   public:
     ObjRpcWrapperRefresher() : called(0) {}
-    void getTableConfig(
-        uint64_t tableId,
-        std::map<TabletKey, TabletWithLocator>* tableMap,
-        std::multimap< std::pair<uint64_t, uint8_t>,
-                                    ObjectFinder::Indexlet>* tableIndexMap) {
+    bool tryGetTableConfig(
+            uint64_t tableId,
+            std::map<TabletKey, TabletWithLocator>* tableMap,
+            std::multimap< std::pair<uint64_t, uint8_t>,
+                                     IndexletWithLocator>* tableIndexMap) {
+        if (tableId == 99) {
+            return false;
+        }
 
         called++;
         char buffer[100];
@@ -43,6 +46,7 @@ class ObjRpcWrapperRefresher : public ObjectFinder::TableConfigFetcher {
 
         TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
         tableMap->insert(std::make_pair(key, entry));
+        return true;
     }
     uint32_t called;
 };
@@ -122,5 +126,20 @@ TEST_F(ObjectRpcWrapperTest, send) {
     EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
 }
 
+TEST_F(ObjectRpcWrapperTest, send_handleTableDoesntExistException) {
+    ObjectRpcWrapper wrapper(ramcloud.clientContext, 20, "abc", 3, 4);
+    wrapper.request.fillFromString("100");
+    wrapper.send();
+    EXPECT_EQ(STATUS_TABLE_DOESNT_EXIST, wrapper.response->
+            getOffset<WireFormat::ResponseCommon>(0)->status);
+    EXPECT_STREQ("FINISHED", wrapper.stateString());
+}
+
+TEST_F(ObjectRpcWrapperTest, send_retry) {
+    ObjectRpcWrapper wrapper(ramcloud.clientContext, 99, "abc", 3, 4);
+    wrapper.request.fillFromString("100");
+    wrapper.send();
+    EXPECT_STREQ("RETRY", wrapper.stateString());
+}
 
 }  // namespace RAMCloud

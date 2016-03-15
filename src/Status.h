@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -38,9 +38,10 @@ typedef enum Status {
     STATUS_OK                           = 0,
 
     /// Indicates that the server does not know about (and is not responsible
-    /// for) a given table, but that it may exist elsewhere in the system.
-    /// When it's possible that the table exists on another server, this status
-    /// should be returned (in preference to the definitive TABLE_DOESNT_EXIST).
+    /// for) a given tablet, but that it may exist elsewhere in the system.
+    /// When it's possible that the tablet exists on another server, this
+    /// status should be returned (in preference to the definitive
+    /// TABLE_DOESNT_EXIST).
     STATUS_UNKNOWN_TABLET               = 1,
 
     /// Indicates that a table does not exist anywhere in the system. At present
@@ -115,10 +116,15 @@ typedef enum Status {
 
     /// Indicates that the server does not know about (and is not responsible
     /// for) a given indexlet, but that it may exist elsewhere in the system.
+    /// When it's possible that the indexlet exists on another server, this
+    /// status should be returned (in preference to the definitive
+    /// INDEX_DOESNT_EXIST).
     STATUS_UNKNOWN_INDEXLET             = 28,
 
-    /// Indicates that an index containing the given index key cannot be found.
-    STATUS_UNKNOWN_INDEX                = 29,
+    /// Indicates that an index does not exist anywhere in the system. At
+    /// present only the coordinator can say with certainly that an index does
+    /// not exist.
+    STATUS_INDEX_DOESNT_EXIST           = 29,
 
     /// Indicates that a parameter provided by the client is invalid (for
     /// example: it is outside allowed bounds).

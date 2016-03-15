@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -279,13 +279,11 @@ InsertIndexEntryRpc::InsertIndexEntryRpc(
     send();
 }
 
-/**
- * Handle the case where the RPC cannot be completed as the indexlet containing
- * the key was not found.
- */
+// See IndexRpcWrapper for documentation.
 void
-InsertIndexEntryRpc::indexletNotFound()
+InsertIndexEntryRpc::handleIndexDoesntExist()
 {
+    response->reset();
     response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
 }
 
@@ -754,13 +752,11 @@ RemoveIndexEntryRpc::RemoveIndexEntryRpc(
     send();
 }
 
-/**
- * Handle the case where the RPC cannot be completed as the indexlet containing
- * the key was not found.
- */
+// See IndexRpcWrapper for documentation.
 void
-RemoveIndexEntryRpc::indexletNotFound()
+RemoveIndexEntryRpc::handleIndexDoesntExist()
 {
+    response->reset();
     response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
 }
 
