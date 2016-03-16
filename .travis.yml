@@ -19,7 +19,7 @@ env:
   - CMD="make DEBUG=NO -j2"
   - CMD="make ZOOKEEPER_LIB='-lzookeeper_mt' INFINIBAND=no -j2"
 # make tests w/o timing dependent tests
-  - CMD="make -j2 obj.master/test && obj.master/test --gtest_filter=-PortAlarmTest.triple_alarm:WorkerTimerTest.stopInternal_handlerDoesntFinishQuickly"
+  - CMD="make -j2 obj.master/test && obj.master/test -v --gtest_filter=-PortAlarmTest.triple_alarm:WorkerTimerTest.stopInternal_handlerDoesntFinishQuickly"
 # Style Checks
   - CMD="make check"
   - CMD="make -j2 && hooks/pre-commit-90docs"
