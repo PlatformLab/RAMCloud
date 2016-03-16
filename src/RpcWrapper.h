@@ -212,10 +212,12 @@ class RpcWrapper : public Transport::RpcNotifier {
     const char* stateString();
     bool waitInternal(Dispatch* dispatch, uint64_t abortTime = ~0UL);
 
-    /// Request and response messages.  In some cases the response buffer
-    /// is provided by the wrapper (e.g., for reads); if not, response refers
-    /// to defaultResponse.
+    /// Request message.
     Buffer request;
+    /// Response message.  In some cases the response buffer is provided by
+    /// the wrapper (e.g., for reads); if not, response refers to
+    /// defaultResponse. Guaranteed to be at least responseHeaderLength bytes
+    /// long when isReady returns true.
     Buffer* response;
 
     /// Storage to use for response if constructor was not given an explicit
@@ -239,7 +241,7 @@ class RpcWrapper : public Transport::RpcNotifier {
 
     /// Response header; filled in by isReady, so that wrapper functions
     /// don't have to recompute it.  Guaranteed to actually refer to at
-    /// least responseHeaderLength bytes.
+    /// least responseHeaderLength bytes if the RPC succeeds.
     const WireFormat::ResponseCommon* responseHeader;
 
     DISALLOW_COPY_AND_ASSIGN(RpcWrapper);

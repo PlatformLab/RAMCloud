@@ -1456,13 +1456,12 @@ IndexServerControlRpc::wait()
     waitInternal(context->dispatch);
     const WireFormat::ServerControl::Response* respHdr(
             getResponseHeader<WireFormat::ServerControl>());
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
     response->truncateFront(sizeof(*respHdr));
     assert(respHdr->outputLength == response->size());
-
-    if (respHdr->common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr->common.status);
 }
 
 /**
@@ -1903,13 +1902,13 @@ ReadRpc::wait(uint64_t* version)
     if (version != NULL)
         *version = respHdr->version;
 
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
     response->truncateFront(sizeof(*respHdr));
     assert(respHdr->length == response->size());
-
-    if (respHdr->common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr->common.status);
 }
 
 /**
@@ -1969,13 +1968,13 @@ ReadKeysAndValueRpc::wait(uint64_t* version)
     if (version != NULL)
         *version = respHdr->version;
 
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
     response->truncateFront(sizeof(*respHdr));
     assert(respHdr->length == response->size());
-
-    if (respHdr->common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr->common.status);
 }
 
 /**
@@ -2168,13 +2167,12 @@ ObjectServerControlRpc::wait()
     waitInternal(context->dispatch);
     const WireFormat::ServerControl::Response* respHdr(
             getResponseHeader<WireFormat::ServerControl>());
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
     response->truncateFront(sizeof(*respHdr));
     assert(respHdr->outputLength == response->size());
-
-    if (respHdr->common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr->common.status);
 }
 /**
  * This RPCs used to invoke ServerControl on every server in the cluster; it
@@ -2444,10 +2442,10 @@ GetRuntimeOptionRpc::wait()
     waitInternal(context->dispatch);
     const WireFormat::GetRuntimeOption::Response* respHdr(
             getResponseHeader<WireFormat::GetRuntimeOption>());
-    response->truncateFront(sizeof(*respHdr));
-    assert(respHdr->valueLength == response->size());
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->valueLength == response->size());
 }
 
 /**

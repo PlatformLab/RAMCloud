@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -186,6 +186,11 @@ RpcWrapper::isReady() {
                         responseHeaderLength,
                         downCast<int>(response->size()));
                 throw MessageTooShortError(HERE);
+            }
+            // Extend the response buffer to be at least responseHeaderLength
+            // bytes long.
+            if (response->size() < responseHeaderLength) {
+                response->alloc(responseHeaderLength - response->size());
             }
         }
         if (responseHeader->status == STATUS_RETRY) {
