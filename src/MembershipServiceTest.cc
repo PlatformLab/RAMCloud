@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -71,17 +71,17 @@ TEST_F(MembershipServiceTest, updateServerList_single) {
     // to use as a source for update information.
     Context context2;
     context2.externalStorage = &storage;
-    CoordinatorServerList source(&context2);
-    source.haltUpdater();
     CoordinatorService coordinatorService(&context2, 1000, true);
-    ServerId id1 = source.enlistServer({WireFormat::MASTER_SERVICE,
+    CoordinatorServerList* source(context2.coordinatorServerList);
+    source->haltUpdater();
+    ServerId id1 = source->enlistServer({WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 0, 100, "mock:host=55");
-    ServerId id2 = source.enlistServer({WireFormat::MASTER_SERVICE,
+    ServerId id2 = source->enlistServer({WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 0, 100, "mock:host=56");
-    ServerId id3 = source.enlistServer({WireFormat::MASTER_SERVICE,
+    ServerId id3 = source->enlistServer({WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 0, 100, "mock:host=57");
     ProtoBuf::ServerList fullList;
-    source.serialize(&fullList, {WireFormat::MASTER_SERVICE,
+    source->serialize(&fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
 
     CoordinatorServerList::UpdateServerListRpc
@@ -103,24 +103,24 @@ TEST_F(MembershipServiceTest, updateServerList_multi) {
     Context context2;
     context2.externalStorage = &storage;
     ProtoBuf::ServerList fullList, update2, update3;
-    CoordinatorServerList source(&context2);
     CoordinatorService coordinatorService(&context2, 1000, true);
-    source.haltUpdater();
+    CoordinatorServerList* source(context2.coordinatorServerList);
+    source->haltUpdater();
 
     // Full List v1
-    ServerId id1 = source.enlistServer({WireFormat::MASTER_SERVICE,
+    ServerId id1 = source->enlistServer({WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 0, 100, "mock:host=55");
-    source.serialize(&fullList, {WireFormat::MASTER_SERVICE,
+    source->serialize(&fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
     // Update v2
-    ServerId id2 = source.enlistServer({WireFormat::MASTER_SERVICE,
+    ServerId id2 = source->enlistServer({WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 0, 100, "mock:host=56");
-    EXPECT_EQ(2U, source.updates.size());
-    update2 = source.updates.back().incremental;
+    EXPECT_EQ(2U, source->updates.size());
+    update2 = source->updates.back().incremental;
     // Update v3
-    ServerId id3 = source.enlistServer({WireFormat::MASTER_SERVICE,
+    ServerId id3 = source->enlistServer({WireFormat::MASTER_SERVICE,
             WireFormat::PING_SERVICE}, 0, 100, "mock:host=57");
-    update3 = source.updates.back().incremental;
+    update3 = source->updates.back().incremental;
 
 
     CoordinatorServerList::UpdateServerListRpc

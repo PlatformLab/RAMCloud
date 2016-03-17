@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -148,9 +148,6 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_nonexistentServer) {
 }
 
 TEST_F(ServerIdRpcWrapperTest, handleTransportError_callServerCrashed) {
-    // Set up a CoordinatorServerList, which requires a CoordinatorService.
-    CoordinatorServerList serverList(&context);
-    context.serverList = &serverList;
     MockExternalStorage storage(false);
     context.externalStorage = &storage;
     CoordinatorService coordinator(&context, 1000, true);
@@ -158,9 +155,10 @@ TEST_F(ServerIdRpcWrapperTest, handleTransportError_callServerCrashed) {
 
     // Don't let the server list updater run; can cause timing-dependent
     // crashes due to order dependencies among destructors.
-    serverList.haltUpdater();
+    context.coordinatorServerList->haltUpdater();
 
-    id = serverList.enlistServer({WireFormat::MASTER_SERVICE}, 0, 100, "mock:");
+    id = context.coordinatorServerList->enlistServer(
+            {WireFormat::MASTER_SERVICE}, 0, 100, "mock:");
     ServerIdRpcWrapper wrapper(&context, id, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();

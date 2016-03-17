@@ -89,7 +89,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         ServerId nextServerId;
         bool end = false;
         while (!end) {
-            nextServerId = service->serverList->nextServer(nextServerId,
+            nextServerId = service->serverList.nextServer(nextServerId,
                     {WireFormat::PING_SERVICE}, &end, false);
             if (!end && nextServerId.isValid()) {
                 rpcs->emplace_back(service->context, nextServerId, controlOp,
@@ -476,8 +476,8 @@ TEST_F(CoordinatorServiceTest, verifyServerFailure) {
     // Case 2: server incommunicado.
     MockTransport mockTransport(&context);
     context.transportManager->registerMock(&mockTransport, "mock2");
-    service->serverList->haltUpdater();
-    ServerId deadId = service->serverList->enlistServer(
+    service->serverList.haltUpdater();
+    ServerId deadId = service->serverList.enlistServer(
                 {WireFormat::PING_SERVICE}, 0, 100, "mock2:");
     EXPECT_TRUE(service->verifyServerFailure(deadId));
 

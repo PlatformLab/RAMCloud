@@ -53,7 +53,6 @@ MockCluster::MockCluster(Context* context, string coordinatorLocator)
     linkedContext->transportManager->registerMock(&transport);
     linkedContext->coordinatorSession->setLocation(coordinatorLocator.c_str());
 
-    new CoordinatorServerList(&coordinatorContext);
     coordinatorContext.transportManager->registerMock(&transport);
     coordinatorContext.coordinatorSession->setLocation(
             coordinatorLocator.c_str());
@@ -78,13 +77,10 @@ MockCluster::~MockCluster()
 
     // Delete the context that we created, and cleanup all the modifications
     // that we made to them.
-    foreach (Context* context, contexts) {
+    for (Context* context : contexts) {
         delete context->serverList;
         delete context;
     }
-
-    // Cleanup modifications we made to the coordinator context->
-    delete coordinatorContext.coordinatorServerList;
 
     // Cleanup modifications we made to the caller's context->
     if (linkedContextServerList && (linkedContext->serverList ==

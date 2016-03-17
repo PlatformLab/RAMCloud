@@ -47,9 +47,9 @@ CoordinatorService::CoordinatorService(Context* context,
                                        bool unitTesting,
                                        bool neverKill)
     : context(context)
-    , serverList(context->coordinatorServerList)
     , deadServerTimeout(deadServerTimeout)
     , updateManager(context->externalStorage)
+    , serverList(context)
     , tableManager(context, &updateManager)
     , leaseAuthority(context)
     , runtimeOptions()
@@ -105,7 +105,7 @@ CoordinatorService::init(CoordinatorService* service,
         // Recover state (and incomplete operations) from external storage.
         service->leaseAuthority.recover();
         uint64_t lastCompletedUpdate = service->updateManager.init();
-        service->serverList->recover(lastCompletedUpdate);
+        service->serverList.recover(lastCompletedUpdate);
         service->tableManager.recover(lastCompletedUpdate);
         service->updateManager.recoveryFinished();
         LOG(NOTICE, "Coordinator state has been recovered from external "
@@ -114,7 +114,7 @@ CoordinatorService::init(CoordinatorService* service,
         // Don't enable server list updates until recovery is finished (before
         // this point the server list may not contain all information needed
         // for updating).
-        service->serverList->startUpdater();
+        service->serverList.startUpdater();
 
         if (!unitTesting) {
             service->leaseAuthority.startUpdaters();
@@ -304,7 +304,7 @@ CoordinatorService::createTable(
         WireFormat::CreateTable::Response* respHdr,
         Rpc* rpc)
 {
-    if (serverList->masterCount() == 0) {
+    if (serverList.masterCount() == 0) {
         throw RetryException(HERE, 5000000, 10000000, "no masters in cluster");
     }
 
@@ -363,18 +363,18 @@ CoordinatorService::enlistServer(
     // crash recovery on the old server. Furthermore, we must initiate that
     // right away, so that existing servers will be notified of the crash
     // before finding out about the new server.
-    if (serverList->isUp(replacesId)) {
+    if (serverList.isUp(replacesId)) {
         LOG(NOTICE, "enlisting server %s claims to replace server id "
             "%s, which is still in the server list; taking its word "
             "for it and assuming the old server has failed",
             serviceLocator, replacesId.toString().c_str());
-        serverList->serverCrashed(replacesId);
+        serverList.serverCrashed(replacesId);
     }
 
-    ServerId newServerId = serverList->enlistServer(serviceMask,
-                                                    reqHdr->preferredIndex,
-                                                    readSpeed,
-                                                    serviceLocator);
+    ServerId newServerId = serverList.enlistServer(serviceMask,
+                                                   reqHdr->preferredIndex,
+                                                   readSpeed,
+                                                   serviceLocator);
     respHdr->serverId = newServerId.getId();
 }
 
@@ -460,7 +460,7 @@ CoordinatorService::getServerList(
     ServiceMask serviceMask = ServiceMask::deserialize(reqHdr->serviceMask);
 
     ProtoBuf::ServerList serialServerList;
-    serverList->serialize(&serialServerList, serviceMask);
+    serverList.serialize(&serialServerList, serviceMask);
 
     respHdr->serverListLength =
         serializeToResponse(rpc->replyPayload, &serialServerList);
@@ -518,22 +518,22 @@ CoordinatorService::hintServerCrashed(
     rpc->sendReply();
     // reqHdr, respHdr, and rpc are off-limits now
 
-    if (!serverList->contains(serverId) ||
-            (*serverList)[serverId].status != ServerStatus::UP) {
+    if (!serverList.contains(serverId) ||
+            serverList[serverId].status != ServerStatus::UP) {
         LOG(NOTICE, "Spurious crash report on unknown server id %s",
                      serverId.toString().c_str());
         return;
      }
 
      LOG(NOTICE, "Checking server id %s (%s)",
-         serverId.toString().c_str(), serverList->getLocator(serverId).c_str());
+         serverId.toString().c_str(), serverList.getLocator(serverId).c_str());
      if (!verifyServerFailure(serverId))
          return;
 
      LOG(NOTICE, "Server id %s has crashed, notifying the cluster and "
          "starting recovery", serverId.toString().c_str());
 
-     serverList->serverCrashed(serverId);
+     serverList.serverCrashed(serverId);
 }
 
 /**
@@ -552,7 +552,7 @@ CoordinatorService::reassignTabletOwnership(
     uint64_t startKeyHash = reqHdr->firstKeyHash;
     uint64_t endKeyHash = reqHdr->lastKeyHash;
 
-    if (!serverList->isUp(newOwner)) {
+    if (!serverList.isUp(newOwner)) {
         LOG(WARNING, "Cannot reassign tablet [0x%lx,0x%lx] in tableId %lu "
                      "to %s: server not up",
                       startKeyHash, endKeyHash, tableId,
@@ -644,10 +644,10 @@ CoordinatorService::serverControlAll(
 
         // If there are still servers left, send out 1 RPC
         if (!end) {
-            nextServerId = serverList->nextServer(nextServerId,
-                                                  {WireFormat::PING_SERVICE},
-                                                  &end,
-                                                  false);
+            nextServerId = serverList.nextServer(nextServerId,
+                                                 {WireFormat::PING_SERVICE},
+                                                 &end,
+                                                 false);
             if (!end && nextServerId.isValid()) {
                 rpcs.emplace_back(context, nextServerId, reqHdr->controlOp,
                                   inputData, reqHdr->inputLength);
@@ -682,7 +682,7 @@ CoordinatorService::setMasterRecoveryInfo(
     LOG(DEBUG, "setMasterRecoveryInfo for server %s to %s",
         serverId.toString().c_str(), recoveryInfo.ShortDebugString().c_str());
 
-    if (!serverList->setMasterRecoveryInfo(serverId, &recoveryInfo)) {
+    if (!serverList.setMasterRecoveryInfo(serverId, &recoveryInfo)) {
         LOG(WARNING, "setMasterRecoveryInfo server doesn't exist: %s",
             serverId.toString().c_str());
         respHdr->common.status = STATUS_SERVER_NOT_UP;
@@ -755,13 +755,13 @@ CoordinatorService::verifyMembership(
         Rpc* rpc)
 {
     ServerId serverId(reqHdr->serverId);
-    if (!serverList->isUp(serverId)) {
+    if (!serverList.isUp(serverId)) {
         respHdr->common.status = STATUS_CALLER_NOT_IN_CLUSTER;
         LOG(WARNING, "Membership verification failed for %s",
-            serverList->toString(serverId).c_str());
+            serverList.toString(serverId).c_str());
     } else {
         LOG(NOTICE, "Membership verification succeeded for %s",
-            serverList->toString(serverId).c_str());
+            serverList.toString(serverId).c_str());
     }
 }
 
@@ -844,7 +844,7 @@ CoordinatorService::verifyServerFailure(ServerId serverId)
     }
 
     bool result;
-    const string& serviceLocator = serverList->getLocator(serverId);
+    const string& serviceLocator = serverList.getLocator(serverId);
     PingRpc pingRpc(context, serverId, ServerId());
 
     if (pingRpc.wait(deadServerTimeout * 1000 * 1000)) {

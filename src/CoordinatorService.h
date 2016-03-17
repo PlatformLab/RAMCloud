@@ -156,13 +156,6 @@ class CoordinatorService : public Service {
 
   public:
     /**
-     * List of all servers in the system. This structure is used to allocate
-     * ServerIds as well as to keep track of any information we need to keep
-     * for individual servers (e.g. ServiceLocator strings, Wills, etc).
-     */
-    CoordinatorServerList* serverList;
-
-    /**
      * The ping timeout, in milliseconds, used when the Coordinator verifies an
      * incoming hint server crashed message.
      * Until we resolve the scheduler issues that we have been seeing,
@@ -175,6 +168,13 @@ class CoordinatorService : public Service {
      * our successor if we crash.
      */
     CoordinatorUpdateManager updateManager;
+
+    /**
+     * List of all servers in the system. This structure is used to allocate
+     * ServerIds as well as to keep track of any information we need to keep
+     * for individual servers (e.g. ServiceLocator strings, Wills, etc).
+     */
+    CoordinatorServerList serverList;
 
     /**
      * Manages the tables and constituting tablets information on Coordinator.
