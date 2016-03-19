@@ -104,6 +104,7 @@ TESTS_SRCFILES := \
 		  src/MockExternalStorage.cc \
 		  src/MockExternalStorageTest.cc \
 		  src/MockTransport.cc \
+		  src/MultiFileStorageTest.cc \
 		  src/MultiIncrementTest.cc \
 		  src/MultiOpTest.cc \
 		  src/MultiReadTest.cc \

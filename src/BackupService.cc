@@ -21,7 +21,7 @@
 #include "PerfStats.h"
 #include "ServerConfig.h"
 #include "ShortMacros.h"
-#include "SingleFileStorage.h"
+#include "MultiFileStorage.h"
 #include "Status.h"
 
 namespace RAMCloud {
@@ -73,12 +73,12 @@ BackupService::BackupService(Context* context,
             maxWriteBuffers = config->backup.numSegmentFrames;
         }
 
-        storage.reset(new SingleFileStorage(config->segmentSize,
-                                            config->backup.numSegmentFrames,
-                                            config->backup.writeRateLimit,
-                                            maxWriteBuffers,
-                                            config->backup.file.c_str(),
-                                            O_DIRECT | O_SYNC));
+        storage.reset(new MultiFileStorage(config->segmentSize,
+                                           config->backup.numSegmentFrames,
+                                           config->backup.writeRateLimit,
+                                           maxWriteBuffers,
+                                           config->backup.file.c_str(),
+                                           O_DIRECT | O_SYNC));
     }
     if (storage->getMetadataSize() < sizeof(BackupReplicaMetadata))
         DIE("Storage metadata block too small to hold BackupReplicaMetadata");

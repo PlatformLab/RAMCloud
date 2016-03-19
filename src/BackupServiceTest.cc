@@ -24,7 +24,7 @@
 #include "Server.h"
 #include "Key.h"
 #include "ServerListBuilder.h"
-#include "SingleFileStorage.h"
+#include "MultiFileStorage.h"
 #include "ShortMacros.h"
 #include "StringUtil.h"
 #include "TabletsBuilder.h"
@@ -132,7 +132,7 @@ class BackupServiceTest : public ::testing::Test {
 TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
     config.backup.inMemory = false;
     config.clusterName = "testing";
-    config.backup.file = ""; // use auto-generated testing name.
+    config.backup.file = "/tmp/ramcloud-backup-service-test-delete-this";
 
     cluster->addServer(config);
 
@@ -149,12 +149,14 @@ TEST_F(BackupServiceTest, constructorNoReuseReplicas) {
         "initOnceEnlisted: Backup 3.0 will store replicas under cluster "
             "name '__unnamed__'"
         , TestLog::get());
+
+    unlink(config.backup.file.c_str());
 }
 
 TEST_F(BackupServiceTest, constructorDestroyConfusingReplicas) {
     config.backup.inMemory = false;
     config.clusterName = "__unnamed__";
-    config.backup.file = ""; // use auto-generated testing name.
+    config.backup.file = "/tmp/ramcloud-backup-service-test-delete-this";
 
     cluster->addServer(config);
 
@@ -173,22 +175,16 @@ TEST_F(BackupServiceTest, constructorDestroyConfusingReplicas) {
         "initOnceEnlisted: Backup 3.0 will store replicas under cluster name "
             "'testing'",
         TestLog::get());
+
+    unlink(config.backup.file.c_str());
 }
 
 TEST_F(BackupServiceTest, constructorReuseReplicas)
 {
     config.backup.inMemory = false;
     config.clusterName = "testing";
-    config.backup.file = ""; // use auto-generated testing name.
-
-    Server* server = cluster->addServer(config);
-    BackupService* backup = server->backup.get();
-
-    SingleFileStorage* storage =
-        static_cast<SingleFileStorage*>(backup->storage.get());
-    // Use same auto-generated testing name as above.
-    // Will cause double unlink from file system. Meh.
-    config.backup.file = string(storage->tempFilePath);
+    config.backup.file = "/tmp/ramcloud-backup-service-test-delete-this";
+    cluster->addServer(config);
 
     TestLog::Enable _("BackupService", "initOnceEnlisted", NULL);
     cluster->addServer(config);
@@ -205,6 +201,8 @@ TEST_F(BackupServiceTest, constructorReuseReplicas)
         "initOnceEnlisted: Backup 3.0 will store replicas under cluster name "
             "'testing'"
         , TestLog::get());
+
+    unlink(config.backup.file.c_str());
 }
 
 TEST_F(BackupServiceTest, dispatch_initializationNotFinished) {
@@ -302,14 +300,14 @@ TEST_F(BackupServiceTest, restartFromStorage)
     config.backup.inMemory = false;
     config.segmentSize = 4096;
     config.backup.numSegmentFrames = 6;
-    config.backup.file = ""; // use auto-generated testing name.
+    config.backup.file = "/tmp/ramcloud-backup-service-test-delete-this";
     config.services = {BACKUP_SERVICE};
     config.clusterName = "testing";
 
     server = cluster->addServer(config);
     backup = server->backup.get();
-    SingleFileStorage* storage =
-        static_cast<SingleFileStorage*>(backup->storage.get());
+    MultiFileStorage* storage =
+        static_cast<MultiFileStorage*>(backup->storage.get());
 
     Buffer empty;
     SegmentCertificate certificate;
@@ -398,6 +396,8 @@ TEST_F(BackupServiceTest, restartFromStorage)
     backup->taskQueue.performTask();
     backup->taskQueue.performTask();
     EXPECT_EQ(0lu, backup->taskQueue.outstandingTasks());
+
+    unlink(config.backup.file.c_str());
 }
 
 TEST_F(BackupServiceTest, startReadingData) {
