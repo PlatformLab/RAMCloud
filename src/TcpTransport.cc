@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -301,7 +301,11 @@ TcpTransport::ServerSocketHandler::ServerSocketHandler(int fd,
 void
 TcpTransport::ServerSocketHandler::handleFileEvent(int events)
 {
-    Socket* socket = transport.sockets[fd];
+    // The following variables are copies of data from this object;
+    // they are needed to safely detect socket closure below.
+    TcpTransport& transport = this->transport;
+    int socketFd = fd;
+    Socket* socket = transport.sockets[socketFd];
     assert(socket != NULL);
     try {
         if (events & Dispatch::FileEvent::READABLE) {
@@ -315,6 +319,14 @@ TcpTransport::ServerSocketHandler::handleFileEvent(int events)
                 socket->rpc = NULL;
                 transport.context->workerManager->handleRpc(rpc);
             }
+        }
+        // Check to see if this socket got closed due to an error in the
+        // read handler; if so, it's neither necessary nor safe to continue
+        // in this method. Note: the check for closure must be done without
+        // accessing any fields in this object, since the object may have been
+        // destroyed and its memory recycled.
+        if (socket != transport.sockets[socketFd]) {
+            return;
         }
         if (events & Dispatch::FileEvent::WRITABLE) {
             while (true) {
