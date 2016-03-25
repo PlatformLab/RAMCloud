@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -610,7 +610,7 @@ TEST_F(TcpTransportTest, IncomingMessage_readMessage_getBufferFromSession) {
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
     MockWrapper rpc1("request1");
-    TcpTransport::TcpSession session(client);
+    TcpTransport::TcpSession session(&client);
     TcpTransport::TcpClientRpc* r1 = client.clientRpcPool.construct(
             &rpc1.request, &rpc1.response, &rpc1, 66UL);
     session.rpcsWaitingForResponse.push_back(*r1);
@@ -630,7 +630,7 @@ TEST_F(TcpTransportTest, IncomingMessage_readMessage_findRpcReturnsNull) {
     int fd = connectToServer(&locator);
     server.acceptHandler->handleFileEvent(Dispatch::FileEvent::READABLE);
     int serverFd = downCast<unsigned>(server.sockets.size()) - 1;
-    TcpTransport::TcpSession session(client);
+    TcpTransport::TcpSession session(&client);
     TcpTransport::IncomingMessage incoming(NULL, &session);
     TcpTransport::Header header;
     header.nonce = 66UL;
@@ -714,7 +714,7 @@ TEST_F(TcpTransportTest, sessionConstructor_socketError) {
     sys->socketErrno = EPERM;
     string message("");
     try {
-        TcpTransport::TcpSession session(client, &locator);
+        TcpTransport::TcpSession session(&client, &locator);
     } catch (TransportException& e) {
         message = e.message;
     }
@@ -728,7 +728,7 @@ TEST_F(TcpTransportTest, sessionConstructor_connectError) {
     sys->connectErrno = EPERM;
     string message("no exception");
     try {
-        TcpTransport::TcpSession session(client, &locator);
+        TcpTransport::TcpSession session(&client, &locator);
     } catch (TransportException& e) {
         message = e.message;
     }
@@ -897,7 +897,7 @@ TEST_F(TcpTransportTest, TcpSession_close_cancelRpcsWaitingForResponse) {
 TEST_F(TcpTransportTest, findRpc) {
     // This test is a bit goofy, in that we set up a server, then
     // initialize the IncomingMessage to receive a client-side reply.
-    TcpTransport::TcpSession session(client);
+    TcpTransport::TcpSession session(&client);
     MockWrapper rpc1("11111"), rpc2("2222"), rpc3("3333");
     TcpTransport::TcpClientRpc* r1 = client.clientRpcPool.construct(
             &rpc1.request, &rpc1.response, &rpc1, 111UL);
@@ -910,13 +910,13 @@ TEST_F(TcpTransportTest, findRpc) {
     session.rpcsWaitingForResponse.push_back(*r3);
     TcpTransport::Header header;
     header.nonce = 111UL;
-    EXPECT_EQ(&rpc1.response, session.findRpc(header));
+    EXPECT_EQ(&rpc1.response, session.findRpc(&header));
     header.nonce = 222UL;
-    EXPECT_EQ(&rpc2.response, session.findRpc(header));
+    EXPECT_EQ(&rpc2.response, session.findRpc(&header));
     header.nonce = 333UL;
-    EXPECT_EQ(&rpc3.response, session.findRpc(header));
+    EXPECT_EQ(&rpc3.response, session.findRpc(&header));
     header.nonce = 334UL;
-    EXPECT_TRUE(session.findRpc(header) == NULL);
+    EXPECT_TRUE(session.findRpc(&header) == NULL);
     session.abort();
 }
 
@@ -1234,7 +1234,7 @@ TEST_F(TcpTransportTest, sendReply_error) {
     sys->sendmsgErrno = EPERM;
     TcpTransport::TcpServerRpc* tcpRpc =
             static_cast<TcpTransport::TcpServerRpc*>(serverRpc);
-    TcpTransport *transport = &tcpRpc->transport;
+    TcpTransport *transport = tcpRpc->transport;
     int fd = tcpRpc->fd;
     EXPECT_NO_THROW(serverRpc->sendReply());
     EXPECT_EQ("sendMessage: TcpTransport sendmsg error: Operation not "
@@ -1245,7 +1245,7 @@ TEST_F(TcpTransportTest, sendReply_error) {
 TEST_F(TcpTransportTest, sessionAlarm) {
     TestLog::Enable _;
     TcpTransport::TcpSession* session = new TcpTransport::TcpSession(
-            client, &locator, 30);
+            &client, &locator, 30);
     Transport::SessionRef ref = session;
 
     // First, let a request complete successfully, and make sure that
