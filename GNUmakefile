@@ -42,7 +42,7 @@ endif
 ZOOKEEPER ?= yes
 ifeq ($(ZOOKEEPER),yes)
 ZOOKEEPER_LIB ?= -lzookeeper_mt
-ZOOKEEPER_DIR ?= /usr/local/zookeeper-3.4.5
+ZOOKEEPER_DIR ?= /usr/share/zookeeper
 else
 ZOOKEEPER_LIB :=
 ZOOKEEPER_DIR :=
