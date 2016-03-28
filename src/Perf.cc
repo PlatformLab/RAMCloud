@@ -35,6 +35,9 @@
 #else
 #include <cstdatomic>
 #endif
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 #include "Common.h"
@@ -1023,7 +1026,7 @@ double perfCyclesToSeconds()
 }
 
 // Measure the cost of the prefetch instruction.
-double prefetch()
+double perfPrefetch()
 {
     uint64_t totalTicks = 0;
     int count = 10;
@@ -1050,6 +1053,48 @@ double prefetch()
         prefetch(&buf[192], 64);
     }
     return Cycles::toSeconds(totalTicks) / count / 16;
+}
+
+// This function runs the second thread for pingConditionVar.
+void pingConditionVarWorker(std::mutex* mutex,
+        std::condition_variable* condition1,
+        std::condition_variable* condition2, bool* finished)
+{
+    std::unique_lock<std::mutex> guard(*mutex);
+    while (!*finished) {
+        condition2->notify_one();
+        condition1->wait(guard);
+    }
+}
+
+// Measure the round-trip time for two threads to ping each other using
+// a pair of condition variables.
+double pingConditionVar()
+{
+    int count = 400000;
+    std::mutex mutex;
+    std::condition_variable condition1, condition2;
+    bool finished = false;
+    Tub<std::unique_lock<std::mutex>> guard;
+    guard.construct(mutex);
+
+    // First get the other thread running and warm up the caches.
+    std::thread thread(pingConditionVarWorker, &mutex, &condition1,
+            &condition2, &finished);
+    condition2.wait(*guard);
+
+    // Now run the test.
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 0; i < count; i++) {
+        condition1.notify_one();
+        condition2.wait(*guard);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    finished = true;
+    condition1.notify_one();
+    guard.destroy();
+    thread.join();
+    return Cycles::toSeconds(stop - start)/count;
 }
 
 // Measure the cost of reading the fine-grain cycle counter.
@@ -1568,7 +1613,9 @@ TestInfo tests[] = {
      "Cost of new allocations from an ObjectPool (no destroys)"},
     {"objectPoolRealloc", objectPoolAlloc<int, true>,
      "Cost of ObjectPool allocation after destroying an object"},
-    {"prefetch", prefetch,
+    {"pingConditionVar", pingConditionVar,
+     "Round-trip ping with std::condition_variable"},
+    {"prefetch", perfPrefetch,
      "Prefetch instruction"},
     {"rdtsc", rdtscTest,
      "Read the fine-grain cycle counter"},
