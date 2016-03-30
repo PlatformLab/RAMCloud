@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -49,7 +49,7 @@ public enum Status {
     STATUS_CALLER_NOT_IN_CLUSTER,
     STATUS_REQUEST_TOO_LARGE,
     STATUS_UNKNOWN_INDEXLET,
-    STATUS_UNKNOWN_INDEX,
+    STATUS_INDEX_DOESNT_EXIST,
     STATUS_INVALID_PARAMETER,
     STATUS_STALE_RPC,
     STATUS_EXPIRED_LEASE;
