@@ -220,6 +220,20 @@ TEST_F(ObjectFinderTest, flush) {
     EXPECT_EQ(objectFinder->debugString(), "");
 }
 
+TEST_F(ObjectFinderTest, lookup) {
+    uint64_t lastPollTime = objectFinder->context->dispatch->currentTime;
+    Transport::SessionRef session = objectFinder->lookup(1, 0);
+    EXPECT_EQ("mock:host=server1", session->getServiceLocator());
+    EXPECT_TRUE(objectFinder->context->dispatch->currentTime > lastPollTime);
+}
+
+TEST_F(ObjectFinderTest, lookupTablet) {
+    uint64_t lastPollTime = objectFinder->context->dispatch->currentTime;
+    TabletWithLocator* locator = objectFinder->lookupTablet(1, 0);
+    EXPECT_EQ("mock:host=server1", locator->serviceLocator);
+    EXPECT_TRUE(objectFinder->context->dispatch->currentTime > lastPollTime);
+}
+
 TEST_F(ObjectFinderTest, lookupTabletInCache) {
     reinterpret_cast<Refresher*>(objectFinder->tableConfigFetcher.get())->
             setupTableMap(&objectFinder->tableMap);

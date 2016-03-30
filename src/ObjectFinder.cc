@@ -341,6 +341,9 @@ ObjectFinder::lookup(uint64_t tableId, KeyHash keyHash)
     while (true) {
         session = tryLookup(tableId, keyHash);
         if (session) return session;
+        if (context->dispatch->isDispatchThread()) {
+            context->dispatch->poll();
+        }
     }
 }
 
@@ -369,6 +372,9 @@ ObjectFinder::lookupTablet(uint64_t tableId, KeyHash keyHash)
     while (true) {
         tabletWithLocator = tryLookupTablet(tableId, keyHash);
         if (tabletWithLocator) return tabletWithLocator;
+        if (context->dispatch->isDispatchThread()) {
+            context->dispatch->poll();
+        }
     }
 }
 
