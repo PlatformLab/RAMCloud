@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -512,7 +512,7 @@ class LookupIndexKeysRpc : public IndexRpcWrapper {
             uint32_t maxNumHashes, Buffer* responseBuffer);
     ~LookupIndexKeysRpc() {}
 
-    void handleIndexDoesntExist();
+    void indexletNotFound();
     void wait(uint32_t* numHashes, uint16_t* nextKeyLength,
             uint64_t* nextKeyHash);
 

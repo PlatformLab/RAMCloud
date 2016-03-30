@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -156,7 +156,7 @@ class InsertIndexEntryRpc : public IndexRpcWrapper {
             const void* indexKey, KeyLength indexKeyLength,
             uint64_t primaryKeyHash);
     ~InsertIndexEntryRpc() {}
-    void handleIndexDoesntExist();
+    void indexletNotFound();
     void wait() {simpleWait(context);}
 
   PRIVATE:
@@ -261,7 +261,7 @@ class RemoveIndexEntryRpc : public IndexRpcWrapper {
              const void* indexKey, KeyLength indexKeyLength,
              uint64_t primaryKeyHash);
     ~RemoveIndexEntryRpc() {}
-    void handleIndexDoesntExist();
+    void indexletNotFound();
     void wait() {simpleWait(context);}
 
   PRIVATE:

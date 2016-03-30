@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2014 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -136,8 +136,8 @@ ClientException::throwException(const CodeLocation& where, Status status)
             throw RequestTooLargeException(where);
         case STATUS_UNKNOWN_INDEXLET:
             throw UnknownIndexletException(where);
-        case STATUS_INDEX_DOESNT_EXIST:
-            throw IndexDoesntExistException(where);
+        case STATUS_UNKNOWN_INDEX:
+            throw UnknownIndexException(where);
         case STATUS_INVALID_PARAMETER:
             throw InvalidParameterException(where);
         case STATUS_STALE_RPC:

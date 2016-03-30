@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -137,34 +137,33 @@ IndexRpcWrapper::handleTransportError()
 }
 
 /**
- * Handle the case where the RPC cannot be completed as the index containing
- * the key doesn't exist anywhere in the system.
+ * Handle the case where the RPC cannot be completed as the indexlet containing
+ * the key was not found.
  */
 void
-IndexRpcWrapper::handleIndexDoesntExist()
+IndexRpcWrapper::indexletNotFound()
 {
     LOG(DEBUG, "Index not found for tableId %lu, indexId %u",
             tableId, indexId);
-    response->reset();
     response->emplaceAppend<WireFormat::ResponseCommon>()->status =
-            STATUS_INDEX_DOESNT_EXIST;
+            STATUS_UNKNOWN_INDEX;
 }
 
 // See RpcWrapper for documentation.
 void
 IndexRpcWrapper::send()
 {
-    bool indexDoesntExist;
-    session = objectFinder->tryLookup(
-            tableId, indexId, key, keyLength, &indexDoesntExist);
-    if (session) {
+    session = objectFinder->lookup(tableId, indexId, key, keyLength);
+
+    // This indexlet doesn't exist. No need to send an rpc or throw an
+    // exception. Instead, lets call indexletNotFound() which will do the
+    // appropriate thing, then call completed() so the rpc is never sent out.
+    if (session == Transport::SessionRef()) {
+        indexletNotFound();
+        completed();
+    } else {
         state = IN_PROGRESS;
         session->sendRequest(&request, response, this);
-    } else if (indexDoesntExist) {
-        handleIndexDoesntExist();
-        state = FINISHED;
-    } else {
-        retry(0, 0);
     }
 }
 

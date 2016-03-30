@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -119,20 +119,9 @@ ObjectRpcWrapper::handleTransportError()
 void
 ObjectRpcWrapper::send()
 {
-    try {
-        session = context->objectFinder->tryLookup(tableId, keyHash);
-        if (session) {
-            state = IN_PROGRESS;
-            session->sendRequest(&request, response, this);
-        } else {
-            retry(0, 0);
-        }
-    } catch (TableDoesntExistException& e) {
-        response->reset();
-        response->emplaceAppend<WireFormat::ResponseCommon>()->status =
-                STATUS_TABLE_DOESNT_EXIST;
-        state = FINISHED;
-    }
+    session = context->objectFinder->lookup(tableId, keyHash);
+    state = IN_PROGRESS;
+    session->sendRequest(&request, response, this);
 }
 
 } // namespace RAMCloud

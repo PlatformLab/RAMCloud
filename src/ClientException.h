@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -227,8 +227,8 @@ DEFINE_EXCEPTION(RequestTooLargeException,
 DEFINE_EXCEPTION(UnknownIndexletException,
                  STATUS_UNKNOWN_INDEXLET,
                  ClientException)
-DEFINE_EXCEPTION(IndexDoesntExistException,
-                 STATUS_INDEX_DOESNT_EXIST,
+DEFINE_EXCEPTION(UnknownIndexException,
+                 STATUS_UNKNOWN_INDEX,
                  ClientException)
 DEFINE_EXCEPTION(InvalidParameterException,
                  STATUS_INVALID_PARAMETER,

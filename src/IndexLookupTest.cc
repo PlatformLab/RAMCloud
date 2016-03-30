@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016 Stanford University
+/* Copyright (c) 2014-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,11 +27,10 @@ namespace RAMCloud {
 class IndexLookupRpcRefresher : public ObjectFinder::TableConfigFetcher {
   public:
     IndexLookupRpcRefresher() : called(0) {}
-    bool tryGetTableConfig(
-            uint64_t tableId,
-            std::map<TabletKey, TabletWithLocator>* tableMap,
-            std::multimap<std::pair<uint64_t, uint8_t>,
-                          IndexletWithLocator>* tableIndexMap) {
+    void getTableConfig(uint64_t tableId,
+                        std::map<TabletKey, TabletWithLocator>* tableMap,
+                        std::multimap<std::pair<uint64_t, uint8_t>,
+                                      ObjectFinder::Indexlet>* tableIndexMap) {
 
         called++;
         char buffer[100];
@@ -60,13 +59,12 @@ class IndexLookupRpcRefresher : public ObjectFinder::TableConfigFetcher {
             char firstKey = static_cast<char>('a'+i);
             char firstNotOwnedKey = static_cast<char>('b'+i);
             snprintf(buffer, sizeof(buffer), "mock:indexserver=%u", i);
-            IndexletWithLocator indexlet(
+            ObjectFinder::Indexlet indexlet(
                 reinterpret_cast<void *>(&firstKey), 1,
                 reinterpret_cast<void *>(&firstNotOwnedKey), 1,
-                buffer);
+                ServerId(), buffer);
             tableIndexMap->insert(std::make_pair(id, indexlet));
         }
-        return true;
     }
     uint32_t called;
 };

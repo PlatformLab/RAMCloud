@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016 Stanford University
+/* Copyright (c) 2012-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -237,7 +237,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     uint64_t retryTime;
 
     /// Expected size of the response header, in bytes.
-    const uint32_t responseHeaderLength;
+    uint32_t responseHeaderLength;
 
     /// Response header; filled in by isReady, so that wrapper functions
     /// don't have to recompute it.  Guaranteed to actually refer to at

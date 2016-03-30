@@ -52,7 +52,7 @@ static const char* messages[] = {
                                                  // STATUS_CALLER_NOT_IN_CLUSTER
     "request is too large",                      // STATUS_REQUEST_TOO_LARGE
     "unknown indexlet (may exist elsewhere)",    // STATUS_UNKNOWN_INDEXLET
-    "index doesn't exist",                       // STATUS_INDEX_DOESNT_EXIST
+    "unknown index",                             // STATUS_UNKNOWN_INDEX
     "invalid parameter",                         // STATUS_INVALID_PARAMETER
     "stale RPC: client already acknowledged receiving result",
                                                  // STATUS_STALE_RPC
@@ -93,7 +93,7 @@ static const char* symbols[] = {
     "STATUS_CALLER_NOT_IN_CLUSTER",
     "STATUS_REQUEST_TOO_LARGE",
     "STATUS_UNKNOWN_INDEXLET",
-    "STATUS_INDEX_DOESNT_EXIST",
+    "STATUS_UNKNOWN_INDEX",
     "STATUS_INVALID_PARAMETER",
     "STATUS_STALE_RPC",
     "STATUS_EXPIRED_LEASE",

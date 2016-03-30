@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016 Stanford University
+/* Copyright (c) 2011-2015 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -57,11 +57,11 @@ class MockTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
         : locator(locator)
         , tableId(tableId)
     {}
-    bool tryGetTableConfig(
-            uint64_t tableId,
-            std::map<TabletKey, TabletWithLocator>* tableMap,
-            std::multimap< std::pair<uint64_t, uint8_t>,
-                                     IndexletWithLocator>* tableIndexMap) {
+    void getTableConfig(
+        uint64_t tableId,
+        std::map<TabletKey, TabletWithLocator>* tableMap,
+        std::multimap< std::pair<uint64_t, uint8_t>,
+                                    ObjectFinder::Indexlet>* tableIndexMap) {
 
         tableMap->clear();
         Tablet rawEntry({tableId, 0, uint64_t(~0), ServerId(),
@@ -70,7 +70,6 @@ class MockTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
 
         TabletKey key {entry.tablet.tableId, entry.tablet.startKeyHash};
         tableMap->insert(std::make_pair(key, entry));
-        return true;
     }
     string locator;
     uint64_t tableId;
