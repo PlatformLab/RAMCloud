@@ -375,10 +375,13 @@ UnackedRpcResults::recordCompletion(uint64_t clientId,
     if (ignoreIfAcked && client->maxAckId >= rpcId) {
         return;
     }
-    assert(client->maxAckId < rpcId);
     assert(client->maxRpcId >= rpcId);
 
-    client->updateResult(rpcId, result);
+    // If a client cancels an RPC, the current RPC may have been acked while
+    // being processed. In this case, we can just delete the completion record.
+    if (client->maxAckId < rpcId) {
+        client->updateResult(rpcId, result);
+    }
     client->numRpcsInProgress--;
 }
 
@@ -452,7 +455,11 @@ UnackedRpcResults::resetRecord(uint64_t clientId, uint64_t rpcId)
     } else {
         client = it->second;
     }
-    client->rpcs[rpcId % client->len].id = 0;
+    // If a client cancels an RPC, the current RPC may have been acked while
+    // being processed. In this case, we should not overwrite.
+    if (client->maxAckId < rpcId) {
+        client->rpcs[rpcId % client->len].id = 0;
+    }
 }
 
 /**

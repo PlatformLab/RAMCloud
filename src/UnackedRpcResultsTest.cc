@@ -222,8 +222,6 @@ TEST_F(UnackedRpcResultsTest, recordCompletion) {
 
     //Resized Client keeps the original data.
     results.checkDuplicate(clientLease, 17, 5, &result);
-
-    //TODO(seojin): modify test after fixing RAM-716.
     EXPECT_EQ(50, results.clients[1]->len);
     for (int i = 12; i <= 16; ++i) {
         EXPECT_TRUE(results.checkDuplicate(clientLease, i, 5, &result));
@@ -244,6 +242,15 @@ TEST_F(UnackedRpcResultsTest, recordCompletion) {
               "freeLogEntry: freed <1014> | freeLogEntry: freed <1015> | "
               "freeLogEntry: freed <1016> | freeLogEntry: freed <1017>",
               TestLog::get());
+
+    // If an RPC is already acked because client canceled it, recordCompletion()
+    // should be no-op.
+    results.checkDuplicate(clientLease, 19, 18, &result);
+    results.recordCompletion(clientLease.leaseId,
+                             18,
+                             reinterpret_cast<void*>(1018));
+    EXPECT_THROW(results.checkDuplicate(clientLease, 18, 17, &result),
+                 StaleRpcException);
 }
 
 TEST_F(UnackedRpcResultsTest, recoverRecord) {
@@ -387,6 +394,25 @@ TEST_F(UnackedRpcResultsTest, recordNewRpc_jumResizeTest) {
     EXPECT_EQ(1011UL, (uint64_t)client->result(rpcId1));
     EXPECT_NE(originalLen, client->len);
     EXPECT_EQ(1010UL, (uint64_t)client->result(10));
+}
+
+TEST_F(UnackedRpcResultsTest, resetRecord) {
+    void* result;
+    ClientLease clientLease = {1, 1, 0};
+    results.checkDuplicate(clientLease, 18, 17, &result);
+    EXPECT_TRUE(results.checkDuplicate(clientLease, 18, 17, &result));
+
+    // After reset, the RPC ID = 18 should not be considered as a duplicate.
+    results.resetRecord(clientLease.leaseId, 18);
+    EXPECT_FALSE(results.checkDuplicate(clientLease, 18, 17, &result));
+    EXPECT_TRUE(results.checkDuplicate(clientLease, 18, 17, &result));
+
+    // If an RPC is already acked because client canceled it, resetRecord()
+    // should be no-op.
+    results.checkDuplicate(clientLease, 19, 18, &result);
+    results.resetRecord(clientLease.leaseId, 18);
+    EXPECT_THROW(results.checkDuplicate(clientLease, 18, 17, &result),
+                 StaleRpcException);
 }
 
 TEST_F(UnackedRpcResultsTest, updateResult) {
