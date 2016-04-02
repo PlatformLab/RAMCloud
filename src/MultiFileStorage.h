@@ -348,12 +348,6 @@ class MultiFileStorage : public BackupStorage {
      */
     std::stack<void*, std::vector<void*>> buffers;
 
-    /**
-     * AIO control blocks used in AIO system calls. There is one control block 
-     * per file and an extra (the last one) for metadata.
-     */
-    std::vector<struct aiocb> cbs;
-
     DISALLOW_COPY_AND_ASSIGN(MultiFileStorage);
 };
 

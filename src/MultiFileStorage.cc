@@ -556,6 +556,10 @@ MultiFileStorage::unlockedRead(Frame::Lock& lock, void* buf, size_t frameIndex,
 
     // Use asynchronous IO to initiate concurrent IO operations on all of the
     // storage files to read the replica in parallel.
+    // Keep one control block for each file.
+    struct aiocb cbs[fds.size()];
+    // Linux documentation recommends clearing control blocks before use.
+    memset(cbs, 0, sizeof(struct aiocb) * fds.size());
     size_t frameletStart = offsetOfFramelet(frameIndex);
     for (size_t fileIndex = 0; fileIndex < fds.size(); fileIndex++) {
         size_t frameletSize = bytesInFramelet(fileIndex);
@@ -568,7 +572,7 @@ MultiFileStorage::unlockedRead(Frame::Lock& lock, void* buf, size_t frameIndex,
     }
 
     // Wait for all of the IO operations to complete.
-    for (size_t i = 0; i < cbs.size(); i++) {
+    for (size_t i = 0; i < fds.size(); i++) {
         struct aiocb* cb = &cbs[i];
         aio_suspend(&cb, 1, NULL);
         ssize_t r = aio_return(cb);
@@ -633,6 +637,13 @@ MultiFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
 
     // Use asynchronous IO to initiate concurrent IO operations on all of the
     // storage files to read the replica in parallel.
+    // Keep one control block for each file, plus an extra (the last one) for
+    // metadata.
+    struct aiocb cbs[fds.size() + 1];
+    // Linux documentation recommends clearing control blocks before use. Also,
+    // zeroing everything out makes it safe to call aio_suspend on any control
+    // blocks that don't end up being used.
+    memset(cbs, 0, sizeof(struct aiocb) * (fds.size() + 1));
     for (size_t fileIndex = 0; remaining > 0; fileIndex++) {
         size_t frameletSize = bytesInFramelet(fileIndex);
         if (static_cast<size_t>(offsetInFramelet) > frameletSize) {
@@ -656,7 +667,7 @@ MultiFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
     }
 
     // Metadata gets its own IO operation.
-    struct aiocb* metadataCb = &cbs[cbs.size() - 1];
+    struct aiocb* metadataCb = &cbs[fds.size()];
     metadataCb->aio_fildes = fds[0];
     metadataCb->aio_offset = offsetOfFrameMetadata(frameIndex);
     metadataCb->aio_buf = metadataBuf;
@@ -664,12 +675,12 @@ MultiFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
     aio_write(metadataCb);
 
     // Wait for all of the IO operations to complete.
-    for (size_t i = 0; i < cbs.size(); i++) {
+    for (size_t i = 0; i < fds.size() + 1; i++) {
         struct aiocb* cb = &cbs[i];
         aio_suspend(&cb, 1, NULL);
         ssize_t r = aio_return(cb);
         if (r == -1) {
-            if (i == cbs.size() - 1)
+            if (i == fds.size())
                 DIE("Failed to write metadata for replica: %s, "
                     "writing %lu bytes to backup file %lu at offset %lu.",
                     strerror(aio_error(cb)),
@@ -680,7 +691,7 @@ MultiFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
                     strerror(aio_error(cb)),
                     cb->aio_nbytes, i, cb->aio_offset);
         } else if (r != downCast<ssize_t>(cb->aio_nbytes)) {
-            if (i == cbs.size() - 1)
+            if (i == fds.size())
                 DIE("Unexpectedly short write to metadata for replica, "
                     "file 0 at offset %lu, "
                     "expected length %lu, actual write length %lu",
@@ -691,9 +702,6 @@ MultiFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
                     "expected length %lu, actual write length %lu",
                     i, cb->aio_offset, cb->aio_nbytes, r);
         }
-
-        // Linux documentation recommends clearing this memory.
-        memset(cb, 0, sizeof(struct aiocb));
     }
 
     PerfStats::threadStats.backupWriteActiveCycles += writeTicks.stop();
@@ -913,7 +921,6 @@ MultiFileStorage::MultiFileStorage(size_t segmentSize,
     , maxWriteBuffers(maxWriteBuffers)
     , bufferDeleter(this)
     , buffers()
-    , cbs()
 {
     assert(filePathsStr);
 
@@ -980,14 +987,6 @@ MultiFileStorage::MultiFileStorage(size_t segmentSize,
         std::vector<BufferPtr> buffers;
         for (int i = 0; i < INIT_POOLED_BUFFERS; ++i)
             buffers.emplace_back(allocateBuffer());
-    }
-
-    // Allocate control blocks for AIO calls.
-    for (size_t i = 0; i < fds.size() + 1; i++) {
-        struct aiocb cb;
-        // Linux documentation recommends clearing this memory.
-        memset(&cb, 0, sizeof(struct aiocb));
-        cbs.emplace_back(cb);
     }
 
     for (size_t frame = 0; frame < frameCount; ++frame)
