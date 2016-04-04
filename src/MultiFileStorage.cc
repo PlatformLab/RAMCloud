@@ -591,9 +591,6 @@ MultiFileStorage::unlockedRead(Frame::Lock& lock, void* buf, size_t frameIndex,
             else
                 assert(aio_error(cb) == 0);
         }
-
-        // Linux documentation recommends clearing this memory.
-        memset(cb, 0, sizeof(struct aiocb));
     }
 
     PerfStats::threadStats.backupReadActiveCycles += _.stop();
