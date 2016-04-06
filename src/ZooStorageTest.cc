@@ -171,8 +171,7 @@ TEST_F(ZooStorageTest, getChildren_basics) {
     zoo->getChildren("/test", &children);
     EXPECT_EQ(3u, children.size());
     sort(&children);
-    EXPECT_EQ("/test/var1: value1, /test/var2: value2, /test/var3: value3",
-            toString(&children));
+    EXPECT_EQ("var1: value1, var2: value2, var3: value3", toString(&children));
 }
 TEST_F(ZooStorageTest, getChildren_lostLeadership) {
     zoo->lostLeadership = true;
@@ -194,8 +193,7 @@ TEST_F(ZooStorageTest, getChildren_recoverableErrorReadingNames) {
     zoo->getChildren("/test", &children);
     EXPECT_EQ(2u, children.size());
     sort(&children);
-    EXPECT_EQ("/test/var1: value1, /test/var2: value2",
-            toString(&children));
+    EXPECT_EQ("var1: value1, var2: value2", toString(&children));
     EXPECT_TRUE(TestUtil::contains(TestLog::get(),
             "getChildren: Retrying after invalid zhandle state error "
             "getting children of /test"));
@@ -215,8 +213,7 @@ TEST_F(ZooStorageTest, getChildren_recoverableErrorReadingValues) {
     zoo->getChildren("/test", &children);
     EXPECT_EQ(2u, children.size());
     sort(&children);
-    EXPECT_EQ("/test/var1: value1, /test/var2: value2",
-            toString(&children));
+    EXPECT_EQ("var1: value1, var2: value2", toString(&children));
     EXPECT_TRUE(TestUtil::contains(TestLog::get(),
             "getChildren: Retrying after operation timeout error "
             "reading child /test/var1"));
@@ -242,8 +239,7 @@ TEST_F(ZooStorageTest, getChildren_weirdNodes) {
     zoo->set(ExternalStorage::Hint::CREATE, "/test/empty", "");
     zoo->getChildren("/test", &children);
     sort(&children);
-    EXPECT_EQ("/test/child: -, /test/empty: -, /test/v1: normal",
-            toString(&children));
+    EXPECT_EQ("child: -, empty: -, v1: normal", toString(&children));
 }
 
 TEST_F(ZooStorageTest, remove_lostLeadership) {

@@ -172,9 +172,9 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
     buffer = new char[bufferSize];
     try {
         int length;
-        std::string childName(fullName);
-        childName.append("/");
-        size_t baseLength = childName.length();
+        std::string childFullName(fullName);
+        childFullName.append("/");
+        size_t baseLength = childFullName.length();
         struct Stat stat;
 
         // Each iteration through the following loop retrieves the value
@@ -185,10 +185,11 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
             // grow the buffer). Each iteration through the following loop
             // makes one attempt.
             while (1) {
-                childName.resize(baseLength);
-                childName.append(names.data[i]);
+                char* childName = names.data[i];
+                childFullName.resize(baseLength);
+                childFullName.append(childName);
                 length = bufferSize;
-                int status = zoo_get(zoo, childName.c_str(), 0,
+                int status = zoo_get(zoo, childFullName.c_str(), 0,
                         static_cast<char*>(buffer), &length, &stat);
                 if (testStatus2 != 0) {
                     status = testStatus2;
@@ -202,7 +203,7 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
                     }
                     handleError(lock, status);
                     RAMCLOUD_LOG(WARNING, "Retrying after %s error reading "
-                            "child %s", zerror(status), childName.c_str());
+                            "child %s", zerror(status), childFullName.c_str());
                     continue;
                 }
                 // Warning: ZooKeeper returns -1 dataLength for empty nodes.
@@ -214,8 +215,7 @@ ZooStorage::getChildren(const char* name, vector<Object>* children)
                     buffer = new char[bufferSize];
                     continue;
                 }
-                children->emplace_back(childName.c_str(), buffer,
-                        stat.dataLength);
+                children->emplace_back(childName, buffer, stat.dataLength);
                 break;
             }
         }
