@@ -111,6 +111,27 @@ TEST_F(ClientLeaseAuthorityTest, recover_empty) {
     EXPECT_EQ(0UL, leaseAuthority->maxReservedLeaseId);
 }
 
+TEST_F(ClientLeaseAuthorityTest, recover_bad) {
+    EXPECT_EQ(0U, leaseAuthority->leaseMap.size());
+    EXPECT_EQ(0U, leaseAuthority->expirationOrder.size());
+
+    storage.getChildrenNames.push("BAD");
+    storage.getChildrenValues.push("");
+
+    TestLog::reset();
+
+    leaseAuthority->recover();
+
+    EXPECT_EQ("recover: Couldn't recover ClientLease because lease object name "
+            "'BAD' is not an integer", TestLog::get());
+
+    EXPECT_EQ(0U, leaseAuthority->leaseMap.size());
+    EXPECT_EQ(0U, leaseAuthority->expirationOrder.size());
+
+    EXPECT_EQ(0UL, leaseAuthority->lastIssuedLeaseId);
+    EXPECT_EQ(0UL, leaseAuthority->maxReservedLeaseId);
+}
+
 TEST_F(ClientLeaseAuthorityTest, renewLease) {
     EXPECT_FALSE(leaseAuthority->reservationAgent.isRunning());
     leaseAuthority->maxReservedLeaseId = 1000;

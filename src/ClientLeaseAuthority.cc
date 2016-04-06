@@ -118,7 +118,8 @@ ClientLeaseAuthority::recover()
             leaseMap[leaseId] = leaseExpiration;
             expirationOrder.insert({leaseExpiration, leaseId});
         } catch (std::invalid_argument& e) {
-            LOG(ERROR, "Unable to recover lease: %s", object.name);
+            LOG(ERROR, "Couldn't recover ClientLease because lease object name "
+                    "'%s' is not an integer", object.name);
         }
     }
 
