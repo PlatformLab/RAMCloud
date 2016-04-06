@@ -397,6 +397,57 @@ TEST_P(SegmentTest, getSegletsInUse) {
     }
 }
 
+TEST_P(SegmentTest, getOffset) {
+    SegmentAndAllocator segAndAlloc(GetParam());
+    Segment& s = *segAndAlloc.segment;
+    Segment::Reference ref;
+    char data[s.segletSize * 2] = {0, };
+    uint32_t currentHead = 0;
+    Segment::EntryHeader entryHeader(LOG_ENTRY_TYPE_OBJ, s.segletSize - 2);
+
+    ////////////////////////////////////////////////////////////
+    // LogEntry size matches exactly to a segletSize - 1.
+    // getOffset() for the next entry will reproduce Steve's offset by 1 error.
+    ////////////////////////////////////////////////////////////
+    uint32_t dataLength = s.segletSize - entryHeader.getLengthBytes() - 1;
+    entryHeader = Segment::EntryHeader(LOG_ENTRY_TYPE_OBJ, dataLength);
+    uint32_t extraBytes = sizeof32(entryHeader) + entryHeader.getLengthBytes();
+
+    s.append(LOG_ENTRY_TYPE_OBJ, data, dataLength, &ref);
+    EXPECT_EQ(currentHead, s.getOffset(ref));
+    currentHead += extraBytes + dataLength;
+
+    ////////////////////////////////////////////////////////////
+    // Another append slightly larger than a seglet.
+    ////////////////////////////////////////////////////////////
+    dataLength = s.segletSize;
+    entryHeader = Segment::EntryHeader(LOG_ENTRY_TYPE_OBJ, dataLength);
+    extraBytes = sizeof32(entryHeader) + entryHeader.getLengthBytes();
+
+    s.append(LOG_ENTRY_TYPE_OBJ, data, dataLength, &ref);
+    EXPECT_EQ(currentHead, s.getOffset(ref));
+    currentHead += extraBytes + dataLength;
+
+    ////////////////////////////////////////////////////////////
+    // Small entry appends.
+    ////////////////////////////////////////////////////////////
+    dataLength = 12;
+    entryHeader = Segment::EntryHeader(LOG_ENTRY_TYPE_OBJ, dataLength);
+    extraBytes = sizeof32(entryHeader) + entryHeader.getLengthBytes();
+
+    s.append(LOG_ENTRY_TYPE_OBJ, data, dataLength, &ref);
+    EXPECT_EQ(currentHead, s.getOffset(ref));
+    currentHead += extraBytes + dataLength;
+
+    dataLength = 5;
+    entryHeader = Segment::EntryHeader(LOG_ENTRY_TYPE_OBJ, dataLength);
+    extraBytes = sizeof32(entryHeader) + entryHeader.getLengthBytes();
+
+    s.append(LOG_ENTRY_TYPE_OBJ, data, dataLength, &ref);
+    EXPECT_EQ(currentHead, s.getOffset(ref));
+    currentHead += extraBytes + dataLength;
+}
+
 TEST_P(SegmentTest, peek) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
