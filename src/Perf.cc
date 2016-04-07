@@ -654,6 +654,21 @@ double functionCall()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of generating a random number between 0 and i
+double generateRandomNumber() {
+    int count = 100000;
+    uint64_t x = 0;
+
+    uint64_t start = Cycles::rdtsc();
+    for (int i = 1; i < count + 1; ++i) {
+        x += randomNumberGenerator(i);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    discard(&x);
+
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of generating a 100-byte random string.
 double genRandomString() {
     int count = 100000;
@@ -1567,6 +1582,8 @@ TestInfo tests[] = {
      "64-bit integer division instruction"},
     {"functionCall", functionCall,
      "Call a function that has not been inlined"},
+    {"generateRandomNumber", generateRandomNumber,
+     "Call to randomNumberGenerator(x)"},
     {"genRandomString", genRandomString,
      "Generate a random 100-byte value"},
     {"getThreadId", getThreadId,
