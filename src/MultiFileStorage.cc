@@ -190,7 +190,7 @@ MultiFileStorage::Frame::loadMetadata()
  * replica) metadata.
  * Warning: Concurrent calls to append modify the metadata that the return
  * of this method points to. In practice it should only be called when the
- * frame isn't accepting appends (either it was just constructed or one of 
+ * frame isn't accepting appends (either it was just constructed or one of
  * close, load, or free has already been called on it). Used only during
  * backup restart and master recovery to extract details about the replica
  * in this frame without loading the frame.
@@ -890,7 +890,7 @@ MultiFileStorage::BufferDeleter::operator()(void* buffer)
  * \param filePathsStr
  *      A comma-separated list of filesystem paths to the devices or files
  *      where segments will be stored. /dev/null may also be used if you never
- *      want to see your data again, even while the system is still running 
+ *      want to see your data again, even while the system is still running
  *      (that is, don't expect recoveries to work).
  * \param openFlags
  *      Extra flags for use while opening files in filePathsStr (default to 0,
@@ -990,6 +990,10 @@ MultiFileStorage::MultiFileStorage(size_t segmentSize,
         frames.emplace_back(this, frame);
 
     ioQueue.start();
+
+    LOG(NOTICE, "Backup storage opened with %lu bytes available; allocated %lu "
+            "frame(s) across %lu file(s) with %lu bytes per frame",
+            frameCount * segmentSize, frameCount, fds.size(), segmentSize);
 }
 
 /// Close the files.
@@ -1058,16 +1062,19 @@ MultiFileStorage::open(bool sync)
     Lock lock(mutex);
     if (writeBuffersInUse >= maxWriteBuffers) {
         // Force the master to find some place else and/or backoff.
-        RAMCLOUD_CLOG(NOTICE, "Master tried to open a storage frame but %lu "
-            "frames already buffered; rejecting", writeBuffersInUse);
+        RAMCLOUD_CLOG(NOTICE, "Master tried to open a storage frame but "
+                "reached the maxNonVolatileBuffers limit of %lu (there are %lu "
+                "frames already buffered); rejecting",
+                maxWriteBuffers, writeBuffersInUse);
         throw BackupOpenRejectedException(HERE);
     }
     FreeMap::size_type next = freeMap.find_next(lastAllocatedFrame);
     if (next == FreeMap::npos) {
         next = freeMap.find_first();
         if (next == FreeMap::npos) {
-            RAMCLOUD_CLOG(NOTICE, "Master tried to open a storage frame "
-                "but there are no frames free; rejecting");
+            RAMCLOUD_CLOG(WARNING, "Master tried to open a storage frame "
+                "but there are no frames free (all %lu frames are in use); "
+                "rejecting", frameCount);
             throw BackupOpenRejectedException(HERE);
         }
     }
@@ -1319,9 +1326,9 @@ MultiFileStorage::fry()
 // - private -
 
 /**
- * Returns the number of bytes of data that any framelet of a particular file 
+ * Returns the number of bytes of data that any framelet of a particular file
  * contains.
- * 
+ *
  * Data is distributed between framelets as evenly as possible. Framelet sizes
  * must be in increments of BLOCK_SIZE (for O_DIRECT). In the simple case
  * (when segmentSize is evenly divisible into the same number of blocks per
@@ -1346,11 +1353,11 @@ MultiFileStorage::bytesInFramelet(size_t fileIndex) const
 }
 
 /**
- * Returns the offset into the files where the framelets associated with a 
+ * Returns the offset into the files where the framelets associated with a
  * particular frame start. This offset will be the same for every file. See
  * bytesInFramelet() for details on how framelets are divided between files.
  *
- * \param frameIndex 
+ * \param frameIndex
  *      Frame to find start of storage for in the files.
  */
 off_t
@@ -1366,7 +1373,7 @@ MultiFileStorage::offsetOfFramelet(size_t frameIndex) const
  * frame starts. See bytesInFramelet() for details on how metadata is divided
  * between files.
  *
- * \param frameIndex 
+ * \param frameIndex
  *      Frame to find start of metadata storage for in the files.
  */
 off_t

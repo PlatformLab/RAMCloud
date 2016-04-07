@@ -713,17 +713,25 @@ TEST_F(MultiFileStorageTest, open_ensureFifoUse) {
 }
 
 TEST_F(MultiFileStorageTest, open_noFreeFrames) {
+    TestLog::Enable _;
     std::vector<BackupStorage::FrameRef> frames;
     for (uint32_t f = 0; f < segmentFrames; ++f)
         frames.push_back(storage1->open(false));
+    storage1->writeBuffersInUse = 0;
     EXPECT_THROW(storage1->open(false),
                  BackupOpenRejectedException);
+    EXPECT_EQ("open: Master tried to open a storage frame but there are no "
+            "frames free (all 4 frames are in use); rejecting", TestLog::get());
 }
 
 TEST_F(MultiFileStorageTest, open_tooManyBuffersInUse) {
-    storage1->writeBuffersInUse = storage1->maxWriteBuffers;
+    TestLog::Enable _;
+    storage1->writeBuffersInUse = storage1->maxWriteBuffers + 1;
     EXPECT_THROW(storage1->open(false),
                  BackupOpenRejectedException);
+    EXPECT_EQ("open: Master tried to open a storage frame but reached the "
+            "maxNonVolatileBuffers limit of 4 (there are 5 frames already "
+            "buffered); rejecting", TestLog::get());
 }
 
 TEST_F(MultiFileStorageTest, loadAllMetadata) {
