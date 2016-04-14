@@ -204,7 +204,12 @@ main(int argc, char *argv[])
             ("segmentFrames",
              ProgramOptions::value<uint32_t>(&config.backup.numSegmentFrames)->
                 default_value(512),
-             "Number of segment frames in backup storage")
+             "The amount of space available to the backup service, specified "
+             "in units of 8MB segments. If a server uses N bytes of DRAM and "
+             "the replication factor is R, then this value should be at least "
+             "2NR/8M (gives the backup 2NR bytes of space); any value lower "
+             "than this may cause the cluster to eventually fail to service "
+             "write requests.")
             ("sync",
              ProgramOptions::bool_switch(&config.backup.sync),
              "Make all updates completely synchronous all the way down to "
