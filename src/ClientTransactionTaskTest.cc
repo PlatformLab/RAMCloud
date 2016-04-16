@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -680,6 +680,33 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_basic) {
     EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
 }
 
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_committed) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+
+    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
+    transactionTask->processPrepareRpcResults();
+    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
+}
+
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_committed_error) {
+    insertWrite(tableId1, "test", 4, "hello", 5);
+    transactionTask->initTask();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+    transactionTask->decision = WireFormat::TxDecision::ABORT;
+    TestLog::reset();
+    EXPECT_THROW(transactionTask->processPrepareRpcResults(), InternalError);
+    EXPECT_EQ("processPrepareRpcResults: "
+              "TxPrepare claims to have COMMITTED after ABORT received.",
+              TestLog::get());
+    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+}
+
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort) {
     insertWrite(tableId1, "test", 4, "hello", 5);
     // Set reject rules to cause abort.
@@ -710,33 +737,6 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort_error) {
               "TxPrepare trying to ABORT after COMMITTED.",
               TestLog::get());
     EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
-}
-
-TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_committed) {
-    insertWrite(tableId1, "test", 4, "hello", 5);
-    transactionTask->initTask();
-    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
-    transactionTask->sendPrepareRpc();
-
-    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
-    transactionTask->processPrepareRpcResults();
-    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
-    EXPECT_EQ(WireFormat::TxDecision::COMMIT, transactionTask->decision);
-}
-
-TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_committed_error) {
-    insertWrite(tableId1, "test", 4, "hello", 5);
-    transactionTask->initTask();
-    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
-    transactionTask->sendPrepareRpc();
-    transactionTask->decision = WireFormat::TxDecision::ABORT;
-    TestLog::reset();
-    EXPECT_THROW(transactionTask->processPrepareRpcResults(), InternalError);
-    EXPECT_EQ("processPrepareRpcResults: "
-              "TxPrepare claims COMMITTED after ABORT received.",
-              TestLog::get());
-    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
 }
 
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_unknownTablet) {

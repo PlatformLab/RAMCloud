@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -131,17 +131,20 @@ ClientTransactionTask::performTask()
             if (prepareRpcs.empty() && nextCacheEntry == commitCache.end()) {
                 switch (decision) {
                     case WireFormat::TxDecision::UNDECIDED:
+                        // Decide to commit.
                         decision = WireFormat::TxDecision::COMMIT;
                         TEST_LOG("Set decision to COMMIT.");
-                        // NO break; fall through to...
+                        // NO break; fall through to continue with commit.
                     case WireFormat::TxDecision::ABORT:
+                        // If not READ-ONLY, move to decision phase.
                         if (!readOnly) {
                             nextCacheEntry = commitCache.begin();
                             state = DECISION;
                             TEST_LOG("Move from PREPARE to DECISION phase.");
                             break;
                         }
-                        // NO break; fall through to...
+                        // else NO break; fall through to declare the
+                        // transaction DONE.
                     case WireFormat::TxDecision::COMMIT:
                         // Prepare must have returned COMMITTED or was READ-ONLY
                         // so the transaction is now done.
@@ -194,6 +197,7 @@ ClientTransactionTask::performTask()
                         "Unexpected exception '%s' after committing "
                         "transaction.",
                         statusToString(e.status));
+                break;
         }
         ramcloud->rpcTracker->rpcFinished(txId);
         state = DONE;
@@ -285,39 +289,49 @@ ClientTransactionTask::processPrepareRpcResults()
         }
 
         try {
-            WireFormat::TxPrepare::Vote newVote = rpc->wait();
-            if (newVote == WireFormat::TxPrepare::PREPARED) {
-                // Wait for other prepare requests to complete; nothing to do.
-                TEST_LOG("PREPARED");
-            } else if (newVote == WireFormat::TxPrepare::ABORT) {
-                // Decide the transaction should ABORT (as long as the
-                // transaction has not already committed).
-                if (expect_true(decision != WireFormat::TxDecision::COMMIT)) {
-                    decision = WireFormat::TxDecision::ABORT;
-                } else {
+            using WireFormat::TxPrepare;
+            using WireFormat::TxDecision;
+
+            TxPrepare::Vote newVote = rpc->wait();
+            switch (newVote) {
+                case TxPrepare::PREPARED:
+                    // Wait for other prepare requests to complete;
+                    // nothing to do for this rpc.
+                    TEST_LOG("PREPARED");
+                    break;
+                case TxPrepare::COMMITTED:
+                    // Note the transaction has COMMITTED (as long as the
+                    // transaction did not previously decided to abort).
+                    if (expect_true(decision != TxDecision::ABORT)) {
+                        decision = TxDecision::COMMIT;
+                    } else {
+                        // Possible Byzantine failure detected; do not continue.
+                        RAMCLOUD_LOG(ERROR,
+                                "TxPrepare claims to have COMMITTED after "
+                                "ABORT received.");
+                        ClientException::throwException(HERE,
+                                                        STATUS_INTERNAL_ERROR);
+                    }
+                    break;
+                case TxPrepare::ABORT:
+                    // Decide the transaction should ABORT (as long as the
+                    // transaction has not already committed).
+                    if (expect_true(decision != TxDecision::COMMIT)) {
+                        decision = TxDecision::ABORT;
+                    } else {
+                        // Possible Byzantine failure detected; do not continue.
+                        RAMCLOUD_LOG(ERROR,
+                                "TxPrepare trying to ABORT after COMMITTED.");
+                        ClientException::throwException(HERE,
+                                                        STATUS_INTERNAL_ERROR);
+                    }
+                    break;
+                default:
                     // Possible Byzantine failure detected; do not continue.
                     RAMCLOUD_LOG(ERROR,
-                            "TxPrepare trying to ABORT after COMMITTED.");
+                            "TxPrepare returned unexpected result.");
                     ClientException::throwException(HERE,
                                                     STATUS_INTERNAL_ERROR);
-                }
-            } else if (newVote == WireFormat::TxPrepare::COMMITTED) {
-                // Note the transaction has COMMITTED (as long as the
-                // transaction did not previously decided to abort).
-                if (expect_true(decision != WireFormat::TxDecision::ABORT)) {
-                    decision = WireFormat::TxDecision::COMMIT;
-                } else {
-                    // Possible Byzantine failure detected; do not continue.
-                    RAMCLOUD_LOG(ERROR,
-                            "TxPrepare claims COMMITTED after ABORT received.");
-                    ClientException::throwException(HERE,
-                                                    STATUS_INTERNAL_ERROR);
-                }
-            } else {
-                // Possible Byzantine failure detected; do not continue.
-                RAMCLOUD_LOG(ERROR, "TxPrepare returned unexpected result.");
-                ClientException::throwException(HERE,
-                                                STATUS_INTERNAL_ERROR);
             }
         } catch (UnknownTabletException& e) {
             // Target server did not contain the requested tablet; the
