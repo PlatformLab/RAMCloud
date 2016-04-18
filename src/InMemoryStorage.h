@@ -21,7 +21,7 @@
 #include "Common.h"
 #include "BackupStorage.h"
 #include "Memory.h"
-#include "SingleFileStorage.h"
+#include "MultiFileStorage.h"
 
 namespace RAMCloud {
 
@@ -150,7 +150,7 @@ class InMemoryStorage : public BackupStorage {
 
   PRIVATE:
     /// Maximum size of metadata for each frame.
-    enum { METADATA_SIZE = SingleFileStorage::METADATA_SIZE };
+    enum { METADATA_SIZE = MultiFileStorage::METADATA_SIZE };
 
     /// Protects concurrent operations on storage and all of its frames.
     std::mutex mutex;

@@ -54,7 +54,7 @@ struct BackupStorageException : public Exception {
 /**
  * Subclasses store replica data (along with some higher-level provided
  * metadata) and allow them to be retrieved later. Subclasses may have
- * different durability properties. This includes SingleFileStorage for
+ * different durability properties. This includes MultiFileStorage for
  * storing and recovering from disk and InMemoryStorage for storing and
  * recovering from RAM.
  */

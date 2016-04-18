@@ -155,7 +155,6 @@ TESTS_SRCFILES := \
 		  src/ServiceTest.cc \
 		  src/SessionAlarmTest.cc \
 		  src/SideLogTest.cc \
-		  src/SingleFileStorageTest.cc \
 		  src/SpinLockTest.cc \
 		  src/StatusTest.cc \
 		  src/StringUtilTest.cc \

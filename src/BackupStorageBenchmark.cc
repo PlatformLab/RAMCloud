@@ -23,7 +23,7 @@
 using namespace RAMCloud;
 
 struct Store {
-    Store(SingleFileStorage& storage,
+    Store(MultiFileStorage& storage,
           const char* segment,
           BackupStorage::Handle* handle)
         : storage(storage)
@@ -41,7 +41,7 @@ struct Store {
             Cycles::toNanoseconds(Cycles::rdtsc() - startTime) / 1000);
     }
 
-    SingleFileStorage& storage;
+    MultiFileStorage& storage;
     const char* segment;
     BackupStorage::Handle* handle;
 };
@@ -141,7 +141,7 @@ struct Bench {
 
     const string backupFile;
     const uint32_t segmentCount;
-    SingleFileStorage storage;
+    MultiFileStorage storage;
     vector<BackupStorage::Handle*> allocated;
     char* const scratch;
     const double mb;

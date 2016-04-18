@@ -166,7 +166,7 @@ struct PerfStats {
 
     /// Total bytes of data written to secondary storage. This will be
     /// more than backupBytesReceived because I/O is rounded up to even
-    /// numbers of blocks (see SingleFileStorage::BLOCK_SIZE).
+    /// numbers of blocks (see MultiFileStorage::BLOCK_SIZE).
     uint64_t backupWriteBytes;
 
     /// Total time (in Cycles::rdtsc ticks) during which secondary
