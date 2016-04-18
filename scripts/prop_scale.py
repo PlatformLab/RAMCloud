@@ -52,7 +52,6 @@ for trial in range(5):
 
         args = {}
         args['num_servers'] = numPartitions
-        args['backups_per_server'] = 2
         args['num_partitions'] = numPartitions
         args['object_size'] = 1024
         args['replicas'] = 3

@@ -36,7 +36,6 @@ for objectSize in [128, 256, 1024]:
     for partitionSize in range(1, 1050, 100):
         args = {}
         args['num_servers'] = numBackups
-        args['backups_per_server'] = 1
         args['num_partitions'] = 1
         args['object_size'] = objectSize
         args['replicas'] = 3

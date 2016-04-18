@@ -31,7 +31,7 @@ import time
 from optparse import OptionParser
 
 def recover(num_servers,
-            backups_per_server,
+            backup_disks_per_server,
             object_size,
             num_objects,
             num_overwrites,
@@ -58,12 +58,10 @@ def recover(num_servers,
     @param num_servers: Number of hosts on which to run Masters.
     @type  num_servers: C{int}
 
-    @param backups_per_server: Number of Backups to colocate on the same host
-                               with each Master.  If this is 1 the Backup is
-                               run in the same process as the Master.  If this
-                               is 2 then an additional process is started to
-                               run the second Backup.
-    @type  backups_per_server: C{int}
+    @param backup_disks_per_server: Number of backup disks to use on each
+                                    Master. All disks are shared by one Backup
+                                    (in the same process as the Master).
+    @type  backup_disks_per_server: C{int}
 
     @param object_size: Size of objects to fill old Master with before crash.
     @type  object_size: C{int}
@@ -138,7 +136,7 @@ def recover(num_servers,
 
     args = {}
     args['num_servers'] = num_servers
-    args['backups_per_server'] = backups_per_server
+    args['backup_disks_per_server'] = backup_disks_per_server
     args['replicas'] = replicas
     args['timeout'] = timeout
     args['log_level'] = log_level
@@ -229,9 +227,9 @@ if __name__ == '__main__':
             choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
             metavar='L', dest='log_level',
             help='Controls degree of logging in servers')
-    parser.add_option('-b', '--numBackups', type=int, default=1,
-            metavar='N', dest='backups_per_server',
-            help='Number of backups to run on each server host '
+    parser.add_option('-b', '--numBackupDisks', type=int, default=2,
+            metavar='N', dest='backup_disks_per_server',
+            help='Number of backup disks to use on each server host '
                  '(0, 1, or 2)')
     parser.add_option('--masterArgs', metavar='ARGS', default='',
             dest='master_args',
@@ -278,7 +276,7 @@ if __name__ == '__main__':
 
     args = {}
     args['num_servers'] = options.num_servers
-    args['backups_per_server'] = options.backups_per_server
+    args['backup_disks_per_server'] = options.backup_disks_per_server
     args['object_size'] = options.size
     if options.num_objects == 0:
         # The value below depends on Recovery::PARTITION_MAX_BYTES

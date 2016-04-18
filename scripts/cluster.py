@@ -526,16 +526,17 @@ class Cluster(object):
 def run(
         num_servers=4,             # Number of hosts on which to start
                                    # servers (not including coordinator).
-        backups_per_server=1,      # Number of backups to run on each
+        backup_disks_per_server=2, # Number of backup disks to use on each
                                    # server host (0, 1, or 2).
         replicas=3,                # Replication factor to use for each
                                    # log segment.
         disk1=default_disk1,       # Server arguments specifying the
-                                   # backing device for the first backup
-                                   # on each server.
+                                   # backing device when one backup disk
+                                   # is used on each server.
         disk2=default_disk2,       # Server arguments specifying the
-                                   # backing device for the first backup
-                                   # on each server (if backups_per_server= 2).
+                                   # backing devices when two backup disks
+                                   # are used on each server
+                                   # (if backup_disks_per_server= 2).
         timeout=20,                # How many seconds to wait for the
                                    # clients to complete.
         coordinator_args='',       # Additional arguments for the
@@ -652,24 +653,17 @@ def run(
         for host in cluster.hosts[:num_servers]:
             backup = False
             args = master_args
-            if backups_per_server > 0:
+            disk_args = None
+            if backup_disks_per_server > 0:
                 backup = True
                 args += ' %s' % backup_args
                 backups_started += 1
-            cluster.start_server(host, args, backup=backup)
+                disk_args = disk1 if backup_disks_per_server == 1 else disk2
+            cluster.start_server(host, args, backup=backup, disk=disk_args)
             masters_started += 1
 
         if disjunct:
             cluster.hosts = cluster.hosts[num_servers:]
-
-        if backups_per_server == 2:
-            for host in cluster.hosts[:num_servers]:
-                cluster.start_server(host, backup_args,
-                                     master=False,
-                                     disk=disk2, port=second_backup_port)
-                backups_started += 1
-            if disjunct:
-                cluster.hosts = cluster.hosts[num_servers:]
 
         if debug:
             print('Servers started; pausing for debug setup.')
@@ -707,9 +701,9 @@ if __name__ == '__main__':
             dest='backup_args',
             help='Additional command-line arguments to pass to '
                  'each backup')
-    parser.add_option('-b', '--backups', type=int, default=1,
-            metavar='N', dest='backups_per_server',
-            help='Number of backups to run on each server host '
+    parser.add_option('-b', '--backupDisks', type=int, default=1,
+            metavar='N', dest='backup_disks_per_server',
+            help='Number of backup disks to run on each server host '
                  '(0, 1, or 2)')
     parser.add_option('--client', metavar='ARGS',
             help='Command line to invoke the client application '

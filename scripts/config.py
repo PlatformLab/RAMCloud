@@ -93,13 +93,13 @@ coordinator_port = 12246
 server_port = 12247
 second_backup_port = 12248
 
-# Command-line argument specifying where the first backup on each
-# server should storage the segment replicas.
+# Command-line argument specifying where the server should store the segment
+# replicas when one device is used.
 default_disk1 = '-f /dev/sda2'
 
-# Command-line argument specifying where the second backup should
-# store its segment replicas.
-default_disk2 = '-f /dev/sdb2'
+# Command-line argument specifying where the server should store the segment
+# replicas when two devices are used.
+default_disk2 = '-f /dev/sda2,/dev/sdb2'
 
 # List of machines available to use as servers or clients; see
 # common.getHosts() for more information on how to set this variable.

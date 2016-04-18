@@ -45,7 +45,6 @@ for tombPct in range(0, 51, 10):
 
     args = {}
     args['num_servers'] = num_hosts
-    args['backups_per_server'] = 1
     args['num_partitions'] = 1
     args['object_size'] = objectBytes
     args['replicas'] = 3

@@ -33,7 +33,6 @@ print('#', num_hosts, 'backups', file=dat)
 for numPartitions in range(1, num_hosts):
     args = {}
     args['num_servers'] = num_hosts
-    args['backups_per_server'] = 1
     args['num_partitions'] = numPartitions
     args['object_size'] = 1024
     args['replicas'] = 3

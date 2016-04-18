@@ -175,7 +175,7 @@ def run_test(
         'debug':       options.debug,
         'log_dir':     options.log_dir,
         'log_level':   options.log_level,
-        'backups_per_server': options.backups_per_server,
+        'backup_disks_per_server': options.backup_disks_per_server,
         'num_servers': options.num_servers,
         'replicas':    options.replicas,
         'timeout':     options.timeout,
@@ -328,7 +328,7 @@ def indexScalability(name, options, cluster_args, client_args):
         cluster_args['master_args'] = '--maxCores 3'
     if cluster_args['timeout'] < 360:
         cluster_args['timeout'] = 360
-    cluster_args['backups_per_server'] = 0
+    cluster_args['backup_disks_per_server'] = 0
     cluster_args['replicas'] = 0
     # Number of concurrent rpcs to do per indexlet
     if '--count' not in client_args:
@@ -477,7 +477,7 @@ def netBandwidth(name, options, cluster_args, client_args):
     print(get_client_log(), end='')
 
 def readAllToAll(name, options, cluster_args, client_args):
-    cluster_args['backups_per_server'] = 0
+    cluster_args['backup_disks_per_server'] = 0
     cluster_args['replicas'] = 0
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = len(getHosts())
@@ -529,7 +529,7 @@ def readLoaded(name, options, cluster_args, client_args):
     print(get_client_log(), end='')
 
 def readRandom(name, options, cluster_args, client_args):
-    cluster_args['backups_per_server'] = 0
+    cluster_args['backup_disks_per_server'] = 0
     cluster_args['replicas'] = 0
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 16
@@ -691,9 +691,9 @@ if __name__ == '__main__':
             choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
             metavar='L', dest='log_level',
             help='Controls degree of logging in servers')
-    parser.add_option('-b', '--numBackups', type=int, default=1,
-            metavar='N', dest='backups_per_server',
-            help='Number of backups to run on each server host '
+    parser.add_option('-b', '--numBackupDisks', type=int, default=2,
+            metavar='N', dest='backup_disks_per_server',
+            help='Number of backup disks to use on each server host '
                  '(0, 1, or 2)')
     parser.add_option('-r', '--replicas', type=int, default=3,
             metavar='N',

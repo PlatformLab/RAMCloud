@@ -44,7 +44,6 @@ backups = [[] for i in range(NUMBACKUPS)]
 for trial in range(TRIALS):
     args = {}
     args['num_servers'] = NUMBACKUPS
-    args['backups_per_server'] = 1
     args['num_partitions'] = 12
     args['object_size'] = 1024
     args['replicas'] = 3

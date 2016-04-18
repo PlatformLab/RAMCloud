@@ -32,7 +32,6 @@ for numBackups in range(3, len(config.hosts)):
     print('Running recovery with %d backup(s)' % numBackups)
     args = {}
     args['num_servers'] = numBackups
-    args['backups_per_server'] = 1
     args['num_partitions'] = 1
     args['object_size'] = 1024
     args['num_objects'] = 592950 # 600MB
