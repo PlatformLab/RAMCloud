@@ -8,6 +8,7 @@ COORDINATOR_SRCFILES := \
 			src/MockExternalStorage.cc \
 			src/Tablet.cc \
 			src/TableManager.cc \
+                        src/SkipList.cc \
 			src/Recovery.cc \
 			src/RuntimeOptions.cc \
 			src/CoordinatorClusterClock.pb.cc \

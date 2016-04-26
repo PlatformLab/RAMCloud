@@ -18,7 +18,7 @@
 #include "StringUtil.h"
 #include "Util.h"
 #include "TimeTrace.h"
-#include "btreeRamCloud/Btree.h"
+#include "SkipList.h"
 
 namespace RAMCloud {
 
@@ -99,15 +99,15 @@ IndexletManager::addIndexlet(
 
     } else {
         // Add a new indexlet.
-        IndexBtree *bt;
+        SkipList *sk;
         if (nextNodeId == 0)
-            bt = new IndexBtree(backingTableId, objectManager);
+            sk = new SkipList(objectManager, backingTableId);
         else
-            bt = new IndexBtree(backingTableId, objectManager, nextNodeId);
+            sk = new SkipList(objectManager, backingTableId, nextNodeId);
 
         indexletMap.insert(std::make_pair(TableAndIndexId{tableId, indexId},
                 Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
-                        firstNotOwnedKeyLength, bt, state)));
+                        firstNotOwnedKeyLength, sk, state)));
 
         return true;
     }
@@ -209,7 +209,7 @@ IndexletManager::deleteIndexlet(
         RAMCLOUD_LOG(DEBUG, "Unknown indexlet in tableId %lu, indexId %u",
                 tableId, indexId);
     } else {
-        delete (&it->second)->bt;
+        delete (&it->second)->sk;
         indexletMap.erase(it);
     }
 }
@@ -312,9 +312,12 @@ IndexletManager::isGreaterOrEqual(Buffer* nodeObjectValue,
         const void* compareKey, uint16_t compareKeyLength)
 {
     Lock indexletMapLock(mutex);
-
-    return IndexBtree::isGreaterOrEqual(nodeObjectValue,
-            BtreeEntry{compareKey, compareKeyLength, 0UL});
+    // TODO(syang0) This is just a hack to get things going! Migration will
+    // NOT work with the B+ style of checking isGreaterOrEqual because the
+    // SkipList migration requires a new Head Node to be created on the new
+    // indexlet!
+    return SkipList::isGreaterOrEqual(nodeObjectValue,
+                                        {compareKey, compareKeyLength, 0UL});
 }
 
 /**
@@ -384,8 +387,8 @@ IndexletManager::setNextNodeIdIfHigher(uint64_t tableId, uint8_t indexId,
     }
 
     IndexletManager::Indexlet* indexlet = &it->second;
-    if (indexlet->bt->getNextNodeId() < nextNodeId)
-        (&it->second)->bt->setNextNodeId(nextNodeId);
+    if (indexlet->sk->getNextNodeId() < nextNodeId)
+        (&it->second)->sk->setNextNodeId(nextNodeId);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -597,8 +600,8 @@ IndexletManager::insertEntry(uint64_t tableId, uint8_t indexId,
     Lock indexletLock(indexlet->indexletMutex);
     indexletMapLock.unlock();
 
-    BtreeEntry entry = BtreeEntry(key, keyLength, pKHash);
-    indexlet->bt->insert(entry);
+    IndexEntry entry = {key, keyLength, pKHash};
+    indexlet->sk->insert(entry);
 
     return STATUS_OK;
 }
@@ -653,30 +656,23 @@ IndexletManager::lookupIndexKeys(
 
     // We want to use lower_bound() instead of find() because the firstKey
     // may not correspond to a key in the indexlet.
-    auto iter = indexlet->bt->lower_bound(BtreeEntry {
-            firstKey, firstKeyLength, reqHdr->firstAllowedKeyHash});
-    auto iterEnd = indexlet->bt->end();
+    SkipList::range_iterator it;
+    indexlet->sk->findRange(
+            {firstKey, firstKeyLength, reqHdr->firstAllowedKeyHash},
+            {lastKey, lastKeyLength, uint64_t(~0)}, &it, true, true);
+
+    auto iterEnd = indexlet->sk->end();
     bool rpcMaxedOut = false;
 
     respHdr->numHashes = 0;
 
-    while (iter != iterEnd) {
-        BtreeEntry currEntry = *iter;
-        // If we have overshot the range to be returned (indicated by lastKey),
-        // then break. Otherwise continue appending entries to response rpc.
-        if (IndexKey::keyCompare(currEntry.key, currEntry.keyLength,
-                lastKey, lastKeyLength) > 0)
-        {
-            break;
-        }
+    while (it != iterEnd) {
+        IndexEntry currEntry = *it;
 
         if (respHdr->numHashes < reqHdr->maxNumHashes) {
-            // Can alternatively use iter.data() instead of iter.key().pKHash,
-            // but we might want to make data NULL in the future, so might
-            // as well use the pKHash from key right away.
-            rpc->replyPayload->emplaceAppend<uint64_t>(currEntry.pKHash);
+            rpc->replyPayload->emplaceAppend<uint64_t>(currEntry.pkHash);
             respHdr->numHashes += 1;
-            ++iter;
+            ++it;
         } else {
             rpcMaxedOut = true;
             break;
@@ -685,9 +681,9 @@ IndexletManager::lookupIndexKeys(
 
     if (rpcMaxedOut) {
 
-        respHdr->nextKeyLength = uint16_t(iter->keyLength);
-        respHdr->nextKeyHash = iter->pKHash;
-        rpc->replyPayload->append(iter->key, uint32_t(iter->keyLength));
+        respHdr->nextKeyLength = uint16_t(it->keyLen);
+        respHdr->nextKeyHash = it->pkHash;
+        rpc->replyPayload->append(it->key, uint32_t(it->keyLen));
 
     } else if (IndexKey::keyCompare(
             lastKey, lastKeyLength,
@@ -751,7 +747,7 @@ IndexletManager::removeEntry(uint64_t tableId, uint8_t indexId,
     // Note that we don't have to explicitly compare the key hash in value
     // since it is also a part of the key that gets compared in the tree
     // module.
-    indexlet->bt->erase(BtreeEntry {key, keyLength, pKHash});
+    indexlet->sk->remove({key, keyLength, pKHash});
 
     return STATUS_OK;
 }
@@ -795,7 +791,10 @@ IndexletManager::existsIndexEntry(
     Lock indexletLock(indexlet->indexletMutex);
     indexletMapLock.unlock();
 
-    return indexlet->bt->exists(BtreeEntry {key, keyLength, pKHash});
+    SkipList::range_iterator it;
+    indexlet->sk->findRange({key, keyLength, pKHash},
+                            {key, keyLength, pKHash}, &it, true, true);
+    return indexlet->sk->end() != it;
 }
 
 } //namespace

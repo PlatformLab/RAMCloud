@@ -111,6 +111,12 @@ TEST_F(IndexletManagerTest, addIndexlet) {
     string key4 = "k";
     string key5 = "u";
 
+    for (int i = 1; i <=5; ++i) {
+        char buf[120];
+        sprintf(buf, "backingTable%d", i);
+        ramcloud->createTable(buf);
+    }
+
     TestLog::Enable _("addIndexlet", "getIndexlet", NULL);
     EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1, backingTableId,
             key2.c_str(), (uint16_t)key2.length(),
@@ -374,15 +380,15 @@ TEST_F(IndexletManagerTest, setNextNodeIdIfHigher) {
             IndexletManager::Indexlet::NORMAL, 200);
     IndexletManager::Indexlet* indexlet = im->findIndexlet(
             dataTableId, 1, key1.c_str(), (uint16_t)key1.length());
-    EXPECT_EQ(200U, indexlet->bt->getNextNodeId());
+    EXPECT_EQ(200U, indexlet->sk->getNextNodeId());
 
     im->setNextNodeIdIfHigher(dataTableId, 1, key1.c_str(),
             (uint16_t)key1.length(), 199);
-    EXPECT_EQ(200U, indexlet->bt->getNextNodeId());
+    EXPECT_EQ(200U, indexlet->sk->getNextNodeId());
 
     im->setNextNodeIdIfHigher(dataTableId, 1, key1.c_str(),
             (uint16_t)key1.length(), 201);
-    EXPECT_EQ(201U, indexlet->bt->getNextNodeId());
+    EXPECT_EQ(201U, indexlet->sk->getNextNodeId());
 }
 
 ///////////////////////////////////////////////////////////////////////////////

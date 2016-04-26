@@ -18,7 +18,6 @@
 
 #include <unordered_map>
 
-#include "btreeRamCloud/Btree.h"
 #include "Common.h"
 #include "HashTable.h"
 #include "SpinLock.h"
@@ -28,6 +27,7 @@
 #include "ObjectManager.h"
 #include "Service.h"
 #include "WireFormat.h"
+#include "SkipList.h"
 
 namespace RAMCloud {
 
@@ -66,10 +66,10 @@ class IndexletManager {
 
         Indexlet(const void *firstKey, uint16_t firstKeyLength,
                  const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength,
-                 IndexBtree *bt, IndexletManager::Indexlet::State state)
+                 SkipList *sk, IndexletManager::Indexlet::State state)
             : RAMCloud::Indexlet(firstKey, firstKeyLength, firstNotOwnedKey,
                                  firstNotOwnedKeyLength)
-            , bt(bt)
+            , sk(sk)
             , state(state)
             , indexletMutex("Indexlet")
         {
@@ -77,7 +77,7 @@ class IndexletManager {
 
         Indexlet(const Indexlet& indexlet)
             : RAMCloud::Indexlet(indexlet)
-            , bt(indexlet.bt)
+            , sk(indexlet.sk)
             , state(indexlet.state)
             , indexletMutex("Indexlet")
         {}
@@ -99,12 +99,12 @@ class IndexletManager {
                        firstNotOwnedKeyLength);
             }
 
-            this->bt = indexlet.bt;
+            this->sk = indexlet.sk;
             this->state = indexlet.state;
             return *this;
         }
 
-        IndexBtree *bt;
+        SkipList *sk;
 
         /// The state of the tablet, see State.
         State state;
