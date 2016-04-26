@@ -360,7 +360,7 @@ ZooStorage::setInternal(Lock& lock, Hint flavor, const char* absName,
             } else if (status == ZNODEEXISTS) {
                 // The hint was incorrect: we'll have to use a "set"
                 // operation instead of "create".
-                RAMCLOUD_LOG(NOTICE, "Incorrect CREATE hint for \"%s\": "
+                RAMCLOUD_LOG(DEBUG, "Incorrect CREATE hint for \"%s\": "
                         "object already exists", absName);
                 flavor = Hint::UPDATE;
                 continue;
@@ -377,7 +377,7 @@ ZooStorage::setInternal(Lock& lock, Hint flavor, const char* absName,
             if (status == ZNONODE) {
                 // The hint was incorrect: we'll have to use a "create"
                 // operation instead of "set".
-                RAMCLOUD_LOG(NOTICE, "Incorrect UPDATE hint for \"%s\": "
+                RAMCLOUD_LOG(DEBUG, "Incorrect UPDATE hint for \"%s\": "
                         "object doesn't exist", absName);
                 flavor = Hint::CREATE;
                 continue;
