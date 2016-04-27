@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1708,13 +1708,18 @@ struct TxPrepare {
 
     /// Possible participant server responses to the request to prepare the
     /// included transaction operations for commit.
-    enum Vote { PREPARED,       // OK to commit if all servers agree.
-                ABORT,          // DO NOT commit; should abort commit.
-                COMMITTED };    // Committed directly; no Decision RPCs needed.
-                                // This optimization occurs when the transaction
-                                // only involves a single server (single prepare
-                                // RPC) and the server can unilaterally decide
-                                // to commit.
+    enum Vote { PREPARED,           // OK to commit if all servers agree.
+                COMMITTED,          // Committed directly; no Decision RPCs
+                                    // needed. This optimization occurs when the
+                                    // transaction only involves a single server
+                                    // (single prepare RPC) and the server can
+                                    // unilaterally decide to commit.
+                ABORT,              // DO NOT commit; conflict or other error
+                                    // detected; should abort the transaction.
+                ABORT_REQUESTED };  // DO NOT commit; recovery timeout occurred
+                                    // and recovery is underway (a special case
+                                    // of ABORT which allows us to detect when
+                                    // the commit process is too slow).
 
     struct Request {
         RequestCommon common;
@@ -1825,10 +1830,11 @@ struct TxRequestAbort {
         // - array of TxParticipants which are handled by recipient server.
     } __attribute__((packed));
 
-    struct Response {
-        ResponseCommon common;
-        TxPrepare::Vote vote;
-    } __attribute__((packed));
+    // TxRequestAbort shares the same Response as TxPrepare; one RPC might
+    // return the previously saved result of the other.  Part of the transaction
+    // recovery mechanism; uses Linearizable RPC IDs (see Linearizable RPC in
+    // the designNotes).
+    typedef TxPrepare::Response Response;
 };
 
 struct TxHintFailed {

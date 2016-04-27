@@ -707,6 +707,31 @@ TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_committed_error) {
     EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
 }
 
+TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort_requested) {
+    insertWrite(tableId1, "test1", 5, "hello", 5);
+    transactionTask->initTask();
+    // Trigger Recovery
+    TxRecoveryManager::RecoveryTask recoveryTask(
+            &context,
+            transactionTask->lease.leaseId,
+            transactionTask->txId,
+            transactionTask->participantList,
+            transactionTask->participantCount);
+    recoveryTask.sendRequestAbortRpc();
+    transactionTask->nextCacheEntry = transactionTask->commitCache.begin();
+    transactionTask->sendPrepareRpc();
+
+    EXPECT_EQ(1U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ(WireFormat::TxDecision::UNDECIDED, transactionTask->decision);
+    TestLog::reset();
+    transactionTask->processPrepareRpcResults();
+    EXPECT_EQ(0U, transactionTask->prepareRpcs.size());
+    EXPECT_EQ("processPrepareRpcResults: "
+              "Transaction aborting because commit took longer than expected.",
+              TestLog::get());
+    EXPECT_EQ(WireFormat::TxDecision::ABORT, transactionTask->decision);
+}
+
 TEST_F(ClientTransactionTaskTest, processPrepareRpcResults_abort) {
     insertWrite(tableId1, "test", 4, "hello", 5);
     // Set reject rules to cause abort.

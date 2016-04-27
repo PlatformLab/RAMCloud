@@ -313,6 +313,16 @@ ClientTransactionTask::processPrepareRpcResults()
                                                         STATUS_INTERNAL_ERROR);
                     }
                     break;
+                case TxPrepare::ABORT_REQUESTED:
+                    // Recovery was triggered before this commit process
+                    // completed which means we should ABORT.  Split into its
+                    // own case to detect ABORTs due to recovery timeouts.
+                    if (decision != TxDecision::ABORT) {
+                        RAMCLOUD_LOG(WARNING,
+                                "Transaction aborting because commit took "
+                                "longer than expected.");
+                    }
+                    // NO break; fall through to perform actual ABORT work.
                 case TxPrepare::ABORT:
                     // Decide the transaction should ABORT (as long as the
                     // transaction has not already committed).
