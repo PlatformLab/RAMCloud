@@ -43,6 +43,7 @@ ClientTransactionTask::ClientTransactionTask(RamCloud* ramcloud)
     , decisionRpcs()
     , commitCache()
     , nextCacheEntry()
+    , startTime()
 {
     RAMCLOUD_TEST_LOG("Constructor called.");
 }
@@ -120,6 +121,8 @@ ClientTransactionTask::performTask()
 {
     try {
         if (state == INIT) {
+            startTime = Cycles::rdtsc();
+
             // Build participant list
             initTask();
             nextCacheEntry = commitCache.begin();
@@ -153,8 +156,9 @@ ClientTransactionTask::performTask()
                         TEST_LOG("Move from PREPARE to DONE phase; optimized.");
                         break;
                     default:
-                        RAMCLOUD_LOG(ERROR,
-                                     "Unexpected transaction decision value.");
+                        RAMCLOUD_LOG(ERROR, "Unexpected transaction decision "
+                                "value in transaction %lu.%lu.",
+                                     lease.leaseId, txId);
                         ClientException::throwException(HERE,
                                                         STATUS_INTERNAL_ERROR);
                         break;
@@ -181,22 +185,27 @@ ClientTransactionTask::performTask()
                 // is currently set may be in error.  Reset the decision to
                 // UNDECIDED to signal the error.
                 decision = WireFormat::TxDecision::UNDECIDED;
-                RAMCLOUD_LOG(ERROR,
-                        "Unexpected exception '%s' while preparing "
-                        "transaction commit; will result in internal error.",
-                        statusToString(e.status));
+                RAMCLOUD_LOG(ERROR, "Unexpected exception '%s' while preparing "
+                        "to commit transaction %lu.%lu; will result in "
+                        "internal error.",
+                        statusToString(e.status), lease.leaseId, txId);
                 break;
             case DECISION:
-                RAMCLOUD_LOG(WARNING,
-                        "Unexpected exception '%s' while issuing transaction "
-                        "decisions; likely recoverable.",
-                        statusToString(e.status));
+                RAMCLOUD_LOG(WARNING, "Unexpected exception '%s' while issuing "
+                        "decisions for transaction %lu.%lu; likely "
+                        "recoverable.",
+                        statusToString(e.status), lease.leaseId, txId);
                 break;
+            case DONE:
+                RAMCLOUD_LOG(NOTICE, "Unexpected exception '%s' after "
+                        "committing transaction %lu.%lu.",
+                        statusToString(e.status), lease.leaseId, txId);
             default:
-                RAMCLOUD_LOG(NOTICE,
-                        "Unexpected exception '%s' after committing "
-                        "transaction.",
-                        statusToString(e.status));
+                // This case should be unreachable.
+                RAMCLOUD_LOG(ERROR, "Unexpected exception '%s' while "
+                        "transaction %lu.%lu was in an invalid state; this "
+                        "case should not be reachable.",
+                        statusToString(e.status), lease.leaseId, txId);
                 break;
         }
         ramcloud->rpcTracker->rpcFinished(txId);
@@ -306,9 +315,9 @@ ClientTransactionTask::processPrepareRpcResults()
                         decision = TxDecision::COMMIT;
                     } else {
                         // Possible Byzantine failure detected; do not continue.
-                        RAMCLOUD_LOG(ERROR,
-                                "TxPrepare claims to have COMMITTED after "
-                                "ABORT received.");
+                        RAMCLOUD_LOG(ERROR, "Transaction %lu.%lu found "
+                                "TxPrepare claiming to have COMMITTED after "
+                                "ABORT already received.", lease.leaseId, txId);
                         ClientException::throwException(HERE,
                                                         STATUS_INTERNAL_ERROR);
                     }
@@ -318,9 +327,13 @@ ClientTransactionTask::processPrepareRpcResults()
                     // completed which means we should ABORT.  Split into its
                     // own case to detect ABORTs due to recovery timeouts.
                     if (decision != TxDecision::ABORT) {
-                        RAMCLOUD_LOG(WARNING,
-                                "Transaction aborting because commit took "
-                                "longer than expected.");
+                        double detectionTime =
+                                Cycles::toSeconds(Cycles::rdtsc() - startTime);
+                        RAMCLOUD_LOG(WARNING, "Transaction %lu.%lu consisting "
+                                "of %u operation(s) aborted after %.1f us "
+                                "because the commit took longer than expected.",
+                                lease.leaseId, txId, participantCount,
+                                detectionTime * 1e06);
                     }
                     // NO break; fall through to perform actual ABORT work.
                 case TxPrepare::ABORT:
@@ -331,15 +344,18 @@ ClientTransactionTask::processPrepareRpcResults()
                     } else {
                         // Possible Byzantine failure detected; do not continue.
                         RAMCLOUD_LOG(ERROR,
-                                "TxPrepare trying to ABORT after COMMITTED.");
+                                "Transaction %lu.%lu detected TxPrepare trying "
+                                "to ABORT after COMMITTED.",
+                                lease.leaseId, txId);
                         ClientException::throwException(HERE,
                                                         STATUS_INTERNAL_ERROR);
                     }
                     break;
                 default:
                     // Possible Byzantine failure detected; do not continue.
-                    RAMCLOUD_LOG(ERROR,
-                            "TxPrepare returned unexpected result.");
+                    RAMCLOUD_LOG(ERROR, "Unexpected result from TxPrepare in "
+                            "transaction %lu.%lu.",
+                            lease.leaseId, txId);
                     ClientException::throwException(HERE,
                                                     STATUS_INTERNAL_ERROR);
             }
@@ -697,7 +713,11 @@ ClientTransactionTask::PrepareRpc::appendOp(CommitCacheMap::iterator opEntry)
             request.appendExternal(&entry->objectBuf);
             break;
         default:
-            RAMCLOUD_LOG(ERROR, "Unknown transaction op type.");
+            RAMCLOUD_LOG(ERROR, "Unknown transaction op type found for "
+                    "CacheEntry (%lu : %lu) while attempting to prepare "
+                    "transaction %lu.%lu.",
+                    key->tableId, key->keyHash,
+                    task->lease.leaseId, task->txId);
             return false;
     }
 
