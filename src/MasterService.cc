@@ -2616,6 +2616,7 @@ MasterService::txRequestAbort(
         WireFormat::TxRequestAbort::Response* respHdr,
         Rpc* rpc)
 {
+    using WireFormat::TxPrepare;
     uint32_t reqOffset = sizeof32(*reqHdr);
 
     // 1. Process participant list.
@@ -2635,7 +2636,7 @@ MasterService::txRequestAbort(
     rpcHandles.reserve(participantCount);
 
     respHdr->common.status = STATUS_OK;
-    respHdr->vote = WireFormat::TxPrepare::PREPARED;
+    respHdr->vote = TxPrepare::PREPARED;
 
     // Ensure that at-lease one abort-vote is durably saved in log or
     // all participants have prepared-votes in durable log.
@@ -2665,9 +2666,10 @@ MasterService::txRequestAbort(
         UnackedRpcHandle* rh = &rpcHandles.back();
         if (rh->isDuplicate()) {
             respHdr->vote = parsePrepRpcResult(rh->resultLoc());
-            if (respHdr->vote == WireFormat::TxPrepare::PREPARED) {
+            if (respHdr->vote == TxPrepare::PREPARED) {
                 continue;
-            } else if (respHdr->vote == WireFormat::TxPrepare::ABORT) {
+            } else if (respHdr->vote == TxPrepare::ABORT ||
+                    respHdr->vote == TxPrepare::ABORT_REQUESTED) {
                 break;
             } else {
                 assert(false);
@@ -2675,7 +2677,7 @@ MasterService::txRequestAbort(
         }
 
         uint64_t rpcResultPtr;
-        WireFormat::TxPrepare::Vote vote = WireFormat::TxPrepare::ABORT;
+        TxPrepare::Vote vote = TxPrepare::ABORT_REQUESTED;
         RpcResult rpcResult(
                 tableId,
                 keyHash,
@@ -2683,13 +2685,13 @@ MasterService::txRequestAbort(
                 &vote, sizeof(vote));
 
         try {
-            objectManager.writePrepareFail(&rpcResult, &rpcResultPtr);
+            objectManager.writeRpcResultOnly(&rpcResult, &rpcResultPtr);
         } catch (RetryException& e) {
             objectManager.syncChanges();
             throw;
         }
 
-        respHdr->vote = WireFormat::TxPrepare::ABORT;
+        respHdr->vote = vote;
         rh->recordCompletion(rpcResultPtr);
         break;
     }
@@ -2949,7 +2951,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             respHdr->vote = parsePrepRpcResult(rh->resultLoc());
             if (respHdr->vote == WireFormat::TxPrepare::PREPARED) {
                 continue;
-            } else if (respHdr->vote == WireFormat::TxPrepare::ABORT) {
+            } else if (respHdr->vote == WireFormat::TxPrepare::ABORT ||
+                    respHdr->vote == WireFormat::TxPrepare::ABORT_REQUESTED) {
                 break;
             } else {
                 assert(false);

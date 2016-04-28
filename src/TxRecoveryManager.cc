@@ -677,7 +677,9 @@ TxRecoveryManager::RecoveryTask::processRequestAbortRpcResults()
         }
 
         try {
-            if (rpc->wait() == WireFormat::TxPrepare::ABORT) {
+            WireFormat::TxPrepare::Vote vote = rpc->wait();
+            if (vote == WireFormat::TxPrepare::ABORT_REQUESTED ||
+                    vote == WireFormat::TxPrepare::ABORT) {
                 decision = WireFormat::TxDecision::ABORT;
             }
         } catch (UnknownTabletException& e) {
