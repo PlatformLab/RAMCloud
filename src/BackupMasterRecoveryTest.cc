@@ -197,8 +197,9 @@ TEST_F(BackupMasterRecoveryTest, start) {
 }
 
 TEST_F(BackupMasterRecoveryTest, setPartitionsAndSchedule) {
-    TestLog::Enable _;
     recovery.construct(taskQueue, 456lu, ServerId{99, 0}, segmentSize);
+
+    TestLog::Enable _;
     recovery->startCompleted = true;
     recovery->testingSkipBuild = true;
 
@@ -317,8 +318,9 @@ TEST_F(BackupMasterRecoveryTest, free) {
     EXPECT_EQ("free: Recovery 456 for crashed master 99.0 is no longer needed; "
               "will clean up as next possible chance. | "
               "schedule: scheduled | "
-              "performTask: Freeing recovery state on backup for crashed "
-              "master 99.0 (recovery 456), including 0 filtered replicas",
+              "~BackupMasterRecovery: Freeing recovery state on backup for "
+              "crashed master 99.0 (recovery 456), including 0 filtered "
+              "replicas",
               TestLog::get());
 }
 

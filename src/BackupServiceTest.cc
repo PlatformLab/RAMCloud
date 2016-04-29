@@ -601,8 +601,9 @@ TEST_F(BackupServiceTest, GarbageCollectDownServerTask) {
     TestLog::Enable _;
     // Runs the now scheduled BackupMasterRecovery to free it up.
     backup->taskQueue.performTask();
-    EXPECT_EQ("performTask: Freeing recovery state on backup for crashed "
-              "master 99.0 (recovery 456), including 0 filtered replicas",
+    EXPECT_EQ("~BackupMasterRecovery: Freeing recovery state on backup for "
+              "crashed master 99.0 (recovery 456), including 0 filtered "
+              "replicas",
               TestLog::get());
 
     backup->taskQueue.performTask();

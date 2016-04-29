@@ -71,13 +71,24 @@ BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
     , logDigestSegmentEpoch()
     , tableStatsDigest()
     , startCompleted()
-    , freeQueued()
     , recoveryTicks()
     , readingDataTicks()
     , buildingStartTicks()
     , testingExtractDigest()
     , testingSkipBuild()
+    , destroyer(taskQueue, this)
 {
+}
+
+/**
+ * Perform logging of cleanup inside a destructor, since we are using a
+ * distinct task to clean up the BackupMasterRecovery instance.
+ */
+BackupMasterRecovery::~BackupMasterRecovery() {
+    LOG(NOTICE, "Freeing recovery state on backup for crashed master %s "
+            "(recovery %lu), including %lu filtered replicas",
+            crashedMasterId.toString().c_str(), recoveryId,
+            numPrimaries);
 }
 
 /**
@@ -360,8 +371,7 @@ BackupMasterRecovery::free()
     LOG(DEBUG, "Recovery %lu for crashed master %s is no longer needed; will "
         "clean up as next possible chance.",
         recoveryId, crashedMasterId.toString().c_str());
-    freeQueued = true;
-    schedule();
+    destroyer.schedule();
 }
 
 /**
@@ -390,16 +400,6 @@ BackupMasterRecovery::getRecoveryId()
 void
 BackupMasterRecovery::performTask()
 {
-    if (freeQueued) {
-        LOG(NOTICE, "Freeing recovery state on backup for crashed master %s "
-                "(recovery %lu), including %lu filtered replicas",
-                crashedMasterId.toString().c_str(), recoveryId,
-                numPrimaries);
-        // Destructor will take care of everything including dropping
-        // references to the storage frames.
-        delete this;
-        return;
-    }
     if (DISABLE_BACKGROUND_BUILDING)
         return;
 
@@ -575,5 +575,20 @@ BackupMasterRecovery::Replica::Replica(const BackupStorage::FrameRef& frame)
     , built()
 {
 }
+
+// --- TaskKiller ---
+
+TaskKiller::TaskKiller(TaskQueue& taskQueue, Task* taskToKill)
+    : Task(taskQueue)
+    , taskToKill(taskToKill)
+{
+}
+
+void
+TaskKiller::performTask()
+{
+    delete taskToKill;
+}
+
 
 } // namespace RAMCloud
