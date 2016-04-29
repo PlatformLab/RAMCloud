@@ -537,8 +537,14 @@ ReplicatedSegment::performTask()
     if (freeQueued && !recoveringFromLostOpenReplicas) {
         foreach (Replica& replica, replicas)
             performFree(replica);
-        if (!isScheduled()) // Everything is freed, destroy ourself.
+
+        // Lock here before checking isScheduled, so that the scheduled flag is
+        // read atomically with performing the destroy.
+        Lock _(dataMutex);
+        if (!isScheduled()) { // Everything is freed, destroy ourself.
             deleter.destroyAndFreeReplicatedSegment(this);
+            return;
+        }
     } else if (!freeQueued) {
         foreach (Replica& replica, replicas)
             performWrite(replica);
