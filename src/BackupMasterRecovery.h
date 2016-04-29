@@ -339,6 +339,26 @@ class BackupMasterRecovery : public Task {
      */
     TaskKiller destroyer;
 
+    /**
+     * When this flag is set, a deletion task has been enqueued, and this objct
+     * should cease to reschedule itself.
+     */
+    bool pendingDeletion;
+
+    /**
+     * This SpinLock is used to ensure that pendingDeletion is set atomically
+     * with the schedule of destroyer. Otherwise, we may get into the following
+     * scenario:
+     * 1. performTask reads the flag as clear
+     * 2. free() function sets the flag.
+     * 3. free() function enqueues the deletion task.
+     * 4. performTask schedules itself.
+     *
+     * Given that only one task can be executed at a time, we can share the
+     * same lock across multiple tasks.
+     */
+    static SpinLock deletionMutex;
+
     DISALLOW_COPY_AND_ASSIGN(BackupMasterRecovery);
 };
 

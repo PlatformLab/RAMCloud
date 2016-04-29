@@ -23,6 +23,9 @@ namespace RAMCloud {
 
 enum { DISABLE_BACKGROUND_BUILDING = false };
 
+SpinLock BackupMasterRecovery::deletionMutex
+    ("BackupMasterRecovery::deletionMutex");
+
 // -- BackupMasterRecovery --
 
 /**
@@ -77,6 +80,7 @@ BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
     , testingExtractDigest()
     , testingSkipBuild()
     , destroyer(taskQueue, this)
+    , pendingDeletion(false)
 {
 }
 
@@ -371,6 +375,8 @@ BackupMasterRecovery::free()
     LOG(DEBUG, "Recovery %lu for crashed master %s is no longer needed; will "
         "clean up as next possible chance.",
         recoveryId, crashedMasterId.toString().c_str());
+    SpinLock::Guard lock(deletionMutex);
+    pendingDeletion = true;
     destroyer.schedule();
 }
 
@@ -412,7 +418,11 @@ BackupMasterRecovery::performTask()
         return;
     }
 
-    schedule();
+    {
+        SpinLock::Guard lock(deletionMutex);
+        if (!pendingDeletion)
+            schedule();
+    }
 
     if (!nextToBuild->frame->isLoaded()) {
         // Can't afford to log here at any level; generates tons of logging.
