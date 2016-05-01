@@ -184,6 +184,33 @@ struct PerfStats {
     uint64_t networkOutputBytes;
 
     //--------------------------------------------------------------------
+    // Statistics for space used by log in memory and backups.
+    // Note: these are NOT counter based statistics.
+    //       collectStats() will not populate these values.
+    //       Instead, user must call AbstractLog::getMemoryStats() manually
+    //       to obtain these values.
+    //--------------------------------------------------------------------
+
+    /// Total capacity of memory reserved for live data in log.
+    uint64_t logMaxBytes;
+
+    /// Total space used (for both live and garbage collectable data) in log.
+    uint64_t logUsedBytes;
+
+    /// Unused log space ready for write even before log cleaning.
+    uint64_t logFreeBytes;
+
+    /// Total space used for holding live data in log.
+    uint64_t logLiveBytes;
+
+    /// Log space available to write new data. (logMaxBytes - logLiveBytes)
+    uint64_t logAppendableBytes;
+
+    /// Backup disk spaces spent for holding replicas for data of this server.
+    /// !Not yet implemented: always 0.
+    uint64_t logUsedBytesInBackups;
+
+    //--------------------------------------------------------------------
     // Temporary counters. The values below have no pre-defined use;
     // they are intended for temporary use during debugging or performance
     // analysis. Committed code in the repo should not set these counters.

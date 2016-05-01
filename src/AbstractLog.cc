@@ -224,6 +224,31 @@ AbstractLog::getMetrics(ProtoBuf::LogMetrics& m)
 }
 
 /**
+ * Populate the given perfStats instance with various memory metrics.
+ * \param[out] stats
+ *      The instance of perfStats to be updated for memory stats.
+ */
+void
+AbstractLog::getMemoryStats(PerfStats* stats)
+{
+    stats->logMaxBytes = maxLiveBytes;
+
+    SegletAllocator& alloc = segmentManager->getAllocator();
+    size_t freeSeglets = alloc.getFreeCount(SegletAllocator::DEFAULT);
+    size_t totalSeglets = alloc.getTotalCount(SegletAllocator::DEFAULT);
+
+    stats->logUsedBytes = static_cast<uint64_t>(alloc.getSegletSize() *
+                                                (totalSeglets - freeSeglets));
+    stats->logFreeBytes = static_cast<uint64_t>(alloc.getSegletSize() *
+                                                freeSeglets);
+    stats->logLiveBytes = totalLiveBytes;
+    stats->logAppendableBytes = maxLiveBytes - totalLiveBytes;
+
+    //TODO(seojin): implement.
+    stats->logUsedBytesInBackups = 0;
+}
+
+/**
  * Given a reference to an entry previously appended to the log, return the
  * entry's type and fill in a buffer that points to the entry's contents.
  * This is the method to use to access something after it is appended to the

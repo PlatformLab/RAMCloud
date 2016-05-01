@@ -25,6 +25,7 @@
 #include "TestLog.h"
 #include "Transport.h"
 #include "MasterTableMetadata.h"
+#include "PerfStats.h"
 
 namespace RAMCloud {
 
@@ -317,6 +318,39 @@ TEST_F(AbstractLogTest, allocNewWritableHead) {
     EXPECT_FALSE(ml.allocNewWritableHead());
     EXPECT_EQ(&ml.segment, ml.head);
     EXPECT_TRUE(ml.metrics.noSpaceTimer);
+}
+
+TEST_F(AbstractLogTest, getMemoryStats) {
+    TestLog::Enable _;
+    EXPECT_EQ(37729075lu, l.maxLiveBytes);
+
+    PerfStats stats;
+    l.getMemoryStats(&stats);
+    EXPECT_EQ(37729075lu, stats.logMaxBytes);
+    EXPECT_EQ(131072u, stats.logUsedBytes);
+    EXPECT_EQ(39583744u, stats.logFreeBytes);
+    EXPECT_EQ(0u, stats.logLiveBytes);
+    EXPECT_EQ(37729075u, stats.logAppendableBytes);
+    EXPECT_EQ(0u, stats.logUsedBytesInBackups);
+
+    // Append data and check memory stats again.
+    // We append half of segletSize twice to prevent too large to append
+    // error.
+    uint32_t dataLen = serverConfig.segletSize / 2;
+    Segment::EntryHeader entryHeader(LOG_ENTRY_TYPE_OBJ, dataLen);
+    uint32_t appendedLen = 2 * (dataLen + sizeof32(entryHeader)
+                                        + entryHeader.getLengthBytes());
+    char* data = new char[dataLen];
+    l.append(LOG_ENTRY_TYPE_OBJ, data, dataLen);
+    l.append(LOG_ENTRY_TYPE_OBJ, data, dataLen);
+    l.getMemoryStats(&stats);
+
+    EXPECT_EQ(37729075lu, stats.logMaxBytes);
+    EXPECT_EQ(131072u + serverConfig.segletSize, stats.logUsedBytes);
+    EXPECT_EQ(39583744u - serverConfig.segletSize, stats.logFreeBytes);
+    EXPECT_EQ(appendedLen, stats.logLiveBytes);
+    EXPECT_EQ(37729075u - appendedLen, stats.logAppendableBytes);
+    EXPECT_EQ(0u, stats.logUsedBytesInBackups);
 }
 
 } // namespace RAMCloud

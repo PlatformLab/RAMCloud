@@ -62,7 +62,10 @@ PerfStats::registerStats(PerfStats* stats)
  * This method aggregates performance information from all of the
  * PerfStats structures that have been registered via the registerStats
  * method.
- * 
+ *
+ * Note: this function doesn't calculate or fill memory statistics.
+ *       See definition of memory stat fields (eg. logMaxBytes) for details.
+ *
  * \param[out] total
  *      Filled in with the sum of all statistics from all registered
  *      PerfStat structures; any existing contents are overwritten.
@@ -286,7 +289,7 @@ PerfStats::printClusterStats(Buffer* first, Buffer* second)
  * CoordinatorClient::serverControlAll, return information about
  * how much each individual metric change between the two calls,
  * for each server.
- * 
+ *
  * \param before
  *      Response buffer from a call to CoordinatorClient::serverControlAll.
  * \param after

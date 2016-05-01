@@ -40,6 +40,9 @@ class LogSegment;
 /// Avoid yet another circular dependency.
 class SegmentManager;
 
+/// Only use pointer in header file.
+class PerfStats;
+
 /**
  * This class implements functionality common to the Log and SideLog subclasses.
  * The Log class is typically used when servers store individual entries such as
@@ -108,6 +111,7 @@ class AbstractLog {
     bool append(Buffer* logBuffer, Reference *references, uint32_t numEntries);
     void free(Reference reference);
     void getMetrics(ProtoBuf::LogMetrics& m);
+    void getMemoryStats(PerfStats* stats);
     LogEntryType getEntry(Reference reference,
                           Buffer& outBuffer);
     uint64_t getSegmentId(Reference reference);
