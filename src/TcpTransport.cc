@@ -646,6 +646,38 @@ TcpTransport::TcpSession::TcpSession(TcpTransport* transport,
                 getServiceLocator().c_str()), errno);
     }
 
+    // Connection was successful but needs to check if it has connected
+    // to self. As per RFC 793, it is possible that incase coordinator/server
+    // is down, it can connect to itself. If that is the case, then close this
+    // connection and continue to retry connecting.
+    struct sockaddr_in cAddr;
+    socklen_t cAddrLen = sizeof(cAddr);
+
+    // Get the current client dynamic information allocated.
+    int e = sys->getsockname(fd, reinterpret_cast<sockaddr*>(&cAddr),
+                             &cAddrLen);
+    if (e != 0) {
+        sys->close(fd);
+        fd = -1;
+        LOG(WARNING, "TcpTransport failed to get client socket info");
+        throw TransportException(HERE,
+                    "TcpTransport failed to get client socket info", errno);
+    }
+
+    // Compare if it is same as coordinator/server.
+    if (serviceLocator->getOption<uint16_t>("port") == NTOHS(cAddr.sin_port)
+                        && strcmp((serviceLocator->getOption("host")).c_str(),
+                                    inet_ntoa(cAddr.sin_addr)) == 0)
+    {
+        sys->close(fd);
+        fd = -1;
+        LOG(WARNING, "TcpTransport connected to itself %s",
+                                            getServiceLocator().c_str());
+        throw TransportException(HERE, format(
+                            "TcpTransport connected to itself %s",
+                            getServiceLocator().c_str()));
+    }
+
     // Disable the hideous Nagle algorithm, which will delay sending small
     // messages in some situations.
     int flag = 1;
