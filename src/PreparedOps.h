@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,46 +25,11 @@
 #include "WireFormat.h"
 #include "WorkerTimer.h"
 #include "MasterClient.h"
+#include "TransactionId.h"
 
 namespace RAMCloud {
 
 class ObjectManager;
-
-/**
- * Encapsulates the unique identifier for a specific transaction.
- */
-struct TransactionId {
-    /// Constructor for a TransactionId object.
-    TransactionId(uint64_t clientLeaseId, uint64_t clientTransactionId)
-        : clientLeaseId(clientLeaseId)
-        , clientTransactionId(clientTransactionId)
-    {}
-
-    /// Equality operator; implemented to support use of TransactionId objects
-    /// as a key in an std::unordered_map.
-    bool operator==(const TransactionId &other) const {
-        return (clientLeaseId == other.clientLeaseId
-                && clientTransactionId == other.clientTransactionId);
-    }
-
-    /// Hash operator; implemented to support use of TransactionId objects
-    /// as a key in an std::unordered_map.
-    struct Hasher {
-        std::size_t operator()(const TransactionId& txId) const {
-            std::size_t h1 = std::hash<uint64_t>()(txId.clientLeaseId);
-            std::size_t h2 = std::hash<uint64_t>()(txId.clientTransactionId);
-            return h1 ^ (h2 << 1);
-        }
-    };
-
-    /// Id of the client lease that issued this transaction.
-    uint64_t clientLeaseId;
-    /// Transaction Id given to this transaction by the client.  This value
-    /// uniquely identifies this transaction among the transactions from the
-    /// same client.  Combining this value with the clientLeaseId will provide
-    /// a system wide unique transaction identifier.
-    uint64_t clientTransactionId;
-};
 
 /**
  * This class defines the format of a prepared transaction operation stored in
