@@ -124,6 +124,7 @@ SHARED_SRCFILES := \
 		   src/PingClient.cc \
 		   src/PingService.cc \
 		   src/PortAlarm.cc \
+		   src/PreparedOp.cc \
 		   src/PreparedOps.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
