@@ -118,6 +118,7 @@ TESTS_SRCFILES := \
 		  src/ObjectRpcWrapperTest.cc \
 		  src/ObjectTest.cc \
 		  src/OptionParserTest.cc \
+		  src/ParticipantListTest.cc \
 		  src/PerfCounterTest.cc \
 		  src/PerfStatsTest.cc \
 		  src/PingServiceTest.cc \

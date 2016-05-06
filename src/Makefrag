@@ -118,6 +118,7 @@ SHARED_SRCFILES := \
 		   src/ObjectManager.cc \
 		   src/ObjectRpcWrapper.cc \
 		   src/OptionParser.cc \
+		   src/ParticipantList.cc \
 		   src/PcapFile.cc \
 		   src/PerfCounter.cc \
 		   src/PerfStats.cc \

@@ -23,6 +23,7 @@
 #include "HashTable.h"
 #include "IndexKey.h"
 #include "Object.h"
+#include "ParticipantList.h"
 #include "PreparedOp.h"
 #include "PreparedOps.h"
 #include "SegmentManager.h"
