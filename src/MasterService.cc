@@ -84,7 +84,7 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
                     &tabletManager,
                     &masterTableMetadata,
                     &unackedRpcResults,
-                    &preparedOps,
+                    &transactionManager,
                     &txRecoveryManager)
     , tabletManager()
     , txRecoveryManager(context)
@@ -92,7 +92,7 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
     , clusterClock()
     , clientLeaseValidator(context, &clusterClock)
     , unackedRpcResults(context, &objectManager, &clientLeaseValidator)
-    , preparedOps(context)
+    , transactionManager(context)
     , disableCount(0)
     , initCalled(false)
     , logEverSynced(false)
@@ -2517,8 +2517,8 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 return;
             }
 
-            uint64_t opPtr = preparedOps.getOp(reqHdr->leaseId,
-                                                   participants[i].rpcId);
+            uint64_t opPtr = transactionManager.getOp(reqHdr->leaseId,
+                                                      participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed.
             if (!opPtr) {
@@ -2557,8 +2557,8 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 return;
             }
 
-            uint64_t opPtr = preparedOps.getOp(reqHdr->leaseId,
-                                                participants[i].rpcId);
+            uint64_t opPtr = transactionManager.getOp(reqHdr->leaseId,
+                                                      participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed
             // or never prepared (abort-vote in prepare stage).
@@ -2987,7 +2987,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             break;
         }
 
-        preparedOps.bufferOp(reqHdr->lease.leaseId, rpcId, newOpPtr);
+        transactionManager.bufferOp(reqHdr->lease.leaseId, rpcId, newOpPtr);
 
         rh->recordCompletion(rpcResultPtr);
     }
@@ -3000,8 +3000,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             respHdr->common.status == STATUS_OK &&
             respHdr->vote == WireFormat::TxPrepare::PREPARED) {
         for (uint32_t i = 0; i < participantCount; ++i) {
-            uint64_t opPtr = preparedOps.getOp(reqHdr->lease.leaseId,
-                                                   participants[i].rpcId);
+            uint64_t opPtr = transactionManager.getOp(reqHdr->lease.leaseId,
+                                                      participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed.
             if (!opPtr) {
@@ -3033,8 +3033,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                 return;
             }
 
-            preparedOps.removeOp(reqHdr->lease.leaseId,
-                                 participants[i].rpcId);
+            transactionManager.removeOp(reqHdr->lease.leaseId,
+                                        participants[i].rpcId);
         }
         respHdr->vote = WireFormat::TxPrepare::COMMITTED;
     }
@@ -3838,7 +3838,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             context, recoveryId, serverId, &recoveryPartition, successful);
     if (!cancelRecovery) {
         // Re-grab all transaction locks.
-        preparedOps.regrabLocksAfterRecovery(&objectManager);
+        transactionManager.regrabLocksAfterRecovery(&objectManager);
 
         // Ok - we're expected to be serving now. Mark recovered tablets
         // as normal so we can handle clients.

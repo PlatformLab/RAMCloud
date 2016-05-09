@@ -126,7 +126,6 @@ SHARED_SRCFILES := \
 		   src/PingService.cc \
 		   src/PortAlarm.cc \
 		   src/PreparedOp.cc \
-		   src/PreparedOps.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
 		   src/ReplicaManager.cc \
@@ -161,6 +160,7 @@ SHARED_SRCFILES := \
 		   src/TimeCounter.cc \
 		   src/TimeTrace.cc \
 		   src/TimeTraceUtil.cc \
+		   src/TransactionManager.cc \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/TxDecisionRecord.cc \

@@ -18,7 +18,7 @@
 
 #include <gtest/gtest.h>
 #include "btreeRamCloud/Btree.h"
-#include "PreparedOps.h"
+#include "TransactionManager.h"
 #include "RamCloud.h"
 #include "TxRecoveryManager.h"
 #include "UnackedRpcResults.h"
@@ -44,7 +44,7 @@ class BtreeTest: public ::testing::Test {
     ServerConfig masterConfig;
     MasterTableMetadata masterTableMetadata;
     UnackedRpcResults unackedRpcResults;
-    PreparedOps preparedOps;
+    TransactionManager transactionManager;
     TxRecoveryManager txRecoveryManager;
     TabletManager tabletManager;
     ObjectManager objectManager;
@@ -59,7 +59,7 @@ class BtreeTest: public ::testing::Test {
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
         , unackedRpcResults(&context, NULL, &clientLeaseValidator)
-        , preparedOps(&context)
+        , transactionManager(&context)
         , txRecoveryManager(&context)
         , tabletManager()
         , objectManager(&context,
@@ -68,7 +68,7 @@ class BtreeTest: public ::testing::Test {
                         &tabletManager,
                         &masterTableMetadata,
                         &unackedRpcResults,
-                        &preparedOps,
+                        &transactionManager,
                         &txRecoveryManager)
         , tableId(1)
     {

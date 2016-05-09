@@ -19,73 +19,74 @@
 #include "Context.h"
 #include "MasterService.h"
 #include "MockCluster.h"
-#include "PreparedOps.h"
 #include "RamCloud.h"
 #include "StringUtil.h"
+#include "TransactionManager.h"
 
 namespace RAMCloud {
 
 using WireFormat::TxParticipant;
 
 /**
- * Unit tests for PreparedOps.
+ * Unit tests for TransactionManager.
  */
-class PreparedOpsTest : public ::testing::Test {
+class TransactionManagerTest : public ::testing::Test {
   public:
     Context context;
 
-    PreparedOps writes;
+    TransactionManager manager;
 
-    PreparedOpsTest()
+    TransactionManagerTest()
         : context()
-        , writes(&context)
+        , manager(&context)
     {
         context.dispatch = new Dispatch(false);
-        writes.bufferOp(1, 10, 1011);
+        manager.bufferOp(1, 10, 1011);
     }
 
-    ~PreparedOpsTest() {}
+    ~TransactionManagerTest() {}
 
-    DISALLOW_COPY_AND_ASSIGN(PreparedOpsTest);
+    DISALLOW_COPY_AND_ASSIGN(TransactionManagerTest);
 };
 
-TEST_F(PreparedOpsTest, bufferWrite) {
-    writes.bufferOp(2, 8, 1028);
-    PreparedOps::PreparedItem* item = writes.items[std::make_pair(2UL, 8UL)];
+TEST_F(TransactionManagerTest, bufferWrite) {
+    manager.bufferOp(2, 8, 1028);
+    TransactionManager::PreparedItem* item =
+            manager.items[std::make_pair(2UL, 8UL)];
     EXPECT_EQ(1028UL, item->newOpPtr);
     EXPECT_TRUE(item->isRunning());
 
     // Use during recovery. Should not set timer.
-    writes.bufferOp(2, 9, 1029, true);
-    item = writes.items[std::make_pair(2UL, 9UL)];
+    manager.bufferOp(2, 9, 1029, true);
+    item = manager.items[std::make_pair(2UL, 9UL)];
     EXPECT_EQ(1029UL, item->newOpPtr);
     EXPECT_FALSE(item->isRunning());
 }
 
-TEST_F(PreparedOpsTest, removeOp) {
-    EXPECT_EQ(1011UL, writes.items[std::make_pair(1, 10)]->newOpPtr);
-    writes.removeOp(1, 10);
-    EXPECT_EQ(writes.items.end(), writes.items.find(std::make_pair(1, 10)));
+TEST_F(TransactionManagerTest, removeOp) {
+    EXPECT_EQ(1011UL, manager.items[std::make_pair(1, 10)]->newOpPtr);
+    manager.removeOp(1, 10);
+    EXPECT_EQ(manager.items.end(), manager.items.find(std::make_pair(1, 10)));
 }
 
-TEST_F(PreparedOpsTest, getOp) {
-    EXPECT_EQ(1011UL, writes.getOp(1, 10));
-    EXPECT_EQ(1011UL, writes.getOp(1, 10));
-    writes.removeOp(1, 10);
-    EXPECT_EQ(0UL, writes.getOp(1, 10));
-    EXPECT_EQ(0UL, writes.getOp(1, 11));
-    EXPECT_EQ(0UL, writes.getOp(2, 10));
+TEST_F(TransactionManagerTest, getOp) {
+    EXPECT_EQ(1011UL, manager.getOp(1, 10));
+    EXPECT_EQ(1011UL, manager.getOp(1, 10));
+    manager.removeOp(1, 10);
+    EXPECT_EQ(0UL, manager.getOp(1, 10));
+    EXPECT_EQ(0UL, manager.getOp(1, 11));
+    EXPECT_EQ(0UL, manager.getOp(2, 10));
 }
 
-TEST_F(PreparedOpsTest, markDeletedAndIsDeleted) {
-    EXPECT_FALSE(writes.isDeleted(1, 11));
-    writes.markDeleted(1, 11);
-    EXPECT_TRUE(writes.isDeleted(1, 11));
+TEST_F(TransactionManagerTest, markDeletedAndIsDeleted) {
+    EXPECT_FALSE(manager.isOpDeleted(1, 11));
+    manager.markOpDeleted(1, 11);
+    EXPECT_TRUE(manager.isOpDeleted(1, 11));
 
-    EXPECT_FALSE(writes.isDeleted(2, 9));
-    writes.bufferOp(2, 9, 1029, true);
-    EXPECT_EQ(1029UL, writes.getOp(2, 9));
-    EXPECT_FALSE(writes.isDeleted(2, 9));
+    EXPECT_FALSE(manager.isOpDeleted(2, 9));
+    manager.bufferOp(2, 9, 1029, true);
+    EXPECT_EQ(1029UL, manager.getOp(2, 9));
+    EXPECT_FALSE(manager.isOpDeleted(2, 9));
 }
 
 /**
@@ -166,9 +167,9 @@ class PreparedItemTest : public ::testing::Test {
             service1->context->dispatch->poll();
             service2->context->dispatch->poll();
             service3->context->dispatch->poll();
-            if (service1->preparedOps.items.size() == 0 &&
-                    service2->preparedOps.items.size() == 0 &&
-                    service3->preparedOps.items.size() == 0 &&
+            if (service1->transactionManager.items.size() == 0 &&
+                    service2->transactionManager.items.size() == 0 &&
+                    service3->transactionManager.items.size() == 0 &&
                     service1->txRecoveryManager.recoveries.size() == 0 &&
                     service2->txRecoveryManager.recoveries.size() == 0 &&
                     service3->txRecoveryManager.recoveries.size() == 0) {
@@ -176,9 +177,9 @@ class PreparedItemTest : public ::testing::Test {
             }
             usleep(1000);
         }
-        EXPECT_EQ(0lu, service1->preparedOps.items.size());
-        EXPECT_EQ(0lu, service2->preparedOps.items.size());
-        EXPECT_EQ(0lu, service3->preparedOps.items.size());
+        EXPECT_EQ(0lu, service1->transactionManager.items.size());
+        EXPECT_EQ(0lu, service2->transactionManager.items.size());
+        EXPECT_EQ(0lu, service3->transactionManager.items.size());
         EXPECT_EQ(0lu, service1->txRecoveryManager.recoveries.size());
         EXPECT_EQ(0lu, service2->txRecoveryManager.recoveries.size());
         EXPECT_EQ(0lu, service3->txRecoveryManager.recoveries.size());
@@ -221,16 +222,16 @@ TEST_F(PreparedItemTest, handleTimerEvent_basic) {
     TestLog::Enable _;
 
     Cycles::mockTscValue = 100;
-    service1->preparedOps.bufferOp(1, 13, opRef.toInteger());
-    EXPECT_EQ(opRef.toInteger(), service1->preparedOps.getOp(1, 13));
-    PreparedOps::PreparedItem* item = service1->preparedOps.items[
+    service1->transactionManager.bufferOp(1, 13, opRef.toInteger());
+    EXPECT_EQ(opRef.toInteger(), service1->transactionManager.getOp(1, 13));
+    TransactionManager::PreparedItem* item = service1->transactionManager.items[
             std::make_pair<uint64_t, uint64_t>(1, 13)];
     EXPECT_TRUE(item != NULL && item->isRunning());
     service1->context->dispatch->poll();
     EXPECT_EQ("", TestLog::get());
 
     Cycles::mockTscValue += Cycles::fromMicroseconds(
-            PreparedOps::PreparedItem::TX_TIMEOUT_US * 1.5);
+            TransactionManager::PreparedItem::TX_TIMEOUT_US * 1.5);
     service1->context->dispatch->poll();
     EXPECT_TRUE(waitForTxRecoveryDone());
     EXPECT_TRUE(StringUtil::contains(TestLog::get(),
@@ -257,9 +258,9 @@ TEST_F(PreparedItemTest, handleTimerEvent_noParticipantList) {
     TestLog::Enable _("handleTimerEvent");
 
     Cycles::mockTscValue = 100;
-    service1->preparedOps.bufferOp(1, 13, opRef.toInteger());
-    EXPECT_EQ(opRef.toInteger(), service1->preparedOps.getOp(1, 13));
-    PreparedOps::PreparedItem* item = service1->preparedOps.items[
+    service1->transactionManager.bufferOp(1, 13, opRef.toInteger());
+    EXPECT_EQ(opRef.toInteger(), service1->transactionManager.getOp(1, 13));
+    TransactionManager::PreparedItem* item = service1->transactionManager.items[
             std::make_pair<uint64_t, uint64_t>(1, 13)];
 
     TestLog::reset();

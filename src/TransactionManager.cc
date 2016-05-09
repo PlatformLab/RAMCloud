@@ -13,7 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "PreparedOps.h"
+#include "TransactionManager.h"
+
 #include "LeaseCommon.h"
 #include "MasterClient.h"
 #include "MasterService.h"
@@ -23,9 +24,9 @@
 namespace RAMCloud {
 
 /**
- * Construct PreparedWrites.
+ * Construct TransactionManager.
  */
-PreparedOps::PreparedOps(Context* context)
+TransactionManager::TransactionManager(Context* context)
     : context(context)
     , mutex()
     , items()
@@ -35,7 +36,7 @@ PreparedOps::PreparedOps(Context* context)
 /**
  * Default destructor.
  */
-PreparedOps::~PreparedOps()
+TransactionManager::~TransactionManager()
 {
     Lock lock(mutex);
     std::map<std::pair<uint64_t, uint64_t>,
@@ -63,10 +64,10 @@ PreparedOps::~PreparedOps()
  *      by #regrabLocksAfterRecovery().
  */
 void
-PreparedOps::bufferOp(uint64_t leaseId,
-                            uint64_t rpcId,
-                            uint64_t newOpPtr,
-                            bool isRecovery)
+TransactionManager::bufferOp(uint64_t leaseId,
+                             uint64_t rpcId,
+                             uint64_t newOpPtr,
+                             bool isRecovery)
 {
     Lock lock(mutex);
 
@@ -89,8 +90,8 @@ PreparedOps::bufferOp(uint64_t leaseId,
  *      rpcId given for the preparedOp.
  */
 void
-PreparedOps::removeOp(uint64_t leaseId,
-                      uint64_t rpcId)
+TransactionManager::removeOp(uint64_t leaseId,
+                             uint64_t rpcId)
 {
     Lock lock(mutex);
     std::map<std::pair<uint64_t, uint64_t>,
@@ -103,11 +104,12 @@ PreparedOps::removeOp(uint64_t leaseId,
 }
 
 /**
- * Return a log reference to the preparedOp saved by PreparedOps::bufferOp().
+ * Return a log reference to the preparedOp saved by a previous call to
+ * TransactionManager::bufferOp().
  *
  * During recovery, ObjectManager::replaySegment() must check
- * PreparedOps::isDeleted() is false before invoking this method for checking
- * whether the PreparedOp log entry is already in log.
+ * TransactionManager::isDeleted() is false before invoking this method for
+ * checking whether the PreparedOp log entry is already in log.
  * (isDeleted() == true already means no need to replay the PreparedOp.)
  *
  * \param leaseId
@@ -121,7 +123,7 @@ PreparedOps::removeOp(uint64_t leaseId,
  *      buffered.
  */
 uint64_t
-PreparedOps::getOp(uint64_t leaseId, uint64_t rpcId)
+TransactionManager::getOp(uint64_t leaseId, uint64_t rpcId)
 {
     Lock lock(mutex);
     std::map<std::pair<uint64_t, uint64_t>,
@@ -155,9 +157,9 @@ PreparedOps::getOp(uint64_t leaseId, uint64_t rpcId)
  *      Log::Reference to preparedOp in main log.
  */
 void
-PreparedOps::updatePtr(uint64_t leaseId,
-                          uint64_t rpcId,
-                          uint64_t newOpPtr)
+TransactionManager::updateOpPtr(uint64_t leaseId,
+                                uint64_t rpcId,
+                                uint64_t newOpPtr)
 {
     Lock lock(mutex);
     PreparedItem* item = items[std::make_pair(leaseId, rpcId)];
@@ -169,7 +171,7 @@ PreparedOps::updatePtr(uint64_t leaseId,
  * recovery of whole transaction.
  */
 void
-PreparedOps::PreparedItem::handleTimerEvent()
+TransactionManager::PreparedItem::handleTimerEvent()
 {
     // This timer handler asynchronously notifies the recovery manager that this
     // transaction is taking a long time and may have failed.  This handler may
@@ -253,7 +255,7 @@ PreparedOps::PreparedItem::handleTimerEvent()
  *      The pointer to objectManager which holds transaction LockTable.
  */
 void
-PreparedOps::regrabLocksAfterRecovery(ObjectManager* objectManager)
+TransactionManager::regrabLocksAfterRecovery(ObjectManager* objectManager)
 {
     Lock lock(mutex);
     ItemsMap::iterator it = items.begin();
@@ -290,8 +292,8 @@ PreparedOps::regrabLocksAfterRecovery(ObjectManager* objectManager)
  *      rpcId given for the preparedOp.
  */
 void
-PreparedOps::markDeleted(uint64_t leaseId,
-                            uint64_t rpcId)
+TransactionManager::markOpDeleted(uint64_t leaseId,
+                                  uint64_t rpcId)
 {
     Lock lock(mutex);
     assert(items.find(std::make_pair(leaseId, rpcId)) == items.end() ||
@@ -309,8 +311,8 @@ PreparedOps::markDeleted(uint64_t leaseId,
  *      rpcId given for the preparedOp.
  */
 bool
-PreparedOps::isDeleted(uint64_t leaseId,
-                          uint64_t rpcId)
+TransactionManager::isOpDeleted(uint64_t leaseId,
+                                uint64_t rpcId)
 {
     Lock lock(mutex);
 

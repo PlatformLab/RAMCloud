@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -129,10 +129,10 @@ class MasterService : public Service {
     UnackedRpcResults unackedRpcResults;
 
     /**
-     * The PreparedWrites keep track all prepared objects staged during
+     * The TransactionManager keep track all prepared objects staged during
      * transactions.
      */
-    PreparedOps preparedOps;
+    TransactionManager transactionManager;
 
 #ifdef TESTING
     /// Used to pause the read-increment-write cycle in incrementObject

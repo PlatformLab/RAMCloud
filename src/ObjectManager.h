@@ -25,7 +25,6 @@
 #include "Object.h"
 #include "ParticipantList.h"
 #include "PreparedOp.h"
-#include "PreparedOps.h"
 #include "SegmentManager.h"
 #include "SegmentIterator.h"
 #include "ReplicaManager.h"
@@ -33,6 +32,7 @@
 #include "ServerConfig.h"
 #include "SpinLock.h"
 #include "TabletManager.h"
+#include "TransactionManager.h"
 #include "TxDecisionRecord.h"
 #include "TxRecoveryManager.h"
 #include "MasterTableMetadata.h"
@@ -63,7 +63,7 @@ class ObjectManager : public LogEntryHandlers,
                 TabletManager* tabletManager,
                 MasterTableMetadata* masterTableMetadata,
                 UnackedRpcResults* unackedRpcResults,
-                PreparedOps* preparedOps,
+                TransactionManager* transactionManager,
                 TxRecoveryManager* txRecoveryManager);
     virtual ~ObjectManager();
     virtual void freeLogEntry(Log::Reference ref);
@@ -341,7 +341,7 @@ class ObjectManager : public LogEntryHandlers,
     /**
      * Used to manage cleaning and recovery of PreparedOp objects.
      */
-    PreparedOps* preparedOps;
+    TransactionManager* transactionManager;
 
     /**
      * Used to managed cleaning and recovery of RpcResult objects.

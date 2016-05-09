@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_PREPAREDOPS_H
-#define RAMCLOUD_PREPAREDOPS_H
+#ifndef RAMCLOUD_TRANSACTIONMANAGER_H
+#define RAMCLOUD_TRANSACTIONMANAGER_H
 
 #include <map>
 #include <unordered_map>
@@ -35,19 +35,18 @@ class ObjectManager;
  * A table for all PreparedOps for all currently executing transactions
  * on a server. Decision RPC handler fetches preparedOp from this table.
  */
-class PreparedOps {
+class TransactionManager {
   PUBLIC:
-    explicit PreparedOps(Context* context);
-    ~PreparedOps();
+    explicit TransactionManager(Context* context);
+    ~TransactionManager();
 
     void bufferOp(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr,
                      bool inRecovery = false);
     void removeOp(uint64_t leaseId, uint64_t rpcId);
     uint64_t getOp(uint64_t leaseId, uint64_t rpcId);
-    void updatePtr(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr);
-
-    void markDeleted(uint64_t leaseId, uint64_t rpcId);
-    bool isDeleted(uint64_t leaseId, uint64_t rpcId);
+    void updateOpPtr(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr);
+    void markOpDeleted(uint64_t leaseId, uint64_t rpcId);
+    bool isOpDeleted(uint64_t leaseId, uint64_t rpcId);
     void regrabLocksAfterRecovery(ObjectManager* objectManager);
 
   PRIVATE:
@@ -120,9 +119,9 @@ class PreparedOps {
     std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> items;
     typedef std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> ItemsMap;
 
-    DISALLOW_COPY_AND_ASSIGN(PreparedOps);
+    DISALLOW_COPY_AND_ASSIGN(TransactionManager);
 };
 
 }
 
-#endif // RAMCLOUD_PREPAREDWRITES_H
+#endif // RAMCLOUD_TRANSACTIONMANAGER_H

@@ -16,13 +16,13 @@
 #include "TestUtil.h"
 #include "Object.h"
 #include "ObjectManager.h"
-#include "PreparedOps.h"
 #include "RecoverySegmentBuilder.h"
 #include "SegmentIterator.h"
 #include "SegmentManager.h"
 #include "ServerConfig.h"
 #include "StringUtil.h"
 #include "TabletsBuilder.h"
+#include "TransactionManager.h"
 #include "MasterTableMetadata.h"
 
 namespace RAMCloud {

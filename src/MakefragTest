@@ -125,7 +125,6 @@ TESTS_SRCFILES := \
 		  src/PortAlarm.cc \
 		  src/PortAlarmTest.cc \
 		  src/PreparedOpTest.cc \
-		  src/PreparedOpsTest.cc \
 		  src/PriorityTaskQueueTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/RawMetricsTest.cc \
@@ -174,6 +173,7 @@ TESTS_SRCFILES := \
 		  src/TimeTraceTest.cc \
 		  src/TimeTraceUtilTest.cc \
 		  src/TransactionTest.cc \
+		  src/TransactionManagerTest.cc \
 		  src/TransportManagerTest.cc \
 		  src/TransportTest.cc \
 		  src/TxDecisionRecordTest.cc \

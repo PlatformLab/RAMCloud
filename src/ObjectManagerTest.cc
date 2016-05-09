@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -45,7 +45,7 @@ class ObjectManagerTest : public ::testing::Test,
     ServerConfig masterConfig;
     MasterTableMetadata masterTableMetadata;
     UnackedRpcResults unackedRpcResults;
-    PreparedOps preparedOps;
+    TransactionManager transactionManager;
     TxRecoveryManager txRecoveryManager;
     TabletManager tabletManager;
     ObjectManager objectManager;
@@ -59,7 +59,7 @@ class ObjectManagerTest : public ::testing::Test,
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
         , unackedRpcResults(&context, this, &clientLeaseValidator)
-        , preparedOps(&context)
+        , transactionManager(&context)
         , txRecoveryManager(&context)
         , tabletManager()
         , objectManager(&context,
@@ -68,7 +68,7 @@ class ObjectManagerTest : public ::testing::Test,
                         &tabletManager,
                         &masterTableMetadata,
                         &unackedRpcResults,
-                        &preparedOps,
+                        &transactionManager,
                         &txRecoveryManager)
     {
         objectManager.initOnceEnlisted();
@@ -1314,9 +1314,9 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     SideLog sl(&objectManager.log);
     Tub<SegmentIterator> it;
 
-    PreparedOps *preparedOps = objectManager.preparedOps;
+    TransactionManager *transactionManager = objectManager.transactionManager;
 
-    EXPECT_EQ(0UL, preparedOps->getOp(1UL, 10UL));
+    EXPECT_EQ(0UL, transactionManager->getOp(1UL, 10UL));
 
     {   // 1. Test regular PreparedOp.
         SegmentCertificate certificate;
@@ -1331,7 +1331,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_NE(0UL, preparedOps->getOp(1UL, 10UL));
+    EXPECT_NE(0UL, transactionManager->getOp(1UL, 10UL));
 
 
     {   // 2. Ignored preparedOp due to old version number.
@@ -1354,7 +1354,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_EQ(0UL, preparedOps->getOp(1UL, 11UL));
+    EXPECT_EQ(0UL, transactionManager->getOp(1UL, 11UL));
 
 
     {   // 3. preparedOp with higher version number.
@@ -1370,9 +1370,9 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_NE(0UL, preparedOps->getOp(1UL, 11UL));
+    EXPECT_NE(0UL, transactionManager->getOp(1UL, 11UL));
 
-    uint64_t newOpPtr = preparedOps->getOp(1UL, 11UL);
+    uint64_t newOpPtr = transactionManager->getOp(1UL, 11UL);
     Buffer preparedOpBuffer;
     Log::Reference resultRef(newOpPtr);
     objectManager.getLog()->getEntry(resultRef, preparedOpBuffer);
@@ -1393,10 +1393,10 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     SideLog sl(&objectManager.log);
     Tub<SegmentIterator> it;
 
-    PreparedOps *preparedOps = objectManager.preparedOps;
+    TransactionManager *transactionManager = objectManager.transactionManager;
 
-    EXPECT_EQ(0UL, preparedOps->getOp(1UL, 10UL));
-    EXPECT_FALSE(preparedOps->isDeleted(1UL, 10UL));
+    EXPECT_EQ(0UL, transactionManager->getOp(1UL, 10UL));
+    EXPECT_FALSE(transactionManager->isOpDeleted(1UL, 10UL));
 
     ///////////////////////////////////////////////////////
     // 1. Replays a preparedOp first, its tombstone second.
@@ -1414,8 +1414,8 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_NE(0UL, preparedOps->getOp(1UL, 10UL));
-    EXPECT_FALSE(preparedOps->isDeleted(1UL, 10UL));
+    EXPECT_NE(0UL, transactionManager->getOp(1UL, 10UL));
+    EXPECT_FALSE(transactionManager->isOpDeleted(1UL, 10UL));
 
     {   // 1B. Tombstone for PreparedOp in 1.
         SegmentCertificate certificate;
@@ -1431,7 +1431,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_TRUE(preparedOps->isDeleted(1UL, 10UL));
+    EXPECT_TRUE(transactionManager->isOpDeleted(1UL, 10UL));
 
     ////////////////////////////////////////////////////////////
     // 2. Replays a preparedOpTombsone first, preparedOp second.
@@ -1450,7 +1450,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_TRUE(preparedOps->isDeleted(1UL, 11UL));
+    EXPECT_TRUE(transactionManager->isOpDeleted(1UL, 11UL));
 
     {   // Regular PreparedOp
         SegmentCertificate certificate;
@@ -1465,7 +1465,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_TRUE(preparedOps->isDeleted(1UL, 11UL));
+    EXPECT_TRUE(transactionManager->isOpDeleted(1UL, 11UL));
 }
 
 TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_basic) {
@@ -1959,9 +1959,9 @@ TEST_F(ObjectManagerTest, commitRead) {
     EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
 
     // COMMIT read operation.
-    objectManager.preparedOps->bufferOp(op.header.clientId,
-                                        op.header.rpcId,
-                                        newOpPtr);
+    objectManager.transactionManager->bufferOp(op.header.clientId,
+                                               op.header.rpcId,
+                                               newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitRead(op, newOpRef));
 
     // Check object is unlocked after commitRead.
@@ -2014,9 +2014,9 @@ TEST_F(ObjectManagerTest, commitRemove) {
     EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
 
     // COMMIT remove operation.
-    objectManager.preparedOps->bufferOp(op.header.clientId,
-                                        op.header.rpcId,
-                                        newOpPtr);
+    objectManager.transactionManager->bufferOp(op.header.clientId,
+                                               op.header.rpcId,
+                                               newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitRemove(op, newOpRef));
 
     // Check object is unlocked after commitRead.
@@ -2074,9 +2074,9 @@ TEST_F(ObjectManagerTest, commitWrite) {
                             value.size()));
 
     // COMMIT write operation.
-    objectManager.preparedOps->bufferOp(op.header.clientId,
-                                        op.header.rpcId,
-                                        newOpPtr);
+    objectManager.transactionManager->bufferOp(op.header.clientId,
+                                               op.header.rpcId,
+                                               newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitWrite(op, newOpRef));
     // Check the updated object value.
     value.reset();
@@ -2730,9 +2730,9 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
     objectManager.log.sync();
     EXPECT_TRUE(success);
 
-    preparedOps.bufferOp(op.header.clientId,
-                            op.header.rpcId,
-                            oldReference.toInteger());
+    transactionManager.bufferOp(op.header.clientId,
+                                op.header.rpcId,
+                                oldReference.toInteger());
 
     LogEntryType newType;
     Buffer newBuffer;
@@ -2746,8 +2746,8 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
                            oldReference, relocator);
     EXPECT_TRUE(relocator.didAppend);
 
-    uint64_t newOpPtr = preparedOps.getOp(op.header.clientId,
-                                              op.header.rpcId);
+    uint64_t newOpPtr = transactionManager.getOp(op.header.clientId,
+                                                 op.header.rpcId);
     EXPECT_NE(0UL, newOpPtr);
     EXPECT_NE(oldReference.toInteger(), newOpPtr);
     EXPECT_EQ(relocator.getNewReference().toInteger(), newOpPtr);
@@ -2774,9 +2774,9 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
     objectManager.log.sync();
     EXPECT_TRUE(success);
 
-    preparedOps.bufferOp(op.header.clientId,
-                            op.header.rpcId,
-                            oldReference.toInteger());
+    transactionManager.bufferOp(op.header.clientId,
+                                op.header.rpcId,
+                                oldReference.toInteger());
 
     LogEntryType newType;
     Buffer newBuffer;
@@ -2787,14 +2787,14 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
 
-    preparedOps.removeOp(op.header.clientId, op.header.rpcId);
+    transactionManager.removeOp(op.header.clientId, op.header.rpcId);
 
     objectManager.relocate(LOG_ENTRY_TYPE_PREP, oldBuffer,
                            oldReference, relocator);
     EXPECT_FALSE(relocator.didAppend);
 
-    uint64_t newOpPtr = preparedOps.getOp(op.header.clientId,
-                                              op.header.rpcId);
+    uint64_t newOpPtr = transactionManager.getOp(op.header.clientId,
+                                                 op.header.rpcId);
     EXPECT_EQ(0UL, newOpPtr);
     EXPECT_NE(oldReference.toInteger(), newOpPtr);
 }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,7 +19,7 @@
 #include "SegmentIterator.h"
 #include "ServerId.h"
 #include "ShortMacros.h"
-#include "PreparedOps.h"
+#include "TransactionManager.h"
 #include "TxDecisionRecord.h"
 
 namespace RAMCloud {
