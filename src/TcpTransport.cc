@@ -646,26 +646,22 @@ TcpTransport::TcpSession::TcpSession(TcpTransport* transport,
                 getServiceLocator().c_str()), errno);
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    // Check TCP connection is made to itself. If so, disconnect and retry.
-    //
-    // As per RFC 793 (specifically, the feature called "simultaneous open"),
-    // TCP client may connect to itself. In many cases, source port is selected
-    // from ephemeral ports. If coordinator/server port is within the range of
-    // ephemeral port, TCP client can connect to itself and believe it is
-    // talking to coordinator/server. This is a real problem if client and
-    // coordinator reside in the same machine and TCP loopback is used; a self-
-    // connected client will prevent the startup of coordinator.
-    ///////////////////////////////////////////////////////////////////////////
+    // Check to see if we accidentally connected to ourself. This can
+    // happen if the target server is on the same machine and has
+    // crashed, so that it is no longer using its port. If this
+    // happens our local socket (fd) might end up reusing that same port,
+    // in which case we will connect to ourselves. If this happens,
+    // abort this connection (it will get retried, at which point a
+    // different port will get selected).
     struct sockaddr cAddr;
     socklen_t cAddrLen = sizeof(cAddr);
-    // Get the current client dynamic information allocated.
+    // Read address information associated with our local socket.
     if (sys->getsockname(fd, &cAddr, &cAddrLen)) {
         sys->close(fd);
         fd = -1;
         LOG(WARNING, "TcpTransport failed to get client socket info");
         throw TransportException(HERE,
-                    "TcpTransport failed to get client socket info", errno);
+                "TcpTransport failed to get client socket info", errno);
     }
     IpAddress sourceIp(&cAddr);
     IpAddress destinationIp(serviceLocator);
@@ -673,10 +669,10 @@ TcpTransport::TcpSession::TcpSession(TcpTransport* transport,
         sys->close(fd);
         fd = -1;
         LOG(WARNING, "TcpTransport connected to itself %s",
-                     sourceIp.toString().c_str());
+                sourceIp.toString().c_str());
         throw TransportException(HERE, format(
-                        "TcpTransport connected to itself %s",
-                        sourceIp.toString().c_str()));
+                "TcpTransport connected to itself %s",
+                sourceIp.toString().c_str()));
     }
 
     // Disable the hideous Nagle algorithm, which will delay sending small
