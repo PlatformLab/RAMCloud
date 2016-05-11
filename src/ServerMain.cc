@@ -296,6 +296,14 @@ main(int argc, char *argv[])
                 config.coordinatorLocator.c_str(),
                 config.clusterName.c_str());
 
+#if 0
+        // This code has been removed because it introduces a
+        // use-before-initialization bug.
+        //
+        // These RPC cause the Dispatch::poll to be invoked, which can cause
+        // incoming RPC requests to be serviced, which causes
+        // Context->workerManager to be used before it is initialized.
+
         // Get Default Backup Configuration from Coordinator.
         if (config.services.has(WireFormat::BACKUP_SERVICE)) {
             ProtoBuf::ServerConfig_Backup backupConfig;
@@ -309,6 +317,7 @@ main(int argc, char *argv[])
             CoordinatorClient::getMasterConfig(&context, masterConfig);
             config.master.deserialize(masterConfig);
         }
+#endif
 
         // Re-parse the options to override coordinator provided defaults.
         OptionParser optionReparser(serverOptions, argc, argv);
