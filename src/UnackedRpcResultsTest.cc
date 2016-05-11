@@ -313,75 +313,53 @@ TEST_F(UnackedRpcResultsTest, KeepClientRecord) {
     uint64_t targetId = 42;
     uint64_t otherId = 84;
 
+    // Dummy lock; to unsafely call internal methods this unit test
+    std::mutex mutex;
+    UnackedRpcResults::Lock dummyLock(mutex);
+
     UnackedRpcResults::KeepClientRecord* k2;
-    UnackedRpcResults::ClientMap::iterator it;
-    UnackedRpcResults::Client* client;
+    UnackedRpcResults::Client* client = NULL;
+    UnackedRpcResults::Client* otherClient = NULL;
 
     // Make sure targetClient doesn't exist
-    it = results.clients.find(targetId);
-    EXPECT_TRUE(it == results.clients.end());
+    client = results.getClientRecord(targetId, dummyLock);
+    EXPECT_TRUE(client == NULL);
     {
         UnackedRpcResults::KeepClientRecord k0(&results, targetId);
         // k0 is live
-        it = results.clients.find(targetId);
-        EXPECT_TRUE(it != results.clients.end());
-        client = it->second;
+        client = results.getClientRecord(targetId, dummyLock);
+        EXPECT_TRUE(client != NULL);
         EXPECT_EQ(1, client->doNotRemove);
         {
             UnackedRpcResults::KeepClientRecord k1(&results, targetId);
             // k0, k1 is live
-            it = results.clients.find(targetId);
-            EXPECT_TRUE(it != results.clients.end());
-            client = it->second;
             EXPECT_EQ(2, client->doNotRemove);
             k2 = new UnackedRpcResults::KeepClientRecord(&results, targetId);
             // k0, k1, k2 is live
-            it = results.clients.find(targetId);
-            EXPECT_TRUE(it != results.clients.end());
-            client = it->second;
             EXPECT_EQ(3, client->doNotRemove);
             {
                 // Added unrelated KeepClientRecords object
                 UnackedRpcResults::KeepClientRecord other(&results, otherId);
-                it = results.clients.find(otherId);
-                EXPECT_TRUE(it != results.clients.end());
-                client = it->second;
-                EXPECT_EQ(1, client->doNotRemove);
+                otherClient = results.getClientRecord(otherId, dummyLock);
+                EXPECT_TRUE(otherClient != NULL);
+                EXPECT_EQ(1, otherClient->doNotRemove);
                 // Make sure main target didn't change.
                 // k0, k1, k2 is live
-                it = results.clients.find(targetId);
-                EXPECT_TRUE(it != results.clients.end());
-                client = it->second;
                 EXPECT_EQ(3, client->doNotRemove);
             }
             // Check other's destruction
-            it = results.clients.find(otherId);
-            EXPECT_TRUE(it != results.clients.end());
-            client = it->second;
-            EXPECT_EQ(0, client->doNotRemove);
+            EXPECT_EQ(0, otherClient->doNotRemove);
             // Make sure main target didn't change.
             // k0, k1, k2 is live
-            it = results.clients.find(targetId);
-            EXPECT_TRUE(it != results.clients.end());
-            client = it->second;
             EXPECT_EQ(3, client->doNotRemove);
         }
         // k0, k2 is live
-        it = results.clients.find(targetId);
-        EXPECT_TRUE(it != results.clients.end());
-        client = it->second;
         EXPECT_EQ(2, client->doNotRemove);
         delete k2;
         // k0 is live
-        it = results.clients.find(targetId);
-        EXPECT_TRUE(it != results.clients.end());
-        client = it->second;
         EXPECT_EQ(1, client->doNotRemove);
     }
     // Nothing is live
-    it = results.clients.find(targetId);
-    EXPECT_TRUE(it != results.clients.end());
-    client = it->second;
     EXPECT_EQ(0, client->doNotRemove);
 }
 
@@ -579,6 +557,31 @@ TEST_F(UnackedRpcResultsTest, updateResult) {
     EXPECT_EQ(0UL, (uint64_t)client->result(11));
     client->updateResult(11, reinterpret_cast<void*>(1011));
     EXPECT_EQ(1011UL, (uint64_t)client->result(11));
+}
+
+TEST_F(UnackedRpcResultsTest, getClientRecord) {
+    UnackedRpcResults::Lock lock(results.mutex);
+
+    EXPECT_TRUE(results.getClientRecord(42, lock) == NULL);
+
+    UnackedRpcResults::Client* client =
+            new UnackedRpcResults::Client(results.default_rpclist_size);
+    results.clients[42] = client;
+
+    EXPECT_TRUE(results.getClientRecord(42, lock) == client);
+}
+
+TEST_F(UnackedRpcResultsTest, getOrInitClientRecord) {
+    UnackedRpcResults::Lock lock(results.mutex);
+
+    EXPECT_TRUE(results.getClientRecord(42, lock) == NULL);
+
+    UnackedRpcResults::Client* client = NULL;
+    client = results.getOrInitClientRecord(42, lock);
+
+    EXPECT_TRUE(client != NULL);
+
+    EXPECT_TRUE(results.getClientRecord(42, lock) == client);
 }
 
 TEST_F(UnackedRpcResultsTest, unackedRpcHandle) {

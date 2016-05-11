@@ -312,6 +312,10 @@ class UnackedRpcResults {
      */
     AbstractLog::ReferenceFreer* freer;
 
+    // Helper methods
+    Client* getClientRecord(uint64_t clientId, Lock& lock);
+    Client* getOrInitClientRecord(uint64_t clientId, Lock& lock);
+
     DISALLOW_COPY_AND_ASSIGN(UnackedRpcResults);
 };
 
