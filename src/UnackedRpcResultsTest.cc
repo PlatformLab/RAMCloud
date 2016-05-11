@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -309,7 +309,108 @@ TEST_F(UnackedRpcResultsTest, isRpcAcked) {
     EXPECT_FALSE(results.isRpcAcked(1, 6));
 }
 
-TEST_F(UnackedRpcResultsTest, cleanByTimeout) {
+TEST_F(UnackedRpcResultsTest, KeepClientRecord) {
+    uint64_t targetId = 42;
+    uint64_t otherId = 84;
+
+    UnackedRpcResults::KeepClientRecord* k2;
+    UnackedRpcResults::ClientMap::iterator it;
+    UnackedRpcResults::Client* client;
+
+    // Make sure targetClient doesn't exist
+    it = results.clients.find(targetId);
+    EXPECT_TRUE(it == results.clients.end());
+    {
+        UnackedRpcResults::KeepClientRecord k0(&results, targetId);
+        // k0 is live
+        it = results.clients.find(targetId);
+        EXPECT_TRUE(it != results.clients.end());
+        client = it->second;
+        EXPECT_EQ(1, client->doNotRemove);
+        {
+            UnackedRpcResults::KeepClientRecord k1(&results, targetId);
+            // k0, k1 is live
+            it = results.clients.find(targetId);
+            EXPECT_TRUE(it != results.clients.end());
+            client = it->second;
+            EXPECT_EQ(2, client->doNotRemove);
+            k2 = new UnackedRpcResults::KeepClientRecord(&results, targetId);
+            // k0, k1, k2 is live
+            it = results.clients.find(targetId);
+            EXPECT_TRUE(it != results.clients.end());
+            client = it->second;
+            EXPECT_EQ(3, client->doNotRemove);
+            {
+                // Added unrelated KeepClientRecords object
+                UnackedRpcResults::KeepClientRecord other(&results, otherId);
+                it = results.clients.find(otherId);
+                EXPECT_TRUE(it != results.clients.end());
+                client = it->second;
+                EXPECT_EQ(1, client->doNotRemove);
+                // Make sure main target didn't change.
+                // k0, k1, k2 is live
+                it = results.clients.find(targetId);
+                EXPECT_TRUE(it != results.clients.end());
+                client = it->second;
+                EXPECT_EQ(3, client->doNotRemove);
+            }
+            // Check other's destruction
+            it = results.clients.find(otherId);
+            EXPECT_TRUE(it != results.clients.end());
+            client = it->second;
+            EXPECT_EQ(0, client->doNotRemove);
+            // Make sure main target didn't change.
+            // k0, k1, k2 is live
+            it = results.clients.find(targetId);
+            EXPECT_TRUE(it != results.clients.end());
+            client = it->second;
+            EXPECT_EQ(3, client->doNotRemove);
+        }
+        // k0, k2 is live
+        it = results.clients.find(targetId);
+        EXPECT_TRUE(it != results.clients.end());
+        client = it->second;
+        EXPECT_EQ(2, client->doNotRemove);
+        delete k2;
+        // k0 is live
+        it = results.clients.find(targetId);
+        EXPECT_TRUE(it != results.clients.end());
+        client = it->second;
+        EXPECT_EQ(1, client->doNotRemove);
+    }
+    // Nothing is live
+    it = results.clients.find(targetId);
+    EXPECT_TRUE(it != results.clients.end());
+    client = it->second;
+    EXPECT_EQ(0, client->doNotRemove);
+}
+
+TEST_F(UnackedRpcResultsTest, KeepAllClientRecords) {
+    UnackedRpcResults::KeepAllClientRecords* k2;
+    EXPECT_EQ(0, results.cleanerDisabled);
+    {
+        UnackedRpcResults::KeepAllClientRecords k0(&results);
+        // k0 is live
+        EXPECT_EQ(1, results.cleanerDisabled);
+        {
+            UnackedRpcResults::KeepAllClientRecords k1(&results);
+            // k0, k1 is live
+            EXPECT_EQ(2, results.cleanerDisabled);
+            k2 = new UnackedRpcResults::KeepAllClientRecords(&results);
+            // k0, k1, k2 is live
+            EXPECT_EQ(3, results.cleanerDisabled);
+        }
+        // k0, k2 is live
+        EXPECT_EQ(2, results.cleanerDisabled);
+        delete k2;
+        // k0 is live
+        EXPECT_EQ(1, results.cleanerDisabled);
+    }
+    // Nothing is live
+    EXPECT_EQ(0, results.cleanerDisabled);
+}
+
+TEST_F(UnackedRpcResultsTest, cleanByTimeout_basic) {
     void* result;
     ClientLease clientLease = {0, 0, 0};
     results.cleanByTimeout();
@@ -343,6 +444,59 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout) {
 
     //TODO(seojin): test with mock coordinator which returns
     //              valid lease and we just update leaseExpiration.
+}
+
+TEST_F(UnackedRpcResultsTest, cleanByTimeout_cleanerDisabled) {
+    void* result;
+    // Add two more clients; should have total of 3.
+    ClientLease clientLease = {0, 0, 0};
+    clientLease = {2, 1, 0};
+    results.checkDuplicate(clientLease, 10, 5, &result);
+    results.recordCompletion(2, 10, &result);
+    clientLease = {3, 1, 0};
+    results.checkDuplicate(clientLease, 10, 5, &result);
+    results.recordCompletion(3, 10, &result);
+    EXPECT_EQ(3U, results.clients.size());
+
+    service->clusterClock.updateClock(ClusterTime(2));
+
+    {
+        // With cleanerDisabled, nothing should be cleaned.
+        UnackedRpcResults::KeepAllClientRecords _(&results);
+        results.cleanByTimeout();
+        EXPECT_EQ(3U, results.clients.size());
+    }
+
+    // With cleaner re-enabled everything should be cleaned.
+    results.cleanByTimeout();
+    EXPECT_EQ(0U, results.clients.size());
+}
+
+TEST_F(UnackedRpcResultsTest, cleanByTimeout_client_doNotRemove) {
+    void* result;
+    // Add two more clients; should have total of 3.
+    ClientLease clientLease = {0, 0, 0};
+    clientLease = {2, 1, 0};
+    results.checkDuplicate(clientLease, 10, 5, &result);
+    results.recordCompletion(2, 10, &result);
+    clientLease = {3, 1, 0};
+    results.checkDuplicate(clientLease, 10, 5, &result);
+    results.recordCompletion(3, 10, &result);
+    EXPECT_EQ(3U, results.clients.size());
+
+    service->clusterClock.updateClock(ClusterTime(2));
+
+    {
+        // With prevent client 2 from being cleaned.
+        UnackedRpcResults::KeepClientRecord _(&results, 2);
+        results.cleanByTimeout();
+        EXPECT_EQ(1U, results.clients.size());
+        EXPECT_TRUE(results.clients.find(2) != results.clients.end());
+    }
+
+    // Without the KeepClientRecord object, everything should be cleaned.
+    results.cleanByTimeout();
+    EXPECT_EQ(0U, results.clients.size());
 }
 
 //TODO(seojin): tests for API functions.

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -169,6 +169,7 @@ UnackedRpcResults::UnackedRpcResults(Context* context,
     , context(context)
     , leaseValidator(leaseValidator)
     , cleaner(this)
+    , cleanerDisabled(0)
     , freer(freer)
 {
 }
@@ -491,6 +492,77 @@ UnackedRpcResults::isRpcAcked(uint64_t clientId, uint64_t rpcId)
 }
 
 /**
+ * Construct to prevent a specific client's record from being removed.
+ *
+ * \param unackedRpcResults
+ *      The unackedRpcResults that owns the client's record.
+ * \param clientId
+ *      The id of the client whose record is to be saved.
+ */
+UnackedRpcResults::KeepClientRecord::KeepClientRecord(
+        UnackedRpcResults* unackedRpcResults,
+        uint64_t clientId)
+    : unackedRpcResults(unackedRpcResults)
+    , clientId(clientId)
+{
+    Lock lock(unackedRpcResults->mutex);
+    Client* client;
+
+    // Make a new client record if it doesn't exist.
+    ClientMap::iterator it = unackedRpcResults->clients.find(clientId);
+    if (it == unackedRpcResults->clients.end()) {
+        client = new Client(unackedRpcResults->default_rpclist_size);
+        unackedRpcResults->clients[clientId] = client;
+    } else {
+        client = it->second;
+    }
+
+    ++client->doNotRemove;
+}
+
+/**
+ * Destruct to allow cleaning to resume on the client records previously
+ * protected by this objects the construction.
+ */
+UnackedRpcResults::KeepClientRecord::~KeepClientRecord()
+{
+    Lock lock(unackedRpcResults->mutex);
+    Client* client;
+
+    ClientMap::iterator it = unackedRpcResults->clients.find(clientId);
+    assert(it != unackedRpcResults->clients.end());
+    client = it->second;
+
+    --client->doNotRemove;
+}
+
+/**
+ * Construct to prevent any client records from being removed.
+ *
+ * \param unackedRpcResults
+ *      The unackedRpcResults instances that shouldn't removed any
+ *      client records.
+ *
+ */
+UnackedRpcResults::KeepAllClientRecords::KeepAllClientRecords(
+        UnackedRpcResults* unackedRpcResults)
+    : unackedRpcResults(unackedRpcResults)
+{
+    Lock lock(unackedRpcResults->mutex);
+    ++unackedRpcResults->cleanerDisabled;
+}
+
+/**
+ * Destruct to allow cleaning to resume.
+ */
+UnackedRpcResults::KeepAllClientRecords::~KeepAllClientRecords()
+{
+    Lock lock(unackedRpcResults->mutex);
+    assert(unackedRpcResults->cleanerDisabled > 0);
+    --unackedRpcResults->cleanerDisabled;
+}
+
+/**
  * Clean up stale clients who haven't communicated long.
  * Should not concurrently run this function in several threads.
  * Serialized by Cleaner inherited from WorkerTimer.
@@ -530,6 +602,13 @@ UnackedRpcResults::cleanByTimeout()
     ClusterTime maxClusterTime;
     for (uint32_t i = 0; i < victims.size(); ++i) {
         Lock lock(mutex);
+        // Do not clean if cleaning is disabled
+        if (cleanerDisabled)
+            continue;
+        // Do not clean if this client record is protected
+        if (clients[victims[i].leaseId]->doNotRemove)
+            continue;
+        // Do not clean if there are RPCs still in progress for this client.
         if (clients[victims[i].leaseId]->numRpcsInProgress)
             continue;
 
