@@ -122,7 +122,6 @@ class UnackedRpcResults {
     };
 
   PRIVATE:
-    void resizeRpcList(uint64_t clientId, int size);
     void cleanByTimeout();
     /// Used only for testing.
     bool hasRecord(uint64_t clientId, uint64_t rpcId);
