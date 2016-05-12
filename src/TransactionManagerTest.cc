@@ -41,7 +41,7 @@ class TransactionManagerTest : public ::testing::Test {
         , manager(&context)
     {
         context.dispatch = new Dispatch(false);
-        manager.bufferOp(1, 10, 1011);
+        manager.bufferOp(TransactionId(1, 1), 10, 1011);
     }
 
     ~TransactionManagerTest() {}
@@ -50,14 +50,14 @@ class TransactionManagerTest : public ::testing::Test {
 };
 
 TEST_F(TransactionManagerTest, bufferWrite) {
-    manager.bufferOp(2, 8, 1028);
+    manager.bufferOp(TransactionId(2, 1), 8, 1028);
     TransactionManager::PreparedItem* item =
             manager.items[std::make_pair(2UL, 8UL)];
     EXPECT_EQ(1028UL, item->newOpPtr);
     EXPECT_TRUE(item->isRunning());
 
     // Use during recovery. Should not set timer.
-    manager.bufferOp(2, 9, 1029, true);
+    manager.bufferOp(TransactionId(2, 1), 9, 1029, true);
     item = manager.items[std::make_pair(2UL, 9UL)];
     EXPECT_EQ(1029UL, item->newOpPtr);
     EXPECT_FALSE(item->isRunning());
@@ -84,7 +84,7 @@ TEST_F(TransactionManagerTest, markDeletedAndIsDeleted) {
     EXPECT_TRUE(manager.isOpDeleted(1, 11));
 
     EXPECT_FALSE(manager.isOpDeleted(2, 9));
-    manager.bufferOp(2, 9, 1029, true);
+    manager.bufferOp(TransactionId(2, 1), 9, 1029, true);
     EXPECT_EQ(1029UL, manager.getOp(2, 9));
     EXPECT_FALSE(manager.isOpDeleted(2, 9));
 }
@@ -222,7 +222,8 @@ TEST_F(PreparedItemTest, handleTimerEvent_basic) {
     TestLog::Enable _;
 
     Cycles::mockTscValue = 100;
-    service1->transactionManager.bufferOp(1, 13, opRef.toInteger());
+    service1->transactionManager.bufferOp(
+            participantList.getTransactionId(), 13, opRef.toInteger());
     EXPECT_EQ(opRef.toInteger(), service1->transactionManager.getOp(1, 13));
     TransactionManager::PreparedItem* item = service1->transactionManager.items[
             std::make_pair<uint64_t, uint64_t>(1, 13)];
@@ -258,7 +259,8 @@ TEST_F(PreparedItemTest, handleTimerEvent_noParticipantList) {
     TestLog::Enable _("handleTimerEvent");
 
     Cycles::mockTscValue = 100;
-    service1->transactionManager.bufferOp(1, 13, opRef.toInteger());
+    service1->transactionManager.bufferOp(
+            op.getTransactionId(), 13, opRef.toInteger());
     EXPECT_EQ(opRef.toInteger(), service1->transactionManager.getOp(1, 13));
     TransactionManager::PreparedItem* item = service1->transactionManager.items[
             std::make_pair<uint64_t, uint64_t>(1, 13)];

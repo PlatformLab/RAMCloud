@@ -2987,7 +2987,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             break;
         }
 
-        transactionManager.bufferOp(reqHdr->lease.leaseId, rpcId, newOpPtr);
+        transactionManager.bufferOp(txId, rpcId, newOpPtr);
 
         rh->recordCompletion(rpcResultPtr);
     }

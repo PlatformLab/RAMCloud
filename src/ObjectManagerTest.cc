@@ -1959,7 +1959,7 @@ TEST_F(ObjectManagerTest, commitRead) {
     EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
 
     // COMMIT read operation.
-    objectManager.transactionManager->bufferOp(op.header.clientId,
+    objectManager.transactionManager->bufferOp(op.getTransactionId(),
                                                op.header.rpcId,
                                                newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitRead(op, newOpRef));
@@ -2014,7 +2014,7 @@ TEST_F(ObjectManagerTest, commitRemove) {
     EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
 
     // COMMIT remove operation.
-    objectManager.transactionManager->bufferOp(op.header.clientId,
+    objectManager.transactionManager->bufferOp(op.getTransactionId(),
                                                op.header.rpcId,
                                                newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitRemove(op, newOpRef));
@@ -2074,7 +2074,7 @@ TEST_F(ObjectManagerTest, commitWrite) {
                             value.size()));
 
     // COMMIT write operation.
-    objectManager.transactionManager->bufferOp(op.header.clientId,
+    objectManager.transactionManager->bufferOp(op.getTransactionId(),
                                                op.header.rpcId,
                                                newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitWrite(op, newOpRef));
@@ -2730,7 +2730,7 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
     objectManager.log.sync();
     EXPECT_TRUE(success);
 
-    transactionManager.bufferOp(op.header.clientId,
+    transactionManager.bufferOp(op.getTransactionId(),
                                 op.header.rpcId,
                                 oldReference.toInteger());
 
@@ -2774,7 +2774,7 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
     objectManager.log.sync();
     EXPECT_TRUE(success);
 
-    transactionManager.bufferOp(op.header.clientId,
+    transactionManager.bufferOp(op.getTransactionId(),
                                 op.header.rpcId,
                                 oldReference.toInteger());
 

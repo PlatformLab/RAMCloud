@@ -40,7 +40,7 @@ class TransactionManager {
     explicit TransactionManager(Context* context);
     ~TransactionManager();
 
-    void bufferOp(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr,
+    void bufferOp(TransactionId txId, uint64_t rpcId, uint64_t newOpPtr,
                      bool inRecovery = false);
     void removeOp(uint64_t leaseId, uint64_t rpcId);
     uint64_t getOp(uint64_t leaseId, uint64_t rpcId);

@@ -49,10 +49,10 @@ TransactionManager::~TransactionManager()
 }
 
 /**
- * Add a pointer to preparedOp into lookup table.
+ * Add a pointer to the referenced preparedOp into lookup table.
  *
- * \param leaseId
- *      leaseId given for the preparedOp.
+ * \param txId
+ *      Identifier for the transaction that includes the perparedOp.
  * \param rpcId
  *      rpcId given for the preparedOp.
  * \param newOpPtr
@@ -64,17 +64,18 @@ TransactionManager::~TransactionManager()
  *      by #regrabLocksAfterRecovery().
  */
 void
-TransactionManager::bufferOp(uint64_t leaseId,
+TransactionManager::bufferOp(TransactionId txId,
                              uint64_t rpcId,
                              uint64_t newOpPtr,
                              bool isRecovery)
 {
     Lock lock(mutex);
 
-    assert(items.find(std::make_pair(leaseId, rpcId)) == items.end());
+    assert(items.find(std::make_pair(txId.clientLeaseId, rpcId))
+            == items.end());
 
     PreparedItem* item = new PreparedItem(context, newOpPtr);
-    items[std::make_pair(leaseId, rpcId)] = item;
+    items[std::make_pair(txId.clientLeaseId, rpcId)] = item;
     if (!isRecovery) {
         item->start(Cycles::rdtsc() +
                     Cycles::fromMicroseconds(PreparedItem::TX_TIMEOUT_US));

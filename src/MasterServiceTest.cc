@@ -2753,21 +2753,24 @@ TEST_F(MasterServiceTest, txDecision_commit) {
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op1, 0,
                             &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
-        service->transactionManager.bufferOp(1, 10, newOpPtr);
+        service->transactionManager.bufferOp(
+                op1.getTransactionId(), 10, newOpPtr);
     } {
         RpcResult rpcResult(key2.getTableId(), key2.getHash(),
                             1, 11, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op2, 0,
                             &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
-        service->transactionManager.bufferOp(1, 11, newOpPtr);
+        service->transactionManager.bufferOp(
+                op2.getTransactionId(), 11, newOpPtr);
     } {
         RpcResult rpcResult(key3.getTableId(), key3.getHash(),
                             1, 12, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op3, 0,
                             &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
-        service->transactionManager.bufferOp(1, 12, newOpPtr);
+        service->transactionManager.bufferOp(
+                op3.getTransactionId(), 12, newOpPtr);
     }
 
     // 3. Fabricate TxDecision rpc and test.
@@ -2849,21 +2852,24 @@ TEST_F(MasterServiceTest, txDecision_abort) {
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op1, 0,
                             &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
-        service->transactionManager.bufferOp(1, 10, newOpPtr);
+        service->transactionManager.bufferOp(
+                op1.getTransactionId(), 10, newOpPtr);
     } {
         RpcResult rpcResult(key2.getTableId(), key2.getHash(),
                             1, 11, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op2, 0,
                             &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
-        service->transactionManager.bufferOp(1, 11, newOpPtr);
+        service->transactionManager.bufferOp(
+                op2.getTransactionId(), 11, newOpPtr);
     } {
         RpcResult rpcResult(key3.getTableId(), key3.getHash(),
                             1, 12, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op3, 0,
                             &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
-        service->transactionManager.bufferOp(1, 12, newOpPtr);
+        service->transactionManager.bufferOp(
+                op3.getTransactionId(), 12, newOpPtr);
     }
 
     // 3. Fabricate TxDecision rpc and test.
@@ -2925,14 +2931,16 @@ TEST_F(MasterServiceTest, txDecision_unknownTablet) {
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op1, 0,
                             &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
-        service->transactionManager.bufferOp(1, 10, newOpPtr);
+        service->transactionManager.bufferOp(
+                op1.getTransactionId(), 10, newOpPtr);
     } {
         RpcResult rpcResult(key3.getTableId(), key3.getHash(),
                             1, 12, 9, &vote, sizeof(vote));
         EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op3, 0,
                             &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
         EXPECT_TRUE(isCommit);
-        service->transactionManager.bufferOp(1, 12, newOpPtr);
+        service->transactionManager.bufferOp(
+                op3.getTransactionId(), 12, newOpPtr);
     }
 
     // 3. Fabricate TxDecision rpc and test.

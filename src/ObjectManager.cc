@@ -992,7 +992,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                             buffer.size(),
                             1);
                 }
-                transactionManager->bufferOp(op.header.clientId,
+                transactionManager->bufferOp(op.getTransactionId(),
                                              op.header.rpcId,
                                              newReference.toInteger(),
                                              true);
