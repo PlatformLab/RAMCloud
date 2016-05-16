@@ -165,10 +165,6 @@ class UnackedRpcResults {
 
         /// The maximum number of clients we check for liveness.
         static const int maxIterPerPeriod = 1000;
-
-        /// The maximum number of clients to be quarries to coordinator
-        /// for the liveness of lease. This parameter is currently not used.
-        static const uint32_t maxCheckPerPeriod = 100;
       private:
         DISALLOW_COPY_AND_ASSIGN(Cleaner);
     };

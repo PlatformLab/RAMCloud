@@ -537,7 +537,7 @@ UnackedRpcResults::cleanByTimeout()
         Lock lock(mutex);
 
         // Sweep table and pick candidates.
-        victims.reserve(Cleaner::maxCheckPerPeriod);
+        victims.reserve(Cleaner::maxIterPerPeriod / 10);
 
         ClientMap::iterator it;
         if (cleaner.nextClientToCheck) {
