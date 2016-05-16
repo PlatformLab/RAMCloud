@@ -477,7 +477,6 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout_client_doNotRemove) {
     EXPECT_EQ(0U, results.clients.size());
 }
 
-//TODO(seojin): tests for API functions.
 TEST_F(UnackedRpcResultsTest, hasRecord) {
     UnackedRpcResults::Client *client = results.clients[1];
     EXPECT_TRUE(client->hasRecord(10));
