@@ -557,11 +557,15 @@ UnackedRpcResults::cleanByTimeout()
                 victims.push_back(lease);
             }
         }
+        if (it == clients.end()) {
+            cleaner.nextClientToCheck = 0;
+        } else {
+            cleaner.nextClientToCheck = it->first;
+        }
     }
 
     // Check with coordinator whether the lease is expired.
     // And erase entry if the lease is expired.
-    ClusterTime maxClusterTime;
     for (uint32_t i = 0; i < victims.size(); ++i) {
         Lock lock(mutex);
         // Do not clean if cleaning is disabled
