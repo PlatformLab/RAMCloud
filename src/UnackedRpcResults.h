@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -61,8 +61,67 @@ class UnackedRpcResults {
                      uint64_t rpcId);
     bool isRpcAcked(uint64_t clientId, uint64_t rpcId);
 
+    /**
+     * This class temporarily and safely prevents a given client's record from
+     * being removed from UnackedRpcResults. Creating an object of this class
+     * prevents the referenced UnackedRpcResults module from cleaning the client
+     * record associated with the given clientId until the object is deleted.
+     * When multiple instances of this class are created, cleaning will not
+     * resume until all instances have been deleted.
+     *
+     * This class does NOT prevent a client's normal case ACKs from removing
+     * individual RPC results.
+     *
+     * Used by TransactionManger to ensure transaction related RPC results are
+     * kept around even after the lease expires to ensure the results are
+     * available for transaction recovery.
+     */
+    class KeepClientRecord {
+      PUBLIC:
+        KeepClientRecord(UnackedRpcResults* unackedRpcResults,
+                          uint64_t clientId);
+        ~KeepClientRecord();
+
+      PRIVATE:
+        // Keep reference to the unackedRpcResults so that it can be accessed
+        // during the destruction of this object.
+        UnackedRpcResults* unackedRpcResults;
+
+        // Keep reference to the clientId in question so that it can be marked
+        // "cleanable" when this object is destroyed.
+        uint64_t clientId;
+
+        DISALLOW_COPY_AND_ASSIGN(KeepClientRecord);
+    };
+
+    /**
+     * This class temporarily and safely prevents any client records from being
+     * removed from UnackedRpcResults. Creating an object of this class prevents
+     * the referenced UnackedRpcResults module from cleaning any client records
+     * until the object is deleted. When multiple instances of this class are
+     * created, cleaning will not resume until all instances have been deleted.
+     *
+     * This class does NOT prevent a client's normal case ACKs from removing
+     * individual RPC results.
+     *
+     * Used during recovery ensure that no records are dropped during recovery
+     * before modules like the TransactionManager have had a chance to create
+     * KeepClientRecords objects for specific clients.
+     */
+    class KeepAllClientRecords {
+      PUBLIC:
+        explicit KeepAllClientRecords(UnackedRpcResults* unackedRpcResults);
+        ~KeepAllClientRecords();
+
+      PRIVATE:
+        // Keep reference to the unackedRpcResults so that it can be accessed
+        // and marked "cleanable" during the destruction of this object.
+        UnackedRpcResults* unackedRpcResults;
+
+        DISALLOW_COPY_AND_ASSIGN(KeepAllClientRecords);
+    };
+
   PRIVATE:
-    void resizeRpcList(uint64_t clientId, int size);
     void cleanByTimeout();
     /// Used only for testing.
     bool hasRecord(uint64_t clientId, uint64_t rpcId);
@@ -106,10 +165,6 @@ class UnackedRpcResults {
 
         /// The maximum number of clients we check for liveness.
         static const int maxIterPerPeriod = 1000;
-
-        /// The maximum number of clients to be quarries to coordinator
-        /// for the liveness of lease. This parameter is currently not used.
-        static const uint32_t maxCheckPerPeriod = 100;
       private:
         DISALLOW_COPY_AND_ASSIGN(Cleaner);
     };
@@ -126,13 +181,16 @@ class UnackedRpcResults {
          * \param size
          *      Initial size of the array which keeps UnackedRpc.
          */
-        explicit Client(int size) : maxRpcId(0),
-                                    maxAckId(0),
-                                    leaseExpiration(),
-                                    numRpcsInProgress(0),
-                                    rpcs(new UnackedRpc[size]()),
-                                    len(size) {
-        }
+        explicit Client(int size)
+            : maxRpcId(0)
+            , maxAckId(0)
+            , leaseExpiration()
+            , numRpcsInProgress(0)
+            , rpcs(new UnackedRpc[size]())
+            , len(size)
+            , doNotRemove(0)
+        {}
+
         ~Client() {
             delete[] rpcs;
         }
@@ -196,6 +254,14 @@ class UnackedRpcResults {
          */
         int len;
 
+        /**
+         * Allows other modules to disallow or allow the removal for this client
+         * record from UnackedRpcResutls by incrementing or decrementing this
+         * value.  If this value is greater than zero, this record will not be
+         * removed.  Otherwise, the cleaner is free to remove this record.
+         */
+        int doNotRemove;
+
       PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(Client);
     };
@@ -229,11 +295,22 @@ class UnackedRpcResults {
     Cleaner cleaner;
 
     /**
+     * Allows other modules to disable or enable the cleaner by incrementing or
+     * decrementing this value.  If this value is greater than zero, the cleaner
+     * is disabled.  Otherwise, the cleaner is free to run.
+     */
+    int cleanerDisabled;
+
+    /**
      * Pointer to reference freer. During garbage collection by ackId,
      * this freer should be used to designate specific log entry as
      * cleanable.
      */
     AbstractLog::ReferenceFreer* freer;
+
+    // Helper methods
+    Client* getClientRecord(uint64_t clientId, Lock& lock);
+    Client* getOrInitClientRecord(uint64_t clientId, Lock& lock);
 
     DISALLOW_COPY_AND_ASSIGN(UnackedRpcResults);
 };

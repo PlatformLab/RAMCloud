@@ -646,36 +646,33 @@ TcpTransport::TcpSession::TcpSession(TcpTransport* transport,
                 getServiceLocator().c_str()), errno);
     }
 
-    // Connection was successful but needs to check if it has connected
-    // to self. As per RFC 793, it is possible that incase coordinator/server
-    // is down, it can connect to itself. If that is the case, then close this
-    // connection and continue to retry connecting.
-    struct sockaddr_in cAddr;
+    // Check to see if we accidentally connected to ourself. This can
+    // happen if the target server is on the same machine and has
+    // crashed, so that it is no longer using its port. If this
+    // happens our local socket (fd) might end up reusing that same port,
+    // in which case we will connect to ourselves. If this happens,
+    // abort this connection (it will get retried, at which point a
+    // different port will get selected).
+    struct sockaddr cAddr;
     socklen_t cAddrLen = sizeof(cAddr);
-
-    // Get the current client dynamic information allocated.
-    int e = sys->getsockname(fd, reinterpret_cast<sockaddr*>(&cAddr),
-                             &cAddrLen);
-    if (e != 0) {
+    // Read address information associated with our local socket.
+    if (sys->getsockname(fd, &cAddr, &cAddrLen)) {
         sys->close(fd);
         fd = -1;
         LOG(WARNING, "TcpTransport failed to get client socket info");
         throw TransportException(HERE,
-                    "TcpTransport failed to get client socket info", errno);
+                "TcpTransport failed to get client socket info", errno);
     }
-
-    // Compare if it is same as coordinator/server.
-    if (serviceLocator->getOption<uint16_t>("port") == NTOHS(cAddr.sin_port)
-                        && strcmp((serviceLocator->getOption("host")).c_str(),
-                                    inet_ntoa(cAddr.sin_addr)) == 0)
-    {
+    IpAddress sourceIp(&cAddr);
+    IpAddress destinationIp(serviceLocator);
+    if (sourceIp.toString().compare(destinationIp.toString()) == 0) {
         sys->close(fd);
         fd = -1;
         LOG(WARNING, "TcpTransport connected to itself %s",
-                                            getServiceLocator().c_str());
+                sourceIp.toString().c_str());
         throw TransportException(HERE, format(
-                            "TcpTransport connected to itself %s",
-                            getServiceLocator().c_str()));
+                "TcpTransport connected to itself %s",
+                sourceIp.toString().c_str()));
     }
 
     // Disable the hideous Nagle algorithm, which will delay sending small

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -169,6 +169,7 @@ UnackedRpcResults::UnackedRpcResults(Context* context,
     , context(context)
     , leaseValidator(leaseValidator)
     , cleaner(this)
+    , cleanerDisabled(0)
     , freer(freer)
 {
 }
@@ -241,17 +242,10 @@ UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
 {
     Lock lock(mutex);
     *resultPtrOut = NULL;
-    Client* client;
 
     uint64_t clientId = clientLease.leaseId;
 
-    ClientMap::iterator it = clients.find(clientId);
-    if (it == clients.end()) {
-        client = new Client(default_rpclist_size);
-        clients[clientId] = client;
-    } else {
-        client = it->second;
-    }
+    Client* client = getOrInitClientRecord(clientId, lock);
 
     // Update lease with more up-to-date information if available to avoid
     // unnecessary lease validation.
@@ -322,13 +316,7 @@ UnackedRpcResults::shouldRecover(uint64_t clientId,
                                  LogEntryType entryType)
 {
     Lock lock(mutex);
-    ClientMap::iterator it;
-    it = clients.find(clientId);
-    if (it == clients.end()) {
-        clients[clientId] = new Client(default_rpclist_size);
-        it = clients.find(clientId);
-    }
-    Client* client = it->second;
+    Client* client = getOrInitClientRecord(clientId, lock);
     if (client->maxAckId < ackId)
         client->processAck(ackId, freer);
 
@@ -365,12 +353,12 @@ UnackedRpcResults::recordCompletion(uint64_t clientId,
                                       bool ignoreIfAcked)
 {
     Lock lock(mutex);
-    ClientMap::iterator it = clients.find(clientId);
-    if (ignoreIfAcked && it == clients.end()) {
+    Client* client = getClientRecord(clientId, lock);
+    if (ignoreIfAcked && client == NULL) {
         return;
     }
-    assert(it != clients.end());
-    Client* client = it->second;
+
+    assert(client != NULL);
 
     if (ignoreIfAcked && client->maxAckId >= rpcId) {
         return;
@@ -406,16 +394,8 @@ UnackedRpcResults::recoverRecord(uint64_t clientId,
                                  uint64_t ackId,
                                  void* result)
 {
-    std::unique_lock<std::mutex> lock(mutex);
-    Client* client;
-
-    ClientMap::iterator it = clients.find(clientId);
-    if (it == clients.end()) {
-        client = new Client(default_rpclist_size);
-        clients[clientId] = client;
-    } else {
-        client = it->second;
-    }
+    Lock lock(mutex);
+    Client* client = getOrInitClientRecord(clientId, lock);
 
     //1. Handle Ack.
     if (client->maxAckId < ackId)
@@ -446,15 +426,13 @@ UnackedRpcResults::recoverRecord(uint64_t clientId,
 void
 UnackedRpcResults::resetRecord(uint64_t clientId, uint64_t rpcId)
 {
-    std::unique_lock<std::mutex> lock(mutex);
-    Client* client;
+    Lock lock(mutex);
+    Client* client = getClientRecord(clientId, lock);
 
-    ClientMap::iterator it = clients.find(clientId);
-    if (it == clients.end()) {
+    if (client == NULL) {
         return;
-    } else {
-        client = it->second;
     }
+
     // If a client cancels an RPC, the current RPC may have been acked while
     // being processed. In this case, we should not overwrite.
     if (client->maxAckId < rpcId) {
@@ -480,14 +458,70 @@ bool
 UnackedRpcResults::isRpcAcked(uint64_t clientId, uint64_t rpcId)
 {
     Lock lock(mutex);
-    ClientMap::iterator it;
-    it = clients.find(clientId);
-    if (it == clients.end()) {
+    Client* client = getClientRecord(clientId, lock);
+    if (client == NULL) {
         return true;
     } else {
-        Client* client = it->second;
         return client->maxAckId >= rpcId;
     }
+}
+
+/**
+ * Construct to prevent a specific client's record from being removed.
+ *
+ * \param unackedRpcResults
+ *      The unackedRpcResults that owns the client's record.
+ * \param clientId
+ *      The id of the client whose record is to be saved.
+ */
+UnackedRpcResults::KeepClientRecord::KeepClientRecord(
+        UnackedRpcResults* unackedRpcResults,
+        uint64_t clientId)
+    : unackedRpcResults(unackedRpcResults)
+    , clientId(clientId)
+{
+    Lock lock(unackedRpcResults->mutex);
+    // Make a new client record if it doesn't exist.
+    Client* client = unackedRpcResults->getOrInitClientRecord(clientId, lock);
+    ++client->doNotRemove;
+}
+
+/**
+ * Destruct to allow cleaning to resume on the client records previously
+ * protected by this objects the construction.
+ */
+UnackedRpcResults::KeepClientRecord::~KeepClientRecord()
+{
+    Lock lock(unackedRpcResults->mutex);
+    Client* client = unackedRpcResults->getClientRecord(clientId, lock);
+    assert(client != NULL);
+    --client->doNotRemove;
+}
+
+/**
+ * Construct to prevent any client records from being removed.
+ *
+ * \param unackedRpcResults
+ *      The unackedRpcResults instances that shouldn't removed any
+ *      client records.
+ *
+ */
+UnackedRpcResults::KeepAllClientRecords::KeepAllClientRecords(
+        UnackedRpcResults* unackedRpcResults)
+    : unackedRpcResults(unackedRpcResults)
+{
+    Lock lock(unackedRpcResults->mutex);
+    ++unackedRpcResults->cleanerDisabled;
+}
+
+/**
+ * Destruct to allow cleaning to resume.
+ */
+UnackedRpcResults::KeepAllClientRecords::~KeepAllClientRecords()
+{
+    Lock lock(unackedRpcResults->mutex);
+    assert(unackedRpcResults->cleanerDisabled > 0);
+    --unackedRpcResults->cleanerDisabled;
 }
 
 /**
@@ -503,7 +537,7 @@ UnackedRpcResults::cleanByTimeout()
         Lock lock(mutex);
 
         // Sweep table and pick candidates.
-        victims.reserve(Cleaner::maxCheckPerPeriod);
+        victims.reserve(Cleaner::maxIterPerPeriod / 10);
 
         ClientMap::iterator it;
         if (cleaner.nextClientToCheck) {
@@ -523,13 +557,24 @@ UnackedRpcResults::cleanByTimeout()
                 victims.push_back(lease);
             }
         }
+        if (it == clients.end()) {
+            cleaner.nextClientToCheck = 0;
+        } else {
+            cleaner.nextClientToCheck = it->first;
+        }
     }
 
     // Check with coordinator whether the lease is expired.
     // And erase entry if the lease is expired.
-    ClusterTime maxClusterTime;
     for (uint32_t i = 0; i < victims.size(); ++i) {
         Lock lock(mutex);
+        // Do not clean if cleaning is disabled
+        if (cleanerDisabled)
+            continue;
+        // Do not clean if this client record is protected
+        if (clients[victims[i].leaseId]->doNotRemove)
+            continue;
+        // Do not clean if there are RPCs still in progress for this client.
         if (clients[victims[i].leaseId]->numRpcsInProgress)
             continue;
 
@@ -702,6 +747,55 @@ UnackedRpcResults::Client::resizeRpcs(int newLen) {
     delete[] rpcs;
     rpcs = to;
     len = newLen;
+}
+
+/**
+ * Return a pointer to the requested client record if it exists.
+ *
+ * \param clientId
+ *      The id of the client whose record should be returned.
+ * \param lock
+ *      Used to ensure that caller has acquired UnackedRpcResults::mutex.
+ *      Not actually used by the method.
+ * \return
+ *      Pointer to the client record if one exists; NULL otherwise.
+ */
+UnackedRpcResults::Client*
+UnackedRpcResults::getClientRecord(uint64_t clientId, Lock& lock)
+{
+    Client* client = NULL;
+    ClientMap::iterator it = clients.find(clientId);
+    if (it != clients.end()) {
+        client = it->second;
+    }
+    return client;
+}
+
+/**
+ * Return a pointer to the requested client record; create a new record if
+ * one does not already exist.
+ *
+ * \param clientId
+ *      The id of the client whose record should be returned.
+ * \param lock
+ *      Used to ensure that caller has acquired UnackedRpcResults::mutex.
+ *      Not actually used by the method.
+ * \return
+ *      Pointer to the existing or newly inserted client record.
+ */
+UnackedRpcResults::Client*
+UnackedRpcResults::getOrInitClientRecord(uint64_t clientId, Lock& lock)
+{
+    Client* client = NULL;
+    ClientMap::iterator it = clients.find(clientId);
+    if (it != clients.end()) {
+        client = it->second;
+    } else {
+        client = new Client(default_rpclist_size);
+        clients[clientId] = client;
+    }
+    assert(client != NULL);
+    return client;
 }
 
 } // namespace RAMCloud

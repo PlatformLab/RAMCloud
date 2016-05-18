@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -57,7 +57,7 @@ class IpAddress : public Driver::Address {
 
     IpAddress() : address() {}
     explicit IpAddress(const ServiceLocator* serviceLocator);
-    explicit IpAddress(const sockaddr *address);
+    explicit IpAddress(const sockaddr *address) : address(*address) {}
     explicit IpAddress(const uint32_t ip, const uint16_t port);
     IpAddress(const IpAddress& other)
         : Address(other), address(other.address) {}
