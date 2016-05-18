@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <utility>
 #include "Common.h"
+#include "ParticipantList.h"
 #include "PreparedOp.h"
 #include "SpinLock.h"
 #include "WireFormat.h"
@@ -32,14 +33,21 @@ namespace RAMCloud {
 class ObjectManager;
 
 /**
- * A table for all PreparedOps for all currently executing transactions
- * on a server. Decision RPC handler fetches preparedOp from this table.
+ * The TransactionManager provides access to and controls the lifetime of
+ * server-side transaction data stored in the log which includes
+ * PreparedOp and ParticipantList objects.  It also serves to trigger
+ * transaction recovery if transactions aren't completed in a timely manner.
  */
 class TransactionManager {
   PUBLIC:
     explicit TransactionManager(Context* context);
     ~TransactionManager();
 
+    // Transaction methods
+    void registerTransaction(ParticipantList& participantList);
+    void markTransactionRecovered(TransactionId txId);
+
+    // Prepared Op methods
     void bufferOp(TransactionId txId, uint64_t rpcId, uint64_t newOpPtr,
                      bool inRecovery = false);
     void removeOp(uint64_t leaseId, uint64_t rpcId);
@@ -51,6 +59,31 @@ class TransactionManager {
 
   PRIVATE:
     /**
+     * Represents a transaction that is in the process of being committed on
+     * this master.  An instance of this object is used to ensure that:
+     *  (1) the corresponding transaction will be recovered if the transaction
+     *      isn't completed in a timely manner, and
+     *  (2) the data needed to complete transaction recovery is available until
+     *      all the participant masters have committed or recovered.
+     * To accomplish this, the TransactionManager will maintain an instance of
+     * this object as long as the transaction is not known to have completed.
+     */
+    class InProgressTransaction : public WorkerTimer {
+      PUBLIC:
+        explicit InProgressTransaction(Context* context)
+            : WorkerTimer(context->dispatch)
+            , preparedOpCount(0)
+        {}
+
+        ~InProgressTransaction() {}
+
+        /// Number of prepared but uncommitted ops for this transaction.
+        int preparedOpCount;
+      PRIVATE:
+        DISALLOW_COPY_AND_ASSIGN(InProgressTransaction);
+    };
+
+    /**
      * Wrapper for the pointer to PreparedOp with WorkerTimer.
      * This represents an active locking on an object, and its timer
      * make sure transaction recovery starts after timeout.
@@ -59,23 +92,39 @@ class TransactionManager {
       public:
         /**
          * Default constructor.
+         *
+         * The TransactionManager monitor lock should be held while calling this
+         * constructor.
+         *
          * \param context
          *      RAMCloud context to work on.
+         * \param transaction
+         *      The transaction to which this prepared op belongs.
          * \param newOpPtr
          *      Log reference to PreparedOp in the log.
          */
-        PreparedItem(Context* context, uint64_t newOpPtr)
+        PreparedItem(
+                Context* context,
+                InProgressTransaction* transaction,
+                uint64_t newOpPtr)
             : WorkerTimer(context->dispatch)
             , context(context)
+            , transaction(transaction)
             , newOpPtr(newOpPtr)
             , txHintFailedRpc()
-        {}
+        {
+            transaction->preparedOpCount++;
+        }
 
         /**
          * Default destructor. Stops WorkerTimer and waits for running handler
          * for safe destruction.
+         *
+         * The TransactionManager monitor lock should be held while calling this
+         * destructor.
          */
         ~PreparedItem() {
+            transaction->preparedOpCount--;
             stop();
         }
 
@@ -85,6 +134,9 @@ class TransactionManager {
 
         /// Shared RAMCloud information.
         Context* context;
+
+        /// The transaction to which this prepared op belongs.
+        InProgressTransaction* transaction;
 
         /// Log reference to PreparedOp in the log.
         uint64_t newOpPtr;
@@ -118,6 +170,21 @@ class TransactionManager {
     /// mapping from <LeaseId, RpcId> to PreparedItem.
     std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> items;
     typedef std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> ItemsMap;
+
+    /**
+     * Keeps track of all currently in-progress transactions; this map should
+     * contain a single entry for each transaction currently being processed by
+     * this master.
+     */
+    typedef std::unordered_map<TransactionId,
+                               InProgressTransaction*,
+                               TransactionId::Hasher> TransactionRegistry;
+    TransactionRegistry transactions;
+
+    InProgressTransaction* getRegisteredTransaction(TransactionId txId,
+                                                    Lock& lock);
+    InProgressTransaction* getOrRegisterTransaction(TransactionId txId,
+                                                    Lock& lock);
 
     DISALLOW_COPY_AND_ASSIGN(TransactionManager);
 };

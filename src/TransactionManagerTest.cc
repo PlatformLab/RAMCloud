@@ -89,6 +89,52 @@ TEST_F(TransactionManagerTest, markDeletedAndIsDeleted) {
     EXPECT_FALSE(manager.isOpDeleted(2, 9));
 }
 
+TEST_F(TransactionManagerTest, PreparedItem_constructor_destructor) {
+    TransactionManager::Lock lock(manager.mutex);
+    TransactionId txId(42, 1);
+    TransactionManager::InProgressTransaction* transaction =
+            manager.getOrRegisterTransaction(txId, lock);
+
+    EXPECT_EQ(0, transaction->preparedOpCount);
+    TransactionManager::PreparedItem* item =
+            new TransactionManager::PreparedItem(manager.context,
+                                                 transaction,
+                                                 0);
+    EXPECT_EQ(1, transaction->preparedOpCount);
+    {
+        TransactionManager::PreparedItem otherItem(manager.context,
+                                                   transaction,
+                                                   0);
+        EXPECT_EQ(2, transaction->preparedOpCount);
+        delete item;
+        EXPECT_EQ(1, transaction->preparedOpCount);
+    }
+    EXPECT_EQ(0, transaction->preparedOpCount);
+}
+
+TEST_F(TransactionManagerTest, getRegisteredTransaction) {
+    TransactionManager::Lock lock(manager.mutex);
+    TransactionId txId(42, 1);
+    EXPECT_TRUE(manager.getRegisteredTransaction(txId, lock) == NULL);
+    TransactionManager::InProgressTransaction* iptx =
+            new TransactionManager::InProgressTransaction(manager.context);
+    manager.transactions[txId] = iptx;
+    EXPECT_TRUE(manager.getRegisteredTransaction(txId, lock) == iptx);
+}
+
+TEST_F(TransactionManagerTest, getOrRegisterTransaction) {
+    TransactionManager::Lock lock(manager.mutex);
+    TransactionId txId(42, 1);
+    EXPECT_TRUE(manager.getRegisteredTransaction(txId, lock) == NULL);
+    TransactionManager::InProgressTransaction* iptx =
+            manager.getOrRegisterTransaction(txId, lock);
+    TransactionManager::TransactionRegistry::iterator it =
+            manager.transactions.find(txId);
+    EXPECT_TRUE(it != manager.transactions.end());
+    EXPECT_TRUE(it->second = iptx);
+    EXPECT_TRUE(manager.getRegisteredTransaction(txId, lock) == iptx);
+}
+
 /**
  * Unit tests for PreparedItem.
  */

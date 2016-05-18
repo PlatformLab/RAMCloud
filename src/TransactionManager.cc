@@ -30,6 +30,7 @@ TransactionManager::TransactionManager(Context* context)
     : context(context)
     , mutex()
     , items()
+    , transactions()
 {
 }
 
@@ -39,12 +40,43 @@ TransactionManager::TransactionManager(Context* context)
 TransactionManager::~TransactionManager()
 {
     Lock lock(mutex);
-    std::map<std::pair<uint64_t, uint64_t>,
-        PreparedItem*>::iterator it;
-
-    for (it = items.begin(); it != items.end(); ++it) {
+    for (auto it = items.begin(); it != items.end(); ++it) {
         PreparedItem* item = it->second;
         delete item;
+    }
+
+    for (auto it = transactions.begin(); it != transactions.end(); ++it) {
+        InProgressTransaction* tx = it->second;
+        delete tx;
+    }
+}
+
+/**
+ * Register a transaction to indicate that it is in-progress.  Registration
+ * ensures that a transaction will be recovered in the event of a crashed or
+ * unexpectedly slow client.
+ *
+ * This method call is idempotent and can be safely called multiple times on the
+ * same transaction.  This method should be called whenever a transaction is
+ * being prepared and when a participant list object is recovered/migrated.
+ *
+ * The lifetime of the participant list over approximates the lifetime of an
+ * in-progress transaction thus the participant list for this transaction must
+ * be in the log and accessible via UnackedRpcResults when calling this method.
+ *
+ * \param participantList
+ *      The ParticipantList of the transaction to be registered.  Used to get
+ *      the TransactionId and size of the transaction.  Also ensures the caller
+ *      has the full list.
+ */
+void
+TransactionManager::registerTransaction(ParticipantList& participantList)
+{
+    Lock lock(mutex);
+    TransactionId txId = participantList.getTransactionId();
+    InProgressTransaction* transaction = getOrRegisterTransaction(txId, lock);
+    if (!transaction->isRunning()) {
+
     }
 }
 
@@ -73,8 +105,8 @@ TransactionManager::bufferOp(TransactionId txId,
 
     assert(items.find(std::make_pair(txId.clientLeaseId, rpcId))
             == items.end());
-
-    PreparedItem* item = new PreparedItem(context, newOpPtr);
+    InProgressTransaction* transaction = getOrRegisterTransaction(txId, lock);
+    PreparedItem* item = new PreparedItem(context, transaction, newOpPtr);
     items[std::make_pair(txId.clientLeaseId, rpcId)] = item;
     if (!isRecovery) {
         item->start(Cycles::rdtsc() +
@@ -330,5 +362,58 @@ TransactionManager::isOpDeleted(uint64_t leaseId,
         }
     }
 }
+
+/**
+ * Returns a pointer to a registered InProgressTransaction object if it exists.
+ *
+ * \param txId
+ *      Id of the transaction to be returned.
+ * \param lock
+ *      Used to ensure that caller has acquired TransactionManager::mutex.
+ *      Not actually used by the method.
+ * \return
+ *      Pointer to a registered InProgressTransaction if it exists.
+ *      NULL otherwise.
+ */
+TransactionManager::InProgressTransaction*
+TransactionManager::getRegisteredTransaction(TransactionId txId, Lock& lock)
+{
+    InProgressTransaction* transaction = NULL;
+    TransactionRegistry::iterator it = transactions.find(txId);
+    if (it != transactions.end()) {
+        transaction = it->second;
+    }
+    return transaction;
+}
+
+/**
+ * Returns a pointer to a registered InProgressTransaction object; constructs
+ * a new InProgressTransaction if one is not already registered.
+ *
+ * \param txId
+ *      Id of the transaction that is (or will be) registered and returned.
+ * \param lock
+ *      Used to ensure that caller has acquired TransactionManager::mutex.
+ *      Not actually used by the method.
+ * \return
+ *      Pointer to a registered InProgressTransaction.
+ */
+TransactionManager::InProgressTransaction*
+TransactionManager::getOrRegisterTransaction(TransactionId txId,
+                                                   Lock& lock)
+{
+    InProgressTransaction* transaction = NULL;
+    TransactionRegistry::iterator it = transactions.find(txId);
+    if (it != transactions.end()) {
+        transaction = it->second;
+    } else {
+        transaction = new InProgressTransaction(context);
+        transactions[txId] = transaction;
+    }
+    assert(transaction != NULL);
+    return transaction;
+}
+
+
 
 } // namespace RAMCloud
