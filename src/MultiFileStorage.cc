@@ -1060,14 +1060,6 @@ MultiFileStorage::FrameRef
 MultiFileStorage::open(bool sync)
 {
     Lock lock(mutex);
-    if (writeBuffersInUse >= maxWriteBuffers) {
-        // Force the master to find some place else and/or backoff.
-        RAMCLOUD_CLOG(NOTICE, "Master tried to open a storage frame but "
-                "reached the maxNonVolatileBuffers limit of %lu (there are %lu "
-                "frames already buffered); rejecting",
-                maxWriteBuffers, writeBuffersInUse);
-        throw BackupOpenRejectedException(HERE);
-    }
     FreeMap::size_type next = freeMap.find_next(lastAllocatedFrame);
     if (next == FreeMap::npos) {
         next = freeMap.find_first();
@@ -1077,6 +1069,14 @@ MultiFileStorage::open(bool sync)
                 "rejecting", frameCount);
             throw BackupOpenRejectedException(HERE);
         }
+    }
+    if (writeBuffersInUse >= maxWriteBuffers) {
+        // Force the master to find some place else and/or backoff.
+        RAMCLOUD_CLOG(NOTICE, "Master tried to open a storage frame but "
+                "reached the maxNonVolatileBuffers limit of %lu (there are %lu "
+                "frames already buffered); rejecting",
+                maxWriteBuffers, writeBuffersInUse);
+        throw BackupOpenRejectedException(HERE);
     }
     lastAllocatedFrame = next;
     size_t frameIndex = next;
