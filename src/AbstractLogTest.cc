@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -326,10 +326,11 @@ TEST_F(AbstractLogTest, getMemoryStats) {
 
     PerfStats stats;
     l.getMemoryStats(&stats);
-    EXPECT_EQ(37729075lu, stats.logMaxBytes);
+    EXPECT_EQ(41943040lu, stats.logSizeBytes);
     EXPECT_EQ(131072u, stats.logUsedBytes);
     EXPECT_EQ(39583744u, stats.logFreeBytes);
     EXPECT_EQ(0u, stats.logLiveBytes);
+    EXPECT_EQ(37729075u, stats.logMaxLiveBytes);
     EXPECT_EQ(37729075u, stats.logAppendableBytes);
     EXPECT_EQ(0u, stats.logUsedBytesInBackups);
 
@@ -345,10 +346,11 @@ TEST_F(AbstractLogTest, getMemoryStats) {
     l.append(LOG_ENTRY_TYPE_OBJ, data, dataLen);
     l.getMemoryStats(&stats);
 
-    EXPECT_EQ(37729075lu, stats.logMaxBytes);
+    EXPECT_EQ(41943040lu, stats.logSizeBytes);
     EXPECT_EQ(131072u + serverConfig.segletSize, stats.logUsedBytes);
     EXPECT_EQ(39583744u - serverConfig.segletSize, stats.logFreeBytes);
     EXPECT_EQ(appendedLen, stats.logLiveBytes);
+    EXPECT_EQ(37729075u, stats.logMaxLiveBytes);
     EXPECT_EQ(37729075u - appendedLen, stats.logAppendableBytes);
     EXPECT_EQ(0u, stats.logUsedBytesInBackups);
 }

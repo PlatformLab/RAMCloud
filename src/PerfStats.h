@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -191,19 +191,29 @@ struct PerfStats {
     //       to obtain these values.
     //--------------------------------------------------------------------
 
-    /// Total capacity of memory reserved for live data in log.
-    uint64_t logMaxBytes;
+    /// Total capacity of memory reserved for log.
+    uint64_t logSizeBytes;
 
-    /// Total space used (for both live and garbage collectable data) in log.
+    /// Total space used (for both live and garbage collectable data) in log
+    /// (the number of seglets currently used * size of seglet)
     uint64_t logUsedBytes;
 
-    /// Unused log space ready for write even before log cleaning.
+    /// Unused log space ready for write even before log cleaning
+    /// (the number of free seglets * size of seglet)
     uint64_t logFreeBytes;
 
-    /// Total space used for holding live data in log.
+    /// Total log space occupied to store live data that is not currently
+    /// cleanable. This number includes all space for live objects, live
+    /// completion records, ongoing transactions' prepare records.
     uint64_t logLiveBytes;
 
-    /// Log space available to write new data. (logMaxBytes - logLiveBytes)
+    /// The largest value the logLiveBytes allowed to be. Once logLiveBytes
+    /// reaches this value, no new data can be written until objects are
+    /// deleted. This limit is required to ensure that there is always enough
+    /// free space for the cleaner to run.
+    uint64_t logMaxLiveBytes;
+
+    /// Log space available to write new data (logMaxLiveBytes - logLiveBytes)
     uint64_t logAppendableBytes;
 
     /// Backup disk spaces spent for holding replicas for data of this server.

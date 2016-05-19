@@ -231,17 +231,17 @@ AbstractLog::getMetrics(ProtoBuf::LogMetrics& m)
 void
 AbstractLog::getMemoryStats(PerfStats* stats)
 {
-    stats->logMaxBytes = maxLiveBytes;
-
     SegletAllocator& alloc = segmentManager->getAllocator();
     size_t freeSeglets = alloc.getFreeCount(SegletAllocator::DEFAULT);
     size_t totalSeglets = alloc.getTotalCount(SegletAllocator::DEFAULT);
 
+    stats->logSizeBytes = alloc.getTotalBytes();
     stats->logUsedBytes = static_cast<uint64_t>(alloc.getSegletSize() *
                                                 (totalSeglets - freeSeglets));
     stats->logFreeBytes = static_cast<uint64_t>(alloc.getSegletSize() *
                                                 freeSeglets);
     stats->logLiveBytes = totalLiveBytes;
+    stats->logMaxLiveBytes = maxLiveBytes;
     stats->logAppendableBytes = maxLiveBytes - totalLiveBytes;
 
     //TODO(seojin): implement.
