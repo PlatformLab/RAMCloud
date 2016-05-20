@@ -243,9 +243,9 @@ AbstractLog::getMemoryStats(PerfStats* stats)
     stats->logLiveBytes = totalLiveBytes;
     stats->logMaxLiveBytes = maxLiveBytes;
     stats->logAppendableBytes = maxLiveBytes - totalLiveBytes;
-
-    //TODO(seojin): implement.
-    stats->logUsedBytesInBackups = 0;
+    stats->logUsedBytesInBackups = segmentManager->getSegmentsOnDisk() *
+                                   replicaManager->numReplicas *
+                                   segmentSize;
 }
 
 /**

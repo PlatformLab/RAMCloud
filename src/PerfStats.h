@@ -217,7 +217,6 @@ struct PerfStats {
     uint64_t logAppendableBytes;
 
     /// Backup disk spaces spent for holding replicas for data of this server.
-    /// !Not yet implemented: always 0.
     uint64_t logUsedBytesInBackups;
 
     //--------------------------------------------------------------------

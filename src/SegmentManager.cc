@@ -157,6 +157,19 @@ SegmentManager::getMetrics(ProtoBuf::LogMetrics_SegmentMetrics& m)
 }
 
 /**
+ * Returns the number of segments currently on backup disks. May be used for
+ * calculating backup space usage.
+ *
+ * @return segments on disk.
+ */
+uint32_t
+SegmentManager::getSegmentsOnDisk()
+{
+    SpinLock::Guard _(lock);
+    return segmentsOnDisk;
+}
+
+/**
  * Return the allocator that is being used to provide backing memory to segments
  * this module is managing.
  */
