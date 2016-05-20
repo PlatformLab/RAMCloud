@@ -1672,6 +1672,8 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     newHead->schedule();
 
     EXPECT_TRUE(newHead->isScheduled());
+    EXPECT_FALSE(segment->segment->closedCommitted);
+    EXPECT_FALSE(newHead->segment->closedCommitted);
     EXPECT_FALSE(newHead->precedingSegmentCloseCommitted);
     ASSERT_TRUE(newHead->replicas[0].isActive);
     EXPECT_FALSE(newHead->replicas[0].writeRpc);
@@ -1701,6 +1703,8 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
         TestLog::get());
 
     EXPECT_TRUE(newHead->isScheduled());
+    EXPECT_FALSE(segment->segment->closedCommitted);
+    EXPECT_FALSE(newHead->segment->closedCommitted);
     EXPECT_FALSE(newHead->precedingSegmentCloseCommitted);
     ASSERT_TRUE(newHead->replicas[0].isActive);
     EXPECT_FALSE(newHead->replicas[0].writeRpc);
@@ -1718,6 +1722,8 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     taskQueue.performTask(); // reap close rpcs on replicas
 
     EXPECT_TRUE(newHead->isScheduled());
+    EXPECT_TRUE(segment->segment->closedCommitted);
+    EXPECT_FALSE(newHead->segment->closedCommitted);
     EXPECT_TRUE(newHead->precedingSegmentCloseCommitted);
     ASSERT_TRUE(newHead->replicas[0].isActive);
     EXPECT_FALSE(newHead->replicas[0].writeRpc);
@@ -1740,6 +1746,8 @@ TEST_F(ReplicatedSegmentTest, performWriteEnsureCloseBeforeNewHeadWrittenTo) {
     taskQueue.performTask(); // send newHead write
 
     EXPECT_TRUE(newHead->isScheduled());
+    EXPECT_TRUE(segment->segment->closedCommitted);
+    EXPECT_FALSE(newHead->segment->closedCommitted);
     EXPECT_TRUE(newHead->precedingSegmentCloseCommitted);
     ASSERT_TRUE(newHead->replicas[0].isActive);
     EXPECT_TRUE(newHead->replicas[0].writeRpc);
