@@ -21,6 +21,7 @@
 #include <errno.h>
 
 #include "MultiFileStorage.h"
+#include "BackupMasterRecovery.h"
 #include "Buffer.h"
 #include "Crc32C.h"
 #include "ClientException.h"
@@ -479,14 +480,19 @@ MultiFileStorage::Frame::free()
 void
 MultiFileStorage::Frame::reopen(size_t length)
 {
-    assert(!isOpen && !isClosed);
+    // The frame could be open or closed depending on state when it crashed
     load();
 
     Lock _(storage->mutex);
     appendedLength = length;
     committedLength = length;
     isOpen = true;
+    isClosed = false;
     loadRequested = false;
+    if (!isWriteBuffer) {
+        isWriteBuffer = true;
+        storage->writeBuffersInUse++;
+    }
 }
 
 // - private -
@@ -1116,10 +1122,11 @@ MultiFileStorage::getMetadataSize()
 }
 
 /**
- * Marks ALL storage frames as allocated and blows away any in-memory copies
- * of metadata. This should only be performed at backup startup. The caller is
- * reponsible for freeing the frames if the metadata indicates the replica
- * data stored there isn't useful.
+ * Marks ALL storage frames as allocated, initializes frame state based on
+ * metadata if its metadata is valid, and blows away any in-memory copies of
+ * metadata. This should only be performed at backup startup. The caller is
+ * reponsible for freeing the frames if the metadata indicates the replica data
+ * stored there isn't useful.
  *
  * \return
  *      Pointer to every frame which has various uses depending on the
@@ -1136,6 +1143,23 @@ MultiFileStorage::loadAllMetadata()
         frame.loadMetadata();
         assert(freeMap[frame.frameIndex] == 1);
         freeMap[frame.frameIndex] = 0;
+
+        const BackupReplicaMetadata* metadata =
+                static_cast<const BackupReplicaMetadata*>(frame.getMetadata());
+        if (!metadata->checkIntegrity()) {
+            ret.push_back({&frame, BackupStorage::freeFrame});
+            continue;
+        }
+
+        frame.isClosed = metadata->closed;
+        frame.isOpen = !metadata->closed;
+        if (frame.isOpen) {
+            frame.isWriteBuffer = true;
+            writeBuffersInUse++;
+            frame.appendedLength = metadata->certificate.segmentLength;
+            frame.committedLength = metadata->certificate.segmentLength;
+        }
+
         ret.push_back({&frame, BackupStorage::freeFrame});
     }
     return ret;
