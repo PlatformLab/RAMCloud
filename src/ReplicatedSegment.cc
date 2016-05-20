@@ -538,11 +538,11 @@ ReplicatedSegment::performTask()
         foreach (Replica& replica, replicas)
             performFree(replica);
 
-        // Lock here before checking isScheduled, so that the scheduled flag is
-        // read atomically with performing the destroy.
-        Lock _(dataMutex);
+        // We assume that dataMutex is held by the caller so that the
+        // scheduled flag is read atomically with performing the destroy.
         if (!isScheduled()) { // Everything is freed, destroy ourself.
             deleter.destroyAndFreeReplicatedSegment(this);
+            // Return here to prevent use of invalid member variables
             return;
         }
     } else if (!freeQueued) {
