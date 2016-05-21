@@ -2762,7 +2762,7 @@ indexWriteDist()
     Buffer val;
     std::vector<double> timeWrites(writeSamples);
     std::vector<uint32_t> randomized =
-            generateRandListFrom0UpTo(indexSize + writeSamples);
+            generateRandListFrom0UpTo(indexSize);
 
     // Fill Up Index to desired Size
     for (uint32_t i = 0; i < indexSize; i++) {
@@ -2778,7 +2778,7 @@ indexWriteDist()
     // are allowed in the system.
     for (uint32_t i = 0; i < writeSamples; i++) {
         uint64_t start, stop;
-        uint32_t intKey = randomized[i + indexSize];
+        uint32_t intKey = randomized[i % indexSize];
         generateIndexKeyList(keyList, intKey, keyLength, numKeys);
         fillBuffer(val, valLen, dataTable, primaryKey, keyLength);
 
@@ -2787,6 +2787,9 @@ indexWriteDist()
         cluster->write(dataTable, numKeys, keyList,
                 val.getRange(0, valLen), valLen);
         stop = Cycles::rdtsc();
+
+        // Allow time for asynchronous removes of index entries to complete.
+        Cycles::sleep(100);
 
         timeWrites.at(i) = Cycles::toSeconds(stop - start);
     }
