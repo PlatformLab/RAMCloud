@@ -268,6 +268,7 @@ TEST_F(MultiReadTest, appendRequest) {
 TEST_F(MultiReadTest, readResponse_shortResponse) {
     // This test checks for proper handling of responses that are
     // too short.
+    TestLog::setPredicate("readResponse");
     TestLog::reset();
     MultiReadObject* requests[] = {&objects[0], &objects[1]};
     session1->dontNotify = true;

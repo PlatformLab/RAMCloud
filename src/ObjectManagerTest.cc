@@ -372,9 +372,18 @@ class ObjectManagerTest : public ::testing::Test,
     void
     verifyRecoveryObject(Key& key, string contents)
     {
-        ObjectBuffer value;
-        EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, NULL, NULL));
-        const char *s = reinterpret_cast<const char *>(value.getValue());
+        Buffer value;
+        Buffer buffer;
+        LogEntryType type;
+        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        bool found = objectManager.lookup(lock, key, type, buffer);
+        ASSERT_TRUE(found);
+        ASSERT_EQ(LOG_ENTRY_TYPE_OBJ, type);
+
+        Object object(buffer);
+        object.appendValueToBuffer(&value);
+
+        const char *s = value.getStart<const char>();
         EXPECT_EQ(0, strcmp(s, contents.c_str()));
     }
 
