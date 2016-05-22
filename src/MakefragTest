@@ -168,6 +168,7 @@ TESTS_SRCFILES := \
 		  src/TestRunner.cc \
 		  src/TestUtil.cc \
 		  src/TestUtilTest.cc \
+		  src/TpcCTest.cc \
 		  src/ThreadIdTest.cc \
 		  src/TimeTraceTest.cc \
 		  src/TimeTraceUtilTest.cc \

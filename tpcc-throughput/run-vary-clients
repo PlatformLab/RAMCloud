@@ -1,0 +1,94 @@
+#! /bin/bash
+
+output=$2
+#objectsPerServer=$2
+maxSpan=$1
+
+#clientsPerServer=5
+
+rep=3
+span=$maxSpan
+maxClientsPerServer=14
+#cmd="./scripts/clusterperf.py transactionDistRandom"
+#cmd=$cmd" --numObjects $((objectsPerServer * span))"
+#cmd=$cmd" --numTables $span"
+#cmd=$cmd" -r 3"
+#cmd=$cmd" -c 100000"
+#cmd=$cmd" -t 360"
+#cmd=$cmd" --servers $((maxSpan + 3))"
+#echo Warmup...
+#echo $cmd
+#$cmd
+
+if [[ -s $output ]] ; then
+echo "$output has data. Skipped writting column."
+else
+    echo "TPC-C throughput test. Replication factor: $rep  numServer: $span"  >> $output
+    echo "clients   throughput    latency    ReadRate   worker   cleaner  compactor  cleaner  dispatch  netOut    netIn   backup     backup    bkupWrite  backup MemUtil logRate  RepRpcs  SyncTime"  >> $output
+    echo "        (NewOrder/sec)   (us)      (ops/s)     cores     cores   free %%    free %%   utiliz. (MB/s)    (MB/s)  Rcvd(MB)   Write(MB) (MB/s)     utiliz.%%     (MB/s)   (rpc/s)  (cores)"  >> $output
+echo "$output is empty. Added column info."
+fi ;
+
+echo Starting experiment...
+echo " =====   one backup ===="  >> $output
+
+#for span in $(seq $maxSpan -2 4)
+span=$maxSpan
+for clientsPerServer in $(seq 1 1 3)
+do
+    cmd="../scripts/clusterperf.py tpcc"
+#    cmd=$cmd" --numObjects $((objectsPerServer * span))"
+#    cmd=$cmd" --numTables $span"
+    cmd=$cmd" -r $rep"
+#    cmd=$cmd" -T tcp"
+#    cmd=$cmd" -b 2"
+    cmd=$cmd" --servers $span"
+    cmd=$cmd" -n $((span * clientsPerServer + 1))"
+    cmd=$cmd" --numWarehouses $((span * clientsPerServer))"
+    #outfile=$(printf $output%03d.dat ${span})
+    echo "$cmd >> $output"
+    $cmd >> $output
+    echo `date` "Done"
+done
+
+echo " =====   Two backup ====\n"  >> $output
+
+for clientsPerServer in $(seq 1 1 $maxClientsPerServer)
+do
+    cmd="../scripts/clusterperf.py tpcc"
+#    cmd=$cmd" --numObjects $((objectsPerServer * span))"
+#    cmd=$cmd" --numTables $span"
+    cmd=$cmd" -r $rep"
+#    cmd=$cmd" -T tcp"
+    cmd=$cmd" -b 2"
+    cmd=$cmd" --servers $span"
+    cmd=$cmd" -n $((span * clientsPerServer + 1))"
+    cmd=$cmd" --numWarehouses $((span * clientsPerServer))"
+    #outfile=$(printf $output%03d.dat ${span})
+    echo "$cmd >> $output"
+    $cmd >> $output
+    echo `date` "Done"
+done
+
+echo " =====   TCP ====\n"  >> $output
+echo " =====   one backup ====\n"  >> $output
+
+#for span in $(seq $maxSpan -2 4)
+span=$maxSpan
+for clientsPerServer in $(seq 1 1 $maxClientsPerServer)
+do
+    cmd="../scripts/clusterperf.py tpcc"
+#    cmd=$cmd" --numObjects $((objectsPerServer * span))"
+#    cmd=$cmd" --numTables $span"
+    cmd=$cmd" -r $rep"
+    cmd=$cmd" -T tcp"
+#    cmd=$cmd" -b 2"
+    cmd=$cmd" --servers $span"
+    cmd=$cmd" -n $((span * clientsPerServer + 1))"
+    cmd=$cmd" --numWarehouses $((span * clientsPerServer))"
+    #outfile=$(printf $output%03d.dat ${span})
+    echo "$cmd >> $output"
+    $cmd >> $output
+    echo `date` "Done"
+done
+

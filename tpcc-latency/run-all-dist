@@ -1,0 +1,31 @@
+#! /bin/bash
+
+output=$2
+#objectsPerServer=$2
+maxSpan=$1
+
+span=$maxSpan
+#cmd="./scripts/clusterperf.py transactionDistRandom"
+#cmd=$cmd" --numObjects $((objectsPerServer * span))"
+#cmd=$cmd" --numTables $span"
+#cmd=$cmd" -r 3"
+#cmd=$cmd" -c 100000"
+#cmd=$cmd" -t 360"
+#cmd=$cmd" --servers $((maxSpan + 3))"
+#echo Warmup...
+#echo $cmd
+#$cmd
+echo Starting experiment...
+
+for span in $(seq $maxSpan -1 32)
+do
+    cmd="../scripts/clusterperf.py tpccLatency --numWarehouses 1 -n 1 -T tcp"
+#    cmd=$cmd" --numObjects $((objectsPerServer * span))"
+#    cmd=$cmd" --numTables $span"
+    cmd=$cmd" -r 3"
+    cmd=$cmd" --servers $span"
+    #outfile=$(printf $output%03d.dat ${span})
+    echo "$cmd >> $output"
+    $cmd >> $output
+    echo `date` "Done"
+done
