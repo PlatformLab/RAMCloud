@@ -19,14 +19,14 @@ env:
   - CMD="make DEBUG=NO -j2"
   - CMD="make ZOOKEEPER_LIB='-lzookeeper_mt' INFINIBAND=no -j2"
 # make tests w/o timing dependent tests
-  - CMD="make -j2 obj.master/test && obj.master/test -v --gtest_filter=-PortAlarmTest.triple_alarm:WorkerTimerTest.stopInternal_handlerDoesntFinishQuickly:SpinLockTest.contention"
+  - CMD="make -j2 obj.${TRAVIS_BRANCH}/test && obj.${TRAVIS_BRANCH}/test -v --gtest_filter=-PortAlarmTest.triple_alarm:WorkerTimerTest.stopInternal_handlerDoesntFinishQuickly:SpinLockTest.contention"
 # Style Checks
   - CMD="make check"
   - CMD="make -j2 && hooks/pre-commit-90docs"
 
 before_install:
  - git submodule update --init --recursive
- - git checkout master
+ - git checkout ${TRAVIS_BRANCH}
  - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
  - sudo add-apt-repository -y 'deb http://us.archive.ubuntu.com/ubuntu/ trusty main universe'
  - sudo apt-get update
