@@ -4105,6 +4105,7 @@ indexScalability(bool doHashPartitioning = false)
 
         cluster->createTable("indexScalability", numIndexlets);
         uint64_t lookupTable = cluster->getTableId("indexScalability");
+        cluster->createTable("filler", 1); // Filler table to go on the +1 control server.
         cluster->createIndex(lookupTable, indexId, 0, numIndexlets);
         tableIds.push_back(lookupTable);
         for (int j = 0; j < numIndexlets; j++) {
