@@ -7,28 +7,50 @@
 #
 # For more details about building C++ code bases with Travis CI see:
 # http://docs.travis-ci.com/user/languages/cpp/
+
 language: cpp
-
-env:
- - GCC_VERSION=4.4
- - BOOST_VERSION=1.55 GCC_VERSION=4.4
-
-before_install:
- - sudo add-apt-repository -y 'deb http://ppa.launchpad.net/ubuntu-toolchain-r/test/ubuntu precise main';
- - sudo add-apt-repository -y ppa:boost-latest/ppa 
- - sudo apt-get update
- - sudo apt-get install libzookeeper-mt-dev protobuf-compiler libprotobuf-dev libboost${BOOST_VERSION}-all-dev
- - if [[ ${GCC_VERSION} ]]; then
-     sudo apt-get install g++-${GCC_VERSION};
-     export CXX="g++-${GCC_VERSION}";
-     export CC="gcc-${GCC_VERSION}"; 
-   fi
-
-before_script:
-  - sed -i 's/-Werror//' GNUmakefile 
-
-script:
-  - make ZOOKEEPER_LIB='-lzookeeper_mt' INFINIBAND=no
 
 compiler:
   - gcc
+
+env:
+# Build Checks
+  - CMD="make -j2"
+  - CMD="make DEBUG=NO -j2"
+  - CMD="make ZOOKEEPER_LIB='-lzookeeper_mt' INFINIBAND=no -j2"
+# make tests w/o timing dependent tests
+  - CMD="make -j2 obj.${TRAVIS_BRANCH}/test && obj.${TRAVIS_BRANCH}/test -v --gtest_filter=-PortAlarmTest.triple_alarm:WorkerTimerTest.stopInternal_handlerDoesntFinishQuickly:SpinLockTest.contention"
+# Style Checks
+  - CMD="make check"
+  - CMD="make -j2 && hooks/pre-commit-90docs"
+
+before_install:
+ - git submodule update --init --recursive
+ - git checkout ${TRAVIS_BRANCH}
+ - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+ - sudo add-apt-repository -y 'deb http://us.archive.ubuntu.com/ubuntu/ trusty main universe'
+ - sudo apt-get update
+ - sudo apt-get install -y libzookeeper-mt-dev protobuf-compiler libprotobuf-dev libboost-all-dev doxygen=1.7.6.1-2ubuntu1
+ - sudo apt-get install -y g++-4.9
+ - export CXX="g++-4.9"
+ - export CC="gcc-4.9"
+ - wget http://launchpadlibrarian.net/57653337/doxygen_1.7.1-2_amd64.deb
+ - sudo dpkg -i doxygen_1.7.1-2_amd64.deb
+
+## For if we ever decide to support multiple GCC versions.
+# - if [[ ${GCC_VERSION} ]]; then
+#     sudo apt-get install g++-${GCC_VERSION};
+#     export CXX="g++-${GCC_VERSION}";
+#     export CC="gcc-${GCC_VERSION}";
+#   fi
+
+script:
+  - make clean
+  - eval $CMD
+
+notifications:
+  email:
+    recipients:
+      - secure: "J3cSSL1QN91V2t6IMZISHk8WeHRJK/Oi8EDNwk1Gji1th5eEUpjiMM+95Y0kHENId+FTxdUT7OPzdpKxVYX5tN6ChCAJbH0bUON3hvVKejCuYMw+biAP41xUaChglTP92D7QqD03m43u57LxpdV6dhF/kLTr+ckXrLiR1NzyavK9wYNp4jYQLEf3yYjgCxn5Rcypib4SG3c5bhubQk+jBpzPd52LMHDwo+KpYViy9G1BksqnC0leqmqxXhCx1U2ETM0qdQe1DepyfQ89YeKYjMKup39jWr5Jw7f+d7w0OEJpVjoJYT67Q3aKvzec/lR3s0tFnj2CGwSSXHWSc4y3vTZPh1QGnZT292K8yQnU4ean5xIqEAM5gGZfy9jWTFSalKDnswXi9M3Nn3QNRCNw0UFYtsc0G/TyxKdwR3npzLte0Y+mpeehXXdbD7iqdDR9QWG/eut4ksdj7Wp8dnnHdFVexThGqKNN4H0oWmxgI6Qr/EVd6zCPLmQTUNWmLLCjPku+RkHgVX0eScpU591XrCsZy9jQ3K+HAjMSp6sRowBajxxh9dejmfWyJduBqS6MxxD22ucQvRO47I2SIvt3I1Vu0h7X9QlbJ3dSt1o0s3e2wy+ski4B9D8Ypu//2uRl+KBLCLPkTlaoEMd39ne/q2O/EYfuceKERP8DY55oWQc="
+    on_success: change
+    on_failure: always
