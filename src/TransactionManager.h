@@ -46,7 +46,9 @@ class TransactionManager {
     ~TransactionManager();
 
     // Transaction methods
-    void registerTransaction(ParticipantList& participantList);
+    Status registerTransaction(ParticipantList& participantList,
+                               Buffer& assembledParticipantList,
+                               AbstractLog* log);
     void markTransactionRecovered(TransactionId txId);
 
     // Prepared Op methods
@@ -100,6 +102,9 @@ class TransactionManager {
 
         /// Id of the transaction that is in progress.
         TransactionId txId;
+
+        /// Log Reference to the ParticipantList of this transaction
+        uint64_t participantListLogRef;
 
         /// Flag indicating whether or not recovery for this transaction has
         /// reached a safe point where we can consider this transaction

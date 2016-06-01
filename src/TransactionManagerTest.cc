@@ -35,118 +35,206 @@ class TransactionManagerTest : public ::testing::Test {
     Context context;
     ClusterClock clusterClock;
     ClientLeaseValidator clientLeaseValidator;
+    ServerId serverId;
+    ServerList serverList;
+    ServerConfig masterConfig;
+    MasterTableMetadata masterTableMetadata;
     UnackedRpcResults unackedRpcResults;
-    TransactionManager manager;
+    TransactionManager transactionManager;
+    TxRecoveryManager txRecoveryManager;
+    TabletManager tabletManager;
+    ObjectManager objectManager;
 
     TransactionManagerTest()
         : context()
         , clusterClock()
         , clientLeaseValidator(&context, &clusterClock)
+        , serverId(5)
+        , serverList(&context)
+        , masterConfig(ServerConfig::forTesting())
+        , masterTableMetadata()
         , unackedRpcResults(&context, NULL, &clientLeaseValidator)
-        , manager(&context, &unackedRpcResults)
+        , transactionManager(&context, &unackedRpcResults)
+        , txRecoveryManager(&context)
+        , tabletManager()
+        , objectManager(&context,
+                        &serverId,
+                        &masterConfig,
+                        &tabletManager,
+                        &masterTableMetadata,
+                        &unackedRpcResults,
+                        &transactionManager,
+                        &txRecoveryManager)
     {
         context.dispatch = new Dispatch(false);
-        manager.bufferOp(TransactionId(1, 1), 10, 1011);
+        transactionManager.bufferOp(TransactionId(1, 1), 10, 1011);
     }
 
-    ~TransactionManagerTest() {}
+    ~TransactionManagerTest()
+    {
+        Cycles::mockTscValue = 0;
+    }
 
     DISALLOW_COPY_AND_ASSIGN(TransactionManagerTest);
 };
 
-TEST_F(TransactionManagerTest, registerTransaction) {
-    TransactionId txId(42, 1);
+TEST_F(TransactionManagerTest, registerTransaction_basic) {
+    TransactionId txId(42, 9);
     TransactionManager::InProgressTransaction *iptx;
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42, 9);
+    Buffer inBuffer;
+    participantList.assembleForLog(inBuffer);
 
     {
-        TransactionManager::Lock lock(manager.mutex);
-        EXPECT_TRUE(manager.getTransaction(txId, lock) == NULL);
+        TransactionManager::Lock lock(transactionManager.mutex);
+        EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == NULL);
     }
 
+    Cycles::mockTscValue = 100;
+
+    Status status =
+            transactionManager.registerTransaction(participantList,
+                                                   inBuffer,
+                                                   objectManager.getLog());
+    EXPECT_EQ(STATUS_OK, status);
 
     {
-        ParticipantList pList(NULL,
-                              1,
-                              txId.clientLeaseId,
-                              txId.clientTransactionId);
-        manager.registerTransaction(pList);
-    }
-
-    {
-        TransactionManager::Lock lock(manager.mutex);
-        iptx = manager.getTransaction(txId, lock);
+        TransactionManager::Lock lock(transactionManager.mutex);
+        iptx = transactionManager.getTransaction(txId, lock);
         EXPECT_TRUE(iptx != NULL);
     }
 
-    EXPECT_EQ(Cycles::fromMicroseconds(50000), iptx->timeoutCycles);
-    EXPECT_TRUE(iptx->isRunning());
+    Log::Reference logRef(iptx->participantListLogRef);
+    Buffer outBuffer;
+    LogEntryType type = objectManager.log.getEntry(logRef, outBuffer);
+    ParticipantList outputParticipantList(outBuffer);
 
+    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, type);
+    EXPECT_EQ(3U, outputParticipantList.header.participantCount);
+    EXPECT_EQ(42U, outputParticipantList.header.clientLeaseId);
+
+    EXPECT_EQ(1U, outputParticipantList.participants[0].tableId);
+    EXPECT_EQ(2U, outputParticipantList.participants[0].keyHash);
+    EXPECT_EQ(10U, outputParticipantList.participants[0].rpcId);
+
+    EXPECT_EQ(123U, outputParticipantList.participants[1].tableId);
+    EXPECT_EQ(234U, outputParticipantList.participants[1].keyHash);
+    EXPECT_EQ(11U, outputParticipantList.participants[1].rpcId);
+
+    EXPECT_EQ(111U, outputParticipantList.participants[2].tableId);
+    EXPECT_EQ(222U, outputParticipantList.participants[2].keyHash);
+    EXPECT_EQ(12U, outputParticipantList.participants[2].rpcId);
+
+    EXPECT_EQ(3 * Cycles::fromMicroseconds(50000), iptx->timeoutCycles);
+    EXPECT_EQ(iptx->timeoutCycles + 100, iptx->triggerTime);
+    EXPECT_TRUE(iptx->isRunning());
+}
+
+TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
+    TransactionId txId(42, 9);
+    TransactionManager::InProgressTransaction *iptx;
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42, 9);
+    Buffer inBuffer;
+    participantList.assembleForLog(inBuffer);
+
+    Cycles::mockTscValue = 1;
+
+    // Pre-insert entry
     {
-        ParticipantList pList(NULL,
-                              100,
-                              txId.clientLeaseId,
-                              txId.clientTransactionId);
-        manager.registerTransaction(pList);
+        TransactionManager::Lock lock(transactionManager.mutex);
+        iptx = transactionManager.getOrAddTransaction(txId, lock);
+        iptx->participantListLogRef = 100;
+        iptx->timeoutCycles = 200;
+        iptx->start(300);
     }
 
-    EXPECT_EQ(Cycles::fromMicroseconds(50000), iptx->timeoutCycles);
+    EXPECT_EQ(100UL, iptx->participantListLogRef);
+    EXPECT_EQ(200UL, iptx->timeoutCycles);
+    EXPECT_EQ(300UL, iptx->triggerTime);
+    EXPECT_TRUE(iptx->isRunning());
+
+    TestLog::Enable _;
+    ParticipantList participantListDuplicate(participants, 1, 42, 9);
+    participantListDuplicate.assembleForLog(inBuffer);
+
+    transactionManager.registerTransaction(participantListDuplicate,
+                                           inBuffer,
+                                           objectManager.getLog());
+    EXPECT_EQ("registerTransaction: Skipping duplicate call to register "
+              "transaction <42, 9>",
+              TestLog::get());
+    EXPECT_EQ(100UL, iptx->participantListLogRef);
+    EXPECT_EQ(200UL, iptx->timeoutCycles);
+    EXPECT_EQ(300UL, iptx->triggerTime);
     EXPECT_TRUE(iptx->isRunning());
 }
 
 TEST_F(TransactionManagerTest, bufferWrite) {
-    manager.bufferOp(TransactionId(2, 1), 8, 1028);
+    transactionManager.bufferOp(TransactionId(2, 1), 8, 1028);
     TransactionManager::PreparedItem* item =
-            manager.items[std::make_pair(2UL, 8UL)];
+            transactionManager.items[std::make_pair(2UL, 8UL)];
     EXPECT_EQ(1028UL, item->newOpPtr);
     EXPECT_TRUE(item->isRunning());
 
     // Use during recovery. Should not set timer.
-    manager.bufferOp(TransactionId(2, 1), 9, 1029, true);
-    item = manager.items[std::make_pair(2UL, 9UL)];
+    transactionManager.bufferOp(TransactionId(2, 1), 9, 1029, true);
+    item = transactionManager.items[std::make_pair(2UL, 9UL)];
     EXPECT_EQ(1029UL, item->newOpPtr);
     EXPECT_FALSE(item->isRunning());
 }
 
 TEST_F(TransactionManagerTest, removeOp) {
-    EXPECT_EQ(1011UL, manager.items[std::make_pair(1, 10)]->newOpPtr);
-    manager.removeOp(1, 10);
-    EXPECT_EQ(manager.items.end(), manager.items.find(std::make_pair(1, 10)));
+    EXPECT_EQ(1011UL,
+              transactionManager.items[std::make_pair(1, 10)]->newOpPtr);
+    transactionManager.removeOp(1, 10);
+    EXPECT_EQ(transactionManager.items.end(),
+              transactionManager.items.find(std::make_pair(1, 10)));
 }
 
 TEST_F(TransactionManagerTest, getOp) {
-    EXPECT_EQ(1011UL, manager.getOp(1, 10));
-    EXPECT_EQ(1011UL, manager.getOp(1, 10));
-    manager.removeOp(1, 10);
-    EXPECT_EQ(0UL, manager.getOp(1, 10));
-    EXPECT_EQ(0UL, manager.getOp(1, 11));
-    EXPECT_EQ(0UL, manager.getOp(2, 10));
+    EXPECT_EQ(1011UL, transactionManager.getOp(1, 10));
+    EXPECT_EQ(1011UL, transactionManager.getOp(1, 10));
+    transactionManager.removeOp(1, 10);
+    EXPECT_EQ(0UL, transactionManager.getOp(1, 10));
+    EXPECT_EQ(0UL, transactionManager.getOp(1, 11));
+    EXPECT_EQ(0UL, transactionManager.getOp(2, 10));
 }
 
 TEST_F(TransactionManagerTest, markDeletedAndIsDeleted) {
-    EXPECT_FALSE(manager.isOpDeleted(1, 11));
-    manager.markOpDeleted(1, 11);
-    EXPECT_TRUE(manager.isOpDeleted(1, 11));
+    EXPECT_FALSE(transactionManager.isOpDeleted(1, 11));
+    transactionManager.markOpDeleted(1, 11);
+    EXPECT_TRUE(transactionManager.isOpDeleted(1, 11));
 
-    EXPECT_FALSE(manager.isOpDeleted(2, 9));
-    manager.bufferOp(TransactionId(2, 1), 9, 1029, true);
-    EXPECT_EQ(1029UL, manager.getOp(2, 9));
-    EXPECT_FALSE(manager.isOpDeleted(2, 9));
+    EXPECT_FALSE(transactionManager.isOpDeleted(2, 9));
+    transactionManager.bufferOp(TransactionId(2, 1), 9, 1029, true);
+    EXPECT_EQ(1029UL, transactionManager.getOp(2, 9));
+    EXPECT_FALSE(transactionManager.isOpDeleted(2, 9));
 }
 
 TEST_F(TransactionManagerTest, PreparedItem_constructor_destructor) {
-    TransactionManager::Lock lock(manager.mutex);
+    TransactionManager::Lock lock(transactionManager.mutex);
     TransactionId txId(42, 1);
     TransactionManager::InProgressTransaction* transaction =
-            manager.getOrAddTransaction(txId, lock);
+            transactionManager.getOrAddTransaction(txId, lock);
 
     EXPECT_EQ(0, transaction->preparedOpCount);
     TransactionManager::PreparedItem* item =
-            new TransactionManager::PreparedItem(manager.context,
+            new TransactionManager::PreparedItem(transactionManager.context,
                                                  transaction,
                                                  0);
     EXPECT_EQ(1, transaction->preparedOpCount);
     {
-        TransactionManager::PreparedItem otherItem(manager.context,
+        TransactionManager::PreparedItem otherItem(transactionManager.context,
                                                    transaction,
                                                    0);
         EXPECT_EQ(2, transaction->preparedOpCount);
@@ -157,26 +245,27 @@ TEST_F(TransactionManagerTest, PreparedItem_constructor_destructor) {
 }
 
 TEST_F(TransactionManagerTest, getTransaction) {
-    TransactionManager::Lock lock(manager.mutex);
+    TransactionManager::Lock lock(transactionManager.mutex);
     TransactionId txId(42, 1);
-    EXPECT_TRUE(manager.getTransaction(txId, lock) == NULL);
+    EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == NULL);
     TransactionManager::InProgressTransaction* iptx =
-            new TransactionManager::InProgressTransaction(&manager, txId);
-    manager.transactions[txId] = iptx;
-    EXPECT_TRUE(manager.getTransaction(txId, lock) == iptx);
+            new TransactionManager::InProgressTransaction(&transactionManager,
+                                                          txId);
+    transactionManager.transactions[txId] = iptx;
+    EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == iptx);
 }
 
 TEST_F(TransactionManagerTest, getOrAddTransaction) {
-    TransactionManager::Lock lock(manager.mutex);
+    TransactionManager::Lock lock(transactionManager.mutex);
     TransactionId txId(42, 1);
-    EXPECT_TRUE(manager.getTransaction(txId, lock) == NULL);
+    EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == NULL);
     TransactionManager::InProgressTransaction* iptx =
-            manager.getOrAddTransaction(txId, lock);
+            transactionManager.getOrAddTransaction(txId, lock);
     TransactionManager::TransactionRegistry::iterator it =
-            manager.transactions.find(txId);
-    EXPECT_TRUE(it != manager.transactions.end());
+            transactionManager.transactions.find(txId);
+    EXPECT_TRUE(it != transactionManager.transactions.end());
     EXPECT_TRUE(it->second = iptx);
-    EXPECT_TRUE(manager.getTransaction(txId, lock) == iptx);
+    EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == iptx);
 }
 
 /**

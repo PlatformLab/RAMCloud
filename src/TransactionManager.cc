@@ -60,23 +60,54 @@ TransactionManager::~TransactionManager()
  *
  * This method call is idempotent and can be safely called multiple times on the
  * same transaction.  This method should be called whenever a transaction is
- * being prepared and when a participant list object is recovered/migrated.
- *
- * The lifetime of the participant list over approximates the lifetime of an
- * in-progress transaction thus the participant list for this transaction must
- * be in the log and accessible via UnackedRpcResults when calling this method.
+ * being prepared or when a participant list object is recovered/migrated.
  *
  * \param participantList
  *      The ParticipantList of the transaction to be registered.  Used to get
  *      the TransactionId and size of the transaction.  Also ensures the caller
  *      has the full list.
+ * \param assembledParticipantList
+ *      Contains a fully serialized copy of the participantList which will be
+ *      appended to the log.  This requires the caller perform the serialization
+ *      but in some cases it is already done.
+ * \param log
+ *      The log in which the transaction participant list will be persisted.
+ * \returns
+ *      STATUS_OK if the transaction could be registered.
+ *      STATUS_RETRY otherwise.
  */
-void
-TransactionManager::registerTransaction(ParticipantList& participantList)
+Status
+TransactionManager::registerTransaction(ParticipantList& participantList,
+                                        Buffer& assembledParticipantList,
+                                        AbstractLog* log)
 {
     Lock lock(mutex);
+
     TransactionId txId = participantList.getTransactionId();
     InProgressTransaction* transaction = getOrAddTransaction(txId, lock);
+
+    if (transaction->participantListLogRef == 0) {
+        Log::Reference logRef;
+        // Write the ParticipantList into the Log, update the table.
+        if (!log->append(LOG_ENTRY_TYPE_TXPLIST,
+                         assembledParticipantList,
+                         &logRef))
+        {
+            // The log is out of space. Tell the client to retry and hope
+            // that the cleaner makes space soon.
+            return STATUS_RETRY;
+        }
+
+        transaction->participantListLogRef = logRef.toInteger();
+
+        // Participant List records are not accounted for in the table stats.
+        // The assumption is that the Participant List records should occupy a
+        // relatively small fraction of the server's log and thus should not
+        // significantly affect table stats estimate.
+    } else {
+        TEST_LOG("Skipping duplicate call to register transaction <%lu, %lu>",
+                 txId.clientLeaseId, txId.clientTransactionId);
+    }
 
     // Set the timeout for this transaction.  Should be longer than the amount
     // of time we expect to this transaction takes to complete.
@@ -88,6 +119,8 @@ TransactionManager::registerTransaction(ParticipantList& participantList)
     if (!transaction->isRunning()) {
         transaction->start(Cycles::rdtsc() + transaction->timeoutCycles);
     }
+
+    return STATUS_OK;
 }
 
 /**
@@ -389,6 +422,7 @@ TransactionManager::InProgressTransaction::InProgressTransaction(
     , preparedOpCount(0)
     , manager(manager)
     , txId(txId)
+    , participantListLogRef(0)
     , recoveryDecided(false)
     , txHintFailedRpc()
     , timeoutCycles(0)
