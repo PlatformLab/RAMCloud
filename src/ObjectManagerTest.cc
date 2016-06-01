@@ -59,7 +59,7 @@ class ObjectManagerTest : public ::testing::Test,
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
         , unackedRpcResults(&context, this, &clientLeaseValidator)
-        , transactionManager(&context)
+        , transactionManager(&context, &unackedRpcResults)
         , txRecoveryManager(&context)
         , tabletManager()
         , objectManager(&context,

@@ -19,16 +19,18 @@
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "ObjectManager.h"
-#include "UnackedRpcResults.h"
 
 namespace RAMCloud {
 
 /**
  * Construct TransactionManager.
  */
-TransactionManager::TransactionManager(Context* context)
-    : context(context)
-    , mutex()
+TransactionManager::TransactionManager(
+        Context* context,
+        UnackedRpcResults* unackedRpcResults)
+    : mutex()
+    , context(context)
+    , unackedRpcResults(unackedRpcResults)
     , items()
     , transactions()
 {
@@ -74,9 +76,17 @@ TransactionManager::registerTransaction(ParticipantList& participantList)
 {
     Lock lock(mutex);
     TransactionId txId = participantList.getTransactionId();
-    InProgressTransaction* transaction = getOrRegisterTransaction(txId, lock);
-    if (!transaction->isRunning()) {
+    InProgressTransaction* transaction = getOrAddTransaction(txId, lock);
 
+    // Set the timeout for this transaction.  Should be longer than the amount
+    // of time we expect to this transaction takes to complete.
+    if (transaction->timeoutCycles == 0) {
+        transaction->timeoutCycles = participantList.getParticipantCount() *
+                                     Cycles::fromMicroseconds(50000);
+    }
+
+    if (!transaction->isRunning()) {
+        transaction->start(Cycles::rdtsc() + transaction->timeoutCycles);
     }
 }
 
@@ -105,7 +115,7 @@ TransactionManager::bufferOp(TransactionId txId,
 
     assert(items.find(std::make_pair(txId.clientLeaseId, rpcId))
             == items.end());
-    InProgressTransaction* transaction = getOrRegisterTransaction(txId, lock);
+    InProgressTransaction* transaction = getOrAddTransaction(txId, lock);
     PreparedItem* item = new PreparedItem(context, transaction, newOpPtr);
     items[std::make_pair(txId.clientLeaseId, rpcId)] = item;
     if (!isRecovery) {
@@ -364,7 +374,49 @@ TransactionManager::isOpDeleted(uint64_t leaseId,
 }
 
 /**
- * Returns a pointer to a registered InProgressTransaction object if it exists.
+ * InProgressTransaction constructor; should also call registerAndStart to
+ * complete the registration of the transaction.
+ *
+ * \param manager
+ *      The TransactionManager that holds this InProgressTransaction record.
+ * \param txId
+ *      The id of this in progress transaction.
+ */
+TransactionManager::InProgressTransaction::InProgressTransaction(
+        TransactionManager* manager,
+        TransactionId txId)
+    : WorkerTimer(manager->context->dispatch)
+    , preparedOpCount(0)
+    , manager(manager)
+    , txId(txId)
+    , recoveryDecided(false)
+    , txHintFailedRpc()
+    , timeoutCycles(0)
+    , holdOnClientRecord(manager->unackedRpcResults, txId.clientLeaseId)
+{
+}
+
+/**
+ * InProgressTransaction destructor.
+ */
+TransactionManager::InProgressTransaction::~InProgressTransaction()
+{
+}
+
+/**
+ * This method is called when a transaction has timed out because it did not
+ * complete in a timely manner.  This method will perform make some incremental
+ * progress toward initiating transaction recovery and will reschedule itself
+ * to run in the future if more work needs to be done.
+ */
+void
+TransactionManager::InProgressTransaction::handleTimerEvent()
+{
+
+}
+
+/**
+ * Returns a pointer to a InProgressTransaction object if it exists.
  *
  * \param txId
  *      Id of the transaction to be returned.
@@ -376,7 +428,7 @@ TransactionManager::isOpDeleted(uint64_t leaseId,
  *      NULL otherwise.
  */
 TransactionManager::InProgressTransaction*
-TransactionManager::getRegisteredTransaction(TransactionId txId, Lock& lock)
+TransactionManager::getTransaction(TransactionId txId, Lock& lock)
 {
     InProgressTransaction* transaction = NULL;
     TransactionRegistry::iterator it = transactions.find(txId);
@@ -387,11 +439,12 @@ TransactionManager::getRegisteredTransaction(TransactionId txId, Lock& lock)
 }
 
 /**
- * Returns a pointer to a registered InProgressTransaction object; constructs
- * a new InProgressTransaction if one is not already registered.
+ * Returns a pointer to a InProgressTransaction object; constructs a new
+ * InProgressTransaction if one doesn't already exist.
  *
  * \param txId
- *      Id of the transaction that is (or will be) registered and returned.
+ *      Id of the transaction that is (or will be) in the transaction
+ *      registry and returned.
  * \param lock
  *      Used to ensure that caller has acquired TransactionManager::mutex.
  *      Not actually used by the method.
@@ -399,15 +452,14 @@ TransactionManager::getRegisteredTransaction(TransactionId txId, Lock& lock)
  *      Pointer to a registered InProgressTransaction.
  */
 TransactionManager::InProgressTransaction*
-TransactionManager::getOrRegisterTransaction(TransactionId txId,
-                                                   Lock& lock)
+TransactionManager::getOrAddTransaction(TransactionId txId, Lock& lock)
 {
     InProgressTransaction* transaction = NULL;
     TransactionRegistry::iterator it = transactions.find(txId);
     if (it != transactions.end()) {
         transaction = it->second;
     } else {
-        transaction = new InProgressTransaction(context);
+        transaction = new InProgressTransaction(this, txId);
         transactions[txId] = transaction;
     }
     assert(transaction != NULL);
