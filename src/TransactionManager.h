@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "Common.h"
+#include "Log.h"
 #include "MasterClient.h"
 #include "ParticipantList.h"
 #include "PreparedOp.h"
@@ -50,6 +51,11 @@ class TransactionManager {
                                Buffer& assembledParticipantList,
                                AbstractLog* log);
     void markTransactionRecovered(TransactionId txId);
+
+    // Participant List methods
+    void relocateParticipantList(Buffer& oldBuffer,
+                                 Log::Reference oldReference,
+                                 LogEntryRelocator& relocator);
 
     // Prepared Op methods
     void bufferOp(TransactionId txId, uint64_t rpcId, uint64_t newOpPtr,

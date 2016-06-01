@@ -124,6 +124,61 @@ TransactionManager::registerTransaction(ParticipantList& participantList,
 }
 
 /**
+ * Relocate a ParticipantList entry that is being cleaned and update the
+ * TrasactionManager accordingly. The cleaner invokes this method for every
+ * ParticipantList entry it comes across when processing a segment. If the entry
+ * is no longer needed, nothing will be done. If it is needed, the provided
+ * relocator will be used to copy the entry to a new location and the entry's
+ * reference in the TrasactionManager will be updated before returning.
+ *
+ * It is possible that relocation may fail (because more memory needs to be
+ * allocated). In this case, the method will just return. The cleaner will
+ * note the failure, allocate more memory, and try again.
+ *
+ * \param oldBuffer
+ *      Buffer pointing to the ParticipantList entry's current location, which
+ *      will be invalid after this call returns.
+ * \param oldReference
+ *      Reference to the old ParticipantList entry in the log.  Used to detect
+ *      duplicate entries that may not be needed.
+ * \param relocator
+ *      The relocator is used to copy a live entry to a new location in the
+ *      log and get a reference to that new location. If the entry is not
+ *      needed, the relocator will not be used.
+ */
+void
+TransactionManager::relocateParticipantList(Buffer& oldBuffer,
+                                            Log::Reference oldReference,
+                                            LogEntryRelocator& relocator)
+{
+    Lock lock(mutex);
+
+    ParticipantList participantList(oldBuffer);
+    TransactionId txId = participantList.getTransactionId();
+    InProgressTransaction* transaction = getTransaction(txId, lock);
+
+    // See if this transaction is still going on and if the participant list
+    // is not a duplicate.
+    if (transaction != NULL
+            && transaction->participantListLogRef == oldReference.toInteger()) {
+        // Try to relocate it. If it fails, just return. The cleaner will
+        // allocate more memory and retry.
+        if (!relocator.append(LOG_ENTRY_TYPE_TXPLIST, oldBuffer))
+            return;
+
+        transaction->participantListLogRef =
+                relocator.getNewReference().toInteger();
+    } else {
+        // Participant List will be dropped/"cleaned"
+
+        // Participant List records are not accounted for in the table stats.
+        // The assumption is that the Participant List records should occupy a
+        // relatively small fraction of the server's log and thus should not
+        // significantly affect table stats estimate.
+    }
+}
+
+/**
  * Add a pointer to the referenced preparedOp into lookup table.
  *
  * \param txId

@@ -179,6 +179,122 @@ TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
     EXPECT_TRUE(iptx->isRunning());
 }
 
+TEST_F(TransactionManagerTest, relocateParticipantList_relocate) {
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42, 9);
+
+    // Setup its initial existence.
+    Buffer pListBuffer;
+    participantList.assembleForLog(pListBuffer);
+    TransactionId txId = participantList.getTransactionId();
+
+    transactionManager.registerTransaction(participantList,
+                                           pListBuffer,
+                                           objectManager.getLog());
+
+    TransactionManager::InProgressTransaction* transaction;
+    {
+        TransactionManager::Lock lock(transactionManager.mutex);
+        transaction = transactionManager.getTransaction(txId, lock);
+    }
+    EXPECT_TRUE(transaction != NULL);
+    Log::Reference oldPListReference(transaction->participantListLogRef);
+    LogEntryType oldTypeInLog;
+    Buffer oldBufferInLog;
+    oldTypeInLog = objectManager.log.getEntry(oldPListReference,
+                                              oldBufferInLog);
+    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, oldTypeInLog);
+
+    // Try to relocate.
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    transactionManager.relocateParticipantList(oldBufferInLog,
+                                               oldPListReference,
+                                               relocator);
+    EXPECT_TRUE(relocator.didAppend);
+    EXPECT_NE(oldPListReference.toInteger(),
+              transaction->participantListLogRef);
+}
+
+TEST_F(TransactionManagerTest, relocateParticipantList_clean_completed) {
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42, 9);
+
+    // Setup its initial existence.
+    Buffer pListBuffer;
+    Log::Reference oldPListReference;
+    participantList.assembleForLog(pListBuffer);
+    objectManager.getLog()->append(LOG_ENTRY_TYPE_TXPLIST,
+                                   pListBuffer,
+                                   &oldPListReference);
+
+    LogEntryType oldTypeInLog;
+    Buffer oldBufferInLog;
+    oldTypeInLog = objectManager.log.getEntry(oldPListReference,
+                                              oldBufferInLog);
+    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, oldTypeInLog);
+
+    // Try to relocate.
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    transactionManager.relocateParticipantList(oldBufferInLog,
+                                               oldPListReference,
+                                               relocator);
+    EXPECT_FALSE(relocator.didAppend);
+}
+
+TEST_F(TransactionManagerTest, relocateParticipantList_clean_duplicate) {
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42, 9);
+
+    // Setup its initial existence.
+    Buffer pListBuffer;
+    participantList.assembleForLog(pListBuffer);
+    TransactionId txId = participantList.getTransactionId();
+
+    transactionManager.registerTransaction(participantList,
+                                           pListBuffer,
+                                           objectManager.getLog());
+
+    TransactionManager::InProgressTransaction* transaction;
+    {
+        TransactionManager::Lock lock(transactionManager.mutex);
+        transaction = transactionManager.getTransaction(txId, lock);
+    }
+    EXPECT_TRUE(transaction != NULL);
+    Log::Reference oldPListReference(transaction->participantListLogRef);
+    LogEntryType oldTypeInLog;
+    Buffer oldBufferInLog;
+    oldTypeInLog = objectManager.log.getEntry(oldPListReference,
+                                              oldBufferInLog);
+    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, oldTypeInLog);
+
+    // Change log reference so that the one in the log seems like a duplicate.
+    uint64_t fakeLogRef = ++transaction->participantListLogRef;
+
+    // Try to relocate.
+    LogEntryRelocator relocator(
+        objectManager.segmentManager.getHeadSegment(), 1000);
+    transactionManager.relocateParticipantList(oldBufferInLog,
+                                               oldPListReference,
+                                               relocator);
+    EXPECT_FALSE(relocator.didAppend);
+    EXPECT_EQ(fakeLogRef,
+              transaction->participantListLogRef);
+}
+
 TEST_F(TransactionManagerTest, bufferWrite) {
     transactionManager.bufferOp(TransactionId(2, 1), 8, 1028);
     TransactionManager::PreparedItem* item =
