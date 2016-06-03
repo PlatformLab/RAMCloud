@@ -51,7 +51,7 @@ class ObjectManagerBenchmark {
         , tabletManager()
         , masterTableMetadata()
         , unackedRpcResults(&context, NULL, &clientLeaseValidator)
-        , transactionManager(&context, &unackedRpcResults)
+        , transactionManager(&context, NULL, &unackedRpcResults)
         , txRecoveryManager(&context)
         , serverId(1, 1)
         , objectManager(NULL)

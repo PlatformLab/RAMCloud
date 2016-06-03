@@ -24,12 +24,23 @@ namespace RAMCloud {
 
 /**
  * Construct TransactionManager.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server and provides access to
+ *      the dispatcher.
+ * \param freer
+ *      Pointer to the log reference freer used signal to the log that a
+ *      tracked participant list log entry is cleanable.
+ * \param unackedRpcResults
+ *      Pointer to the UnackedRpcResults which holds the transaction prepare
+ *      votes that need to be kept around to ensure recovery works correctly.
  */
-TransactionManager::TransactionManager(
-        Context* context,
-        UnackedRpcResults* unackedRpcResults)
+TransactionManager::TransactionManager(Context* context,
+                                       AbstractLog::ReferenceFreer* freer,
+                                       UnackedRpcResults* unackedRpcResults)
     : mutex()
     , context(context)
+    , freer(freer)
     , unackedRpcResults(unackedRpcResults)
     , items()
     , transactions()
@@ -490,6 +501,10 @@ TransactionManager::InProgressTransaction::InProgressTransaction(
  */
 TransactionManager::InProgressTransaction::~InProgressTransaction()
 {
+    if (participantListLogRef != 0) {
+        AbstractLog::Reference ref(participantListLogRef);
+        manager->freer->freeLogEntry(ref);
+    }
 }
 
 /**

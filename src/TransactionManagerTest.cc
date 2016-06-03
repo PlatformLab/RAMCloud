@@ -27,6 +27,17 @@ namespace RAMCloud {
 
 using WireFormat::TxParticipant;
 
+
+/**
+ * Fake log reference freer for testing. This freer does nothing on free
+ * request.
+ */
+class DummyReferenceFreer : public AbstractLog::ReferenceFreer {
+    virtual void freeLogEntry(Log::Reference ref) {
+        TEST_LOG("freed <%" PRIu64 ">", ref.toInteger());
+    }
+};
+
 /**
  * Unit tests for TransactionManager.
  */
@@ -39,6 +50,7 @@ class TransactionManagerTest : public ::testing::Test {
     ServerList serverList;
     ServerConfig masterConfig;
     MasterTableMetadata masterTableMetadata;
+    DummyReferenceFreer freer;
     UnackedRpcResults unackedRpcResults;
     TransactionManager transactionManager;
     TxRecoveryManager txRecoveryManager;
@@ -53,8 +65,9 @@ class TransactionManagerTest : public ::testing::Test {
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults(&context, NULL, &clientLeaseValidator)
-        , transactionManager(&context, &unackedRpcResults)
+        , freer()
+        , unackedRpcResults(&context, &freer, &clientLeaseValidator)
+        , transactionManager(&context, &freer, &unackedRpcResults)
         , txRecoveryManager(&context)
         , tabletManager()
         , objectManager(&context,
@@ -335,6 +348,24 @@ TEST_F(TransactionManagerTest, markDeletedAndIsDeleted) {
     transactionManager.bufferOp(TransactionId(2, 1), 9, 1029, true);
     EXPECT_EQ(1029UL, transactionManager.getOp(2, 9));
     EXPECT_FALSE(transactionManager.isOpDeleted(2, 9));
+}
+
+TEST_F(TransactionManagerTest, InProgressTransaction_destructor) {
+    TestLog::Enable _;
+    {
+        TransactionManager::InProgressTransaction iptx(&transactionManager,
+                                                       TransactionId(42, 31));
+    }
+    EXPECT_EQ("", TestLog::get());
+
+    TestLog::reset();
+
+    {
+        TransactionManager::InProgressTransaction iptx(&transactionManager,
+                                                       TransactionId(42, 31));
+        iptx.participantListLogRef = 18;
+    }
+    EXPECT_EQ("freeLogEntry: freed <18>", TestLog::get());
 }
 
 TEST_F(TransactionManagerTest, PreparedItem_constructor_destructor) {
