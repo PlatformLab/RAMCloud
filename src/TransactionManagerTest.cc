@@ -192,6 +192,34 @@ TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
     EXPECT_TRUE(iptx->isRunning());
 }
 
+TEST_F(TransactionManagerTest, markTransactionRecovered) {
+    TransactionId txId(42, 9);
+    TransactionManager::InProgressTransaction *iptx;
+
+    transactionManager.markTransactionRecovered(txId);
+
+    {
+        TransactionManager::Lock lock(transactionManager.mutex);
+        EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == NULL);
+    }
+
+    {
+        TransactionManager::Lock lock(transactionManager.mutex);
+        iptx = transactionManager.getOrAddTransaction(txId, lock);
+    }
+
+    {
+        TransactionManager::Lock lock(transactionManager.mutex);
+        EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == iptx);
+    }
+
+    EXPECT_FALSE(iptx->recovered);
+
+    transactionManager.markTransactionRecovered(txId);
+
+    EXPECT_TRUE(iptx->recovered);
+}
+
 TEST_F(TransactionManagerTest, relocateParticipantList_relocate) {
     WireFormat::TxParticipant participants[3];
     // construct participant list.

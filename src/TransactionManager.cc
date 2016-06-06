@@ -135,6 +135,25 @@ TransactionManager::registerTransaction(ParticipantList& participantList,
 }
 
 /**
+ * Signal that transaction recovery has reached a decision and that this
+ * transaction can be considered complete as soon as all prepared operations
+ * have been processed.  Needed to ensure that transaction meta-data is kept
+ * available while recoveries may still be required.
+ *
+ * \param txId
+ *      Id of the transaction that can be marked recovered.
+ */
+void
+TransactionManager::markTransactionRecovered(TransactionId txId)
+{
+    Lock lock(mutex);
+    InProgressTransaction* transaction = getTransaction(txId, lock);
+    if (transaction != NULL) {
+        transaction->recovered = true;
+    }
+}
+
+/**
  * Relocate a ParticipantList entry that is being cleaned and update the
  * TrasactionManager accordingly. The cleaner invokes this method for every
  * ParticipantList entry it comes across when processing a segment. If the entry
@@ -489,7 +508,7 @@ TransactionManager::InProgressTransaction::InProgressTransaction(
     , manager(manager)
     , txId(txId)
     , participantListLogRef(0)
-    , recoveryDecided(false)
+    , recovered(false)
     , txHintFailedRpc()
     , timeoutCycles(0)
     , holdOnClientRecord(manager->unackedRpcResults, txId.clientLeaseId)

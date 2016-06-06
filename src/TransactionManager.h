@@ -121,7 +121,7 @@ class TransactionManager {
         /// Flag indicating whether or not recovery for this transaction has
         /// reached a safe point where we can consider this transaction
         /// no longer in progress.
-        bool recoveryDecided;
+        bool recovered;
 
         /// TxHintFailed RPC to be issued asynchronously if the transaction does
         /// not complete within timeoutCycles
