@@ -27,17 +27,6 @@ namespace RAMCloud {
 
 using WireFormat::TxParticipant;
 
-
-/**
- * Fake log reference freer for testing. This freer does nothing on free
- * request.
- */
-class DummyReferenceFreer : public AbstractLog::ReferenceFreer {
-    virtual void freeLogEntry(Log::Reference ref) {
-        TEST_LOG("freed <%" PRIu64 ">", ref.toInteger());
-    }
-};
-
 /**
  * Unit tests for TransactionManager.
  */
@@ -50,12 +39,11 @@ class TransactionManagerTest : public ::testing::Test {
     ServerList serverList;
     ServerConfig masterConfig;
     MasterTableMetadata masterTableMetadata;
-    DummyReferenceFreer freer;
+    ObjectManager objectManager;
     UnackedRpcResults unackedRpcResults;
     TransactionManager transactionManager;
     TxRecoveryManager txRecoveryManager;
     TabletManager tabletManager;
-    ObjectManager objectManager;
 
     TransactionManagerTest()
         : context()
@@ -65,11 +53,6 @@ class TransactionManagerTest : public ::testing::Test {
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , freer()
-        , unackedRpcResults(&context, &freer, &clientLeaseValidator)
-        , transactionManager(&context, &freer, &unackedRpcResults)
-        , txRecoveryManager(&context)
-        , tabletManager()
         , objectManager(&context,
                         &serverId,
                         &masterConfig,
@@ -78,6 +61,12 @@ class TransactionManagerTest : public ::testing::Test {
                         &unackedRpcResults,
                         &transactionManager,
                         &txRecoveryManager)
+        , unackedRpcResults(&context, NULL, &clientLeaseValidator)
+        , transactionManager(&context,
+                             objectManager.getLog(),
+                             &unackedRpcResults)
+        , txRecoveryManager(&context)
+        , tabletManager()
     {
         context.dispatch = new Dispatch(false);
         transactionManager.bufferOp(TransactionId(1, 1), 10, 1011);
@@ -122,9 +111,9 @@ TEST_F(TransactionManagerTest, registerTransaction_basic) {
         EXPECT_TRUE(iptx != NULL);
     }
 
-    Log::Reference logRef(iptx->participantListLogRef);
     Buffer outBuffer;
-    LogEntryType type = objectManager.log.getEntry(logRef, outBuffer);
+    LogEntryType type = objectManager.log.getEntry(iptx->participantListLogRef,
+                                                   outBuffer);
     ParticipantList outputParticipantList(outBuffer);
 
     EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, type);
@@ -166,12 +155,12 @@ TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
     {
         TransactionManager::Lock lock(transactionManager.mutex);
         iptx = transactionManager.getOrAddTransaction(txId, lock);
-        iptx->participantListLogRef = 100;
+        iptx->participantListLogRef = AbstractLog::Reference(100);
         iptx->timeoutCycles = 200;
         iptx->start(300);
     }
 
-    EXPECT_EQ(100UL, iptx->participantListLogRef);
+    EXPECT_TRUE(iptx->participantListLogRef == AbstractLog::Reference(100));
     EXPECT_EQ(200UL, iptx->timeoutCycles);
     EXPECT_EQ(300UL, iptx->triggerTime);
     EXPECT_TRUE(iptx->isRunning());
@@ -186,10 +175,13 @@ TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
     EXPECT_EQ("registerTransaction: Skipping duplicate call to register "
               "transaction <42, 9>",
               TestLog::get());
-    EXPECT_EQ(100UL, iptx->participantListLogRef);
+    EXPECT_TRUE(iptx->participantListLogRef == AbstractLog::Reference(100));
     EXPECT_EQ(200UL, iptx->timeoutCycles);
     EXPECT_EQ(300UL, iptx->triggerTime);
     EXPECT_TRUE(iptx->isRunning());
+
+    // Clear log ref to above free call
+    iptx->participantListLogRef = AbstractLog::Reference();
 }
 
 TEST_F(TransactionManagerTest, markTransactionRecovered) {
@@ -243,7 +235,7 @@ TEST_F(TransactionManagerTest, relocateParticipantList_relocate) {
         transaction = transactionManager.getTransaction(txId, lock);
     }
     EXPECT_TRUE(transaction != NULL);
-    Log::Reference oldPListReference(transaction->participantListLogRef);
+    Log::Reference oldPListReference = transaction->participantListLogRef;
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
     oldTypeInLog = objectManager.log.getEntry(oldPListReference,
@@ -257,8 +249,7 @@ TEST_F(TransactionManagerTest, relocateParticipantList_relocate) {
                                                oldPListReference,
                                                relocator);
     EXPECT_TRUE(relocator.didAppend);
-    EXPECT_NE(oldPListReference.toInteger(),
-              transaction->participantListLogRef);
+    EXPECT_FALSE(transaction->participantListLogRef == oldPListReference);
 }
 
 TEST_F(TransactionManagerTest, relocateParticipantList_clean_completed) {
@@ -315,7 +306,7 @@ TEST_F(TransactionManagerTest, relocateParticipantList_clean_duplicate) {
         transaction = transactionManager.getTransaction(txId, lock);
     }
     EXPECT_TRUE(transaction != NULL);
-    Log::Reference oldPListReference(transaction->participantListLogRef);
+    Log::Reference oldPListReference = transaction->participantListLogRef;
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
     oldTypeInLog = objectManager.log.getEntry(oldPListReference,
@@ -323,7 +314,8 @@ TEST_F(TransactionManagerTest, relocateParticipantList_clean_duplicate) {
     EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, oldTypeInLog);
 
     // Change log reference so that the one in the log seems like a duplicate.
-    uint64_t fakeLogRef = ++transaction->participantListLogRef;
+    uint64_t fakeLogRef = transaction->participantListLogRef.toInteger() + 1;
+    transaction->participantListLogRef = AbstractLog::Reference(fakeLogRef);
 
     // Try to relocate.
     LogEntryRelocator relocator(
@@ -332,8 +324,11 @@ TEST_F(TransactionManagerTest, relocateParticipantList_clean_duplicate) {
                                                oldPListReference,
                                                relocator);
     EXPECT_FALSE(relocator.didAppend);
-    EXPECT_EQ(fakeLogRef,
-              transaction->participantListLogRef);
+    EXPECT_TRUE(transaction->participantListLogRef ==
+                                        AbstractLog::Reference(fakeLogRef));
+
+    // Clear log ref to avoid call to free
+    transaction->participantListLogRef = AbstractLog::Reference();
 }
 
 TEST_F(TransactionManagerTest, bufferWrite) {
@@ -379,7 +374,7 @@ TEST_F(TransactionManagerTest, markDeletedAndIsDeleted) {
 }
 
 TEST_F(TransactionManagerTest, InProgressTransaction_destructor) {
-    TestLog::Enable _;
+    TestLog::Enable _("free");
     {
         TransactionManager::InProgressTransaction iptx(&transactionManager,
                                                        TransactionId(42, 31));
@@ -388,12 +383,28 @@ TEST_F(TransactionManagerTest, InProgressTransaction_destructor) {
 
     TestLog::reset();
 
+    uint64_t original = transactionManager.log->totalLiveBytes;
+    Log::Reference logRef;
     {
         TransactionManager::InProgressTransaction iptx(&transactionManager,
                                                        TransactionId(42, 31));
-        iptx.participantListLogRef = 18;
+        WireFormat::TxParticipant participants[3];
+        // construct participant list.
+        participants[0] = WireFormat::TxParticipant(1, 2, 10);
+        participants[1] = WireFormat::TxParticipant(123, 234, 11);
+        participants[2] = WireFormat::TxParticipant(111, 222, 12);
+        ParticipantList participantList(participants, 1, 42, 9);
+        Buffer assembledParticipantList;
+        participantList.assembleForLog(assembledParticipantList);
+        transactionManager.log->append(LOG_ENTRY_TYPE_TXPLIST,
+                                       assembledParticipantList,
+                                       &logRef);
+        iptx.participantListLogRef = logRef;
+        EXPECT_LT(original, transactionManager.log->totalLiveBytes);
     }
-    EXPECT_EQ("freeLogEntry: freed <18>", TestLog::get());
+    EXPECT_EQ(original, transactionManager.log->totalLiveBytes);
+    EXPECT_EQ(format("free: free on reference %" PRIu64, logRef.toInteger()),
+              TestLog::get());
 }
 
 TEST_F(TransactionManagerTest, PreparedItem_constructor_destructor) {

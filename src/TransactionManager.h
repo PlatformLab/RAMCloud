@@ -44,7 +44,7 @@ class ObjectManager;
 class TransactionManager {
   PUBLIC:
     TransactionManager(Context* context,
-                       AbstractLog::ReferenceFreer* freer,
+                       AbstractLog* log,
                        UnackedRpcResults* unackedRpcResults);
     ~TransactionManager();
 
@@ -80,9 +80,9 @@ class TransactionManager {
     /// RAMCloud context needed to support the used of WorkerTimers and RPCs.
     Context* context;
 
-    /// Pointer to the log reference freer used signal to the log that a tracked
-    /// participant list log entry is cleanable.
-    AbstractLog::ReferenceFreer* freer;
+    /// Pointer to the log in which the tracked ParticipantList log entries will
+    /// be stored; used to lookup and free stored ParticipantList log entries.
+    AbstractLog* log;
 
     /// UnackedRpcResults holds the transaction prepare votes that need to be
     /// kept around to ensure recovery works correctly.
@@ -116,7 +116,7 @@ class TransactionManager {
         TransactionId txId;
 
         /// Log Reference to the ParticipantList of this transaction
-        uint64_t participantListLogRef;
+        AbstractLog::Reference participantListLogRef;
 
         /// Flag indicating whether or not recovery for this transaction has
         /// reached a safe point where we can consider this transaction

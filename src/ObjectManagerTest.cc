@@ -44,11 +44,11 @@ class ObjectManagerTest : public ::testing::Test,
     ServerList serverList;
     ServerConfig masterConfig;
     MasterTableMetadata masterTableMetadata;
+    ObjectManager objectManager;
     UnackedRpcResults unackedRpcResults;
     TransactionManager transactionManager;
     TxRecoveryManager txRecoveryManager;
     TabletManager tabletManager;
-    ObjectManager objectManager;
 
     ObjectManagerTest()
         : context()
@@ -58,10 +58,6 @@ class ObjectManagerTest : public ::testing::Test,
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults(&context, this, &clientLeaseValidator)
-        , transactionManager(&context, this, &unackedRpcResults)
-        , txRecoveryManager(&context)
-        , tabletManager()
         , objectManager(&context,
                         &serverId,
                         &masterConfig,
@@ -70,6 +66,12 @@ class ObjectManagerTest : public ::testing::Test,
                         &unackedRpcResults,
                         &transactionManager,
                         &txRecoveryManager)
+        , unackedRpcResults(&context, this, &clientLeaseValidator)
+        , transactionManager(&context,
+                             objectManager.getLog(),
+                             &unackedRpcResults)
+        , txRecoveryManager(&context)
+        , tabletManager()
     {
         objectManager.initOnceEnlisted();
         tabletManager.addTablet(0, 0, ~0UL, TabletManager::NORMAL);

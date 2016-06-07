@@ -28,19 +28,21 @@ namespace RAMCloud {
  * \param context
  *      Overall information about the RAMCloud server and provides access to
  *      the dispatcher.
- * \param freer
- *      Pointer to the log reference freer used signal to the log that a
- *      tracked participant list log entry is cleanable.
+ * \param log
+ *      Pointer to the log in which the tracked ParticipantList log entries will
+ *      be stored; used to lookup and free stored ParticipantList log entries.
+ *      Should point to the same underlying log that is passed as a parameter to
+ *      the registerTransaction method.
  * \param unackedRpcResults
  *      Pointer to the UnackedRpcResults which holds the transaction prepare
  *      votes that need to be kept around to ensure recovery works correctly.
  */
 TransactionManager::TransactionManager(Context* context,
-                                       AbstractLog::ReferenceFreer* freer,
+                                       AbstractLog* log,
                                        UnackedRpcResults* unackedRpcResults)
     : mutex()
     , context(context)
-    , freer(freer)
+    , log(log)
     , unackedRpcResults(unackedRpcResults)
     , items()
     , transactions()
@@ -97,19 +99,16 @@ TransactionManager::registerTransaction(ParticipantList& participantList,
     TransactionId txId = participantList.getTransactionId();
     InProgressTransaction* transaction = getOrAddTransaction(txId, lock);
 
-    if (transaction->participantListLogRef == 0) {
-        Log::Reference logRef;
+    if (transaction->participantListLogRef == AbstractLog::Reference()) {
         // Write the ParticipantList into the Log, update the table.
         if (!log->append(LOG_ENTRY_TYPE_TXPLIST,
                          assembledParticipantList,
-                         &logRef))
+                         &transaction->participantListLogRef))
         {
             // The log is out of space. Tell the client to retry and hope
             // that the cleaner makes space soon.
             return STATUS_RETRY;
         }
-
-        transaction->participantListLogRef = logRef.toInteger();
 
         // Participant List records are not accounted for in the table stats.
         // The assumption is that the Participant List records should occupy a
@@ -190,14 +189,13 @@ TransactionManager::relocateParticipantList(Buffer& oldBuffer,
     // See if this transaction is still going on and if the participant list
     // is not a duplicate.
     if (transaction != NULL
-            && transaction->participantListLogRef == oldReference.toInteger()) {
+            && transaction->participantListLogRef == oldReference) {
         // Try to relocate it. If it fails, just return. The cleaner will
         // allocate more memory and retry.
         if (!relocator.append(LOG_ENTRY_TYPE_TXPLIST, oldBuffer))
             return;
 
-        transaction->participantListLogRef =
-                relocator.getNewReference().toInteger();
+        transaction->participantListLogRef = relocator.getNewReference();
     } else {
         // Participant List will be dropped/"cleaned"
 
@@ -507,7 +505,7 @@ TransactionManager::InProgressTransaction::InProgressTransaction(
     , preparedOpCount(0)
     , manager(manager)
     , txId(txId)
-    , participantListLogRef(0)
+    , participantListLogRef()
     , recovered(false)
     , txHintFailedRpc()
     , timeoutCycles(0)
@@ -520,9 +518,8 @@ TransactionManager::InProgressTransaction::InProgressTransaction(
  */
 TransactionManager::InProgressTransaction::~InProgressTransaction()
 {
-    if (participantListLogRef != 0) {
-        AbstractLog::Reference ref(participantListLogRef);
-        manager->freer->freeLogEntry(ref);
+    if (participantListLogRef != AbstractLog::Reference()) {
+        manager->log->free(participantListLogRef);
     }
 }
 
