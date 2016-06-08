@@ -39,6 +39,7 @@
 #include "SideLog.h"
 #include "SpinLock.h"
 #include "TabletManager.h"
+#include "TransactionManager.h"
 #include "TxRecoveryManager.h"
 #include "IndexletManager.h"
 #include "WireFormat.h"

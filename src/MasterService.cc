@@ -2505,6 +2505,13 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
         return;
     }
 
+    // Mark the transaction recovered if this decision is from the Transaction
+    // Recovery Manager.
+    if (reqHdr->recovered) {
+        TransactionId txId(reqHdr->leaseId, reqHdr->transactionId);
+        transactionManager.markTransactionRecovered(txId);
+    }
+
     if (reqHdr->decision == WireFormat::TxDecision::COMMIT) {
         for (uint32_t i = 0; i < participantCount; ++i) {
             TabletManager::Tablet tablet;

@@ -2714,6 +2714,67 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
     EXPECT_TRUE(service->masterTableMetadata.find(2) == NULL);
 }
 
+TEST_F(MasterServiceTest, txDecision_requestFormatError) {
+    WireFormat::TxDecision::Request reqHdr;
+    WireFormat::TxDecision::Response respHdr;
+    Buffer reqBuffer;
+    Service::Rpc rpc(NULL, &reqBuffer, NULL);
+
+    reqHdr.decision = WireFormat::TxDecision::COMMIT;
+    reqHdr.leaseId = 1U;
+    reqHdr.transactionId = 10U;
+    reqHdr.recovered = false;
+    reqHdr.participantCount = 3U;
+
+    service->txDecision(&reqHdr, &respHdr, &rpc);
+
+    EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
+}
+
+TEST_F(MasterServiceTest, txDecision_recovered) {
+    using WireFormat::TxParticipant;
+    using WireFormat::TxDecision;
+    Key key1(1, "key1", 4);
+    Key key2(1, "key2", 4);
+    Key key3(1, "key3", 4);
+    TxParticipant participants[3];
+    participants[0] = TxParticipant(key1.getTableId(), key1.getHash(), 10U);
+    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
+    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
+
+    TxDecision::Request reqHdr;
+    TxDecision::Response respHdr;
+    Buffer reqBuffer;
+    Service::Rpc rpc(NULL, &reqBuffer, NULL);
+
+    reqHdr.decision = TxDecision::COMMIT;
+    reqHdr.leaseId = 1U;
+    reqHdr.transactionId = 10U;
+    reqHdr.recovered = false;
+    reqHdr.participantCount = 3U;
+    reqBuffer.appendExternal(&reqHdr, sizeof32(reqHdr));
+    reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 3);
+
+    TransactionManager::InProgressTransaction* iptx;
+    {
+        TransactionManager::Lock lock(service->transactionManager.mutex);
+        TransactionId txId(1, 10);
+        iptx = service->transactionManager.getOrAddTransaction(txId, lock);
+    }
+
+    EXPECT_FALSE(iptx->recovered);
+
+    service->txDecision(&reqHdr, &respHdr, &rpc);
+
+    EXPECT_FALSE(iptx->recovered);
+
+    reqHdr.recovered = true;
+
+    service->txDecision(&reqHdr, &respHdr, &rpc);
+
+    EXPECT_TRUE(iptx->recovered);
+}
+
 TEST_F(MasterServiceTest, txDecision_commit) {
     // 1. Test setup: Add objects to be used during experiment.
     uint64_t version;
@@ -2781,6 +2842,8 @@ TEST_F(MasterServiceTest, txDecision_commit) {
 
     reqHdr.decision = TxDecision::COMMIT;
     reqHdr.leaseId = 1U;
+    reqHdr.transactionId = 10U;
+    reqHdr.recovered = false;
     reqHdr.participantCount = 3U;
     reqBuffer.appendExternal(&reqHdr, sizeof32(reqHdr));
     reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 3);
@@ -2880,6 +2943,8 @@ TEST_F(MasterServiceTest, txDecision_abort) {
 
     reqHdr.decision = TxDecision::ABORT;
     reqHdr.leaseId = 1U;
+    reqHdr.transactionId = 10U;
+    reqHdr.recovered = false;
     reqHdr.participantCount = 3U;
     reqBuffer.appendExternal(&reqHdr, sizeof32(reqHdr));
     reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 3);
@@ -2951,6 +3016,8 @@ TEST_F(MasterServiceTest, txDecision_unknownTablet) {
 
     reqHdr.decision = TxDecision::COMMIT;
     reqHdr.leaseId = 1U;
+    reqHdr.transactionId = 10U;
+    reqHdr.recovered = false;
     reqHdr.participantCount = 3U;
     reqBuffer.appendExternal(&reqHdr, sizeof32(reqHdr));
     reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 3);

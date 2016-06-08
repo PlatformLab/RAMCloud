@@ -571,6 +571,8 @@ ClientTransactionTask::DecisionRpc::DecisionRpc(RamCloud* ramcloud,
 {
     reqHdr->decision = task->decision;
     reqHdr->leaseId = task->lease.leaseId;
+    reqHdr->transactionId = task->txId;
+    reqHdr->recovered = false;
     reqHdr->participantCount = 0;
 }
 

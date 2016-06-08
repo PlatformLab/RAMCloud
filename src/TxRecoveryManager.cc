@@ -462,6 +462,8 @@ TxRecoveryManager::RecoveryTask::DecisionRpc::DecisionRpc(Context* context,
 {
     reqHdr->decision = task->decision;
     reqHdr->leaseId = task->leaseId;
+    reqHdr->transactionId = task->transactionId;
+    reqHdr->recovered = true;
     reqHdr->participantCount = 0;
     participantCount = &reqHdr->participantCount;
 }
