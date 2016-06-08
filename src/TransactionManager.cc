@@ -126,7 +126,13 @@ TransactionManager::registerTransaction(ParticipantList& participantList,
                                      Cycles::fromMicroseconds(50000);
     }
 
-    if (!transaction->isRunning()) {
+    // Start the timer to give the client some time before the timeout triggers.
+    // If this is a duplicate call, restart the timer to give the client more
+    // time since the client is making progress.  However, the timer should not
+    // be reset when there is an outstanding txHintFailedRpc since the timer
+    // should be scheduled to poll for the result (see the handleTimerEvent
+    // method in InProgressTransaction).
+    if (!transaction->txHintFailedRpc) {
         transaction->start(Cycles::rdtsc() + transaction->timeoutCycles);
     }
 

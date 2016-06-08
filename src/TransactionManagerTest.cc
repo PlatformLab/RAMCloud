@@ -280,6 +280,58 @@ TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
     iptx->stop();
 }
 
+TEST_F(TransactionManagerTest, registerTransaction_timerStart) {
+    TransactionId txId(42, 9);
+    TransactionManager::InProgressTransaction *iptx;
+    WireFormat::TxParticipant participants[3];
+    // construct participant list.
+    participants[0] = WireFormat::TxParticipant(1, 2, 10);
+    participants[1] = WireFormat::TxParticipant(123, 234, 11);
+    participants[2] = WireFormat::TxParticipant(111, 222, 12);
+    ParticipantList participantList(participants, 3, 42, 9);
+    Buffer inBuffer;
+    participantList.assembleForLog(inBuffer);
+
+    Cycles::mockTscValue = 100;
+
+    transactionManager.registerTransaction(participantList,
+                                           inBuffer,
+                                           objectManager.getLog());
+
+    {
+        TransactionManager::Lock lock(transactionManager.mutex);
+        iptx = transactionManager.getTransaction(txId, lock);
+    }
+
+    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    EXPECT_TRUE(iptx->isRunning());
+
+    Cycles::mockTscValue = 200;
+
+    transactionManager.registerTransaction(participantList,
+                                           inBuffer,
+                                           objectManager.getLog());
+
+    EXPECT_EQ(200 + iptx->timeoutCycles, iptx->triggerTime);
+    EXPECT_TRUE(iptx->isRunning());
+
+    // Fake the existance of an async RPC.
+    iptx->txHintFailedRpc.occupied = true;
+
+    Cycles::mockTscValue = 300;
+
+    transactionManager.registerTransaction(participantList,
+                                           inBuffer,
+                                           objectManager.getLog());
+
+    EXPECT_EQ(200 + iptx->timeoutCycles, iptx->triggerTime);
+    EXPECT_TRUE(iptx->isRunning());
+
+    // Reset iptx to avoid unexpected
+    iptx->stop();
+    iptx->txHintFailedRpc.occupied = false;
+}
+
 TEST_F(TransactionManagerTest, markTransactionRecovered) {
     TransactionId txId(42, 9);
     TransactionManager::InProgressTransaction *iptx;
