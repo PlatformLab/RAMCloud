@@ -102,7 +102,8 @@ class TransactionManager {
         friend class TransactionManager;
       PUBLIC:
         InProgressTransaction(TransactionManager* manager,
-                              TransactionId txId);
+                              TransactionId txId,
+                              TransactionManager::Lock& lock);
         ~InProgressTransaction();
         virtual void handleTimerEvent();
 

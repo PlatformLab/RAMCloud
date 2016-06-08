@@ -28,7 +28,7 @@ namespace RAMCloud {
 using WireFormat::TxParticipant;
 
 /**
- * Unit tests for TransactionManager.
+ * Used for TransactionManager unit tests.
  */
 class TransactionManagerTest : public ::testing::Test {
   public:
@@ -78,6 +78,98 @@ class TransactionManagerTest : public ::testing::Test {
     }
 
     DISALLOW_COPY_AND_ASSIGN(TransactionManagerTest);
+};
+
+/**
+ * Used for InProgressTransaction unit tests.
+ */
+class InProgressTransactionTest : public ::testing::Test {
+  public:
+    TestLog::Enable logEnabler;
+    Context context;
+    MockCluster cluster;
+    Tub<RamCloud> ramcloud;
+    Server* server1;
+    Server* server2;
+    Server* server3;
+    MasterService* service1;
+    MasterService* service2;
+    MasterService* service3;
+    uint64_t tableId1;
+    uint64_t tableId2;
+    uint64_t tableId3;
+    TransactionId txId;
+
+    InProgressTransactionTest()
+        : logEnabler()
+        , context()
+        , cluster(&context)
+        , ramcloud()
+        , server1()
+        , server2()
+        , server3()
+        , service1()
+        , service2()
+        , service3()
+        , tableId1(-1)
+        , tableId2(-2)
+        , tableId3(-3)
+        , txId(42, 9)
+    {
+        Cycles::mockTscValue = 100;
+
+        Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
+
+        ServerConfig config = ServerConfig::forTesting();
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::PING_SERVICE};
+        config.localLocator = "mock:host=master1";
+        config.maxObjectKeySize = 512;
+        config.maxObjectDataSize = 1024;
+        config.segmentSize = 128*1024;
+        config.segletSize = 128*1024;
+        server1 = cluster.addServer(config);
+        service1 = server1->master.get();
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::PING_SERVICE};
+        config.localLocator = "mock:host=master2";
+        server2 = cluster.addServer(config);
+        service2 = server2->master.get();
+        config.services = {WireFormat::MASTER_SERVICE,
+                           WireFormat::PING_SERVICE};
+        config.localLocator = "mock:host=master3";
+        server3 = cluster.addServer(config);
+        service3 = server3->master.get();
+        ramcloud.construct(&context, "mock:host=coordinator");
+
+        // Make some tables.
+        tableId1 = ramcloud->createTable("table1");
+        tableId2 = ramcloud->createTable("table2");
+        tableId3 = ramcloud->createTable("table3");
+
+        // Setup InProgress Transactions
+        WireFormat::TxParticipant participants[3];
+        participants[0] = WireFormat::TxParticipant(1, 2, 10);
+        participants[1] = WireFormat::TxParticipant(123, 234, 11);
+        participants[2] = WireFormat::TxParticipant(111, 222, 12);
+        ParticipantList participantList(participants, 3, 42, 9);
+        Buffer buffer;
+        participantList.assembleForLog(buffer);
+
+        Cycles::mockTscValue = 100;
+
+        service1->transactionManager.registerTransaction(
+                participantList,
+                buffer,
+                service1->objectManager.getLog());
+    }
+
+    ~InProgressTransactionTest()
+    {
+        Cycles::mockTscValue = 0;
+    }
+
+    DISALLOW_COPY_AND_ASSIGN(InProgressTransactionTest);
 };
 
 TEST_F(TransactionManagerTest, registerTransaction_basic) {
@@ -135,6 +227,9 @@ TEST_F(TransactionManagerTest, registerTransaction_basic) {
     EXPECT_EQ(3 * Cycles::fromMicroseconds(50000), iptx->timeoutCycles);
     EXPECT_EQ(iptx->timeoutCycles + 100, iptx->triggerTime);
     EXPECT_TRUE(iptx->isRunning());
+
+    // Stop iptx before it is allowed to actually run.
+    iptx->stop();
 }
 
 TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
@@ -149,7 +244,7 @@ TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
     Buffer inBuffer;
     participantList.assembleForLog(inBuffer);
 
-    Cycles::mockTscValue = 1;
+    Cycles::mockTscValue = 100;
 
     // Pre-insert entry
     {
@@ -180,8 +275,9 @@ TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
     EXPECT_EQ(300UL, iptx->triggerTime);
     EXPECT_TRUE(iptx->isRunning());
 
-    // Clear log ref to above free call
+    // Reset iptx state to avoid unintended behavior during destruction
     iptx->participantListLogRef = AbstractLog::Reference();
+    iptx->stop();
 }
 
 TEST_F(TransactionManagerTest, markTransactionRecovered) {
@@ -374,10 +470,13 @@ TEST_F(TransactionManagerTest, markDeletedAndIsDeleted) {
 }
 
 TEST_F(TransactionManagerTest, InProgressTransaction_destructor) {
+    TransactionManager::Lock lock(transactionManager.mutex);
+
     TestLog::Enable _("free");
     {
         TransactionManager::InProgressTransaction iptx(&transactionManager,
-                                                       TransactionId(42, 31));
+                                                       TransactionId(42, 31),
+                                                       lock);
     }
     EXPECT_EQ("", TestLog::get());
 
@@ -387,7 +486,8 @@ TEST_F(TransactionManagerTest, InProgressTransaction_destructor) {
     Log::Reference logRef;
     {
         TransactionManager::InProgressTransaction iptx(&transactionManager,
-                                                       TransactionId(42, 31));
+                                                       TransactionId(42, 31),
+                                                       lock);
         WireFormat::TxParticipant participants[3];
         // construct participant list.
         participants[0] = WireFormat::TxParticipant(1, 2, 10);
@@ -404,6 +504,180 @@ TEST_F(TransactionManagerTest, InProgressTransaction_destructor) {
     }
     EXPECT_EQ(original, transactionManager.log->totalLiveBytes);
     EXPECT_EQ(format("free: free on reference %" PRIu64, logRef.toInteger()),
+              TestLog::get());
+}
+
+TEST_F(InProgressTransactionTest, handleTimerEvent_basic) {
+    TransactionManager::InProgressTransaction* iptx;
+
+    {
+        TransactionManager::Lock lock(service1->transactionManager.mutex);
+        iptx = service1->transactionManager.getTransaction(txId, lock);
+    }
+
+    TestLog::Enable _("handleTimerEvent");
+    EXPECT_FALSE(iptx->txHintFailedRpc);
+    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    iptx->handleTimerEvent();
+    iptx->stop();
+    EXPECT_FALSE(iptx->txHintFailedRpc);
+    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    EXPECT_EQ("handleTimerEvent: TxID <42,9> sending TxHintFailed RPC to owner "
+                    "of tableId 1 and keyHash 2. | "
+              "handleTimerEvent: TxID <42,9> received ack for TxHintFailed "
+                    "RPC; will wait for next timeout.",
+              TestLog::get());
+}
+
+TEST_F(InProgressTransactionTest, handleTimerEvent_done_acked) {
+    TransactionManager::InProgressTransaction* iptx;
+
+    {
+        TransactionManager::Lock lock(service1->transactionManager.mutex);
+        iptx = service1->transactionManager.getTransaction(txId, lock);
+    }
+
+    {
+        UnackedRpcResults::Lock lock(service1->unackedRpcResults.mutex);
+        UnackedRpcResults::Client* client =
+                service1->unackedRpcResults.getOrInitClientRecord(42, lock);
+        client->maxAckId = 12;
+    }
+    EXPECT_TRUE(service1->unackedRpcResults.isRpcAcked(42, 9));
+
+    iptx->preparedOpCount = 1;
+
+    TestLog::Enable _("handleTimerEvent");
+    EXPECT_FALSE(iptx->txHintFailedRpc);
+    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    iptx->handleTimerEvent();
+    {
+        TransactionManager::Lock lock(service1->transactionManager.mutex);
+        iptx = service1->transactionManager.getTransaction(txId, lock);
+    }
+    EXPECT_FALSE(iptx == NULL);
+    EXPECT_FALSE(iptx->txHintFailedRpc);
+    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    EXPECT_EQ("handleTimerEvent: TxID <42,9> sending TxHintFailed RPC to owner "
+                    "of tableId 1 and keyHash 2. | "
+              "handleTimerEvent: TxID <42,9> received ack for TxHintFailed "
+                    "RPC; will wait for next timeout.",
+              TestLog::get());
+
+    iptx->preparedOpCount = 0;
+
+    TestLog::reset();
+
+    iptx->handleTimerEvent();
+
+    {
+        TransactionManager::Lock lock(service1->transactionManager.mutex);
+        iptx = service1->transactionManager.getTransaction(txId, lock);
+    }
+    EXPECT_TRUE(iptx == NULL);
+    EXPECT_EQ("handleTimerEvent: TxID <42,9> has completed; OK to clean.",
+              TestLog::get());
+}
+
+TEST_F(InProgressTransactionTest, handleTimerEvent_done_recovered) {
+    TransactionManager::InProgressTransaction* iptx;
+
+    {
+        TransactionManager::Lock lock(service1->transactionManager.mutex);
+        iptx = service1->transactionManager.getTransaction(txId, lock);
+    }
+
+    iptx->recovered = true;
+    iptx->preparedOpCount = 1;
+
+    TestLog::Enable _("handleTimerEvent");
+    EXPECT_FALSE(iptx->txHintFailedRpc);
+    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    iptx->handleTimerEvent();
+    {
+        TransactionManager::Lock lock(service1->transactionManager.mutex);
+        iptx = service1->transactionManager.getTransaction(txId, lock);
+    }
+    EXPECT_FALSE(iptx == NULL);
+    EXPECT_FALSE(iptx->txHintFailedRpc);
+    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    EXPECT_EQ("handleTimerEvent: TxID <42,9> sending TxHintFailed RPC to owner "
+                    "of tableId 1 and keyHash 2. | "
+              "handleTimerEvent: TxID <42,9> received ack for TxHintFailed "
+                    "RPC; will wait for next timeout.",
+              TestLog::get());
+
+    iptx->preparedOpCount = 0;
+
+    TestLog::reset();
+
+    iptx->handleTimerEvent();
+
+    {
+        TransactionManager::Lock lock(service1->transactionManager.mutex);
+        iptx = service1->transactionManager.getTransaction(txId, lock);
+    }
+    EXPECT_TRUE(iptx == NULL);
+    EXPECT_EQ("handleTimerEvent: TxID <42,9> has completed; OK to clean.",
+              TestLog::get());
+}
+
+TEST_F(InProgressTransactionTest, handleTimerEvent_error_no_participantList) {
+    TransactionManager::InProgressTransaction* iptx;
+
+    {
+        TransactionManager::Lock lock(service1->transactionManager.mutex);
+        iptx = service1->transactionManager.getTransaction(txId, lock);
+    }
+
+    iptx->participantListLogRef = AbstractLog::Reference();
+
+    TestLog::Enable _("handleTimerEvent");
+    EXPECT_FALSE(iptx->txHintFailedRpc);
+    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    iptx->handleTimerEvent();
+    iptx->stop();
+    EXPECT_FALSE(iptx->txHintFailedRpc);
+    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    EXPECT_EQ("handleTimerEvent: Unable to initiate transaction recovery for "
+            "TxId (42, 9) because participant list record could not be found; "
+            "BUG; transaction timeout timer may have started without first "
+            "being registered.",
+            TestLog::get());
+}
+
+TEST_F(InProgressTransactionTest, handleTimerEvent_waiting) {
+    TransactionManager::InProgressTransaction* iptx;
+
+    {
+        TransactionManager::Lock lock(service1->transactionManager.mutex);
+        TransactionId txId(42, 9);
+        iptx = service1->transactionManager.getTransaction(txId, lock);
+    }
+
+    iptx->stop();
+
+    Buffer pListBuf;
+    service1->transactionManager.log->getEntry(iptx->participantListLogRef,
+                                               pListBuf);
+    ParticipantList participantList(pListBuf);
+    iptx->txHintFailedRpc.construct(iptx->manager->context,
+                                    participantList.getTableId(),
+                                    participantList.getKeyHash(),
+                                    iptx->txId.clientLeaseId,
+                                    iptx->txId.clientTransactionId,
+                                    participantList.getParticipantCount(),
+                                    participantList.participants);
+    iptx->txHintFailedRpc->state = RpcWrapper::IN_PROGRESS;
+
+    TestLog::Enable _("handleTimerEvent");
+    EXPECT_TRUE(iptx->txHintFailedRpc);
+    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    iptx->handleTimerEvent();
+    iptx->stop();
+    EXPECT_TRUE(iptx->txHintFailedRpc);
+    EXPECT_EQ(0U, iptx->triggerTime);
+    EXPECT_EQ("handleTimerEvent: TxID <42,9> waiting for TxHintFailed RPC ack.",
               TestLog::get());
 }
 
@@ -436,7 +710,8 @@ TEST_F(TransactionManagerTest, getTransaction) {
     EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == NULL);
     TransactionManager::InProgressTransaction* iptx =
             new TransactionManager::InProgressTransaction(&transactionManager,
-                                                          txId);
+                                                          txId,
+                                                          lock);
     transactionManager.transactions[txId] = iptx;
     EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == iptx);
 }

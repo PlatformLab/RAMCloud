@@ -497,10 +497,14 @@ TransactionManager::isOpDeleted(uint64_t leaseId,
  *      The TransactionManager that holds this InProgressTransaction record.
  * \param txId
  *      The id of this in progress transaction.
+ * \param lock
+ *      Used to ensure that caller has acquired TransactionManager::mutex.
+ *      Not actually used by the method.
  */
 TransactionManager::InProgressTransaction::InProgressTransaction(
         TransactionManager* manager,
-        TransactionId txId)
+        TransactionId txId,
+        TransactionManager::Lock& lock)
     : WorkerTimer(manager->context->dispatch)
     , preparedOpCount(0)
     , manager(manager)
@@ -515,9 +519,13 @@ TransactionManager::InProgressTransaction::InProgressTransaction(
 
 /**
  * InProgressTransaction destructor.
+ *
+ * NOTE: Should always be called with the TransactionManager::mutex acquired.
  */
 TransactionManager::InProgressTransaction::~InProgressTransaction()
 {
+    assert(!manager->mutex.try_lock());
+
     if (participantListLogRef != AbstractLog::Reference()) {
         manager->log->free(participantListLogRef);
     }
@@ -532,7 +540,90 @@ TransactionManager::InProgressTransaction::~InProgressTransaction()
 void
 TransactionManager::InProgressTransaction::handleTimerEvent()
 {
+    // This timer handler asynchronously notifies the recovery manager that this
+    // transaction is taking a long time and may have failed.  This handler may
+    // be called multiple times to ensure the notification is delivered.
+    //
+    // Note: This notification was previously done in synchronously, but holding
+    // the thread and worker timer resources while waiting for the notification
+    // to be acknowledge could caused deadlock when the notification is sent to
+    // the same server.  Furthermore, the transaction manager lock is held
+    // during this call so delaying this method would prevent other transactions
+    // from being processed.
+    TransactionManager::Lock lock(manager->mutex);
 
+    // Transaction is no longer in progress; delete this object.
+    if (preparedOpCount <= 0) {
+        if (manager->unackedRpcResults->isRpcAcked(txId.clientLeaseId,
+                                                   txId.clientTransactionId)
+                || recovered) {
+
+            TEST_LOG("TxID <%lu,%lu> has completed; OK to clean.",
+                txId.clientLeaseId, txId.clientTransactionId);
+
+            // The transaction is complete
+            manager->transactions.erase(txId);
+            delete this;
+            return;
+        }
+    }
+    // Else, the transaction did not complete before it timed-out.
+
+    // Construct and send the txHintFailedRpc if it has not been done.
+    if (!txHintFailedRpc) {
+        if (participantListLogRef == AbstractLog::Reference()) {
+            // Abort; there is no way to send the RPC if we can't find the
+            // participant list.  Hopefully, some other server still has the
+            // list.  Log this situation as it is a bug if it occurs.
+            RAMCLOUD_LOG(ERROR, "Unable to initiate transaction recovery for "
+                    "TxId (%lu, %lu) because participant list record could not "
+                    "be found; BUG; transaction timeout timer may have started "
+                    "without first being registered.",
+                    txId.clientLeaseId, txId.clientTransactionId);
+            this->start(Cycles::rdtsc() + timeoutCycles);
+            return;
+        }
+
+        Buffer pListBuf;
+        manager->log->getEntry(participantListLogRef, pListBuf);
+        ParticipantList participantList(pListBuf);
+        assert(txId == participantList.getTransactionId());
+
+        TEST_LOG("TxID <%lu,%lu> sending TxHintFailed RPC to owner of tableId "
+                "%lu and keyHash %lu.",
+                txId.clientLeaseId, txId.clientTransactionId,
+                participantList.getTableId(), participantList.getKeyHash());
+
+        txHintFailedRpc.construct(manager->context,
+                participantList.getTableId(),
+                participantList.getKeyHash(),
+                txId.clientLeaseId,
+                txId.clientTransactionId,
+                participantList.getParticipantCount(),
+                participantList.participants);
+    }
+
+    // RPC should have been sent.
+    if (!txHintFailedRpc->isReady()) {
+        // If the RPC is not yet ready, reschedule the worker timer to poll for
+        // the RPC's completion.
+        this->start(0);
+
+        TEST_LOG("TxID <%lu,%lu> waiting for TxHintFailed RPC ack.",
+                txId.clientLeaseId, txId.clientTransactionId);
+    } else {
+        // The RPC is ready; "wait" on it as is convention.
+        txHintFailedRpc->wait();
+        txHintFailedRpc.destroy();
+
+        // Wait for another timeoutCycles before getting worried again and
+        // resending the hint-failed notification.
+        this->start(Cycles::rdtsc() + timeoutCycles);
+
+        TEST_LOG("TxID <%lu,%lu> received ack for TxHintFailed RPC; will wait "
+                "for next timeout.",
+                txId.clientLeaseId, txId.clientTransactionId);
+    }
 }
 
 /**
@@ -579,7 +670,7 @@ TransactionManager::getOrAddTransaction(TransactionId txId, Lock& lock)
     if (it != transactions.end()) {
         transaction = it->second;
     } else {
-        transaction = new InProgressTransaction(this, txId);
+        transaction = new InProgressTransaction(this, txId, lock);
         transactions[txId] = transaction;
     }
     assert(transaction != NULL);
