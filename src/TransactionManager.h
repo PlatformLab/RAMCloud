@@ -60,8 +60,7 @@ class TransactionManager {
                                  LogEntryRelocator& relocator);
 
     // Prepared Op methods
-    void bufferOp(TransactionId txId, uint64_t rpcId, uint64_t newOpPtr,
-                     bool inRecovery = false);
+    void bufferOp(TransactionId txId, uint64_t rpcId, uint64_t newOpPtr);
     void removeOp(uint64_t leaseId, uint64_t rpcId);
     uint64_t getOp(uint64_t leaseId, uint64_t rpcId);
     void updateOpPtr(uint64_t leaseId, uint64_t rpcId, uint64_t newOpPtr);
@@ -141,11 +140,10 @@ class TransactionManager {
     };
 
     /**
-     * Wrapper for the pointer to PreparedOp with WorkerTimer.
-     * This represents an active locking on an object, and its timer
-     * make sure transaction recovery starts after timeout.
+     * Wrapper for the pointer to PreparedOp in order to reference count the
+     * transaction to which this op belongs.
      */
-    class PreparedItem : public WorkerTimer {
+    class PreparedItem {
       public:
         /**
          * Default constructor.
@@ -153,64 +151,35 @@ class TransactionManager {
          * The TransactionManager monitor lock should be held while calling this
          * constructor.
          *
-         * \param context
-         *      RAMCloud context to work on.
          * \param transaction
          *      The transaction to which this prepared op belongs.
          * \param newOpPtr
          *      Log reference to PreparedOp in the log.
          */
         PreparedItem(
-                Context* context,
                 InProgressTransaction* transaction,
                 uint64_t newOpPtr)
-            : WorkerTimer(context->dispatch)
-            , context(context)
-            , transaction(transaction)
+            :  transaction(transaction)
             , newOpPtr(newOpPtr)
-            , txHintFailedRpc()
         {
             transaction->preparedOpCount++;
         }
 
         /**
-         * Default destructor. Stops WorkerTimer and waits for running handler
-         * for safe destruction.
+         * Default destructor.
          *
          * The TransactionManager monitor lock should be held while calling this
          * destructor.
          */
         ~PreparedItem() {
             transaction->preparedOpCount--;
-            stop();
         }
-
-        //TODO(seojin): handler may not protected from destruction.
-        //              Resolve this later.
-        virtual void handleTimerEvent();
-
-        /// Shared RAMCloud information.
-        Context* context;
 
         /// The transaction to which this prepared op belongs.
         InProgressTransaction* transaction;
 
         /// Log reference to PreparedOp in the log.
         uint64_t newOpPtr;
-
-        /// TxHintFailed RPC to be issued asynchronously if the transaction does
-        /// not complete within TX_TIMEOUT_US
-        Tub<TxHintFailedRpc> txHintFailedRpc;
-
-        /// Timeout value for the active PreparedOp (lock record).
-        /// This timeout should be larger than 2*RTT to give enough time for
-        /// a client to complete transaction.
-        /// In case of client failure, smaller timeout makes the initiation of
-        /// transaction recovery faster, shortening object lock time.
-        /// However, using small timeout must be carefully chosen since large
-        /// server span of a transaction increases the time gap between the
-        /// first phase and the second phase of a transaction.
-        static const uint64_t TX_TIMEOUT_US = 50000;
       private:
         DISALLOW_COPY_AND_ASSIGN(PreparedItem);
     };

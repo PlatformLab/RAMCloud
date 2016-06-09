@@ -221,29 +221,19 @@ TransactionManager::relocateParticipantList(Buffer& oldBuffer,
  *      rpcId given for the preparedOp.
  * \param newOpPtr
  *      Log::Reference to preparedOp in main log.
- * \param isRecovery
- *      Caller should set this flag true if it is adding entries while
- *      replaying recovery segments; With true value, it will not start
- *      WorkerTimer. The timers will start during final stage of recovery
- *      by #regrabLocksAfterRecovery().
  */
 void
 TransactionManager::bufferOp(TransactionId txId,
                              uint64_t rpcId,
-                             uint64_t newOpPtr,
-                             bool isRecovery)
+                             uint64_t newOpPtr)
 {
     Lock lock(mutex);
 
     assert(items.find(std::make_pair(txId.clientLeaseId, rpcId))
             == items.end());
     InProgressTransaction* transaction = getOrAddTransaction(txId, lock);
-    PreparedItem* item = new PreparedItem(context, transaction, newOpPtr);
+    PreparedItem* item = new PreparedItem(transaction, newOpPtr);
     items[std::make_pair(txId.clientLeaseId, rpcId)] = item;
-    if (!isRecovery) {
-        item->start(Cycles::rdtsc() +
-                    Cycles::fromMicroseconds(PreparedItem::TX_TIMEOUT_US));
-    }
 }
 
 /**
@@ -332,86 +322,6 @@ TransactionManager::updateOpPtr(uint64_t leaseId,
 }
 
 /**
- * Handles timeout of the staged preparedOp. Requests to initiate
- * recovery of whole transaction.
- */
-void
-TransactionManager::PreparedItem::handleTimerEvent()
-{
-    // This timer handler asynchronously notifies the recovery manager that this
-    // transaction is taking a long time and may have failed.  This handler may
-    // be called multiple times to ensure the notification is delivered.
-    //
-    // Note: This notification was previously done in synchronously, but holding
-    // the thread and worker timer resources while waiting for the notification
-    // to be acknowledge could caused deadlock when the notification is sent to
-    // the same server.
-
-    // Construct and send the RPC if it has not been done.
-    if (!txHintFailedRpc) {
-        Buffer opBuffer;
-        Log::Reference opRef(newOpPtr);
-        context->getMasterService()->objectManager.getLog()->getEntry(
-                opRef, opBuffer);
-        PreparedOp op(opBuffer, 0, opBuffer.size());
-
-        //TODO(seojin): RAM-767. op.participants can be stale while log
-        //              cleaning. It is possible to cause invalid memory access.
-
-        TransactionId txId = op.getTransactionId();
-
-        UnackedRpcHandle participantListLocator(
-                &context->getMasterService()->unackedRpcResults,
-                {txId.clientLeaseId, 0, 0},
-                txId.clientTransactionId,
-                0);
-
-        if (participantListLocator.isDuplicate()) {
-            Buffer pListBuf;
-            Log::Reference pListRef(participantListLocator.resultLoc());
-            context->getMasterService()->objectManager.getLog()->getEntry(
-                    pListRef, pListBuf);
-            ParticipantList participantList(pListBuf);
-            txId = participantList.getTransactionId();
-            TEST_LOG("TxHintFailed RPC is sent to owner of tableId %lu and "
-                    "keyHash %lu.",
-                    participantList.getTableId(), participantList.getKeyHash());
-
-            txHintFailedRpc.construct(context,
-                    participantList.getTableId(),
-                    participantList.getKeyHash(),
-                    txId.clientLeaseId,
-                    txId.clientTransactionId,
-                    participantList.getParticipantCount(),
-                    participantList.participants);
-        } else {
-            // Abort; there is no way to send the RPC if we can't find the
-            // participant list.  Hopefully, some other server still has the
-            // list.  Log this situation as it is a bug if it occurs.
-            RAMCLOUD_LOG(WARNING, "Unable to find participant list record for "
-                    "TxId (%lu, %lu); client transaction recovery could not be "
-                    "requested.", txId.clientLeaseId, txId.clientTransactionId);
-            return;
-        }
-    }
-
-    // RPC should have been sent.
-    if (!txHintFailedRpc->isReady()) {
-        // If the RPC is not yet ready, reschedule the worker timer to poll for
-        // the RPC's completion.
-        this->start(0);
-    } else {
-        // The RPC is ready; "wait" on it as is convention.
-        txHintFailedRpc->wait();
-        txHintFailedRpc.destroy();
-
-        // Wait for another TX_TIMEOUT_US before getting worried again and
-        // resending the hint-failed notification.
-        this->start(Cycles::rdtsc() + Cycles::fromMicroseconds(TX_TIMEOUT_US));
-    }
-}
-
-/**
  * Acquire transaction locks in objectManager for each entries
  * in items. This should be called after replaying all segments
  * and before changing tablet status from RECOVERING to NORMAL.
@@ -435,12 +345,6 @@ TransactionManager::regrabLocksAfterRecovery(ObjectManager* objectManager)
             objectManager->getLog()->getEntry(ref, buffer);
             PreparedOp op(buffer, 0, buffer.size());
             objectManager->tryGrabTxLock(op.object, ref);
-
-            if (!item->isRunning()) {
-                item->start(Cycles::rdtsc() +
-                        Cycles::fromMicroseconds(PreparedItem::TX_TIMEOUT_US));
-            }
-
             ++it;
         }
     }

@@ -1180,8 +1180,12 @@ TEST_F(MasterServiceTest, migrateSingleLogEntry_participantList) {
         participants[2] = WireFormat::TxParticipant(1, 0, 12);
         participants[3] = WireFormat::TxParticipant(10, 0, 13);
         ParticipantList record(participants, 4, 42, 9);
-        uint64_t logRef;
-        service->objectManager.logTransactionParticipantList(record, &logRef);
+        Buffer buffer;
+        record.assembleForLog(buffer);
+        AbstractLog::Reference logRef;
+        service->objectManager.getLog()->append(LOG_ENTRY_TYPE_TXPLIST,
+                                                buffer,
+                                                &logRef);
     }
     {
         // Bad
@@ -1190,8 +1194,12 @@ TEST_F(MasterServiceTest, migrateSingleLogEntry_participantList) {
         participants[1] = WireFormat::TxParticipant(222, 2, 11);
         participants[2] = WireFormat::TxParticipant(111, 0, 12);
         ParticipantList record(participants, 3, 42, 9);
-        uint64_t logRef;
-        service->objectManager.logTransactionParticipantList(record, &logRef);
+        Buffer buffer;
+        record.assembleForLog(buffer);
+        AbstractLog::Reference logRef;
+        service->objectManager.getLog()->append(LOG_ENTRY_TYPE_TXPLIST,
+                                                buffer,
+                                                &logRef);
     }
     {
         // Bad
@@ -1200,8 +1208,12 @@ TEST_F(MasterServiceTest, migrateSingleLogEntry_participantList) {
         participants[1] = WireFormat::TxParticipant(222, 2, 11);
         participants[2] = WireFormat::TxParticipant(1, 2, 12);
         ParticipantList record(participants, 3, 42, 9);
-        uint64_t logRef;
-        service->objectManager.logTransactionParticipantList(record, &logRef);
+        Buffer buffer;
+        record.assembleForLog(buffer);
+        AbstractLog::Reference logRef;
+        service->objectManager.getLog()->append(LOG_ENTRY_TYPE_TXPLIST,
+                                                buffer,
+                                                &logRef);
     }
 
     LogIterator it(*service->objectManager.getLog());
@@ -3139,9 +3151,11 @@ TEST_F(MasterServiceTest, txPrepare_basics) {
     EXPECT_TRUE(isObjectLocked(key1));
     EXPECT_TRUE(isObjectLocked(key2));
     EXPECT_TRUE(isObjectLocked(key3));
-    EXPECT_TRUE(service->objectManager.unackedRpcResults->hasRecord(
-                        txId.clientLeaseId,
-                        txId.clientTransactionId));
+    {
+        TransactionManager::Lock lock(service->transactionManager.mutex);
+        EXPECT_TRUE(service->transactionManager.getTransaction(txId,
+                                                               lock) != NULL);
+    }
 
     Buffer value;
     ramcloud->read(1, "key1", 4, &value, NULL, &version);

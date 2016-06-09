@@ -2775,26 +2775,18 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                                     reqHdr->lease.leaseId,
                                     reqHdr->clientTxId);
     TransactionId txId = participantList.getTransactionId();
-    {
-        // Scope to ensure the paricipantList is tracked before processing
-        // the prepareOps.
-        UnackedRpcHandle participantListHandle(&unackedRpcResults,
-                                               reqHdr->lease,
-                                               reqHdr->clientTxId,
-                                               reqHdr->ackId);
-        if (!participantListHandle.isDuplicate()) {
-            uint64_t logRef = 0;
-            Status status =
-                    objectManager.logTransactionParticipantList(
-                                                    participantList, &logRef);
-            if (status == STATUS_OK) {
-                participantListHandle.recordCompletion(logRef);
-            } else {
-                respHdr->common.status = status;
-                rpc->sendReply();
-                return;
-            }
-        }
+    Buffer assembledParticpantList;
+    participantList.assembleForLog(assembledParticpantList);
+    // TODO(cstlee): Registering the transaction here may result in transactions
+    //               being registered on non-participant servers which may cause
+    //               a garbage collected issue (RAM-856).
+    if (transactionManager.registerTransaction(participantList,
+                                               assembledParticpantList,
+                                               objectManager.getLog())
+            != STATUS_OK) {
+        respHdr->common.status = STATUS_RETRY;
+        rpc->sendReply();
+        return;
     }
 
     // 2. Process operations.
