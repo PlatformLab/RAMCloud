@@ -356,18 +356,18 @@ TEST_F(UnackedRpcResultsTest, KeepClientRecord) {
     EXPECT_EQ(0, client->doNotRemove);
 }
 
-TEST_F(UnackedRpcResultsTest, KeepAllClientRecords) {
-    UnackedRpcResults::KeepAllClientRecords* k2;
+TEST_F(UnackedRpcResultsTest, Protector) {
+    UnackedRpcResults::Protector* k2;
     EXPECT_EQ(0, results.cleanerDisabled);
     {
-        UnackedRpcResults::KeepAllClientRecords k0(&results);
+        UnackedRpcResults::Protector k0(&results);
         // k0 is live
         EXPECT_EQ(1, results.cleanerDisabled);
         {
-            UnackedRpcResults::KeepAllClientRecords k1(&results);
+            UnackedRpcResults::Protector k1(&results);
             // k0, k1 is live
             EXPECT_EQ(2, results.cleanerDisabled);
-            k2 = new UnackedRpcResults::KeepAllClientRecords(&results);
+            k2 = new UnackedRpcResults::Protector(&results);
             // k0, k1, k2 is live
             EXPECT_EQ(3, results.cleanerDisabled);
         }
@@ -433,7 +433,7 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout_cleanerDisabled) {
 
     {
         // With cleanerDisabled, nothing should be cleaned.
-        UnackedRpcResults::KeepAllClientRecords _(&results);
+        UnackedRpcResults::Protector _(&results);
         results.cleanByTimeout();
         EXPECT_EQ(3U, results.clients.size());
     }

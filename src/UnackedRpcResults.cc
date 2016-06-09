@@ -499,14 +499,14 @@ UnackedRpcResults::KeepClientRecord::~KeepClientRecord()
 }
 
 /**
- * Construct to prevent any client records from being removed.
+ * Construct to prevent any RPC Result records from being removed.
  *
  * \param unackedRpcResults
  *      The unackedRpcResults instances that shouldn't removed any
  *      client records.
  *
  */
-UnackedRpcResults::KeepAllClientRecords::KeepAllClientRecords(
+UnackedRpcResults::Protector::Protector(
         UnackedRpcResults* unackedRpcResults)
     : unackedRpcResults(unackedRpcResults)
 {
@@ -517,7 +517,7 @@ UnackedRpcResults::KeepAllClientRecords::KeepAllClientRecords(
 /**
  * Destruct to allow cleaning to resume.
  */
-UnackedRpcResults::KeepAllClientRecords::~KeepAllClientRecords()
+UnackedRpcResults::Protector::~Protector()
 {
     Lock lock(unackedRpcResults->mutex);
     assert(unackedRpcResults->cleanerDisabled > 0);

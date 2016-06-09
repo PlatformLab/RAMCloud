@@ -95,30 +95,30 @@ class UnackedRpcResults {
     };
 
     /**
-     * This class temporarily and safely prevents any client records from being
-     * removed from UnackedRpcResults. Creating an object of this class prevents
-     * the referenced UnackedRpcResults module from cleaning any client records
-     * until the object is deleted. When multiple instances of this class are
-     * created, cleaning will not resume until all instances have been deleted.
+     * This class is used to prevent RPC Result records from being cleaned from
+     * the referenced UnackedRpcResults module.  Creating a Protector object
+     * prevents cleaning of any RPC Result records until the object is
+     * destroyed.  When multiple instances of this class are created, cleaning
+     * will not resume until all instances have been deleted.
      *
      * This class does NOT prevent a client's normal case ACKs from removing
      * individual RPC results.
      *
-     * Used during recovery ensure that no records are dropped during recovery
+     * Used during recovery ensure that no results are dropped during recovery
      * before modules like the TransactionManager have had a chance to create
      * KeepClientRecords objects for specific clients.
      */
-    class KeepAllClientRecords {
+    class Protector {
       PUBLIC:
-        explicit KeepAllClientRecords(UnackedRpcResults* unackedRpcResults);
-        ~KeepAllClientRecords();
+        explicit Protector(UnackedRpcResults* unackedRpcResults);
+        ~Protector();
 
       PRIVATE:
         // Keep reference to the unackedRpcResults so that it can be accessed
         // and marked "cleanable" during the destruction of this object.
         UnackedRpcResults* unackedRpcResults;
 
-        DISALLOW_COPY_AND_ASSIGN(KeepAllClientRecords);
+        DISALLOW_COPY_AND_ASSIGN(Protector);
     };
 
   PRIVATE:
