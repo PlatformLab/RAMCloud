@@ -168,13 +168,6 @@ TEST_F(UnackedRpcResultsTest, shouldRecover) {
               "recovery. <clientID, rpcID, ackId> = <1, 10, 5>",
               TestLog::get());
 
-    //Duplicate TXPLIST
-    TestLog::reset();
-    EXPECT_FALSE(results.shouldRecover(1, 10, 0, LOG_ENTRY_TYPE_TXPLIST));
-    EXPECT_EQ("shouldRecover: Duplicate Transaction Participant List Record "
-              "found during recovery. <clientID, rpcID, ackId> = <1, 10, 0>",
-              TestLog::get());
-
     //Auto client insertion
     EXPECT_TRUE(results.shouldRecover(2, 4, 2, LOG_ENTRY_TYPE_RPCRESULT));
     // ^ ClientId = 2 inserted.
