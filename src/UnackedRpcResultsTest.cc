@@ -142,7 +142,13 @@ TEST_F(UnackedRpcResultsTest, checkDuplicate_basic) {
 
 TEST_F(UnackedRpcResultsTest, checkDuplicate_expiredLease) {
     void* result;
-    ClientLease clientLease = {1, 1, 10};
+    ClientLease clientLease = {1, 1, 100};
+
+    // Existing results should be returned.
+    EXPECT_TRUE(results.checkDuplicate(clientLease, 10, 5, &result));
+    EXPECT_EQ(1010UL, (uint64_t)result);
+
+    // New requests should be rejected.
     EXPECT_THROW(results.checkDuplicate(clientLease, 11, 5, &result),
                  ExpiredLeaseException);
 }
