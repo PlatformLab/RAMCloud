@@ -97,11 +97,11 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
         it.appendToBuffer(entryBuffer);
 
         uint64_t tableId = -1;
-        if (type == LOG_ENTRY_TYPE_SAFEVERSION ||
-            type == LOG_ENTRY_TYPE_TXPLIST)
+        KeyHash keyHash = -1;
+        if (type == LOG_ENTRY_TYPE_SAFEVERSION)
         {
-            // Copy SAFEVERSION and ParticipantLists to all the partitions for
-            // safeVersion and ParticipantList recovery on all recovery masters
+            // Copy SAFEVERSION to all the partitions for safeVersion recovery
+            // on all recovery masters
             LogPosition position(header->segmentId, it.getOffset());
             for (int i = 0; i < numPartitions; i++) {
                 if (!recoverySegments[i].append(type, entryBuffer)) {
@@ -115,7 +115,31 @@ RecoverySegmentBuilder::build(const void* buffer, uint32_t length,
             continue;
         }
 
-        KeyHash keyHash = -1;
+        if (type == LOG_ENTRY_TYPE_TXPLIST) {
+            // Copy ParticipantLists all partitions that should own the entry.
+            ParticipantList plist(entryBuffer);
+            for (uint32_t i = 0; i < plist.getParticipantCount(); ++i) {
+                tableId = plist.participants[i].tableId;
+                keyHash = plist.participants[i].keyHash;
+                const auto* partition =
+                        whichPartition(tableId, keyHash, partitions);
+                if (partition) {
+                    uint64_t partitionId = partition->user_data();
+
+                    LogPosition position(header->segmentId, it.getOffset());
+                    if (!recoverySegments[partitionId].append(type,
+                                                              entryBuffer)) {
+                        LOG(WARNING, "Failure appending to a recovery segment "
+                                "for a replica of <%s,%lu>",
+                                ServerId(header->logId).toString().c_str(),
+                                header->segmentId);
+                        throw SegmentRecoveryFailedException(HERE);
+                    }
+                }
+            }
+            continue;
+        }
+
         if (type == LOG_ENTRY_TYPE_OBJ) {
             Object object(entryBuffer);
             tableId = object.getTableId();
