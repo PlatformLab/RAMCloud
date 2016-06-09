@@ -62,10 +62,10 @@ class UnackedRpcResults {
     bool isRpcAcked(uint64_t clientId, uint64_t rpcId);
 
     /**
-     * This class temporarily and safely prevents a given client's record from
-     * being removed from UnackedRpcResults. Creating an object of this class
-     * prevents the referenced UnackedRpcResults module from cleaning the client
-     * record associated with the given clientId until the object is deleted.
+     * This class is used to prevent RPC Result records for a specified client
+     * from being cleaned from the referenced UnackedRpcResults module.
+     * Creating an SingleClientProtector object prevents cleaning of the
+     * specified client's RPC Result records until the object is destroyed.
      * When multiple instances of this class are created, cleaning will not
      * resume until all instances have been deleted.
      *
@@ -76,11 +76,11 @@ class UnackedRpcResults {
      * kept around even after the lease expires to ensure the results are
      * available for transaction recovery.
      */
-    class KeepClientRecord {
+    class SingleClientProtector {
       PUBLIC:
-        KeepClientRecord(UnackedRpcResults* unackedRpcResults,
-                          uint64_t clientId);
-        ~KeepClientRecord();
+        SingleClientProtector(UnackedRpcResults* unackedRpcResults,
+                              uint64_t clientId);
+        ~SingleClientProtector();
 
       PRIVATE:
         // Keep reference to the unackedRpcResults so that it can be accessed
@@ -91,7 +91,7 @@ class UnackedRpcResults {
         // "cleanable" when this object is destroyed.
         uint64_t clientId;
 
-        DISALLOW_COPY_AND_ASSIGN(KeepClientRecord);
+        DISALLOW_COPY_AND_ASSIGN(SingleClientProtector);
     };
 
     /**

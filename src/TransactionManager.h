@@ -131,10 +131,10 @@ class TransactionManager {
         /// request that recovery be initiated.
         uint64_t timeoutCycles;
 
-        /// The KeepClientRecord object ensures that unackedRpcResults for this
-        /// transaction are kept around until this transaction is no longer
-        /// considered in progress.
-        UnackedRpcResults::KeepClientRecord holdOnClientRecord;
+        /// The SingleClientRpcResultsProtector object ensures that RPC results
+        /// or this transaction are kept around until this transaction is no
+        /// longer considered in progress.
+        UnackedRpcResults::SingleClientProtector rpcResultsProtector;
 
         DISALLOW_COPY_AND_ASSIGN(InProgressTransaction);
     };

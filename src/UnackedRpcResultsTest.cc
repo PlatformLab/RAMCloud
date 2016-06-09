@@ -302,7 +302,7 @@ TEST_F(UnackedRpcResultsTest, isRpcAcked) {
     EXPECT_FALSE(results.isRpcAcked(1, 6));
 }
 
-TEST_F(UnackedRpcResultsTest, KeepClientRecord) {
+TEST_F(UnackedRpcResultsTest, SingleClientProtector) {
     uint64_t targetId = 42;
     uint64_t otherId = 84;
 
@@ -310,7 +310,7 @@ TEST_F(UnackedRpcResultsTest, KeepClientRecord) {
     std::mutex mutex;
     UnackedRpcResults::Lock dummyLock(mutex);
 
-    UnackedRpcResults::KeepClientRecord* k2;
+    UnackedRpcResults::SingleClientProtector* k2;
     UnackedRpcResults::Client* client = NULL;
     UnackedRpcResults::Client* otherClient = NULL;
 
@@ -318,21 +318,23 @@ TEST_F(UnackedRpcResultsTest, KeepClientRecord) {
     client = results.getClientRecord(targetId, dummyLock);
     EXPECT_TRUE(client == NULL);
     {
-        UnackedRpcResults::KeepClientRecord k0(&results, targetId);
+        UnackedRpcResults::SingleClientProtector k0(&results, targetId);
         // k0 is live
         client = results.getClientRecord(targetId, dummyLock);
         EXPECT_TRUE(client != NULL);
         EXPECT_EQ(1, client->doNotRemove);
         {
-            UnackedRpcResults::KeepClientRecord k1(&results, targetId);
+            UnackedRpcResults::SingleClientProtector k1(&results, targetId);
             // k0, k1 is live
             EXPECT_EQ(2, client->doNotRemove);
-            k2 = new UnackedRpcResults::KeepClientRecord(&results, targetId);
+            k2 = new UnackedRpcResults::SingleClientProtector(&results,
+                                                              targetId);
             // k0, k1, k2 is live
             EXPECT_EQ(3, client->doNotRemove);
             {
                 // Added unrelated KeepClientRecords object
-                UnackedRpcResults::KeepClientRecord other(&results, otherId);
+                UnackedRpcResults::SingleClientProtector other(&results,
+                                                               otherId);
                 otherClient = results.getClientRecord(otherId, dummyLock);
                 EXPECT_TRUE(otherClient != NULL);
                 EXPECT_EQ(1, otherClient->doNotRemove);
@@ -459,7 +461,7 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout_client_doNotRemove) {
 
     {
         // With prevent client 2 from being cleaned.
-        UnackedRpcResults::KeepClientRecord _(&results, 2);
+        UnackedRpcResults::SingleClientProtector _(&results, 2);
         results.cleanByTimeout();
         EXPECT_EQ(1U, results.clients.size());
         EXPECT_TRUE(results.clients.find(2) != results.clients.end());

@@ -474,7 +474,7 @@ UnackedRpcResults::isRpcAcked(uint64_t clientId, uint64_t rpcId)
  * \param clientId
  *      The id of the client whose record is to be saved.
  */
-UnackedRpcResults::KeepClientRecord::KeepClientRecord(
+UnackedRpcResults::SingleClientProtector::SingleClientProtector(
         UnackedRpcResults* unackedRpcResults,
         uint64_t clientId)
     : unackedRpcResults(unackedRpcResults)
@@ -490,7 +490,7 @@ UnackedRpcResults::KeepClientRecord::KeepClientRecord(
  * Destruct to allow cleaning to resume on the client records previously
  * protected by this objects the construction.
  */
-UnackedRpcResults::KeepClientRecord::~KeepClientRecord()
+UnackedRpcResults::SingleClientProtector::~SingleClientProtector()
 {
     Lock lock(unackedRpcResults->mutex);
     Client* client = unackedRpcResults->getClientRecord(clientId, lock);

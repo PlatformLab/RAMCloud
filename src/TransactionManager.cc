@@ -423,7 +423,7 @@ TransactionManager::InProgressTransaction::InProgressTransaction(
     , recovered(false)
     , txHintFailedRpc()
     , timeoutCycles(0)
-    , holdOnClientRecord(manager->unackedRpcResults, txId.clientLeaseId)
+    , rpcResultsProtector(manager->unackedRpcResults, txId.clientLeaseId)
 {
 }
 
