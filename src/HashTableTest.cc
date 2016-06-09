@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -236,11 +236,17 @@ class HashTableTest : public ::testing::Test {
     HashTable ht;
     vector<TestObject*> values;
 
+    // Holds either a dummy set of cache lines or the original in ht
+    LargeBlockOfMemory<HashTable::CacheLine> dummy;
+    bool dummyHasOrigCacheLines;
+
     HashTableTest()
         : tableId(),
           numEnt(),
           ht(1),
-          values()
+          values(),
+          dummy(10 * sizeof(HashTable::CacheLine)),
+          dummyHasOrigCacheLines(false)
     {
     }
 
@@ -248,6 +254,10 @@ class HashTableTest : public ::testing::Test {
     {
         foreach(TestObject* o, values)
             delete o;
+
+        // For proper destruction of ht.buckets
+        if (dummyHasOrigCacheLines)
+            ht.buckets.swap(dummy);
     }
 
     /**
@@ -331,6 +341,8 @@ class HashTableTest : public ::testing::Test {
         }
 
         ht->buckets.swap(*cacheLines);
+        dummy.swap(*cacheLines);
+        dummyHasOrigCacheLines = true;
     }
 
     /**

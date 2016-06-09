@@ -27,6 +27,22 @@ MasterTableMetadata::MasterTableMetadata()
 }
 
 /**
+ * Destruct MasterTableMetadata object.
+ */
+MasterTableMetadata::~MasterTableMetadata()
+{
+    SpinLock::Guard _(lock);
+
+    TableMetadataMap::iterator it;
+    for (it = tableMetadataMap.begin(); it != tableMetadataMap.end(); ++it) {
+        if (it->second != NULL) {
+            delete it->second;
+            it->second = NULL;
+        }
+    }
+}
+
+/**
  * Finds and returns a pointer to a TableMetadata entry corresponding to the
  * provided tableId.
  *

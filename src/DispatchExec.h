@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -107,6 +107,7 @@ class DispatchExec : public Dispatch::Poller {
         };
 
         explicit DispatchExec(Dispatch* dispatch);
+        ~DispatchExec();
         virtual int poll();
         void sync(uint64_t id);
 

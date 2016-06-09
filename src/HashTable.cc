@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -296,6 +296,23 @@ HashTable::HashTable(uint64_t numBuckets)
  */
 HashTable::~HashTable()
 {
+    uint32_t lastEntryIndex = ENTRIES_PER_CACHE_LINE - 1;
+
+    for (uint64_t i = 0; i < numBuckets; ++i) {
+        CacheLine* currBucket = &buckets.get()[i];
+
+        // Skip the first bucket and break the chain
+        Entry* last = &currBucket->entries[lastEntryIndex];
+        currBucket = last->getChainPointer();
+        last->clear();
+
+        while (currBucket != NULL) {
+            CacheLine *nextBucket
+                        = currBucket->entries[lastEntryIndex].getChainPointer();
+            free(currBucket);
+            currBucket = nextBucket;
+        }
+    }
 }
 
 /**

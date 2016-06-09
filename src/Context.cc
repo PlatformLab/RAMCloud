@@ -1,5 +1,5 @@
 /* Copyright (c) 2011 Facebook
- * Copyright (c) 2011-2015 Stanford University
+ * Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -160,6 +160,9 @@ Context::destroy()
 
     delete dispatch;
     dispatch = NULL;
+
+    delete dispatchExec;
+    dispatchExec = NULL;
 
     delete timeTrace;
     timeTrace = NULL;

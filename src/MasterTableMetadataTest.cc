@@ -1,4 +1,4 @@
-/* Copyright (c) 2013 Stanford University
+/* Copyright (c) 2013-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -65,6 +65,9 @@ TEST_F(MasterTableMetadataTest, find_existing) {
     EXPECT_EQ(&old, mtm.tableMetadataMap.find(0)->second);
     EXPECT_TRUE(entry == &old);
     EXPECT_EQ(42u, entry->tableId);
+
+    // Delete the old Entry so that it does not get freed twice
+    mtm.tableMetadataMap.erase(0);
 }
 
 TEST_F(MasterTableMetadataTest, insert_noneExisting) {
@@ -90,6 +93,9 @@ TEST_F(MasterTableMetadataTest, insert_existing) {
     EXPECT_EQ(&old, mtm.tableMetadataMap.find(1)->second);
     EXPECT_TRUE(entry == &old);
     EXPECT_EQ(42u, entry->tableId);
+
+    // Delete the old Entry so that it does not get freed twice
+    mtm.tableMetadataMap.erase(1);
 }
 
 TEST_F(MasterTableMetadataTest, insertAndFind) {

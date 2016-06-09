@@ -77,6 +77,7 @@ class MasterTableMetadata {
     class scanner;
 
     MasterTableMetadata();
+    ~MasterTableMetadata();
     Entry* find(uint64_t tableId) const;
     Entry* findOrCreate(uint64_t tableId);
     scanner getScanner();
