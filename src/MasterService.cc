@@ -3402,6 +3402,7 @@ MasterService::recover(uint64_t recoveryId, ServerId masterId,
      * possible).
      */
     ObjectManager::TombstoneProtector p(&objectManager);
+    UnackedRpcResults::Protector unackedRpcResultsProtector(&unackedRpcResults);
     uint64_t usefulTime = 0;
     uint64_t start = Cycles::rdtsc();
     LOG(NOTICE, "Recovering master %s, partition %lu, %lu replicas available",
