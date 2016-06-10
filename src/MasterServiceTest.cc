@@ -2743,7 +2743,7 @@ TEST_F(MasterServiceTest, txDecision_requestFormatError) {
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
 }
 
-TEST_F(MasterServiceTest, txDecision_recovered) {
+TEST_F(MasterServiceTest, txDecision_markRecovered) {
     using WireFormat::TxParticipant;
     using WireFormat::TxDecision;
     Key key1(1, "key1", 4);
@@ -2971,6 +2971,91 @@ TEST_F(MasterServiceTest, txDecision_abort) {
     EXPECT_FALSE(isObjectLocked(key1));
     EXPECT_FALSE(isObjectLocked(key2));
     EXPECT_FALSE(isObjectLocked(key3));
+}
+
+TEST_F(MasterServiceTest, txDecision_recovered_ok) {
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    using WireFormat::TxDecision;
+    Key key1(1, "key1", 4);
+    Key key2(1, "key2", 4);
+    Key key3(1, "key3", 4);
+
+    WireFormat::TxParticipant participants[3];
+    participants[0] = TxParticipant(key1.getTableId(), key1.getHash(), 10U);
+    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
+    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
+
+    // Fabricate TxDecision rpc and test.
+    WireFormat::TxDecision::Request reqHdr;
+    WireFormat::TxDecision::Response respHdr;
+    Buffer reqBuffer;
+    Service::Rpc rpc(NULL, &reqBuffer, NULL);
+
+    reqHdr.decision = TxDecision::RECOVERED;
+    reqHdr.leaseId = 1U;
+    reqHdr.transactionId = 10U;
+    reqHdr.recovered = false;
+    reqHdr.participantCount = 3U;
+    reqBuffer.appendExternal(&reqHdr, sizeof32(reqHdr));
+    reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 3);
+
+    service->txDecision(&reqHdr, &respHdr, &rpc);
+    EXPECT_EQ(STATUS_OK, respHdr.common.status);
+}
+
+TEST_F(MasterServiceTest, txDecision_recovered_error) {
+    using WireFormat::TxParticipant;
+    using WireFormat::TxPrepare;
+    using WireFormat::TxDecision;
+    Key key1(1, "key1", 4);
+    Key key2(1, "key2", 4);
+    Key key3(1, "key3", 4);
+    Buffer buffer;
+    bool isCommit;
+    uint64_t newOpPtr;
+
+    WireFormat::TxParticipant participants[3];
+    participants[0] = TxParticipant(key1.getTableId(), key1.getHash(), 10U);
+    participants[1] = TxParticipant(key2.getTableId(), key2.getHash(), 11U);
+    participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
+    // create an object just so that buffer will be populated with the key
+    // and the value. This keeps the abstractions intact
+    PreparedOp op3(TxPrepare::WRITE, 1, 10, 12,
+                   key3, "new", 3, 0, 0, buffer);
+
+    WireFormat::TxPrepare::Vote vote;
+    uint64_t rpcResultPtr;
+    {
+        RpcResult rpcResult(key3.getTableId(), key3.getHash(),
+                            1, 12, 9, &vote, sizeof(vote));
+        EXPECT_EQ(STATUS_OK, service->objectManager.prepareOp(op3, 0,
+                            &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
+        EXPECT_TRUE(isCommit);
+        service->transactionManager.bufferOp(
+                op3.getTransactionId(), 12, newOpPtr);
+    }
+
+    WireFormat::TxDecision::Request reqHdr;
+    WireFormat::TxDecision::Response respHdr;
+    Buffer reqBuffer;
+    Service::Rpc rpc(NULL, &reqBuffer, NULL);
+
+    reqHdr.decision = TxDecision::RECOVERED;
+    reqHdr.leaseId = 1U;
+    reqHdr.transactionId = 10U;
+    reqHdr.recovered = false;
+    reqHdr.participantCount = 3U;
+    reqBuffer.appendExternal(&reqHdr, sizeof32(reqHdr));
+    reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 3);
+
+    TestLog::reset();
+    EXPECT_THROW(service->txDecision(&reqHdr, &respHdr, &rpc),
+                 InternalError);
+    EXPECT_EQ("txDecision: Could not recover transaction <1, 10>; found "
+            "prepared operation 12 for tableId:1 keyHash:14522200447781887568 "
+            "but was unable to recover a transaction decision.",
+            TestLog::get());
 }
 
 TEST_F(MasterServiceTest, txDecision_unknownTablet) {

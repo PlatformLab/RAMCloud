@@ -2586,6 +2586,34 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 return;
             }
         }
+    } else if (reqHdr->decision == WireFormat::TxDecision::RECOVERED) {
+        for (uint32_t i = 0; i < participantCount; ++i) {
+            TabletManager::Tablet tablet;
+            if (!tabletManager.getTablet(participants[i].tableId,
+                                         participants[i].keyHash,
+                                         &tablet)
+                    || tablet.state != TabletManager::NORMAL) {
+                respHdr->common.status = STATUS_UNKNOWN_TABLET;
+                rpc->sendReply();
+                return;
+            }
+
+            // Skip the object if it is not prepared; this is expected
+            if (!transactionManager.getOp(reqHdr->leaseId,
+                                          participants[i].rpcId)) {
+                continue;
+            }
+
+            // If the object IS prepared, we have a problem since transaction
+            // recovery was not able to recover an actual decision.
+            LOG(ERROR, "Could not recover transaction <%lu, %lu>; found "
+                    "prepared operation %lu for tableId:%lu keyHash:%lu but "
+                    "was unable to recover a transaction decision.",
+                    reqHdr->leaseId, reqHdr->transactionId,
+                    participants[i].rpcId,
+                    participants[i].tableId, participants[i].keyHash);
+            throw InternalError(HERE, STATUS_INTERNAL_ERROR);
+        }
     } else {
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
         rpc->sendReply();

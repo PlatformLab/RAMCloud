@@ -1679,6 +1679,8 @@ struct TxDecision {
 
     enum Decision { COMMIT,         // Indicate that transaction should commit.
                     ABORT,          // Indicate that transaction should abort.
+                    RECOVERED,      // Indicate that transaction recovery thinks
+                                    // the transaction has committed or aborted.
                     UNDECIDED };    // Intermediate state; should never be sent.
 
     struct Request {
