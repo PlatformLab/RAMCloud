@@ -16,7 +16,9 @@
 #ifndef RAMCLOUD_TRANSACTIONMANAGER_H
 #define RAMCLOUD_TRANSACTIONMANAGER_H
 
+#include <deque>
 #include <map>
+#include <queue>
 #include <unordered_map>
 #include <utility>
 
@@ -30,6 +32,7 @@
 #include "UnackedRpcResults.h"
 #include "WireFormat.h"
 #include "WorkerTimer.h"
+#include "Unlock.h"
 
 namespace RAMCloud {
 
@@ -141,6 +144,37 @@ class TransactionManager {
     };
 
     /**
+     * Helper class responsible from removing completed transactions from the
+     * TransactionManager::TransactionRegistry and deleting the corresponding
+     * InProgressTransaction object.
+     *
+     * Used to avoid having InProgressTransaction delete themselves in their
+     * timer handler which results in deadlock (see WorkerTimer::stopInternal).
+     */
+    class TransactionRegistryCleaner : public WorkerTimer {
+      PUBLIC:
+        /// TransactionRegistryCleaner constructor.
+        explicit TransactionRegistryCleaner(TransactionManager* manager)
+            : WorkerTimer(manager->context->dispatch)
+            , manager(manager)
+            , cleaningQueue()
+        {}
+
+        virtual void handleTimerEvent();
+        void queueForCleaning(TransactionId txId,
+                              TransactionManager::Lock& lock);
+      PRIVATE:
+        /// TransactionManager who's registry is to be cleaned.
+        TransactionManager* manager;
+
+        /// Queue of InProgressTransactions that will be cleaned if they
+        /// are considered "complete."
+        std::queue<TransactionId, std::deque<TransactionId> > cleaningQueue;
+
+        DISALLOW_COPY_AND_ASSIGN(TransactionRegistryCleaner);
+    };
+
+    /**
      * Wrapper for the pointer to PreparedOp in order to reference count the
      * transaction to which this op belongs.
      */
@@ -198,6 +232,11 @@ class TransactionManager {
                                InProgressTransaction*,
                                TransactionId::Hasher> TransactionRegistry;
     TransactionRegistry transactions;
+
+    /**
+     * Cleans complete transactions from the TransactionRegistry.
+     */
+    TransactionRegistryCleaner cleaner;
 
     InProgressTransaction* getTransaction(TransactionId txId,
                                                     Lock& lock);

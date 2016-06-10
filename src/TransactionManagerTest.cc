@@ -613,13 +613,10 @@ TEST_F(InProgressTransactionTest, handleTimerEvent_done) {
 
     iptx->handleTimerEvent();
 
-    {
-        TransactionManager::Lock lock(service1->transactionManager.mutex);
-        iptx = service1->transactionManager.getTransaction(txId, lock);
-    }
-    EXPECT_TRUE(iptx == NULL);
     EXPECT_EQ("isComplete: TxID <42,9> has completed; OK to clean.",
               TestLog::get());
+    EXPECT_EQ(1U, service1->transactionManager.cleaner.cleaningQueue.size());
+    EXPECT_EQ(txId, service1->transactionManager.cleaner.cleaningQueue.front());
 }
 
 TEST_F(InProgressTransactionTest, handleTimerEvent_error_no_participantList) {
@@ -708,6 +705,74 @@ TEST_F(InProgressTransactionTest, isComplete) {
     EXPECT_TRUE(service1->unackedRpcResults.isRpcAcked(42, 9));
 
     EXPECT_TRUE(iptx->isComplete(lock));
+}
+
+TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
+    {
+        TransactionManager::Lock lock(transactionManager.mutex);
+        {
+            TransactionId txId(42, 1);
+            transactionManager.getOrAddTransaction(txId, lock);
+            transactionManager.getTransaction(txId, lock)->recovered = true;
+            transactionManager.cleaner.cleaningQueue.push(txId);
+        }
+        {
+            TransactionId txId(42, 2);
+            transactionManager.getOrAddTransaction(txId, lock);
+            transactionManager.getTransaction(txId, lock)->recovered = true;
+            // Don't clean this one.
+        }
+        {
+            TransactionId txId(42, 3);
+            transactionManager.getOrAddTransaction(txId, lock);
+            // This one's not complete
+            transactionManager.cleaner.cleaningQueue.push(txId);
+        }
+        {
+            TransactionId txId(43, 1);
+            transactionManager.getOrAddTransaction(txId, lock);
+            transactionManager.getTransaction(txId, lock)->recovered = true;
+            transactionManager.cleaner.cleaningQueue.push(txId);
+        }
+    }
+
+    EXPECT_EQ(3U, transactionManager.cleaner.cleaningQueue.size());
+    EXPECT_EQ(5U, transactionManager.transactions.size());
+    TestLog::Enable _("~InProgressTransaction");
+
+    transactionManager.cleaner.handleTimerEvent();
+
+    EXPECT_EQ(0U, transactionManager.cleaner.cleaningQueue.size());
+    EXPECT_EQ(3U, transactionManager.transactions.size());
+    EXPECT_EQ(
+            "~InProgressTransaction: InProgressTransaction <42, 1> destroyed | "
+            "~InProgressTransaction: InProgressTransaction <43, 1> destroyed",
+            TestLog::get());
+    {
+        TransactionManager::Lock lock(transactionManager.mutex);
+        TransactionId txId(42, 2);
+        EXPECT_TRUE(transactionManager.getTransaction(txId, lock) != NULL);
+    }
+    {
+        TransactionManager::Lock lock(transactionManager.mutex);
+        TransactionId txId(42, 3);
+        EXPECT_TRUE(transactionManager.getTransaction(txId, lock) != NULL);
+    }
+}
+
+TEST_F(TransactionManagerTest, TransactionRegistryCleaner_queueForCleaning) {
+    TransactionManager::Lock lock(transactionManager.mutex);
+    TransactionId txId(42, 1);
+    transactionManager.getOrAddTransaction(txId, lock);
+
+    EXPECT_FALSE(transactionManager.cleaner.isRunning());
+    EXPECT_EQ(0U, transactionManager.cleaner.cleaningQueue.size());
+
+    transactionManager.cleaner.queueForCleaning(txId, lock);
+
+    EXPECT_TRUE(transactionManager.cleaner.isRunning());
+    EXPECT_EQ(1U, transactionManager.cleaner.cleaningQueue.size());
+    EXPECT_EQ(txId, transactionManager.cleaner.cleaningQueue.front());
 }
 
 TEST_F(TransactionManagerTest, PreparedItem_constructor_destructor) {

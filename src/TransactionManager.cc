@@ -46,6 +46,7 @@ TransactionManager::TransactionManager(Context* context,
     , unackedRpcResults(unackedRpcResults)
     , items()
     , transactions()
+    , cleaner(this)
 {
 }
 
@@ -55,6 +56,9 @@ TransactionManager::TransactionManager(Context* context,
 TransactionManager::~TransactionManager()
 {
     Lock lock(mutex);
+
+    cleaner.stop();
+
     for (auto it = items.begin(); it != items.end(); ++it) {
         PreparedItem* item = it->second;
         delete item;
@@ -436,6 +440,9 @@ TransactionManager::InProgressTransaction::~InProgressTransaction()
 {
     assert(!manager->mutex.try_lock());
 
+    TEST_LOG("InProgressTransaction <%lu, %lu> destroyed",
+            txId.clientLeaseId, txId.clientTransactionId);
+
     if (participantListLogRef != AbstractLog::Reference()) {
         manager->log->free(participantListLogRef);
     }
@@ -462,11 +469,12 @@ TransactionManager::InProgressTransaction::handleTimerEvent()
     // from being processed.
     TransactionManager::Lock lock(manager->mutex);
 
-    // Transaction is no longer in progress; delete this object.
+    // Transaction is no longer in progress; schedule to clean this object.
     if (isComplete(lock)) {
-        // The transaction is complete
-        manager->transactions.erase(txId);
-        delete this;
+        // This code used to call delete on itself directly which could result
+        // in deadlock (see WorkerTimer::stopInternal).  The async cleaner was
+        // added to avoid this deadlock.
+        manager->cleaner.queueForCleaning(txId, lock);
         return;
     }
     // Else, the transaction did not complete before it timed-out.
@@ -556,6 +564,46 @@ TransactionManager::InProgressTransaction::isComplete(
 }
 
 /**
+ * This method is called when there are transactions that need to be cleaned
+ * from the TransactionRegistry and deleted.
+ */
+void
+TransactionManager::TransactionRegistryCleaner::handleTimerEvent()
+{
+    TransactionManager::Lock lock(manager->mutex);
+    while (!cleaningQueue.empty()) {
+        TransactionId txId = cleaningQueue.front();
+        cleaningQueue.pop();
+        InProgressTransaction* iptx = manager->getTransaction(txId, lock);
+        if (iptx != NULL && iptx->isComplete(lock)) {;
+            manager->transactions.erase(txId);
+            delete iptx;
+        }
+    }
+}
+
+/**
+ * Request that an InProgressTransaction to be eventually deleted and dropped
+ * from the TransactionRegistry.  The transaction will only be dropped if the
+ * transaction "isComplete" when the cleaner get to it.  Otherwise, the cleaning
+ * request will be a noop.
+ *
+ * \param txId
+ *      Id of the InProgressTransaction that should be eventually cleaned.
+ * \param lock
+ *      Used to ensure that caller has acquired TransactionManager::mutex.
+ *      Not actually used by the method.
+ */
+void
+TransactionManager::TransactionRegistryCleaner::queueForCleaning(
+        TransactionId txId,
+        TransactionManager::Lock& lock)
+{
+    cleaningQueue.push(txId);
+    this->start(0);
+}
+
+/**
  * Returns a pointer to a InProgressTransaction object if it exists.
  *
  * \param txId
@@ -605,7 +653,5 @@ TransactionManager::getOrAddTransaction(TransactionId txId, Lock& lock)
     assert(transaction != NULL);
     return transaction;
 }
-
-
 
 } // namespace RAMCloud
