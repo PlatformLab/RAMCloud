@@ -105,6 +105,7 @@ class TransactionManager {
                               TransactionManager::Lock& lock);
         ~InProgressTransaction();
         virtual void handleTimerEvent();
+        bool isComplete(TransactionManager::Lock& lock);
 
         /// Number of prepared but uncommitted ops for this transaction.
         int preparedOpCount;

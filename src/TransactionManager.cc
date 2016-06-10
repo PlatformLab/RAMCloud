@@ -463,19 +463,11 @@ TransactionManager::InProgressTransaction::handleTimerEvent()
     TransactionManager::Lock lock(manager->mutex);
 
     // Transaction is no longer in progress; delete this object.
-    if (preparedOpCount <= 0) {
-        if (manager->unackedRpcResults->isRpcAcked(txId.clientLeaseId,
-                                                   txId.clientTransactionId)
-                || recovered) {
-
-            TEST_LOG("TxID <%lu,%lu> has completed; OK to clean.",
-                txId.clientLeaseId, txId.clientTransactionId);
-
-            // The transaction is complete
-            manager->transactions.erase(txId);
-            delete this;
-            return;
-        }
+    if (isComplete(lock)) {
+        // The transaction is complete
+        manager->transactions.erase(txId);
+        delete this;
+        return;
     }
     // Else, the transaction did not complete before it timed-out.
 
@@ -534,6 +526,33 @@ TransactionManager::InProgressTransaction::handleTimerEvent()
                 "for next timeout.",
                 txId.clientLeaseId, txId.clientTransactionId);
     }
+}
+
+/**
+ * Used to determine if this InProgressTransaction is no longer needed.
+ *
+ * \param lock
+ *      Used to ensure that caller has acquired TransactionManager::mutex.
+ *      Not actually used by the method.
+ * \return
+ *      TRUE if the transaction is considered complete (all preparedOps
+ *      addressed and all participants notified).  FALSE otherwise.
+ */
+bool
+TransactionManager::InProgressTransaction::isComplete(
+        TransactionManager::Lock& lock)
+{
+    if (preparedOpCount <= 0) {
+        if (manager->unackedRpcResults->isRpcAcked(txId.clientLeaseId,
+                                                   txId.clientTransactionId)
+                || recovered) {
+
+            TEST_LOG("TxID <%lu,%lu> has completed; OK to clean.",
+                txId.clientLeaseId, txId.clientTransactionId);
+            return true;
+        }
+    }
+    return false;
 }
 
 /**

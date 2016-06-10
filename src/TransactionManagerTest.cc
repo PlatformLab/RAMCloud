@@ -579,57 +579,7 @@ TEST_F(InProgressTransactionTest, handleTimerEvent_basic) {
               TestLog::get());
 }
 
-TEST_F(InProgressTransactionTest, handleTimerEvent_done_acked) {
-    TransactionManager::InProgressTransaction* iptx;
-
-    {
-        TransactionManager::Lock lock(service1->transactionManager.mutex);
-        iptx = service1->transactionManager.getTransaction(txId, lock);
-    }
-
-    {
-        UnackedRpcResults::Lock lock(service1->unackedRpcResults.mutex);
-        UnackedRpcResults::Client* client =
-                service1->unackedRpcResults.getOrInitClientRecord(42, lock);
-        client->maxAckId = 12;
-    }
-    EXPECT_TRUE(service1->unackedRpcResults.isRpcAcked(42, 9));
-
-    iptx->preparedOpCount = 1;
-
-    TestLog::Enable _("handleTimerEvent");
-    EXPECT_FALSE(iptx->txHintFailedRpc);
-    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
-    iptx->handleTimerEvent();
-    {
-        TransactionManager::Lock lock(service1->transactionManager.mutex);
-        iptx = service1->transactionManager.getTransaction(txId, lock);
-    }
-    EXPECT_FALSE(iptx == NULL);
-    EXPECT_FALSE(iptx->txHintFailedRpc);
-    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
-    EXPECT_EQ("handleTimerEvent: TxID <42,9> sending TxHintFailed RPC to owner "
-                    "of tableId 1 and keyHash 2. | "
-              "handleTimerEvent: TxID <42,9> received ack for TxHintFailed "
-                    "RPC; will wait for next timeout.",
-              TestLog::get());
-
-    iptx->preparedOpCount = 0;
-
-    TestLog::reset();
-
-    iptx->handleTimerEvent();
-
-    {
-        TransactionManager::Lock lock(service1->transactionManager.mutex);
-        iptx = service1->transactionManager.getTransaction(txId, lock);
-    }
-    EXPECT_TRUE(iptx == NULL);
-    EXPECT_EQ("handleTimerEvent: TxID <42,9> has completed; OK to clean.",
-              TestLog::get());
-}
-
-TEST_F(InProgressTransactionTest, handleTimerEvent_done_recovered) {
+TEST_F(InProgressTransactionTest, handleTimerEvent_done) {
     TransactionManager::InProgressTransaction* iptx;
 
     {
@@ -640,7 +590,7 @@ TEST_F(InProgressTransactionTest, handleTimerEvent_done_recovered) {
     iptx->recovered = true;
     iptx->preparedOpCount = 1;
 
-    TestLog::Enable _("handleTimerEvent");
+    TestLog::Enable _("handleTimerEvent", "isComplete");
     EXPECT_FALSE(iptx->txHintFailedRpc);
     EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
     iptx->handleTimerEvent();
@@ -668,7 +618,7 @@ TEST_F(InProgressTransactionTest, handleTimerEvent_done_recovered) {
         iptx = service1->transactionManager.getTransaction(txId, lock);
     }
     EXPECT_TRUE(iptx == NULL);
-    EXPECT_EQ("handleTimerEvent: TxID <42,9> has completed; OK to clean.",
+    EXPECT_EQ("isComplete: TxID <42,9> has completed; OK to clean.",
               TestLog::get());
 }
 
@@ -729,6 +679,35 @@ TEST_F(InProgressTransactionTest, handleTimerEvent_waiting) {
     EXPECT_EQ(0U, iptx->triggerTime);
     EXPECT_EQ("handleTimerEvent: TxID <42,9> waiting for TxHintFailed RPC ack.",
               TestLog::get());
+}
+
+TEST_F(InProgressTransactionTest, isComplete) {
+    TransactionManager::InProgressTransaction* iptx;
+    TransactionManager::Lock lock(service1->transactionManager.mutex);
+    iptx = service1->transactionManager.getTransaction(txId, lock);
+
+    iptx->preparedOpCount = 1;
+
+    EXPECT_FALSE(iptx->isComplete(lock));
+
+    iptx->preparedOpCount = 0;
+
+    EXPECT_FALSE(iptx->isComplete(lock));
+
+    iptx->recovered = true;
+
+    EXPECT_TRUE(iptx->isComplete(lock));
+
+    iptx->recovered = false;
+    {
+        UnackedRpcResults::Lock lock(service1->unackedRpcResults.mutex);
+        UnackedRpcResults::Client* client =
+                service1->unackedRpcResults.getOrInitClientRecord(42, lock);
+        client->maxAckId = 12;
+    }
+    EXPECT_TRUE(service1->unackedRpcResults.isRpcAcked(42, 9));
+
+    EXPECT_TRUE(iptx->isComplete(lock));
 }
 
 TEST_F(TransactionManagerTest, PreparedItem_constructor_destructor) {
