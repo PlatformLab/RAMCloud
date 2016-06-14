@@ -225,8 +225,8 @@ Log::syncTo(Log::Reference reference)
 
     LogSegment* segment = getSegment(reference);
 
-    // Fast-pass: check the log reference we want to sync is point to
-    //            a segment already closed and synced.
+    // Fast path: see if the log reference we want to sync is in
+    //            a segment that is already closed and synced.
     if (segment->closedCommitted.load(std::memory_order_relaxed)) {
         TEST_LOG("sync not needed: entry is already replicated");
         return;
