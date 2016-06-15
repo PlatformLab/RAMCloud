@@ -794,8 +794,10 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
             entry.set_service_locator(locator);
         } catch (const ServerListException& e) {
             RAMCLOUD_CLOG(NOTICE, "Server id (%s) in tablet map no longer "
-                    "in server list; omitting locator for entry",
-                    tablet->serverId.toString().c_str());
+                    "in server list; omitting locator for entry (tableName %s, "
+                    "tableId %lu, startKeyHash 0x%lx)",
+                    tablet->serverId.toString().c_str(), table->name.c_str(),
+                    tableId, tablet->startKeyHash);
         }
     }
 
@@ -837,8 +839,10 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
                 entry.set_service_locator(locator);
             } catch (const ServerListException& e) {
                 RAMCLOUD_LOG(NOTICE, "Server id (%s) in index map no longer in "
-                    "server list; omitting locator for entry",
-                    indexlet->serverId.toString().c_str());
+                    "server list; omitting locator for entry (tableName %s,"
+                    "tableId %lu, indexId %d)",
+                    indexlet->serverId.toString().c_str(), table->name.c_str(),
+                    tableId, index->indexId);
             }
         }
     }

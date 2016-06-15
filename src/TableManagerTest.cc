@@ -745,7 +745,8 @@ TEST_F(TableManagerTest, serializeTabletConfig) {
             "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
             tableConfig.ShortDebugString());
     EXPECT_EQ("serializeTableConfig: Server id (4.0) in tablet map no longer "
-            "in server list; omitting locator for entry",
+            "in server list; omitting locator for entry (tableName table2, "
+            "tableId 2, startKeyHash 0x0)",
             TestLog::get());
 }
 
