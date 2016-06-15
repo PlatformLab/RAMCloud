@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -566,10 +566,14 @@ struct ServerConfig {
         }
 
         RAMCLOUD_LOG(NOTICE,
-                     "Master to allocate %lu bytes total, %lu of which for the "
-                     "hash table", masterBytes, hashTableBytes);
+                     "Master to allocate %lu bytes total, %lu of which are "
+                     "for the hash table", masterBytes, hashTableBytes);
         RAMCLOUD_LOG(NOTICE, "Master will have %lu segments and %lu lines in "
                      "the hash table", numSegments, numHashTableLines);
+        uint64_t logBytesPerEntry = logBytes /
+                (numHashTableLines * HashTable::entriesPerCacheLine());
+        RAMCLOUD_LOG(NOTICE, "Hash table will have one entry for "
+                     "every %lu bytes in the log", logBytesPerEntry);
 
         master.logBytes = logBytes;
         master.hashTableBytes = hashTableBytes;
