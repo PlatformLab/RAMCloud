@@ -211,6 +211,10 @@ class WorkerTimer {
     /// If zero, use default value; should be nonzero only for unit tests
     static int stopWarningMs;
 
+    /// For testing: If true, prevents all WorkerTimers handlers from actually
+    /// firing.  Defaults to false.
+    static bool disableTimerHandlers;
+
     static Manager* findManager(Dispatch* dispatch, Lock& lock);
 
     DISALLOW_COPY_AND_ASSIGN(WorkerTimer);

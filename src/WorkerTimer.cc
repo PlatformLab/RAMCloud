@@ -27,6 +27,7 @@ std::mutex WorkerTimer::mutex;
 WorkerTimer::ManagerList WorkerTimer::managers;
 int WorkerTimer::workerThreadProgressCount = 0;
 int WorkerTimer::stopWarningMs = 0;
+bool WorkerTimer::disableTimerHandlers = false;
 
 /**
  * Construct a WorkerTimer but do not start it: it will not fire until #start
@@ -292,6 +293,12 @@ void WorkerTimer::Manager::checkTimers(Lock& lock)
     while (1) {
         WorkerTimer* ready = NULL;
         uint64_t now = Cycles::rdtsc();
+
+        // Don't run if handlers are disabled (used for unit testing)
+        if (disableTimerHandlers) {
+            start(earliestTriggerTime);
+            break;
+        }
 
         // Scan the list of active timers to find all timers that are ready
         // to run and pick the runnable timer that has been waiting the longest
