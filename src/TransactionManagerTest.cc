@@ -613,7 +613,8 @@ TEST_F(InProgressTransactionTest, handleTimerEvent_done) {
 
     iptx->handleTimerEvent();
 
-    EXPECT_EQ("isComplete: TxID <42,9> has completed; OK to clean.",
+    EXPECT_EQ("isComplete: TxID <42,9> has completed; "
+              "Recovered with all prepared operations decided.",
               TestLog::get());
     EXPECT_EQ(1U, service1->transactionManager.cleaner.cleaningQueue.size());
     EXPECT_EQ(txId, service1->transactionManager.cleaner.cleaningQueue.front());
@@ -679,21 +680,29 @@ TEST_F(InProgressTransactionTest, handleTimerEvent_waiting) {
 }
 
 TEST_F(InProgressTransactionTest, isComplete) {
+    TestLog::Enable _("isComplete");
     TransactionManager::InProgressTransaction* iptx;
     TransactionManager::Lock lock(service1->transactionManager.mutex);
     iptx = service1->transactionManager.getTransaction(txId, lock);
 
     iptx->preparedOpCount = 1;
 
+    TestLog::reset();
     EXPECT_FALSE(iptx->isComplete(lock));
+    EXPECT_EQ("", TestLog::get());
 
     iptx->preparedOpCount = 0;
 
+    TestLog::reset();
     EXPECT_FALSE(iptx->isComplete(lock));
+    EXPECT_EQ("", TestLog::get());
 
     iptx->recovered = true;
 
+    TestLog::reset();
     EXPECT_TRUE(iptx->isComplete(lock));
+    EXPECT_EQ("isComplete: TxID <42,9> has completed; Recovered with all "
+            "prepared operations decided.", TestLog::get());
 
     iptx->recovered = false;
     {
@@ -704,7 +713,10 @@ TEST_F(InProgressTransactionTest, isComplete) {
     }
     EXPECT_TRUE(service1->unackedRpcResults.isRpcAcked(42, 9));
 
+    TestLog::reset();
     EXPECT_TRUE(iptx->isComplete(lock));
+    EXPECT_EQ("isComplete: TxID <42,9> has completed; Acked by Client.",
+            TestLog::get());
 }
 
 TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {

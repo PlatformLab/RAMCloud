@@ -550,17 +550,30 @@ bool
 TransactionManager::InProgressTransaction::isComplete(
         TransactionManager::Lock& lock)
 {
-    if (preparedOpCount <= 0) {
-        if (manager->unackedRpcResults->isRpcAcked(txId.clientLeaseId,
-                                                   txId.clientTransactionId)
-                || recovered) {
-
-            TEST_LOG("TxID <%lu,%lu> has completed; OK to clean.",
+    if (manager->unackedRpcResults->isRpcAcked(txId.clientLeaseId,
+                                               txId.clientTransactionId)) {
+        // If the client acked, all decisions should have been received.  If
+        // not all decision were received, there is a serious bug.
+        if (expect_false(preparedOpCount > 0)) {
+            DIE("TxID <%lu,%lu> was acked but not all prepared operations "
+                    "have been decided.",
                 txId.clientLeaseId, txId.clientTransactionId);
-            return true;
         }
+        TEST_LOG("TxID <%lu,%lu> has completed; Acked by Client.",
+                txId.clientLeaseId, txId.clientTransactionId);
+        return true;
+    } else if (recovered && preparedOpCount <= 0) {
+        // Note: it's possible to be "recovered" but not have all prepared
+        // operations decided if the recovery manager sent a decision rpc to
+        // this master but did not send a decision of all the operations.  If
+        // this is the case, the transaction is not yet complete.
+        TEST_LOG("TxID <%lu,%lu> has completed; Recovered with all prepared "
+                "operations decided.",
+                txId.clientLeaseId, txId.clientTransactionId);
+        return true;
+    } else {
+        return false;
     }
-    return false;
 }
 
 /**
