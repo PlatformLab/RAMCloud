@@ -70,11 +70,13 @@ class TransactionManagerTest : public ::testing::Test {
     {
         context.dispatch = new Dispatch(false);
         transactionManager.bufferOp(TransactionId(1, 1), 10, 1011);
+        WorkerTimer::disableTimerHandlers = true;
     }
 
     ~TransactionManagerTest()
     {
         Cycles::mockTscValue = 0;
+        WorkerTimer::disableTimerHandlers = false;
     }
 
     DISALLOW_COPY_AND_ASSIGN(TransactionManagerTest);
@@ -117,6 +119,7 @@ class InProgressTransactionTest : public ::testing::Test {
         , txId(42, 9)
     {
         Cycles::mockTscValue = 100;
+        WorkerTimer::disableTimerHandlers = true;
 
         Logger::get().setLogLevels(RAMCloud::SILENT_LOG_LEVEL);
 
@@ -167,6 +170,7 @@ class InProgressTransactionTest : public ::testing::Test {
     ~InProgressTransactionTest()
     {
         Cycles::mockTscValue = 0;
+        WorkerTimer::disableTimerHandlers = false;
     }
 
     DISALLOW_COPY_AND_ASSIGN(InProgressTransactionTest);
@@ -327,7 +331,7 @@ TEST_F(TransactionManagerTest, registerTransaction_timerStart) {
     EXPECT_EQ(200 + iptx->timeoutCycles, iptx->triggerTime);
     EXPECT_TRUE(iptx->isRunning());
 
-    // Reset iptx to avoid unexpected
+    // Reset iptx to avoid unexpected behavior.
     iptx->stop();
     iptx->txHintFailedRpc.occupied = false;
 }
@@ -618,6 +622,9 @@ TEST_F(InProgressTransactionTest, handleTimerEvent_done) {
               TestLog::get());
     EXPECT_EQ(1U, service1->transactionManager.cleaner.cleaningQueue.size());
     EXPECT_EQ(txId, service1->transactionManager.cleaner.cleaningQueue.front());
+
+    // Stop iptx before it is allowed to actually run.
+    iptx->stop();
 }
 
 TEST_F(InProgressTransactionTest, handleTimerEvent_error_no_participantList) {
