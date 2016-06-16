@@ -118,12 +118,13 @@ TESTS_SRCFILES := \
 		  src/ObjectRpcWrapperTest.cc \
 		  src/ObjectTest.cc \
 		  src/OptionParserTest.cc \
+		  src/ParticipantListTest.cc \
 		  src/PerfCounterTest.cc \
 		  src/PerfStatsTest.cc \
 		  src/PingServiceTest.cc \
 		  src/PortAlarm.cc \
 		  src/PortAlarmTest.cc \
-		  src/PreparedOpsTest.cc \
+		  src/PreparedOpTest.cc \
 		  src/PriorityTaskQueueTest.cc \
 		  src/ProtoBufTest.cc \
 		  src/RawMetricsTest.cc \
@@ -172,6 +173,7 @@ TESTS_SRCFILES := \
 		  src/TimeTraceTest.cc \
 		  src/TimeTraceUtilTest.cc \
 		  src/TransactionTest.cc \
+		  src/TransactionManagerTest.cc \
 		  src/TransportManagerTest.cc \
 		  src/TransportTest.cc \
 		  src/TxDecisionRecordTest.cc \

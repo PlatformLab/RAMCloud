@@ -16,13 +16,13 @@
 #include "TestUtil.h"
 #include "Object.h"
 #include "ObjectManager.h"
-#include "PreparedOps.h"
 #include "RecoverySegmentBuilder.h"
 #include "SegmentIterator.h"
 #include "SegmentManager.h"
 #include "ServerConfig.h"
 #include "StringUtil.h"
 #include "TabletsBuilder.h"
+#include "TransactionManager.h"
 #include "MasterTableMetadata.h"
 
 namespace RAMCloud {
@@ -322,21 +322,15 @@ TEST_F(RecoverySegmentBuilderTest, build_participantList) {
     char buf[serverConfig.segmentSize];
     ASSERT_TRUE(segment->copyOut(0, buf, length));
 
-    std::unique_ptr<Segment[]> recoverySegments(new Segment[3]);
-    build(buf, length, certificate, 3, partitions, recoverySegments.get());
+    std::unique_ptr<Segment[]> recoverySegments(new Segment[2]);
+    build(buf, length, certificate, 2, partitions, recoverySegments.get());
 
     EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
             "participantList at offset 14, length 96 with "
             "TxId: (leaseId 42, rpcId 9) containing 3 entries",
             ObjectManager::dumpSegment(&recoverySegments[0]));
-    EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
-            "participantList at offset 14, length 96 with "
-            "TxId: (leaseId 42, rpcId 9) containing 3 entries",
+    EXPECT_EQ("safeVersion at offset 0, length 12 with version 1",
             ObjectManager::dumpSegment(&recoverySegments[1]));
-    EXPECT_EQ("safeVersion at offset 0, length 12 with version 1 | "
-            "participantList at offset 14, length 96 with "
-            "TxId: (leaseId 42, rpcId 9) containing 3 entries",
-            ObjectManager::dumpSegment(&recoverySegments[2]));
 }
 
 TEST_F(RecoverySegmentBuilderTest, extractDigest) {

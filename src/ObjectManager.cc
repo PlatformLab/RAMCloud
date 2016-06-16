@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -60,8 +60,8 @@ namespace RAMCloud {
  * \param unackedRpcResults
  *      Pointer to the master's UnackedRpcResults instance.  This keeps track
  *      of data stored to ensure client rpcs are linearizable.
- * \param preparedOps
- *      Pointer to the master's PreparedWrites instance.  This keeps track
+ * \param transactionManager
+ *      Pointer to the master's TransactionManager instance.  This keeps track
  *      of data stored during transaction prepare stage.
  * \param txRecoveryManager
  *      Pointer to the master's TxRecoveryManager instance.  This keeps track
@@ -73,14 +73,14 @@ ObjectManager::ObjectManager(Context* context, ServerId* serverId,
                 TabletManager* tabletManager,
                 MasterTableMetadata* masterTableMetadata,
                 UnackedRpcResults* unackedRpcResults,
-                PreparedOps* preparedOps,
+                TransactionManager* transactionManager,
                 TxRecoveryManager* txRecoveryManager)
     : context(context)
     , config(config)
     , tabletManager(tabletManager)
     , masterTableMetadata(masterTableMetadata)
     , unackedRpcResults(unackedRpcResults)
-    , preparedOps(preparedOps)
+    , transactionManager(transactionManager)
     , txRecoveryManager(txRecoveryManager)
     , allocator(config)
     , replicaManager(context, serverId,
@@ -937,7 +937,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             // LockTable implementation.)
             //
             // We should grab all locks after we replay all segments
-            // (by traversing PreparedWrites)
+            // (by traversing TransactionManager)
             Buffer buffer;
             it.appendToBuffer(buffer);
 
@@ -977,8 +977,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 minSuccessor = currentVersion + 1;
             }
 
-            if (!preparedOps->isDeleted(op.header.clientId, op.header.rpcId) &&
-                !preparedOps->getOp(op.header.clientId, op.header.rpcId) &&
+            if (!transactionManager->isOpDeleted(op.header.clientId,
+                                                 op.header.rpcId) &&
+                !transactionManager->getOp(op.header.clientId,
+                                           op.header.rpcId) &&
                 op.object.header.version >= minSuccessor) {
 
                 // write to log (with lazy backup flush) & update hash table
@@ -993,10 +995,9 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                             buffer.size(),
                             1);
                 }
-                preparedOps->bufferOp(op.header.clientId,
-                                         op.header.rpcId,
-                                         newReference.toInteger(),
-                                         true);
+                transactionManager->bufferOp(op.getTransactionId(),
+                                             op.header.rpcId,
+                                             newReference.toInteger());
             }
         } else if (type == LOG_ENTRY_TYPE_PREPTOMB) {
             Buffer buffer;
@@ -1013,16 +1014,16 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                              opTomb.header.rpcId);
             }
 
-            if (!preparedOps->isDeleted(opTomb.header.clientLeaseId,
-                                           opTomb.header.rpcId) &&
-                !preparedOps->getOp(opTomb.header.clientLeaseId,
-                                        opTomb.header.rpcId)) {
+            if (!transactionManager->isOpDeleted(opTomb.header.clientLeaseId,
+                                                 opTomb.header.rpcId) &&
+                !transactionManager->getOp(opTomb.header.clientLeaseId,
+                                           opTomb.header.rpcId)) {
                 // PreparedOp log entry is either deleted or
                 // not yet recovered. We will check whether it is marked
                 // for deletion and skip its recovery, so no need to recover
                 // this tombstone.
-                preparedOps->markDeleted(opTomb.header.clientLeaseId,
-                                            opTomb.header.rpcId);
+                transactionManager->markOpDeleted(opTomb.header.clientLeaseId,
+                                                  opTomb.header.rpcId);
             } else {
                 // write to log (with lazy backup flush)
                 Log::Reference newReference;
@@ -1036,12 +1037,12 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                             buffer.size(),
                             1);
                 }
-                preparedOps->removeOp(opTomb.header.clientLeaseId,
-                                      opTomb.header.rpcId);
+                transactionManager->removeOp(opTomb.header.clientLeaseId,
+                                             opTomb.header.rpcId);
 
                 // For idempodency of replaySegment.
-                preparedOps->markDeleted(opTomb.header.clientLeaseId,
-                                            opTomb.header.rpcId);
+                transactionManager->markOpDeleted(opTomb.header.clientLeaseId,
+                                                  opTomb.header.rpcId);
             }
         } else if (type == LOG_ENTRY_TYPE_TXDECISION) {
             Buffer buffer;
@@ -1087,29 +1088,13 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                         txId.clientLeaseId, txId.clientTransactionId);
                 // TODO(cstlee): Should throw and try another segment replica?
             }
-            if (unackedRpcResults->shouldRecover(txId.clientLeaseId,
-                                                 txId.clientTransactionId,
-                                                 0,
-                                                 type)) {
-                CycleCounter<uint64_t> _(&segmentAppendTicks);
-                Log::Reference logRef;
-                if (sideLog->append(LOG_ENTRY_TYPE_TXPLIST, buffer, &logRef)) {
-                    unackedRpcResults->recoverRecord(
-                            txId.clientLeaseId,
-                            txId.clientTransactionId,
-                            0,
-                            reinterpret_cast<void*>(logRef.toInteger()));
-                    // Participant List records are not accounted for in the
-                    // table stats. The assumption is that the Participant List
-                    // records should occupy a relatively small fraction of the
-                    // server's log and thus should not significantly affect
-                    // table stats estimate.
-                } else {
-                    LOG(ERROR,
-                            "Could not append ParticipantList! "
-                            "(leaseId: %lu, txId: %lu)",
-                            txId.clientLeaseId, txId.clientTransactionId);
-                }
+
+            if (transactionManager->registerTransaction(participantList,
+                                                        buffer,
+                                                        sideLog) != STATUS_OK) {
+                LOG(ERROR, "Could not append ParticipantList! "
+                        "(leaseId: %lu, txId: %lu)",
+                        txId.clientLeaseId, txId.clientTransactionId);
             }
         }
     }
@@ -1426,43 +1411,6 @@ ObjectManager::writeRpcResultOnly(RpcResult* rpcResult, uint64_t* rpcResultPtr)
             rpcResult->getTableId(),
             av.buffer.size(),
             1);
-}
-
-/**
- * Append the provided ParticipantList to the log.
- *
- * \param participantList
- *      ParticipantList to be appended.
- * \param participantListLogRef
- *      Log reference to the appended ParticipantList.
- * \return
- *      STATUS_OK if the ParticipantList could be appended.
- *      STATUS_RETRY otherwise.
- */
-Status
-ObjectManager::logTransactionParticipantList(ParticipantList& participantList,
-                                             uint64_t* participantListLogRef)
-{
-    Buffer participantListBuffer;
-    Log::Reference reference;
-    participantList.assembleForLog(participantListBuffer);
-
-    // Write the ParticipantList into the Log, update the table.
-    if (!log.append(LOG_ENTRY_TYPE_TXPLIST, participantListBuffer, &reference))
-    {
-        // The log is out of space. Tell the client to retry and hope
-        // that the cleaner makes space soon.
-        return STATUS_RETRY;
-    }
-
-    *participantListLogRef = reference.toInteger();
-
-    // Participant List records are not accounted for in the table stats.  The
-    // assumption is that the Participant List records should occupy a
-    // relatively small fraction of the server's log and thus should not
-    // significantly affect table stats estimate.
-
-    return STATUS_OK;
 }
 
 /**
@@ -1841,7 +1789,7 @@ ObjectManager::commitRead(PreparedOp& op, Log::Reference& refToPreparedOp)
     // Skip if object is not prepared since it is already committed.
     // We need to check this again after holding HashTableBucketLock
     // since there can be a concurrent TxDecision RPC.
-    if (!preparedOps->getOp(op.header.clientId, op.header.rpcId)) {
+    if (!transactionManager->getOp(op.header.clientId, op.header.rpcId)) {
         return STATUS_OK; // Just skip this operation.
     }
 
@@ -1879,7 +1827,7 @@ ObjectManager::commitRead(PreparedOp& op, Log::Reference& refToPreparedOp)
             prepTombBuffer.size(),
             1);
     log.free(refToPreparedOp);
-    preparedOps->removeOp(op.header.clientId, op.header.rpcId);
+    transactionManager->removeOp(op.header.clientId, op.header.rpcId);
     return STATUS_OK;
 }
 
@@ -1912,7 +1860,7 @@ ObjectManager::commitRemove(PreparedOp& op,
     // Skip if object is not prepared since it is already committed.
     // We need to check this again after holding HashTableBucketLock
     // since there can be a concurrent TxDecision RPC.
-    if (!preparedOps->getOp(op.header.clientId, op.header.rpcId)) {
+    if (!transactionManager->getOp(op.header.clientId, op.header.rpcId)) {
         return STATUS_OK; // Just skip this operation.
     }
 
@@ -1984,7 +1932,7 @@ ObjectManager::commitRemove(PreparedOp& op,
     segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log.free(reference);
     log.free(refToPreparedOp);
-    preparedOps->removeOp(op.header.clientId, op.header.rpcId);
+    transactionManager->removeOp(op.header.clientId, op.header.rpcId);
     remove(lock, key);
     return STATUS_OK;
 }
@@ -2020,7 +1968,7 @@ ObjectManager::commitWrite(PreparedOp& op,
     // Skip if object is not prepared since it is already committed.
     // We need to check this again after holding HashTableBucketLock
     // since there can be a concurrent TxDecision RPC.
-    if (!preparedOps->getOp(op.header.clientId, op.header.rpcId)) {
+    if (!transactionManager->getOp(op.header.clientId, op.header.rpcId)) {
         return STATUS_OK; // Just skip this operation.
     }
 
@@ -2113,7 +2061,7 @@ ObjectManager::commitWrite(PreparedOp& op,
             op.object.getKeysAndValueLength() - valueLength;
 
     log.free(refToPreparedOp);
-    preparedOps->removeOp(op.header.clientId, op.header.rpcId);
+    transactionManager->removeOp(op.header.clientId, op.header.rpcId);
 
     if (!newKey) {
         currentHashTableEntry.setReference(appends[1].reference.toInteger());
@@ -2489,7 +2437,9 @@ ObjectManager::relocate(LogEntryType type, Buffer& oldBuffer,
     else if (type == LOG_ENTRY_TYPE_TXDECISION)
         relocateTxDecisionRecord(oldBuffer, relocator);
     else if (type == LOG_ENTRY_TYPE_TXPLIST)
-        relocateTxParticipantList(oldBuffer, relocator);
+        transactionManager->relocateParticipantList(oldBuffer,
+                                                    oldReference,
+                                                    relocator);
 }
 
 /**
@@ -3102,7 +3052,7 @@ ObjectManager::relocateRpcResult(Buffer& oldBuffer,
  * an PreparedOp.
  *
  * This method will decide if the PreparedOp is still alive. If it is, it must
- * move the record to a new location and update the PreparedWrites module.
+ * move the record to a new location and update the TransactionManager module.
  *
  * \param oldBuffer
  *      Buffer pointing to the PreparedOp's current location, which will soon be
@@ -3130,16 +3080,18 @@ ObjectManager::relocatePreparedOp(Buffer& oldBuffer,
             op.object.getKeyLength());
     HashTableBucketLock lock(*this, key);
 
-    uint64_t opPtr = preparedOps->getOp(op.header.clientId, op.header.rpcId);
+    uint64_t opPtr = transactionManager->getOp(op.header.clientId,
+                                               op.header.rpcId);
     if (opPtr) {
         // Try to relocate it. If it fails, just return. The cleaner will
         // allocate more memory and retry.
         if (!relocator.append(LOG_ENTRY_TYPE_PREP, oldBuffer))
             return;
 
-        preparedOps->updatePtr(op.header.clientId,
-                                  op.header.rpcId,
-                                  relocator.getNewReference().toInteger());
+        transactionManager->updateOpPtr(
+                op.header.clientId,
+                op.header.rpcId,
+                relocator.getNewReference().toInteger());
         // Move transaction LockTable lock to new location.
         if (lockTable.releaseLock(key, oldReference)) {
             lockTable.acquireLock(key, relocator.getNewReference());
@@ -3158,8 +3110,7 @@ ObjectManager::relocatePreparedOp(Buffer& oldBuffer,
  * an PreparedOpTombstone.
  *
  * This method will decide if the PreparedOpTombstone is still alive.
- * If it is, it must move the record to a new location and update
- * the PreparedWrites module.
+ * If it is, it must move the record to a new location.
  *
  * \param oldBuffer
  *      Buffer pointing to the PreparedOp's current location, which will soon be
@@ -3299,61 +3250,6 @@ ObjectManager::relocateTxDecisionRecord(
                               record.getTableId(),
                               oldBuffer.size(),
                               1);
-    }
-}
-
-/**
- * Method used by the LogCleaner when it's cleaning a Segment and comes across
- * a ParticipantList record.
- *
- * This method will decide if the ParticipantList is still alive. If it is, it
- * must move the record to a new location and update the PreparedOps module.
- *
- * \param oldBuffer
- *      Buffer pointing to the ParticipantList's current location, which will
- *      soon be invalidated.
- * \param relocator
- *      The relocator may be used to store the ParticipantList in a new location
- *      if it is still alive. It also provides a reference to the new location
- *      and keeps track of whether this call wanted the ParticipantList anymore
- *      or not.
- *
- *      It is possible that relocation may fail (because more memory needs to
- *      be allocated). In this case, the callback should just return. The
- *      cleaner will note the failure, allocate more memory, and try again.
- */
-void
-ObjectManager::relocateTxParticipantList(Buffer& oldBuffer,
-        LogEntryRelocator& relocator)
-{
-    ParticipantList participantList(oldBuffer);
-
-    // See if this transaction is still going on and thus if the participant
-    // list should be kept.
-    TransactionId txId = participantList.getTransactionId();
-
-    bool keep = !unackedRpcResults->isRpcAcked(txId.clientLeaseId,
-                                               txId.clientTransactionId);
-
-    if (keep) {
-        // Try to relocate it. If it fails, just return. The cleaner will
-        // allocate more memory and retry.
-        if (!relocator.append(LOG_ENTRY_TYPE_TXPLIST, oldBuffer))
-            return;
-
-        unackedRpcResults->recordCompletion(
-                txId.clientLeaseId,
-                txId.clientTransactionId,
-                reinterpret_cast<void*>(
-                        relocator.getNewReference().toInteger()),
-                true);
-    } else {
-        // Participant List will be dropped/"cleaned"
-
-        // Participant List records are not accounted for in the table stats.
-        // The assumption is that the Participant List records should occupy a
-        // relatively small fraction of the server's log and thus should not
-        // significantly affect table stats estimate.
     }
 }
 

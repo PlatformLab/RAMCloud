@@ -279,9 +279,22 @@ TxRecoveryManager::RecoveryTask::performTask()
         try {
             processRequestAbortRpcResults();
         } catch (StaleRpcException& e) {
-            // Finish early since the recovery process is not actually needed.
-            requestAbortRpcs.clear();   // cleanup early to avoid extra work.
-            state = State::DONE;
+            // The transaction must have already completed.
+            // Send out the decisions in the next round so that participant
+            // masters can garbage collect their state.
+            requestAbortRpcs.clear();
+            state = State::DECIDE;
+            decision = WireFormat::TxDecision::RECOVERED;
+            nextParticipantEntry = participants.begin();
+            TEST_LOG("StaleRpcException caught");
+            return;
+        } catch (ExpiredLeaseException& e) {
+            // Same as StaleRpcException above.
+            requestAbortRpcs.clear();
+            state = State::DECIDE;
+            decision = WireFormat::TxDecision::RECOVERED;
+            nextParticipantEntry = participants.begin();
+            TEST_LOG("ExpiredLeaseException caught");
             return;
         }
         if (nextParticipantEntry == participants.end()
@@ -462,6 +475,8 @@ TxRecoveryManager::RecoveryTask::DecisionRpc::DecisionRpc(Context* context,
 {
     reqHdr->decision = task->decision;
     reqHdr->leaseId = task->leaseId;
+    reqHdr->transactionId = task->transactionId;
+    reqHdr->recovered = true;
     reqHdr->participantCount = 0;
     participantCount = &reqHdr->participantCount;
 }
@@ -763,6 +778,9 @@ TxRecoveryManager::RecoveryTask::toString()
             break;
         case WireFormat::TxDecision::ABORT:
             s.append(" decision{ABORT}");
+            break;
+        case WireFormat::TxDecision::RECOVERED:
+            s.append(" decision{RECOVERED}");
             break;
         case WireFormat::TxDecision::UNDECIDED:
             s.append(" decision{INVALID}");

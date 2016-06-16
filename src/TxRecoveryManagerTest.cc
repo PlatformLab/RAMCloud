@@ -44,7 +44,9 @@ class TxRecoveryManagerTest : public ::testing::Test {
     Context context;
     MockCluster cluster;
     Tub<RamCloud> ramcloud;
-    Server* server;
+    Server* server1;
+    Server* server2;
+    Server* server3;
     uint64_t tableId1;
     uint64_t tableId2;
     uint64_t tableId3;
@@ -62,7 +64,9 @@ class TxRecoveryManagerTest : public ::testing::Test {
         , context()
         , cluster(&context)
         , ramcloud()
-        , server()
+        , server1()
+        , server2()
+        , server3()
         , tableId1(-1)
         , tableId2(-2)
         , tableId3(-3)
@@ -85,28 +89,28 @@ class TxRecoveryManagerTest : public ::testing::Test {
         config.maxObjectDataSize = 1024;
         config.segmentSize = 128*1024;
         config.segletSize = 128*1024;
-        server = cluster.addServer(config);
+        server1 = cluster.addServer(config);
         config.services = {WireFormat::MASTER_SERVICE,
                            WireFormat::PING_SERVICE};
         config.localLocator = "mock:host=master2";
-        cluster.addServer(config);
+        server2 = cluster.addServer(config);
         config.services = {WireFormat::MASTER_SERVICE,
                            WireFormat::PING_SERVICE};
         config.localLocator = "mock:host=master3";
-        cluster.addServer(config);
+        server3 = cluster.addServer(config);
         ramcloud.construct(&context, "mock:host=coordinator");
 
-        context.services[WireFormat::MASTER_SERVICE] = server->master.get();
+        context.services[WireFormat::MASTER_SERVICE] = server1->master.get();
 
         // Get pointers to the master sessions.
         Transport::SessionRef session =
-                server->context->transportManager->getSession(
+                server1->context->transportManager->getSession(
                 "mock:host=master1");
         session1 = static_cast<BindTransport::BindSession*>(session.get());
-        session = server->context->transportManager->getSession(
+        session = server1->context->transportManager->getSession(
                 "mock:host=master2");
         session2 = static_cast<BindTransport::BindSession*>(session.get());
-        session = server->context->transportManager->getSession(
+        session = server1->context->transportManager->getSession(
                 "mock:host=master3");
         session3 = static_cast<BindTransport::BindSession*>(session.get());
 
@@ -417,7 +421,7 @@ TEST_F(TxRecoveryManagerTest, RecoveryTask_performTask_basic) {
     EXPECT_EQ(TxRecoveryManager::RecoveryTask::DONE, task->state);
 }
 
-TEST_F(TxRecoveryManagerTest, RecoveryTask_performTask_abortEarly) {
+TEST_F(TxRecoveryManagerTest, RecoveryTask_performTask_StaleRpcException) {
     // Fake the ack id forward
     ramcloud->rpcTracker->firstMissing = 100;
     ramcloud->rpcTracker->nextRpcId = 100;
@@ -432,10 +436,32 @@ TEST_F(TxRecoveryManagerTest, RecoveryTask_performTask_abortEarly) {
     EXPECT_EQ(TxRecoveryManager::RecoveryTask::REQUEST_ABORT, task->state);
     task->performTask();        // RPC 2 Sent, RPC 2 Processed
     EXPECT_EQ(TxRecoveryManager::RecoveryTask::REQUEST_ABORT, task->state);
+    TestLog::Enable _("performTask");
     task->performTask();        // RPC 3 Sent, RPC 3 Rejected
-    EXPECT_EQ(TxRecoveryManager::RecoveryTask::DONE, task->state);
-    task->performTask();
-    EXPECT_EQ(TxRecoveryManager::RecoveryTask::DONE, task->state);
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::DECIDE, task->state);
+    EXPECT_EQ(WireFormat::TxDecision::RECOVERED, task->decision);
+    EXPECT_EQ("performTask: StaleRpcException caught", TestLog::get());
+}
+
+TEST_F(TxRecoveryManagerTest, RecoveryTask_performTask_ExpiredLeaseException) {
+    // Increase cluster time to trigger expiration
+    server2->master->clusterClock.updateClock(ClusterTime(1));
+
+    // Expire the lease
+    cluster.coordinator->leaseAuthority.leaseMap.erase(task->leaseId);
+
+    fillPList();
+
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::REQUEST_ABORT, task->state);
+    task->performTask();        // RPC 1 Sent, RPC 1 Processed
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::REQUEST_ABORT, task->state);
+    task->performTask();        // RPC 2 Sent, RPC 2 Processed
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::REQUEST_ABORT, task->state);
+    TestLog::Enable _("performTask");
+    task->performTask();        // RPC 3 Sent, RPC 3 Rejected
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::DECIDE, task->state);
+    EXPECT_EQ(WireFormat::TxDecision::RECOVERED, task->decision);
+    EXPECT_EQ("performTask: ExpiredLeaseException caught", TestLog::get());
 }
 
 TEST_F(TxRecoveryManagerTest, RecoveryTask_performTask_setDecision) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -49,10 +49,10 @@ enum LogEntryType {
     /// See RpcResult.h
     LOG_ENTRY_TYPE_RPCRESULT,
 
-    /// See PreparedOps.h::PreparedOp
+    /// See PreparedOp.h::PreparedOp
     LOG_ENTRY_TYPE_PREP,
 
-    /// See PreparedOps.h::PreparedOpTombstone
+    /// See PreparedOp.h::PreparedOpTombstone
     LOG_ENTRY_TYPE_PREPTOMB,
 
     /// See TxDecisionRecord

@@ -84,7 +84,7 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
                     &tabletManager,
                     &masterTableMetadata,
                     &unackedRpcResults,
-                    &preparedOps,
+                    &transactionManager,
                     &txRecoveryManager)
     , tabletManager()
     , txRecoveryManager(context)
@@ -92,7 +92,7 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
     , clusterClock()
     , clientLeaseValidator(context, &clusterClock)
     , unackedRpcResults(context, &objectManager, &clientLeaseValidator)
-    , preparedOps(context)
+    , transactionManager(context, objectManager.getLog(), &unackedRpcResults)
     , disableCount(0)
     , initCalled(false)
     , logEverSynced(false)
@@ -2505,6 +2505,13 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
         return;
     }
 
+    // Mark the transaction recovered if this decision is from the Transaction
+    // Recovery Manager.
+    if (reqHdr->recovered) {
+        TransactionId txId(reqHdr->leaseId, reqHdr->transactionId);
+        transactionManager.markTransactionRecovered(txId);
+    }
+
     if (reqHdr->decision == WireFormat::TxDecision::COMMIT) {
         for (uint32_t i = 0; i < participantCount; ++i) {
             TabletManager::Tablet tablet;
@@ -2517,8 +2524,8 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 return;
             }
 
-            uint64_t opPtr = preparedOps.getOp(reqHdr->leaseId,
-                                                   participants[i].rpcId);
+            uint64_t opPtr = transactionManager.getOp(reqHdr->leaseId,
+                                                      participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed.
             if (!opPtr) {
@@ -2557,8 +2564,8 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 return;
             }
 
-            uint64_t opPtr = preparedOps.getOp(reqHdr->leaseId,
-                                                participants[i].rpcId);
+            uint64_t opPtr = transactionManager.getOp(reqHdr->leaseId,
+                                                      participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed
             // or never prepared (abort-vote in prepare stage).
@@ -2578,6 +2585,34 @@ MasterService::txDecision(const WireFormat::TxDecision::Request* reqHdr,
                 rpc->sendReply();
                 return;
             }
+        }
+    } else if (reqHdr->decision == WireFormat::TxDecision::RECOVERED) {
+        for (uint32_t i = 0; i < participantCount; ++i) {
+            TabletManager::Tablet tablet;
+            if (!tabletManager.getTablet(participants[i].tableId,
+                                         participants[i].keyHash,
+                                         &tablet)
+                    || tablet.state != TabletManager::NORMAL) {
+                respHdr->common.status = STATUS_UNKNOWN_TABLET;
+                rpc->sendReply();
+                return;
+            }
+
+            // Skip the object if it is not prepared; this is expected
+            if (!transactionManager.getOp(reqHdr->leaseId,
+                                          participants[i].rpcId)) {
+                continue;
+            }
+
+            // If the object IS prepared, we have a problem since transaction
+            // recovery was not able to recover an actual decision.
+            LOG(ERROR, "Could not recover transaction <%lu, %lu>; found "
+                    "prepared operation %lu for tableId:%lu keyHash:%lu but "
+                    "was unable to recover a transaction decision.",
+                    reqHdr->leaseId, reqHdr->transactionId,
+                    participants[i].rpcId,
+                    participants[i].tableId, participants[i].keyHash);
+            throw InternalError(HERE, STATUS_INTERNAL_ERROR);
         }
     } else {
         respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
@@ -2768,26 +2803,18 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                                     reqHdr->lease.leaseId,
                                     reqHdr->clientTxId);
     TransactionId txId = participantList.getTransactionId();
-    {
-        // Scope to ensure the paricipantList is tracked before processing
-        // the prepareOps.
-        UnackedRpcHandle participantListHandle(&unackedRpcResults,
-                                               reqHdr->lease,
-                                               reqHdr->clientTxId,
-                                               reqHdr->ackId);
-        if (!participantListHandle.isDuplicate()) {
-            uint64_t logRef = 0;
-            Status status =
-                    objectManager.logTransactionParticipantList(
-                                                    participantList, &logRef);
-            if (status == STATUS_OK) {
-                participantListHandle.recordCompletion(logRef);
-            } else {
-                respHdr->common.status = status;
-                rpc->sendReply();
-                return;
-            }
-        }
+    Buffer assembledParticpantList;
+    participantList.assembleForLog(assembledParticpantList);
+    // TODO(cstlee): Registering the transaction here may result in transactions
+    //               being registered on non-participant servers which may cause
+    //               a garbage collected issue (RAM-856).
+    if (transactionManager.registerTransaction(participantList,
+                                               assembledParticpantList,
+                                               objectManager.getLog())
+            != STATUS_OK) {
+        respHdr->common.status = STATUS_RETRY;
+        rpc->sendReply();
+        return;
     }
 
     // 2. Process operations.
@@ -2987,7 +3014,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             break;
         }
 
-        preparedOps.bufferOp(reqHdr->lease.leaseId, rpcId, newOpPtr);
+        transactionManager.bufferOp(txId, rpcId, newOpPtr);
 
         rh->recordCompletion(rpcResultPtr);
     }
@@ -3000,8 +3027,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             respHdr->common.status == STATUS_OK &&
             respHdr->vote == WireFormat::TxPrepare::PREPARED) {
         for (uint32_t i = 0; i < participantCount; ++i) {
-            uint64_t opPtr = preparedOps.getOp(reqHdr->lease.leaseId,
-                                                   participants[i].rpcId);
+            uint64_t opPtr = transactionManager.getOp(reqHdr->lease.leaseId,
+                                                      participants[i].rpcId);
 
             // Skip if object is not prepared since it is already committed.
             if (!opPtr) {
@@ -3033,8 +3060,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
                 return;
             }
 
-            preparedOps.removeOp(reqHdr->lease.leaseId,
-                                 participants[i].rpcId);
+            transactionManager.removeOp(reqHdr->lease.leaseId,
+                                        participants[i].rpcId);
         }
         respHdr->vote = WireFormat::TxPrepare::COMMITTED;
     }
@@ -3403,6 +3430,7 @@ MasterService::recover(uint64_t recoveryId, ServerId masterId,
      * possible).
      */
     ObjectManager::TombstoneProtector p(&objectManager);
+    UnackedRpcResults::Protector unackedRpcResultsProtector(&unackedRpcResults);
     uint64_t usefulTime = 0;
     uint64_t start = Cycles::rdtsc();
     LOG(NOTICE, "Recovering master %s, partition %lu, %lu replicas available",
@@ -3838,7 +3866,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             context, recoveryId, serverId, &recoveryPartition, successful);
     if (!cancelRecovery) {
         // Re-grab all transaction locks.
-        preparedOps.regrabLocksAfterRecovery(&objectManager);
+        transactionManager.regrabLocksAfterRecovery(&objectManager);
 
         // Ok - we're expected to be serving now. Mark recovered tablets
         // as normal so we can handle clients.

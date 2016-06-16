@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,7 @@
 
 #include "TestUtil.h"       //Has to be first, compiler complains
 #include "LockTable.h"
-#include "PreparedOps.h"
+#include "PreparedOp.h"
 #include "ServerConfig.h"
 #include "MasterTableMetadata.h"
 

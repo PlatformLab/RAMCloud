@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -44,11 +44,11 @@ class ObjectManagerTest : public ::testing::Test,
     ServerList serverList;
     ServerConfig masterConfig;
     MasterTableMetadata masterTableMetadata;
+    ObjectManager objectManager;
     UnackedRpcResults unackedRpcResults;
-    PreparedOps preparedOps;
+    TransactionManager transactionManager;
     TxRecoveryManager txRecoveryManager;
     TabletManager tabletManager;
-    ObjectManager objectManager;
 
     ObjectManagerTest()
         : context()
@@ -58,18 +58,20 @@ class ObjectManagerTest : public ::testing::Test,
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults(&context, this, &clientLeaseValidator)
-        , preparedOps(&context)
-        , txRecoveryManager(&context)
-        , tabletManager()
         , objectManager(&context,
                         &serverId,
                         &masterConfig,
                         &tabletManager,
                         &masterTableMetadata,
                         &unackedRpcResults,
-                        &preparedOps,
+                        &transactionManager,
                         &txRecoveryManager)
+        , unackedRpcResults(&context, this, &clientLeaseValidator)
+        , transactionManager(&context,
+                             objectManager.getLog(),
+                             &unackedRpcResults)
+        , txRecoveryManager(&context)
+        , tabletManager()
     {
         objectManager.initOnceEnlisted();
         tabletManager.addTablet(0, 0, ~0UL, TabletManager::NORMAL);
@@ -1323,9 +1325,9 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     SideLog sl(&objectManager.log);
     Tub<SegmentIterator> it;
 
-    PreparedOps *preparedOps = objectManager.preparedOps;
+    TransactionManager *transactionManager = objectManager.transactionManager;
 
-    EXPECT_EQ(0UL, preparedOps->getOp(1UL, 10UL));
+    EXPECT_EQ(0UL, transactionManager->getOp(1UL, 10UL));
 
     {   // 1. Test regular PreparedOp.
         SegmentCertificate certificate;
@@ -1340,7 +1342,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_NE(0UL, preparedOps->getOp(1UL, 10UL));
+    EXPECT_NE(0UL, transactionManager->getOp(1UL, 10UL));
 
 
     {   // 2. Ignored preparedOp due to old version number.
@@ -1363,7 +1365,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_EQ(0UL, preparedOps->getOp(1UL, 11UL));
+    EXPECT_EQ(0UL, transactionManager->getOp(1UL, 11UL));
 
 
     {   // 3. preparedOp with higher version number.
@@ -1379,9 +1381,9 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_NE(0UL, preparedOps->getOp(1UL, 11UL));
+    EXPECT_NE(0UL, transactionManager->getOp(1UL, 11UL));
 
-    uint64_t newOpPtr = preparedOps->getOp(1UL, 11UL);
+    uint64_t newOpPtr = transactionManager->getOp(1UL, 11UL);
     Buffer preparedOpBuffer;
     Log::Reference resultRef(newOpPtr);
     objectManager.getLog()->getEntry(resultRef, preparedOpBuffer);
@@ -1402,10 +1404,10 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     SideLog sl(&objectManager.log);
     Tub<SegmentIterator> it;
 
-    PreparedOps *preparedOps = objectManager.preparedOps;
+    TransactionManager *transactionManager = objectManager.transactionManager;
 
-    EXPECT_EQ(0UL, preparedOps->getOp(1UL, 10UL));
-    EXPECT_FALSE(preparedOps->isDeleted(1UL, 10UL));
+    EXPECT_EQ(0UL, transactionManager->getOp(1UL, 10UL));
+    EXPECT_FALSE(transactionManager->isOpDeleted(1UL, 10UL));
 
     ///////////////////////////////////////////////////////
     // 1. Replays a preparedOp first, its tombstone second.
@@ -1423,8 +1425,8 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_NE(0UL, preparedOps->getOp(1UL, 10UL));
-    EXPECT_FALSE(preparedOps->isDeleted(1UL, 10UL));
+    EXPECT_NE(0UL, transactionManager->getOp(1UL, 10UL));
+    EXPECT_FALSE(transactionManager->isOpDeleted(1UL, 10UL));
 
     {   // 1B. Tombstone for PreparedOp in 1.
         SegmentCertificate certificate;
@@ -1440,7 +1442,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_TRUE(preparedOps->isDeleted(1UL, 10UL));
+    EXPECT_TRUE(transactionManager->isOpDeleted(1UL, 10UL));
 
     ////////////////////////////////////////////////////////////
     // 2. Replays a preparedOpTombsone first, preparedOp second.
@@ -1459,7 +1461,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_TRUE(preparedOps->isDeleted(1UL, 11UL));
+    EXPECT_TRUE(transactionManager->isOpDeleted(1UL, 11UL));
 
     {   // Regular PreparedOp
         SegmentCertificate certificate;
@@ -1474,7 +1476,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
     }
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_TRUE(preparedOps->isDeleted(1UL, 11UL));
+    EXPECT_TRUE(transactionManager->isOpDeleted(1UL, 11UL));
 }
 
 TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_basic) {
@@ -1539,7 +1541,7 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
     EXPECT_FALSE(txRecoveryManager->isRunning());
 }
 
-TEST_F(ObjectManagerTest, replaySegment_ParticipantList_basic) {
+TEST_F(ObjectManagerTest, replaySegment_ParticipantList) {
     ObjectManager::TombstoneProtector p(&objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
@@ -1547,7 +1549,7 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_basic) {
     SideLog sl(&objectManager.log);
     Tub<SegmentIterator> it;
 
-    UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
+    TransactionManager* transactionManager = objectManager.transactionManager;
 
     WireFormat::TxParticipant participants[3];
     // construct participant list.
@@ -1557,10 +1559,10 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_basic) {
     ParticipantList record(participants, 3, 42, 9);
     TransactionId txId = record.getTransactionId();
 
-    EXPECT_FALSE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
-            unackedRpcResults->clients.end());
-    EXPECT_FALSE(unackedRpcResults->hasRecord(txId.clientLeaseId,
-                                              txId.clientTransactionId));
+    {
+        TransactionManager::Lock lock(transactionManager->mutex);
+        EXPECT_TRUE(transactionManager->getTransaction(txId, lock) == NULL);
+    }
 
     {
         SegmentCertificate certificate;
@@ -1571,102 +1573,11 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList_basic) {
 
     objectManager.replaySegment(&sl, *it);
 
-    EXPECT_TRUE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
-            unackedRpcResults->clients.end());
-    EXPECT_TRUE(unackedRpcResults->hasRecord(txId.clientLeaseId,
-                                              txId.clientTransactionId));
-}
-
-TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_acked) {
-    ObjectManager::TombstoneProtector p(&objectManager);
-    uint32_t segLen = 8192;
-    char seg[segLen];
-    uint32_t len; // number of bytes in a recovery segment
-    SideLog sl(&objectManager.log);
-    Tub<SegmentIterator> it;
-
-    UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
-
-    WireFormat::TxParticipant participants[3];
-    // construct participant list.
-    participants[0] = WireFormat::TxParticipant(1, 2, 10);
-    participants[1] = WireFormat::TxParticipant(123, 234, 11);
-    participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList record(participants, 3, 42, 9);
-    TransactionId txId = record.getTransactionId();
-
-    // pre-insert ack
-    unackedRpcResults->shouldRecover(txId.clientLeaseId,
-                                     txId.clientTransactionId,
-                                     txId.clientTransactionId,
-                                     LOG_ENTRY_TYPE_TXPLIST);
-    EXPECT_TRUE(unackedRpcResults->clients.find(txId.clientLeaseId) !=
-            unackedRpcResults->clients.end());
-    EXPECT_TRUE(unackedRpcResults->isRpcAcked(txId.clientLeaseId,
-                                              txId.clientTransactionId));
-    EXPECT_FALSE(unackedRpcResults->hasRecord(txId.clientLeaseId,
-                                              txId.clientTransactionId));
-
     {
-        SegmentCertificate certificate;
-        Buffer buf;
-        len = buildRecoverySegment(seg, segLen, record, &certificate);
-        it.construct(&seg[0], len, certificate);
+        TransactionManager::Lock lock(transactionManager->mutex);
+        EXPECT_TRUE(transactionManager->getTransaction(txId, lock) != NULL);
     }
 
-    objectManager.replaySegment(&sl, *it);
-
-    EXPECT_FALSE(unackedRpcResults->hasRecord(txId.clientLeaseId,
-                                              txId.clientTransactionId));
-}
-
-TEST_F(ObjectManagerTest, replaySegment_ParticipantList_noop_hasPListEntry) {
-    ObjectManager::TombstoneProtector p(&objectManager);
-    TestLog::Enable _;
-    uint32_t segLen = 8192;
-    char seg[segLen];
-    uint32_t len; // number of bytes in a recovery segment
-    SideLog sl(&objectManager.log);
-    Tub<SegmentIterator> it;
-
-    UnackedRpcResults* unackedRpcResults = objectManager.unackedRpcResults;
-
-
-    WireFormat::TxParticipant participants[3];
-    // construct participant list.
-    participants[0] = WireFormat::TxParticipant(1, 2, 10);
-    participants[1] = WireFormat::TxParticipant(123, 234, 11);
-    participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList record(participants, 3, 42, 9);
-    TransactionId txId = record.getTransactionId();
-
-    // pre-insert (bad) participant list entry
-    unackedRpcResults->recoverRecord(txId.clientLeaseId,
-                                     txId.clientTransactionId,
-                                     0,
-                                     reinterpret_cast<void*>(0));
-    EXPECT_TRUE(unackedRpcResults->hasRecord(txId.clientLeaseId,
-                                             txId.clientTransactionId));
-
-    {
-        SegmentCertificate certificate;
-        Buffer buf;
-        len = buildRecoverySegment(seg, segLen, record, &certificate);
-        it.construct(&seg[0], len, certificate);
-    }
-
-    TestLog::reset();
-    objectManager.replaySegment(&sl, *it);
-    EXPECT_EQ("shouldRecover: Duplicate Transaction Participant List Record "
-              "found during recovery. <clientID, rpcID, ackId> = <42, 9, 0>",
-              TestLog::get());
-
-    EXPECT_TRUE(unackedRpcResults->hasRecord(txId.clientLeaseId,
-                                             txId.clientTransactionId));
-    EXPECT_EQ(0U,
-            reinterpret_cast<uint64_t>(
-                    unackedRpcResults->clients[txId.clientLeaseId]->result(
-                            txId.clientTransactionId)));
 }
 
 static bool
@@ -1762,39 +1673,6 @@ TEST_F(ObjectManagerTest, writeObject_returnRemovedObj) {
     const void* oldValue = oldObj.getValue(&oldValueLength);
     EXPECT_EQ("originalValue", string(reinterpret_cast<const char*>(oldValue),
                                       oldValueLength));
-}
-
-TEST_F(ObjectManagerTest, logTransactionParticipantList) {
-    WireFormat::TxParticipant participants[3];
-    // construct participant list.
-    participants[0] = WireFormat::TxParticipant(1, 2, 10);
-    participants[1] = WireFormat::TxParticipant(123, 234, 11);
-    participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList participantList(participants, 3, 42, 9);
-    uint64_t logRefNum;
-
-    objectManager.logTransactionParticipantList(participantList, &logRefNum);
-
-    Log::Reference logRef(logRefNum);
-    Buffer buffer;
-    LogEntryType type = objectManager.log.getEntry(logRef, buffer);
-    ParticipantList outputParticipantList(buffer);
-
-    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, type);
-    EXPECT_EQ(3U, outputParticipantList.header.participantCount);
-    EXPECT_EQ(42U, outputParticipantList.header.clientLeaseId);
-
-    EXPECT_EQ(1U, outputParticipantList.participants[0].tableId);
-    EXPECT_EQ(2U, outputParticipantList.participants[0].keyHash);
-    EXPECT_EQ(10U, outputParticipantList.participants[0].rpcId);
-
-    EXPECT_EQ(123U, outputParticipantList.participants[1].tableId);
-    EXPECT_EQ(234U, outputParticipantList.participants[1].keyHash);
-    EXPECT_EQ(11U, outputParticipantList.participants[1].rpcId);
-
-    EXPECT_EQ(111U, outputParticipantList.participants[2].tableId);
-    EXPECT_EQ(222U, outputParticipantList.participants[2].keyHash);
-    EXPECT_EQ(12U, outputParticipantList.participants[2].rpcId);
 }
 
 TEST_F(ObjectManagerTest, prepareOp) {
@@ -1968,9 +1846,9 @@ TEST_F(ObjectManagerTest, commitRead) {
     EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
 
     // COMMIT read operation.
-    objectManager.preparedOps->bufferOp(op.header.clientId,
-                                        op.header.rpcId,
-                                        newOpPtr);
+    objectManager.transactionManager->bufferOp(op.getTransactionId(),
+                                               op.header.rpcId,
+                                               newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitRead(op, newOpRef));
 
     // Check object is unlocked after commitRead.
@@ -2023,9 +1901,9 @@ TEST_F(ObjectManagerTest, commitRemove) {
     EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
 
     // COMMIT remove operation.
-    objectManager.preparedOps->bufferOp(op.header.clientId,
-                                        op.header.rpcId,
-                                        newOpPtr);
+    objectManager.transactionManager->bufferOp(op.getTransactionId(),
+                                               op.header.rpcId,
+                                               newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitRemove(op, newOpRef));
 
     // Check object is unlocked after commitRead.
@@ -2083,9 +1961,9 @@ TEST_F(ObjectManagerTest, commitWrite) {
                             value.size()));
 
     // COMMIT write operation.
-    objectManager.preparedOps->bufferOp(op.header.clientId,
-                                        op.header.rpcId,
-                                        newOpPtr);
+    objectManager.transactionManager->bufferOp(op.getTransactionId(),
+                                               op.header.rpcId,
+                                               newOpPtr);
     EXPECT_EQ(STATUS_OK, objectManager.commitWrite(op, newOpRef));
     // Check the updated object value.
     value.reset();
@@ -2739,9 +2617,9 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
     objectManager.log.sync();
     EXPECT_TRUE(success);
 
-    preparedOps.bufferOp(op.header.clientId,
-                            op.header.rpcId,
-                            oldReference.toInteger());
+    transactionManager.bufferOp(op.getTransactionId(),
+                                op.header.rpcId,
+                                oldReference.toInteger());
 
     LogEntryType newType;
     Buffer newBuffer;
@@ -2755,8 +2633,8 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
                            oldReference, relocator);
     EXPECT_TRUE(relocator.didAppend);
 
-    uint64_t newOpPtr = preparedOps.getOp(op.header.clientId,
-                                              op.header.rpcId);
+    uint64_t newOpPtr = transactionManager.getOp(op.header.clientId,
+                                                 op.header.rpcId);
     EXPECT_NE(0UL, newOpPtr);
     EXPECT_NE(oldReference.toInteger(), newOpPtr);
     EXPECT_EQ(relocator.getNewReference().toInteger(), newOpPtr);
@@ -2783,9 +2661,9 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
     objectManager.log.sync();
     EXPECT_TRUE(success);
 
-    preparedOps.bufferOp(op.header.clientId,
-                            op.header.rpcId,
-                            oldReference.toInteger());
+    transactionManager.bufferOp(op.getTransactionId(),
+                                op.header.rpcId,
+                                oldReference.toInteger());
 
     LogEntryType newType;
     Buffer newBuffer;
@@ -2796,14 +2674,14 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
     LogEntryRelocator relocator(
         objectManager.segmentManager.getHeadSegment(), 1000);
 
-    preparedOps.removeOp(op.header.clientId, op.header.rpcId);
+    transactionManager.removeOp(op.header.clientId, op.header.rpcId);
 
     objectManager.relocate(LOG_ENTRY_TYPE_PREP, oldBuffer,
                            oldReference, relocator);
     EXPECT_FALSE(relocator.didAppend);
 
-    uint64_t newOpPtr = preparedOps.getOp(op.header.clientId,
-                                              op.header.rpcId);
+    uint64_t newOpPtr = transactionManager.getOp(op.header.clientId,
+                                                 op.header.rpcId);
     EXPECT_EQ(0UL, newOpPtr);
     EXPECT_NE(oldReference.toInteger(), newOpPtr);
 }
@@ -3232,7 +3110,10 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
               , verifyMetadata(1));
 }
 
-TEST_F(ObjectManagerTest, relocateTxParticipantList_relocate) {
+TEST_F(ObjectManagerTest, relocateTxParticipantList) {
+    TransactionManager* transactionManager = objectManager.transactionManager;
+    TransactionManager::InProgressTransaction* iptx;
+
     WireFormat::TxParticipant participants[3];
     // construct participant list.
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
@@ -3245,27 +3126,17 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_relocate) {
     participantList.assembleForLog(pListBuffer);
     TransactionId txId = participantList.getTransactionId();
 
-    Log::Reference oldPListReference;
-    bool success = objectManager.log.append(
-            LOG_ENTRY_TYPE_TXPLIST, pListBuffer, &oldPListReference);
-    objectManager.log.sync();
-    unackedRpcResults.recoverRecord(txId.clientLeaseId,
-                                    txId.clientTransactionId,
-                                    0,
-                                    reinterpret_cast<void*>(
-                                            oldPListReference.toInteger()));
-    EXPECT_TRUE(success);
-    EXPECT_TRUE(unackedRpcResults.hasRecord(txId.clientLeaseId,
-                                            txId.clientTransactionId));
-    EXPECT_EQ(oldPListReference.toInteger(),
-              reinterpret_cast<uint64_t>(
-                    unackedRpcResults.clients[txId.clientLeaseId]->result(
-                            txId.clientTransactionId)));
+    transactionManager->registerTransaction(participantList,
+                                            pListBuffer,
+                                            objectManager.getLog());
 
-    // Make sure the PariticipantList is considered live.
-    objectManager.unackedRpcResults->shouldRecover(42, 10, 0,
-                                                   LOG_ENTRY_TYPE_TXPLIST);
-    EXPECT_FALSE(objectManager.unackedRpcResults->isRpcAcked(42, 10));
+    {
+        TransactionManager::Lock lock(transactionManager->mutex);
+        iptx = transactionManager->getTransaction(txId, lock);
+        EXPECT_TRUE(iptx != NULL);
+    }
+
+    Log::Reference oldPListReference = iptx->participantListLogRef;
 
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
@@ -3281,65 +3152,7 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList_relocate) {
                            oldPListReference,
                            relocator);
     EXPECT_TRUE(relocator.didAppend);
-    EXPECT_TRUE(unackedRpcResults.hasRecord(txId.clientLeaseId,
-                                            txId.clientTransactionId));
-    EXPECT_NE(oldPListReference.toInteger(),
-              reinterpret_cast<uint64_t>(
-                    unackedRpcResults.clients[txId.clientLeaseId]->result(
-                            txId.clientTransactionId)));
-}
-
-TEST_F(ObjectManagerTest, relocateTxParticipantList_clean) {
-    WireFormat::TxParticipant participants[3];
-    // construct participant list.
-    participants[0] = WireFormat::TxParticipant(1, 2, 10);
-    participants[1] = WireFormat::TxParticipant(123, 234, 11);
-    participants[2] = WireFormat::TxParticipant(111, 222, 12);
-    ParticipantList participantList(participants, 3, 42, 9);
-
-    // Setup its initial existence.
-    Buffer pListBuffer;
-    participantList.assembleForLog(pListBuffer);
-    TransactionId txId = participantList.getTransactionId();
-
-    Log::Reference oldPListReference;
-    bool success = objectManager.log.append(
-            LOG_ENTRY_TYPE_TXPLIST, pListBuffer, &oldPListReference);
-    objectManager.log.sync();
-    unackedRpcResults.recoverRecord(txId.clientLeaseId,
-                                    txId.clientTransactionId,
-                                    0,
-                                    reinterpret_cast<void*>(
-                                            oldPListReference.toInteger()));
-    EXPECT_TRUE(success);
-    EXPECT_TRUE(unackedRpcResults.hasRecord(txId.clientLeaseId,
-                                            txId.clientTransactionId));
-    EXPECT_EQ(oldPListReference.toInteger(),
-              reinterpret_cast<uint64_t>(
-                    unackedRpcResults.clients[txId.clientLeaseId]->result(
-                            txId.clientTransactionId)));
-
-    // Make sure the PariticipantList is not considered live.
-    objectManager.unackedRpcResults->shouldRecover(42, 10, 11,
-                                                   LOG_ENTRY_TYPE_TXPLIST);
-    EXPECT_TRUE(objectManager.unackedRpcResults->isRpcAcked(42, 9));
-
-    LogEntryType oldTypeInLog;
-    Buffer oldBufferInLog;
-    oldTypeInLog = objectManager.log.getEntry(oldPListReference,
-                                              oldBufferInLog);
-    EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, oldTypeInLog);
-
-    // Try to relocate.
-    LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_TXPLIST,
-                           oldBufferInLog,
-                           oldPListReference,
-                           relocator);
-    EXPECT_FALSE(relocator.didAppend);
-    EXPECT_FALSE(unackedRpcResults.hasRecord(txId.clientLeaseId,
-                                             txId.clientTransactionId));
+    EXPECT_NE(oldPListReference, iptx->participantListLogRef);
 }
 
 TEST_F(ObjectManagerTest, replace_noPriorVersion) {

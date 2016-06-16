@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,6 +15,8 @@
 
 #ifndef RAMCLOUD_TUB_H
 #define RAMCLOUD_TUB_H
+
+#include "Minimal.h"
 
 namespace RAMCloud {
 
@@ -54,7 +56,7 @@ namespace RAMCloud {
  */
 template<typename ElementType>
 class Tub {
-  public:
+  PUBLIC:
     /// The type of the object to be stored within the Tub.
     typedef ElementType element_type;
 
@@ -216,7 +218,7 @@ class Tub {
         return occupied;
     }
 
-  private:
+  PRIVATE:
     /**
      * A pointer to where the object is, if it is initialized.
      * This must directly precede #raw in the struct.

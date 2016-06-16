@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -38,7 +38,7 @@ class CleanerCompactionBenchmark {
     TabletManager tabletManager;
     MasterTableMetadata masterTableMetadata;
     UnackedRpcResults unackedRpcResults;
-    PreparedOps preparedOps;
+    TransactionManager transactionManager;
     TxRecoveryManager txRecoveryManager;
     ServerId serverId;
     ObjectManager* objectManager;
@@ -53,7 +53,7 @@ class CleanerCompactionBenchmark {
         , tabletManager()
         , masterTableMetadata()
         , unackedRpcResults(&context, NULL, &clientLeaseValidator)
-        , preparedOps(&context)
+        , transactionManager(&context, NULL, &unackedRpcResults)
         , txRecoveryManager(&context)
         , serverId(1, 1)
         , objectManager(NULL)
@@ -73,7 +73,7 @@ class CleanerCompactionBenchmark {
                                           &tabletManager,
                                           &masterTableMetadata,
                                           &unackedRpcResults,
-                                          &preparedOps,
+                                          &transactionManager,
                                           &txRecoveryManager);
         unackedRpcResults.resetFreer(objectManager);
     }

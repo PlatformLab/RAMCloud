@@ -118,13 +118,14 @@ SHARED_SRCFILES := \
 		   src/ObjectManager.cc \
 		   src/ObjectRpcWrapper.cc \
 		   src/OptionParser.cc \
+		   src/ParticipantList.cc \
 		   src/PcapFile.cc \
 		   src/PerfCounter.cc \
 		   src/PerfStats.cc \
 		   src/PingClient.cc \
 		   src/PingService.cc \
 		   src/PortAlarm.cc \
-		   src/PreparedOps.cc \
+		   src/PreparedOp.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
 		   src/ReplicaManager.cc \
@@ -159,6 +160,7 @@ SHARED_SRCFILES := \
 		   src/TimeCounter.cc \
 		   src/TimeTrace.cc \
 		   src/TimeTraceUtil.cc \
+		   src/TransactionManager.cc \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/TxDecisionRecord.cc \

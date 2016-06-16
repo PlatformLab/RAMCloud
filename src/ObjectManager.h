@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,7 +23,8 @@
 #include "HashTable.h"
 #include "IndexKey.h"
 #include "Object.h"
-#include "PreparedOps.h"
+#include "ParticipantList.h"
+#include "PreparedOp.h"
 #include "SegmentManager.h"
 #include "SegmentIterator.h"
 #include "ReplicaManager.h"
@@ -31,6 +32,7 @@
 #include "ServerConfig.h"
 #include "SpinLock.h"
 #include "TabletManager.h"
+#include "TransactionManager.h"
 #include "TxDecisionRecord.h"
 #include "TxRecoveryManager.h"
 #include "MasterTableMetadata.h"
@@ -61,7 +63,7 @@ class ObjectManager : public LogEntryHandlers,
                 TabletManager* tabletManager,
                 MasterTableMetadata* masterTableMetadata,
                 UnackedRpcResults* unackedRpcResults,
-                PreparedOps* preparedOps,
+                TransactionManager* transactionManager,
                 TxRecoveryManager* txRecoveryManager);
     virtual ~ObjectManager();
     virtual void freeLogEntry(Log::Reference ref);
@@ -89,8 +91,6 @@ class ObjectManager : public LogEntryHandlers,
     bool keyPointsAtReference(Key& k, AbstractLog::Reference oldReference);
     void writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr);
     void writeRpcResultOnly(RpcResult* rpcResult, uint64_t* rpcResultPtr);
-    Status logTransactionParticipantList(ParticipantList& participantList,
-                uint64_t* participantListLogRef);
     Status prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                 uint64_t* newOpPtr, bool* isCommitVote,
                 RpcResult* rpcResult, uint64_t* rpcResultPtr);
@@ -301,8 +301,6 @@ class ObjectManager : public LogEntryHandlers,
             LogEntryRelocator& relocator);
     void relocateTxDecisionRecord(
             Buffer& oldBuffer, LogEntryRelocator& relocator);
-    void relocateTxParticipantList(
-            Buffer& oldBuffer, LogEntryRelocator& relocator);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
 
     /**
@@ -339,7 +337,7 @@ class ObjectManager : public LogEntryHandlers,
     /**
      * Used to manage cleaning and recovery of PreparedOp objects.
      */
-    PreparedOps* preparedOps;
+    TransactionManager* transactionManager;
 
     /**
      * Used to managed cleaning and recovery of RpcResult objects.

@@ -242,6 +242,7 @@ UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
 {
     Lock lock(mutex);
     *resultPtrOut = NULL;
+    bool isDuplicate = false;
 
     uint64_t clientId = clientLease.leaseId;
 
@@ -252,44 +253,50 @@ UnackedRpcResults::checkDuplicate(WireFormat::ClientLease clientLease,
     if (ClusterTime(clientLease.leaseExpiration) < client->leaseExpiration) {
         clientLease.leaseExpiration = client->leaseExpiration.getEncoded();
     }
-    // Make sure lease is valid.
-    if (!leaseValidator->validate(clientLease, &clientLease)) {
-        throw ExpiredLeaseException(HERE);
-    }
 
-    ClusterTime leaseExpiration(clientLease.leaseExpiration);
-
-    //1. Update leaseExpiration and ack.
-    if (client->leaseExpiration < leaseExpiration)
-        client->leaseExpiration = leaseExpiration;
-    if (client->maxAckId < ackId) {
-        client->processAck(ackId, freer);
-    }
-
-    //2. Check if the same RPC has been started.
-    //   There are four cases to handle.
+    // Check if the same RPC has been started.
+    // There are four cases to handle.
     if (rpcId <= client->maxAckId) {
         //StaleRpc: rpc is already acknowledged.
         throw StaleRpcException(HERE);
     } else if (client->maxRpcId < rpcId) {
         // This is a new RPC that we are seeing for the first time.
+        // Make sure the lease is valid before accepting the new request.
+        if (!leaseValidator->validate(clientLease, &clientLease)) {
+            throw ExpiredLeaseException(HERE);
+        }
         client->maxRpcId = rpcId;
         client->recordNewRpc(rpcId);
         client->numRpcsInProgress++;
-        return false;
+        isDuplicate = false;
     } else if (client->hasRecord(rpcId)) {
         // We have already seen this RPC before (but it may or may not have
         // finished processing). Return the result from the prior invocation,
         // if there is one.
         *resultPtrOut = client->result(rpcId);
-        return true;
+        isDuplicate = true;
     } else {
         // This is a new RPC that we are seeing for the first time, but RPC was
         // arrived out-of-order.
+        // Make sure the lease is valid before accepting the new request.
+        if (!leaseValidator->validate(clientLease, &clientLease)) {
+            throw ExpiredLeaseException(HERE);
+        }
         client->recordNewRpc(rpcId);
         client->numRpcsInProgress++;
-        return false;
+        isDuplicate = false;
     }
+
+    // Update leaseExpiration and ack for future reference.
+    ClusterTime leaseExpiration(clientLease.leaseExpiration);
+    if (client->leaseExpiration < leaseExpiration) {
+        client->leaseExpiration = leaseExpiration;
+    }
+    if (client->maxAckId < ackId) {
+         client->processAck(ackId, freer);
+    }
+
+    return isDuplicate;
 }
 
 /**
@@ -321,7 +328,7 @@ UnackedRpcResults::shouldRecover(uint64_t clientId,
         client->processAck(ackId, freer);
 
     if (client->hasRecord(rpcId)) {
-        RAMCLOUD_CLOG((entryType == LOG_ENTRY_TYPE_TXPLIST ? NOTICE : WARNING),
+        RAMCLOUD_CLOG(WARNING,
                 "Duplicate %s found during recovery. <clientID, rpcID, ackId> "
                 "= <%" PRIu64 ", " "%" PRIu64 ", " "%" PRIu64 ">",
                 LogEntryTypeHelpers::toString(entryType),
@@ -474,7 +481,7 @@ UnackedRpcResults::isRpcAcked(uint64_t clientId, uint64_t rpcId)
  * \param clientId
  *      The id of the client whose record is to be saved.
  */
-UnackedRpcResults::KeepClientRecord::KeepClientRecord(
+UnackedRpcResults::SingleClientProtector::SingleClientProtector(
         UnackedRpcResults* unackedRpcResults,
         uint64_t clientId)
     : unackedRpcResults(unackedRpcResults)
@@ -490,7 +497,7 @@ UnackedRpcResults::KeepClientRecord::KeepClientRecord(
  * Destruct to allow cleaning to resume on the client records previously
  * protected by this objects the construction.
  */
-UnackedRpcResults::KeepClientRecord::~KeepClientRecord()
+UnackedRpcResults::SingleClientProtector::~SingleClientProtector()
 {
     Lock lock(unackedRpcResults->mutex);
     Client* client = unackedRpcResults->getClientRecord(clientId, lock);
@@ -499,14 +506,14 @@ UnackedRpcResults::KeepClientRecord::~KeepClientRecord()
 }
 
 /**
- * Construct to prevent any client records from being removed.
+ * Construct to prevent any RPC Result records from being removed.
  *
  * \param unackedRpcResults
  *      The unackedRpcResults instances that shouldn't removed any
  *      client records.
  *
  */
-UnackedRpcResults::KeepAllClientRecords::KeepAllClientRecords(
+UnackedRpcResults::Protector::Protector(
         UnackedRpcResults* unackedRpcResults)
     : unackedRpcResults(unackedRpcResults)
 {
@@ -517,7 +524,7 @@ UnackedRpcResults::KeepAllClientRecords::KeepAllClientRecords(
 /**
  * Destruct to allow cleaning to resume.
  */
-UnackedRpcResults::KeepAllClientRecords::~KeepAllClientRecords()
+UnackedRpcResults::Protector::~Protector()
 {
     Lock lock(unackedRpcResults->mutex);
     assert(unackedRpcResults->cleanerDisabled > 0);

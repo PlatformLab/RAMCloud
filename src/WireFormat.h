@@ -1679,6 +1679,8 @@ struct TxDecision {
 
     enum Decision { COMMIT,         // Indicate that transaction should commit.
                     ABORT,          // Indicate that transaction should abort.
+                    RECOVERED,      // Indicate that transaction recovery thinks
+                                    // the transaction has committed or aborted.
                     UNDECIDED };    // Intermediate state; should never be sent.
 
     struct Request {
@@ -1686,6 +1688,13 @@ struct TxDecision {
         Decision decision;          // Result of a transaction commit attempt.
         uint64_t leaseId;           // Id of the client lease associated with
                                     // this transaction.
+        uint64_t transactionId;     // Unique transaction identifier among
+                                    // transactions from the same client.
+                                    // Paired with the lease identifier, the
+                                    // transactionId provides a system-wide
+                                    // unique identifier for this transaction.
+        bool recovered;             // Indicates whether this transaction has
+                                    // been recovered.
         uint32_t participantCount;  // Number of local objects participating TX
                                     // for this server.
         // List of local Participants
