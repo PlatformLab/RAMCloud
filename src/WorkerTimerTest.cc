@@ -205,7 +205,7 @@ TEST_F(WorkerTimerTest, start_addToActiveList) {
     EXPECT_EQ(0u, timer.manager->activeTimers.size());
     timer.start(1000);
     EXPECT_EQ(1u, timer.manager->activeTimers.size());
-    // Don't add again if already present.
+    // Remove then add again if already present.
     timer.start(2000);
     EXPECT_EQ(1u, timer.manager->activeTimers.size());
 }

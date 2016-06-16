@@ -19,6 +19,8 @@
 #include <condition_variable>
 #include <thread>
 
+#include <set>
+
 #include "BoostIntrusive.h"
 #include "Dispatch.h"
 #include "LogProtector.h"
@@ -64,6 +66,9 @@ class WorkerTimer {
     /// valid if slot >= 0.
     uint64_t triggerTime;
 
+    /// The #rdtsc time when start was last called on this timer.
+    uint64_t startTime;
+
     /// Indicates whether or not this timer is currently running.
     bool active;
 
@@ -80,9 +85,6 @@ class WorkerTimer {
     /// once the destructor has been invoked. This boolean indicates
     /// that starts should be ignored.
     bool destroyed;
-
-    /// Used to link WorkerTimers together in Manager::activeTimers.
-    IntrusiveListHook links;
 
     /**
      * The following class is used internally to manage WorkerTimers.
@@ -120,11 +122,58 @@ class WorkerTimer {
         /// workerThread waits on this when it has nothing to do.
         std::condition_variable waitingForWork;
 
-        /// Keeps track of all of the timers that are currently running (i.e.
-        /// start has been called, but the timer hasn't actually fired).
-        /// The most recently added timer is at the back of the list.
-        INTRUSIVE_LIST_TYPEDEF(WorkerTimer, links) TimerList;
-        TimerList activeTimers;
+        /// Encapsulates a WorkerTimer pointer so that it can be kept in sorted
+        /// order based on their triggerTime.
+        struct TimerReference {
+            WorkerTimer* timer;
+
+            /**
+             * The operator < is overridden to implement the
+             * correct comparison for the TimerList.
+             */
+            bool operator<(const TimerReference& elem) const {
+                assert(timer != NULL);
+                return timer->triggerTime < elem.timer->triggerTime ||
+                        (timer->triggerTime < elem.timer->triggerTime &&
+                                timer < elem.timer);
+            }
+        };
+
+        /// Keeps track of all of the timers that are currently active (i.e.
+        /// start has been called, but the timer hasn't actually fired) sorted
+        /// by their triggerTime.  Sorting by triggerTime allows the manager to
+        /// efficiently select runnable timers (see runnableTimers).
+        ///
+        /// WARNING: A WorkerTimer must be removed from the ActiveTimerList
+        ////before its triggerTime is updated.  This is because of the intrusive
+        /// SortByTriggerTime comparison operator.
+        struct SortByTriggerTime {
+            bool operator()(WorkerTimer* lhs, WorkerTimer* rhs)
+            {
+                return lhs->triggerTime < rhs->triggerTime ||
+                        (lhs->triggerTime == rhs->triggerTime && lhs < rhs);
+            }
+        };
+        typedef std::set<WorkerTimer*, SortByTriggerTime> ActiveTimerList;
+        ActiveTimerList activeTimers;
+
+        /// Keeps track of all of the timers that are currently runnable (i.e.
+        /// the triggerTime has elapsed) in sorted by their startTime.  This
+        /// sorting is used to efficiently select the runnable timer that has
+        /// been waiting the longest (this prevents starvation).
+        ///
+        /// WARNING: A WorkerTimer must be removed from the RunnableTimerList
+        ////before its startTime is updated.  This is because of the intrusive
+        /// SortByStartTime comparison operator.
+        struct SortByStartTime {
+            bool operator()(WorkerTimer* lhs, WorkerTimer* rhs)
+            {
+                return lhs->startTime < rhs->startTime ||
+                        (lhs->startTime == rhs->startTime && lhs < rhs);
+            }
+        };
+        typedef std::set<WorkerTimer*, SortByStartTime> RunnableTimerList;
+        RunnableTimerList runnableTimers;
 
         /// Registers workerTimer to LogProtector to prevent any WorkerTimer's
         /// timerEventHandler dereference a pointer in log unsafely.

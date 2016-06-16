@@ -38,11 +38,11 @@ int WorkerTimer::stopWarningMs = 0;
 WorkerTimer::WorkerTimer(Dispatch* dispatch)
     : manager(NULL)
     , triggerTime(0)
+    , startTime(0)
     , active(false)
     , handlerRunning(false)
     , handlerFinished()
     , destroyed(false)
-    , links()
 {
     Lock lock(mutex);
     manager = findManager(dispatch, lock);
@@ -99,10 +99,15 @@ WorkerTimer::start(uint64_t rdtscTime)
         // anything that could cause the handler to be invoked again.
         return;
     }
-    triggerTime = rdtscTime;
-    if (!active) {
-        manager->activeTimers.push_back(*this);
+    // Drop the existing entries first (see WorkerTimer::Manager::activeTimers
+    // and WorkerTimer::Manager::runnableTimers).
+    if (active) {
+        manager->activeTimers.erase(this);
+        manager->runnableTimers.erase(this);
     }
+    triggerTime = rdtscTime;
+    startTime = Cycles::rdtsc();
+    manager->activeTimers.insert(this);
     if (triggerTime < manager->earliestTriggerTime) {
         manager->earliestTriggerTime = triggerTime;
         manager->start(manager->earliestTriggerTime);
@@ -149,7 +154,8 @@ void WorkerTimer::stopInternal(Lock& lock)
         }
     }
     if (active) {
-        erase(manager->activeTimers, *this);
+        manager->activeTimers.erase(this);
+        manager->runnableTimers.erase(this);
         active = false;
         if (manager->activeTimers.empty()) {
             manager->earliestTriggerTime = ~0lu;
@@ -192,6 +198,7 @@ WorkerTimer::Manager::Manager(Dispatch* dispatch, Lock& lock)
     , workerThread()
     , waitingForWork()
     , activeTimers()
+    , runnableTimers()
     , logProtectorActivity()
     , links()
 {
@@ -283,35 +290,34 @@ WorkerTimer::findManager(Dispatch* dispatch, Lock& lock)
 void WorkerTimer::Manager::checkTimers(Lock& lock)
 {
     while (1) {
-        // Scan the list of active timers to (a) find a timer that's ready
-        // to run (if there is one) and (b) recompute earliestTriggerTime.
         WorkerTimer* ready = NULL;
-        uint64_t newEarliest = ~0lu;
         uint64_t now = Cycles::rdtsc();
-        for (Manager::TimerList::iterator
-                timerIterator(activeTimers.begin());
-                timerIterator != activeTimers.end();
-                timerIterator++) {
-            // Note: if multiple WorkerTimers are ready, run the one that
-            // has been on the queue the longest (this prevents starvation).)
-            if ((timerIterator->triggerTime <= now)
-                    && (ready == NULL)) {
-                ready = &(*timerIterator);
-            } else {
-                if (timerIterator->triggerTime < newEarliest) {
-                    newEarliest = timerIterator->triggerTime;
-                }
-            }
-        }
-        earliestTriggerTime = newEarliest;
 
-        if (ready == NULL) {
+        // Scan the list of active timers to find all timers that are ready
+        // to run and pick the runnable timer that has been waiting the longest
+        // (this prevents starvation).
+        Manager::ActiveTimerList::iterator it = activeTimers.begin();
+        while (it != activeTimers.end() && (*it)->triggerTime <= now) {
+            runnableTimers.insert(*it);
+            it = activeTimers.erase(it);
+        }
+        if (!runnableTimers.empty()) {
+            // Pull the runnable timer that has been waiting the longest
+            ready = *runnableTimers.begin();
+            // Remove the timer from the list (it can reschedule itself if
+            // it wants).
+            runnableTimers.erase(runnableTimers.begin());
+        } else {
+            // If there are no runnable timers reschedule the manager to run
+            // again when the next timer is ready (if any).
+            earliestTriggerTime = ~0lu;
+            if (!activeTimers.empty()) {
+                earliestTriggerTime = (*activeTimers.begin())->triggerTime;
+                start(earliestTriggerTime);
+            }
             break;
         }
 
-        // Remove the timer from the list (it can reschedule itself if
-        // it wants).
-        erase(activeTimers, *ready);
         ready->active = false;
         ready->handlerRunning = true;
 
@@ -325,10 +331,6 @@ void WorkerTimer::Manager::checkTimers(Lock& lock)
         }
         ready->handlerRunning = false;
         ready->handlerFinished.notify_one();
-    }
-
-    if (!activeTimers.empty()) {
-        start(earliestTriggerTime);
     }
 }
 
