@@ -462,26 +462,6 @@ TEST_F(BasicTransportTest, handlePacket_dataFromServer_dontIssueGrant) {
     EXPECT_EQ(0lu, transport.outgoingRpcs.size());
     EXPECT_EQ("abcdexyzzy12345", TestUtil::toString(&wrapper.response));
 }
-TEST_F(BasicTransportTest, handlePacket_dataFromServer_unnecessaryResend) {
-    MockWrapper wrapper("message1");
-    session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
-    BasicTransport::ClientRpc* clientRpc = transport.outgoingRpcs[1lu];
-    clientRpc->resendLimit = 5;
-
-    // First packet is above the limit: no warning.
-    driver->receivePacket("mock:server=1",
-            BasicTransport::DataHeader(BasicTransport::RpcId(666, 1), 15, 5,
-            BasicTransport::FROM_SERVER), "abcde");
-    EXPECT_EQ("", TestLog::get());
-
-    // Second packet is below the limit; expect a warning.
-    driver->receivePacket("mock:server=1",
-            BasicTransport::DataHeader(BasicTransport::RpcId(666, 1), 15, 3,
-            BasicTransport::FROM_SERVER), "xy");
-    EXPECT_EQ("handlePacket: Original data arrived from server "
-            "mock:server=1 after RESEND: sequence 1, offset 3, resendLimit 5",
-            TestLog::get());
-}
 TEST_F(BasicTransportTest, handlePacket_grantFromServer_incompleteHeader) {
     MockWrapper wrapper("message1");
     session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
@@ -592,6 +572,17 @@ TEST_F(BasicTransportTest, handlePacket_retryFromServer) {
             wrapper.response.getStart<WireFormat::RetryResponse>();
     ASSERT_TRUE(response != NULL);
     EXPECT_STREQ("STATUS_RETRY", statusToSymbol(response->common.status));
+}
+TEST_F(BasicTransportTest, handlePacket_logTimeTraceFromServer) {
+    MockWrapper wrapper("message1");
+    session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
+    TimeTrace::globalTimeTrace->reset();
+
+    driver->receivePacket("mock:server=1", BasicTransport::LogTimeTraceHeader(
+            BasicTransport::RpcId(666, 1), BasicTransport::FROM_SERVER));
+    WorkerTimer::sync();
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(),
+            "client received LOG_TIME_TRACE"));
 }
 TEST_F(BasicTransportTest, handlePacket_unknownOpcodeFromServer) {
     MockWrapper wrapper("message1");
@@ -722,34 +713,6 @@ TEST_F(BasicTransportTest, handlePacket_dataFromClient_extraneousPacket) {
             context.workerManager->waitForRpc(0));
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("message1", TestUtil::toString(&serverRpc->requestPayload));
-}
-TEST_F(BasicTransportTest, handlePacket_dataFromClient_unnecessaryResend) {
-    transport.roundTripBytes = 1000;
-    transport.grantIncrement = 500;
-    driver->receivePacket("mock:client=1",
-            BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 15,
-            10, BasicTransport::NEED_GRANT|BasicTransport::FROM_CLIENT),
-            "abcde");
-    BasicTransport::ServerRpcMap::iterator it = transport.incomingRpcs.find(
-            BasicTransport::RpcId(100, 101));
-    ASSERT_TRUE(it != transport.incomingRpcs.end());
-    BasicTransport::ServerRpc* serverRpc = it->second;
-    serverRpc->resendLimit = 5;
-
-    // First packet is above the limit, so no warning.
-    driver->receivePacket("mock:client=1",
-            BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 15,
-            5, BasicTransport::NEED_GRANT|BasicTransport::FROM_CLIENT),
-            "01234");
-    EXPECT_EQ("", TestLog::get());
-
-    // Second packet is below the limit; expect a log message.
-    driver->receivePacket("mock:client=1",
-            BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 15,
-            4, BasicTransport::NEED_GRANT|BasicTransport::FROM_CLIENT), "X");
-    EXPECT_EQ("handlePacket: Original data arrived from client "
-            "mock:client=1 after RESEND: sequence 101, offset 4, "
-            "resendLimit 5", TestLog::get());
 }
 TEST_F(BasicTransportTest, handlePacket_grantFromClient_bogusGrants) {
     prepareToRespond();
@@ -1182,10 +1145,6 @@ TEST_F(BasicTransportTest, handleTimerEvent_sendResendFromClient) {
     EXPECT_EQ("", TestLog::get());
 
     transport.timer.handleTimerEvent();
-    EXPECT_EQ("requestRetransmission: requested retransmit of response "
-            "bytes 5-155 from mock:node=1, sequence 1, grantOffset 155 "
-            "(packets lost\?)",
-            TestLog::get());
     EXPECT_EQ("RESEND FROM_CLIENT, rpcId 666.1, offset 5, length 150",
             driver->outputLog);
     EXPECT_EQ(155lu, clientRpc->resendLimit);
@@ -1240,10 +1199,6 @@ TEST_F(BasicTransportTest, handleTimerEvent_sendResendFromServer) {
     EXPECT_EQ("", TestLog::get());
 
     transport.timer.handleTimerEvent();
-    EXPECT_EQ("requestRetransmission: requested retransmit of request "
-            "bytes 5-105 from mock:client=1, sequence 101, grantOffset 0 "
-            "(packets lost\?)",
-            TestLog::get());
     EXPECT_EQ("RESEND FROM_SERVER, rpcId 100.101, offset 5, length 100",
             driver->outputLog);
     EXPECT_EQ(105lu, serverRpc->resendLimit);

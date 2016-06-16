@@ -356,6 +356,7 @@ class BasicTransport : public Transport {
         RESEND                 = 23,
         PING                   = 24,
         RETRY                  = 25,
+        LOG_TIME_TRACE         = 26,
     };
 
     /**
@@ -395,7 +396,7 @@ class BasicTransport : public Transport {
     static const uint8_t FROM_SERVER =    0;
     static const uint8_t NEED_GRANT =     2;
     static const uint8_t RETRANSMISSION = 4;
-    static const uint8_t RESTART = 4;
+    static const uint8_t RESTART =        8;
 
     /**
      * Describes the wire format for an ALL_DATA packet, which contains an
@@ -501,6 +502,18 @@ class BasicTransport : public Transport {
 
         explicit RetryHeader(RpcId rpcId, uint8_t flags)
             : common(PacketOpcode::RETRY, rpcId, flags) {}
+    } __attribute__((packed));
+
+    /**
+     * Describes the wire format for LOG_TIME_TRACE packets. These packets
+     * are only used for debugging and performance analysis: the recipient
+     * will write its time trace to the log.
+     */
+    struct LogTimeTraceHeader {
+        CommonHeader common;         // Common header fields.
+
+        explicit LogTimeTraceHeader(RpcId rpcId, uint8_t flags)
+            : common(PacketOpcode::LOG_TIME_TRACE, rpcId, flags) {}
     } __attribute__((packed));
 
   PRIVATE:
