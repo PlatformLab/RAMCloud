@@ -18,8 +18,6 @@ env:
   - CMD="make -j2"
   - CMD="make DEBUG=NO -j2"
   - CMD="make ZOOKEEPER_LIB='-lzookeeper_mt' INFINIBAND=no -j2"
-# make tests w/o timing dependent tests
-  - CMD="make -j2 obj.${TRAVIS_BRANCH}/test && obj.${TRAVIS_BRANCH}/test -v --gtest_filter=-PortAlarmTest.triple_alarm:WorkerTimerTest.stopInternal_handlerDoesntFinishQuickly:SpinLockTest.contention"
 # Style Checks
   - CMD="make check"
   - CMD="make -j2 && hooks/pre-commit-90docs"
