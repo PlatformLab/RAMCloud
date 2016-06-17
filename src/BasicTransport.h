@@ -47,6 +47,7 @@ class BasicTransport : public Transport {
         // any transport or driver state.
         return new Session(this, serviceLocator, timeoutMs);
     }
+    static void logIssueStats();
     void registerMemory(void* base, size_t bytes) {
         driver->registerMemory(base, bytes);
     }
@@ -353,10 +354,13 @@ class BasicTransport : public Transport {
         ALL_DATA               = 20,
         DATA                   = 21,
         GRANT                  = 22,
-        RESEND                 = 23,
+        LOG_TIME_TRACE         = 23,
         PING                   = 24,
-        RETRY                  = 25,
-        LOG_TIME_TRACE         = 26,
+        RESEND                 = 25,
+        BOGUS                  = 26,      // Used only in unit tests.
+        // If you add a new opcode here, you must also do the following:
+        // * Change BOGUS so it is the highest opcode
+        // * Add support for the new opcode in opcodeSymbol and headerToString
     };
 
     /**
@@ -489,22 +493,6 @@ class BasicTransport : public Transport {
     } __attribute__((packed));
 
     /**
-     * Describes the wire format for RETRY packets. A RETRY is sent by
-     * the server to the client; it indicates that the client should restart
-     * the RPC from scratch (throw away any existing state about the
-     * transmission of the request and/or response). It can happen under
-     * various conditions, such as when a client requests retransmission
-     * of the result message but the server has garbage-collected the RPC
-     * and discarded that information.
-     */
-    struct RetryHeader {
-        CommonHeader common;         // Common header fields.
-
-        explicit RetryHeader(RpcId rpcId, uint8_t flags)
-            : common(PacketOpcode::RETRY, rpcId, flags) {}
-    } __attribute__((packed));
-
-    /**
      * Describes the wire format for LOG_TIME_TRACE packets. These packets
      * are only used for debugging and performance analysis: the recipient
      * will write its time trace to the log.
@@ -521,6 +509,7 @@ class BasicTransport : public Transport {
     uint32_t getRoundTripBytes(const ServiceLocator* locator);
     static string headerToString(const void* header, uint32_t headerLength);
     static string opcodeSymbol(uint8_t opcode);
+    static void recordIssue(uint32_t* counter);
     void sendBytes(const Driver::Address* address, RpcId rpcId,
             Buffer* message, int offset, int length, uint8_t flags);
 
@@ -602,6 +591,35 @@ class BasicTransport : public Transport {
     /// any packets from the server for particular RPC, then it sends a
     /// PING request.
     uint32_t pingIntervals;
+
+    // The following variables count networking issues (indications that
+    // packets have been lost or delayed).
+
+    /// Counts packets containing retransmitted data that we actually
+    /// used (if an incoming packet contains retransmitted data but
+    /// it duplicates data we already received from the original packets,
+    /// then this count isn't incremented). Each event on this counter
+    /// represents a packet loss (or a severe delay and reordering, so that
+    /// the retransmitted packet arrives first).
+    static uint32_t rcvdRetransmitCount;
+
+    /// Number of times our client side aborted an RPC because of a timeout.
+    static uint32_t clientAbortCount;
+
+    /// Number of times our server side aborted an RPC because of a timeout.
+    /// These are typically benign; see comments in the code for more details.
+    static uint32_t serverAbortCount;
+
+    /// Number of times our client side requested packet retransmission
+    /// because of unexpected delays in receiving data.
+    static uint32_t clientRequestRetransmitCount;
+
+    /// Number of times our server side requested packet retransmission
+    /// because of unexpected delays in receiving data.
+    static uint32_t serverRequestRetransmitCount;
+
+    /// Sum of all the above counts.
+    static uint32_t totalNetworkIssues;
 
     DISALLOW_COPY_AND_ASSIGN(BasicTransport);
 };

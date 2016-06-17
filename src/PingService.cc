@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,6 +16,7 @@
 #include<fstream>
 #include "Common.h"
 #include "BackupService.h"
+#include "BasicTransport.h"
 #include "CycleCounter.h"
 #include "Cycles.h"
 #include "MasterService.h"
@@ -306,6 +307,11 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
             string s = context->cacheTrace->getTrace();
             respHdr->outputLength = downCast<uint32_t>(s.length());
             rpc->replyPayload->appendCopy(s.c_str(), respHdr->outputLength);
+            break;
+        }
+        case WireFormat::LOG_BASIC_TRANSPORT_ISSUES:
+        {
+            BasicTransport::logIssueStats();
             break;
         }
         case WireFormat::LOG_CACHE_TRACE:

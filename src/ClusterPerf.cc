@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -46,6 +46,7 @@
 namespace po = boost::program_options;
 
 #include "assert.h"
+#include "BasicTransport.h"
 #include "btreeRamCloud/Btree.h"
 #include "ClientLeaseAgent.h"
 #include "CycleCounter.h"
@@ -6196,7 +6197,9 @@ try
     if (clientIndex == 0) {
         cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
         cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
+        cluster->serverControlAll(WireFormat::LOG_BASIC_TRANSPORT_ISSUES);
     }
+    BasicTransport::logIssueStats();
     cluster->clientContext->timeTrace->printToLog();
 }
 catch (std::exception& e) {
