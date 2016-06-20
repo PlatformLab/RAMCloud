@@ -5093,8 +5093,9 @@ readDistRandom()
     // benchmark.
     Util::serialize();
 
-    uint64_t ticks50Micros = Cycles::fromNanoseconds(50000);
-    uint64_t lastLong = 0;
+    // The following variable is used to stop the test after 10 seconds
+    // if we haven't read count keys by then.
+    uint64_t stop = Cycles::rdtsc() + Cycles::fromSeconds(10.0);
 
     // Issue the reads back-to-back, and save the times.
     std::vector<uint64_t> ticks(count);
@@ -5113,13 +5114,11 @@ readDistRandom()
         if (index < NUM_BUCKETS) {
             timeBuckets[index]++;
         }
-        if ((interval > ticks50Micros) && (interval < 2*ticks50Micros)) {
-            if (lastLong != 0) {
-                LOG(NOTICE, "Read time was %.1f us (%.1f ms since previous)",
-                        Cycles::toSeconds(interval)*1e06,
-                        Cycles::toSeconds(now-lastLong)*1e03);
-            }
-            lastLong = now;
+        if (now >= stop) {
+            count = i+1;
+            LOG(NOTICE, "Time exceeded: stopping test after %d measurements",
+                    count);
+            break;
         }
     }
 
@@ -5723,6 +5722,10 @@ writeDistRandom()
 
     fillTable(dataTable, numKeys, keyLength, objectSize);
 
+    // The following variable is used to stop the test after 10 seconds
+    // if we haven't read count keys by then.
+    uint64_t stop = Cycles::rdtsc() + Cycles::fromSeconds(10.0);
+
     // Issue the writes back-to-back, and save the times.
     std::vector<uint64_t> ticks;
     ticks.resize(count);
@@ -5734,7 +5737,14 @@ writeDistRandom()
         // Do the benchmark
         uint64_t start = Cycles::rdtsc();
         cluster->write(dataTable, key, keyLength, value, objectSize);
-        ticks.at(i) = Cycles::rdtsc() - start;
+        uint64_t now = Cycles::rdtsc();
+        ticks.at(i) = now - start;
+        if (now >= stop) {
+            count = i+1;
+            LOG(NOTICE, "Time exceeded: stopping test after %d measurements",
+                    count);
+            break;
+        }
     }
 
     // Output the times (several comma-separated values on each line).

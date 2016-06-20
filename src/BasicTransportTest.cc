@@ -366,8 +366,7 @@ TEST_F(BasicTransportTest, handlePacket_timeTraceFromServerUnknownSequence) {
     driver->receivePacket("mock:server=1",
             BasicTransport::LogTimeTraceHeader(BasicTransport::RpcId(666, 1),
             BasicTransport::FROM_SERVER));
-    EXPECT_EQ("handlePacket: Discarding unknown packet, sequence 1",
-            TestLog::get());
+    WorkerTimer::sync();
     EXPECT_TRUE(TestUtil::contains(TimeTrace::globalTimeTrace->getTrace(),
             "client received LOG_TIME_TRACE"));
     EXPECT_EQ(0u, driver->stealCount);

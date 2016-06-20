@@ -571,6 +571,8 @@ def txCollision(name, options, cluster_args, client_args):
     print(get_client_log(), end='')
 
 def writeDist(name, options, cluster_args, client_args):
+    if cluster_args['timeout'] < 40:
+        cluster_args['timeout'] = 40
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '-t 2000'
     cluster_args['disjunct'] = True
