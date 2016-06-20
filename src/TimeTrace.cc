@@ -25,7 +25,7 @@ TimeTrace::TimeTrace()
     : mutex("TimeTrace::mutex")
     , events()
     , nextIndex(0)
-    , readerActive(false)
+    , activeReaders(0)
     , backgroundLogger()
 {
     // Mark all of the events invalid.
@@ -69,7 +69,7 @@ TimeTrace::~TimeTrace()
 void TimeTrace::record(uint64_t timestamp, const char* format,
         uint32_t arg0, uint32_t arg1, uint32_t arg2, uint32_t arg3)
 {
-    if (readerActive) {
+    if (activeReaders > 0) {
         return;
     }
     int current;
@@ -164,15 +164,7 @@ void TimeTrace::reset()
  */
 void TimeTrace::printInternal(string* s)
 {
-    {
-        SpinLock::Guard guard(mutex);
-        if (readerActive) {
-            RAMCLOUD_LOG(WARNING,
-                    "printInternal already active; skipping this call");
-            return;
-        }
-        readerActive = true;
-    }
+    activeReaders.add(1);
 
     // Find the oldest event that we still have (either events[nextIndex],
     // or events[0] if we never completely filled the buffer).
@@ -185,7 +177,7 @@ void TimeTrace::printInternal(string* s)
             } else {
                 RAMCLOUD_LOG(NOTICE, "No time trace events to print");
             }
-            readerActive = false;
+            activeReaders.add(-1);
             return;
         }
     }
@@ -225,7 +217,7 @@ void TimeTrace::printInternal(string* s)
         prevTime = ns;
         // The NULL test below is only needed for testing.
     } while ((i != nextIndex) && (events[i].format != NULL));
-    readerActive = false;
+    activeReaders.add(-1);
 }
 
 } // namespace RAMCloud

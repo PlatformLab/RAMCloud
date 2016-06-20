@@ -101,8 +101,7 @@ class TimeTrace {
     // misses.
     static const int NUM_PREFETCH = 2;
 
-    // Used in a few cases where exclusive access is desirable (e.g. when
-    // printing the log).
+    // Provides mutual exclusion when constructing backgroundLogger.
     SpinLock mutex;
 
     // Holds information from the most recent calls to the record method.
@@ -115,10 +114,10 @@ class TimeTrace {
     // record method.
     Atomic<int> nextIndex;
 
-    // True means that printInternal is currently running, so it is not
-    // safe to add more records, since that could result in inconsistent
-    // output from printInternal.
-    volatile bool readerActive;
+    // Count of number of calls to printInternal that are currently active;
+    // if nonzero, then it isn't safe to log new entries, since this could
+    // interfere with readers.
+    Atomic<int> activeReaders;
 
     // For logging time traces in the background.
     Tub<TraceLogger> backgroundLogger;

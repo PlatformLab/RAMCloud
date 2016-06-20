@@ -55,11 +55,11 @@ TEST_F(TimeTraceTest, record_basics) {
             trace.getTrace());
 }
 
-TEST_F(TimeTraceTest, record_readerActive) {
-    trace.readerActive = true;
+TEST_F(TimeTraceTest, record_readersActive) {
+    trace.activeReaders = 1;
     trace.record(100, "point a");
     trace.record(200, "point b");
-    trace.readerActive = false;
+    trace.activeReaders = 0;
     trace.record(350, "point c");
     EXPECT_EQ("     0.0 ns (+   0.0 ns): point c",
             trace.getTrace());
@@ -127,6 +127,7 @@ TEST_F(TimeTraceTest, printInternal_emptyTrace_logVersion) {
     trace.nextIndex = 0;
     trace.printInternal(NULL);
     EXPECT_EQ("printInternal: No time trace events to print", TestLog::get());
+    EXPECT_EQ(0, trace.activeReaders);
 }
 TEST_F(TimeTraceTest, printInternal_startAtBeginning) {
     trace.record(100, "point a");
@@ -136,6 +137,7 @@ TEST_F(TimeTraceTest, printInternal_startAtBeginning) {
             "    50.0 ns (+  50.0 ns): point b\n"
             "   125.0 ns (+  75.0 ns): point c",
             trace.getTrace());
+    EXPECT_EQ(0, trace.activeReaders);
 }
 TEST_F(TimeTraceTest, printInternal_startAtNextIndex) {
     trace.record(100, "point a");
