@@ -295,12 +295,13 @@ BasicTransport::sendBytes(const Driver::Address* address, RpcId rpcId,
     } else {
         // Send multiple packets.
         int bytesLeft = length;
+        int curOffset = offset;
         while (bytesLeft > 0) {
-            DataHeader header(rpcId, message->size(), offset, flags);
+            DataHeader header(rpcId, message->size(), curOffset, flags);
             int bytesThisPacket = std::min(bytesLeft, maxDataPerPacket);
-            Buffer::Iterator iter(message, offset, bytesThisPacket);
+            Buffer::Iterator iter(message, curOffset, bytesThisPacket);
             driver->sendPacket(address, &header, &iter);
-            offset += bytesThisPacket;
+            curOffset += bytesThisPacket;
             bytesLeft -= bytesThisPacket;
         }
     }
