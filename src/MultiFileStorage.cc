@@ -631,6 +631,7 @@ MultiFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
                                 size_t frameIndex, off_t offsetInFrame,
                                 void* metadataBuf, size_t metadataCount)
 {
+    uint64_t start = Cycles::rdtsc();
     CycleCounter<RawMetric> writeTicks(&metrics->backup.storageWriteTicks);
     lock.unlock();
 
@@ -678,6 +679,7 @@ MultiFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
     aio_write(metadataCb);
 
     // Wait for all of the IO operations to complete.
+    bool firstSlowIO = true;
     for (size_t i = 0; i < fds.size() + 1; i++) {
         struct aiocb* cb = &cbs[i];
         aio_suspend(&cb, 1, NULL);
@@ -705,12 +707,20 @@ MultiFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
                     "expected length %lu, actual write length %lu",
                     i, cb->aio_offset, cb->aio_nbytes, r);
         }
+        double elapsedSeconds = Cycles::toSeconds(Cycles::rdtsc() - start);
+        if ((elapsedSeconds > 0.1) && firstSlowIO) {
+            firstSlowIO = false;
+            LOG(WARNING, "Slow write to replica storage on device %lu: %.1f ms "
+                    "for %lu bytes", i, elapsedSeconds*1e03, cb->aio_nbytes);
+        }
     }
 
-    PerfStats::threadStats.backupWriteActiveCycles += writeTicks.stop();
     // Reduce our bandwidth (if so configured) by delaying this operation.
-    CycleCounter<RawMetric> _(&metrics->backup.storageWriteTicks);
-    sleepToThrottleWrites(count + metadataCount, writeTicks.stop());
+    sleepToThrottleWrites(count + metadataCount, Cycles::rdtsc() - start);
+
+    uint64_t elapsed = Cycles::rdtsc() - start;
+    metrics->backup.storageWriteTicks += elapsed;
+    PerfStats::threadStats.backupWriteActiveCycles += elapsed;
     lock.lock();
 }
 
