@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -199,7 +199,7 @@ UdpDriver::sendPacket(const Address *addr,
 /**
  * Invoked by the dispatcher when our socket becomes readable.
  * Reads any available packets from the socket, and passes them on
- * to the associated FastTransport instance.
+ * to the associated transport.
  *
  * \param events
  *      Indicates whether the socket was readable, writable, or both

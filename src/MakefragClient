@@ -49,7 +49,6 @@ CLIENT_SRCFILES := \
 		   src/Driver.cc \
 		   src/ExternalStorage.cc \
 		   src/FailSession.cc \
-		   src/FastTransport.cc \
 		   src/IndexKey.cc \
 		   src/IndexLookup.cc \
 		   src/IndexRpcWrapper.cc \

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -28,9 +28,8 @@ namespace RAMCloud {
 class ServiceLocator;
 
 /**
- * Used by transports such as FastTransport to send and receive unreliable
- * datagrams. This is an abstract class; see UdpDriver for an example of a
- * concrete implementation.
+ * Used by transports to send and receive unreliable datagrams. This is an
+ * abstract class; see UdpDriver for an example of a concrete implementation.
  */
 class Driver {
   public:

@@ -268,7 +268,7 @@ def main():
     parser.add_option('-n', '--number', dest='smacks', default=10000, type=int)
     parser.add_option('-C', '--coordinator',
                       dest='coordinatorLocator',
-                      default='fast+udp:ip=127.0.0.1,port=12242',
+                      default='basic+udp:ip=127.0.0.1,port=12242',
                       type=str)
     (options, args) = parser.parse_args()
 

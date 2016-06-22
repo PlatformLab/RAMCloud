@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  * Copyright (c) 2014-2015 Huawei Technologies Co. Ltd.
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -19,7 +19,8 @@
 
 #include <vector>
 
-#include "FastTransport.h"
+#include "Dispatch.h"
+#include "Driver.h"
 #include "MacAddress.h"
 #include "ObjectPool.h"
 #include "NetUtil.h"

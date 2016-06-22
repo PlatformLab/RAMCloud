@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -16,7 +16,7 @@
 #include "TestUtil.h"
 #include "InfUdDriver.h"
 #include "IpAddress.h"
-#include "MockFastTransport.h"
+#include "MockPacketHandler.h"
 
 namespace RAMCloud {
 class InfUdDriverTest : public ::testing::Test {
@@ -29,23 +29,6 @@ class InfUdDriverTest : public ::testing::Test {
         , logEnabler()
     {}
 
-    // Used to wait for data to arrive on a driver by invoking the
-    // dispatcher's polling loop; gives up if a long time goes by with
-    // no data.
-    const char *receivePacket(MockFastTransport *transport) {
-        transport->packetData.clear();
-        uint64_t start = Cycles::rdtsc();
-        while (true) {
-            context.dispatch->poll();
-            if (transport->packetData.size() != 0) {
-                return transport->packetData.c_str();
-            }
-            if (Cycles::toSeconds(Cycles::rdtsc() - start) > .1) {
-                return "no packet arrived";
-            }
-        }
-    }
-
   private:
     DISALLOW_COPY_AND_ASSIGN(InfUdDriverTest);
 };
@@ -56,10 +39,10 @@ TEST_F(InfUdDriverTest, basics) {
     ServiceLocator serverLocator("fast+infud:");
     InfUdDriver *server =
             new InfUdDriver(&context, &serverLocator, false);
-    MockFastTransport serverTransport(&context, server);
+    MockPacketHandler serverHandler(server);
     InfUdDriver *client =
             new InfUdDriver(&context, NULL, false);
-    MockFastTransport clientTransport(&context, client);
+    MockPacketHandler clientHandler(client);
     ServiceLocator sl(server->getServiceLocator());
     Driver::Address* serverAddress = client->newAddress(&sl);
 
@@ -70,15 +53,15 @@ TEST_F(InfUdDriverTest, basics) {
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     TestLog::reset();
     EXPECT_STREQ("header:This is a sample message",
-            receivePacket(&serverTransport));
+            serverHandler.receivePacket(&context));
     EXPECT_EQ("", TestLog::get());
 
     // Send a response back in the other direction.
     message.reset();
     message.appendExternal("response", 8);
     Buffer::Iterator iterator2(&message);
-    server->sendPacket(serverTransport.sender, "h:", 2, &iterator2);
-    EXPECT_STREQ("h:response", receivePacket(&clientTransport));
+    server->sendPacket(serverHandler.sender, "h:", 2, &iterator2);
+    EXPECT_STREQ("h:response", clientHandler.receivePacket(&context));
     delete serverAddress;
 }
 

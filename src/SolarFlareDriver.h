@@ -1,4 +1,4 @@
-/* Copyright (c) 2014 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -37,9 +37,9 @@ namespace RAMCloud {
 
 
 /**
- * A simple driver for SolarFlare NICs to send and receive unreliable datagrams. 
+ * A simple driver for SolarFlare NICs to send and receive unreliable datagrams.
  * This driver does not provide any reliability guarantees and is intended to be
- * used with higher level transport code (eg. FastTransport).
+ * used with higher level transport code.
  * See `Driver' class for more details.
  */
 
@@ -94,7 +94,7 @@ class SolarFlareDriver : public Driver {
      * DMA access to. As per SolarFlare documentations, the packet buffers
      * better be 2KB sized even though the data part is less than 2KB.
      * The extra space is then used to keep few auxiliary fields for efficient
-     * handling of the PacketBuffs. 
+     * handling of the PacketBuffs.
      */
     struct PacketBuff {
         PacketBuff()
@@ -115,8 +115,7 @@ class SolarFlareDriver : public Driver {
 
         /// For every RX packet, this address will be constructed from senders
         /// information and will be passed to the higher level transport code
-        /// (eg. FastTransport). This address will be used for sending replies
-        /// back.
+        /// This address will be used for sending replies back.
         Tub<MacIpAddress> macIpAddress;
 
         /// The packet content starts at this address and it's cache aligned for
@@ -224,10 +223,10 @@ class SolarFlareDriver : public Driver {
     /// This will be used as offset to beginning of the received packet buffer.
     int rxPrefixLen;
 
-    /// Number of  packetBuffs that are allocated from rxCopyPool
-    /// but not yet released by the higher level transport code (eg.
-    /// FastTransport). At the end of the life of this driver, all buffers
-    /// must have been released and therefore this variable must be zero.
+    /// Number of  packetBuffs that are allocated from rxCopyPool but not
+    /// yet released by the higher level transport code. At the end of the
+    /// life of this driver, all buffers must have been released and
+    /// therefore this variable must be zero.
     uint64_t buffsNotReleased;
 
     /// Tracks the total number of packet buffers currently living on the
@@ -248,9 +247,9 @@ class SolarFlareDriver : public Driver {
 
     /**
      * This is the object that polls the notifications from the event
-     * queue of the NIC. Dispatch loop invokes the poll() function of this 
-     * object to fetch the received packets and transmit notifications off 
-     * of the NIC. 
+     * queue of the NIC. Dispatch loop invokes the poll() function of this
+     * object to fetch the received packets and transmit notifications off
+     * of the NIC.
      */
     class Poller : public Dispatch::Poller {
       public:

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -21,7 +21,6 @@
 #include "TransportManager.h"
 #include "TransportFactory.h"
 #include "TcpTransport.h"
-#include "FastTransport.h"
 #include "UdpDriver.h"
 #include "FailSession.h"
 #include "WorkerManager.h"
@@ -62,16 +61,6 @@ static struct BasicUdpTransportFactory : public TransportFactory {
     }
 } basicUdpTransportFactory;
 
-static struct FastUdpTransportFactory : public TransportFactory {
-    FastUdpTransportFactory()
-        : TransportFactory("fast+kernelUdp", "fast+udp") {}
-    Transport* createTransport(Context* context,
-            const ServiceLocator* localServiceLocator) {
-        return new FastTransport(context,
-                new UdpDriver(context, localServiceLocator));
-    }
-} fastUdpTransportFactory;
-
 #ifdef ONLOAD
 static struct BasicSolarFlareTransportFactory : public TransportFactory {
     BasicSolarFlareTransportFactory()
@@ -82,16 +71,7 @@ static struct BasicSolarFlareTransportFactory : public TransportFactory {
                 new SolarFlareDriver(context, localServiceLocator),
                 generateRandom());
     }
-} basicSpolarFlareTransportFactory;
-static struct FastSolarFlareTransportFactory : public TransportFactory {
-    FastSolarFlareTransportFactory()
-        : TransportFactory("fast+solarflare", "fast+sf") {}
-    Transport* createTransport(Context* context,
-            const ServiceLocator* localServiceLocator) {
-        return new FastTransport(context,
-                new SolarFlareDriver(context, localServiceLocator));
-    }
-} fastSolarFlareTransportFactory;
+} basicSolarFlareTransportFactory;
 #endif
 
 #ifdef INFINIBAND
@@ -105,26 +85,6 @@ static struct BasicInfUdTransportFactory : public TransportFactory {
                 generateRandom());
     }
 } basicInfUdTransportFactory;
-
-static struct FastInfUdTransportFactory : public TransportFactory {
-    FastInfUdTransportFactory()
-        : TransportFactory("fast+infinibandud", "fast+infud") {}
-    Transport* createTransport(Context* context,
-            const ServiceLocator* localServiceLocator) {
-        return new FastTransport(context,
-                new InfUdDriver(context, localServiceLocator, false));
-    }
-} fastInfUdTransportFactory;
-
-static struct FastInfEthTransportFactory : public TransportFactory {
-    FastInfEthTransportFactory()
-        : TransportFactory("fast+infinibandethernet", "fast+infeth") {}
-    Transport* createTransport(Context* context,
-            const ServiceLocator* localServiceLocator) {
-        return new FastTransport(context,
-                new InfUdDriver(context, localServiceLocator, true));
-    }
-} fastInfEthTransportFactory;
 
 static struct InfRcTransportFactory : public TransportFactory {
     InfRcTransportFactory()
@@ -147,17 +107,6 @@ static struct BasicDpdkTransportFactory : public TransportFactory {
                 generateRandom());
     }
 } basicDpdkTransportFactory;
-static struct FastDpdkTransportFactory : public TransportFactory {
-    FastDpdkTransportFactory()
-        : TransportFactory("fast+dpdk", "fast+dpdk") {}
-    Transport* createTransport(Context* context,
-            const ServiceLocator* localServiceLocator) {
-        LOG(NOTICE, "Trying to createTransport");
-        return new FastTransport(context,
-                new DpdkDriver(context, localServiceLocator));
-        LOG(NOTICE, "Transport Created");
-    }
-} fastDpdkTransportFactory;
 #endif
 
 TransportManager::TransportManager(Context* context)
@@ -175,20 +124,15 @@ TransportManager::TransportManager(Context* context)
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&basicUdpTransportFactory);
-    transportFactories.push_back(&fastUdpTransportFactory);
 #ifdef ONLOAD
     transportFactories.push_back(&basicSolarFlareTransportFactory);
-    transportFactories.push_back(&fastSolarFlareTransportFactory);
 #endif
 #ifdef INFINIBAND
     transportFactories.push_back(&basicInfUdTransportFactory);
-    transportFactories.push_back(&fastInfUdTransportFactory);
-    transportFactories.push_back(&fastInfEthTransportFactory);
     transportFactories.push_back(&infRcTransportFactory);
 #endif
 #ifdef DPDK
     transportFactories.push_back(&basicDpdkTransportFactory);
-    transportFactories.push_back(&fastDpdkTransportFactory);
 #endif
     transports.resize(transportFactories.size(), NULL);
 }

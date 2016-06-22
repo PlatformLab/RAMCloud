@@ -32,7 +32,6 @@
 
 #include "Common.h"
 #include "BitOps.h"
-#include "FastTransport.h"
 #include "InfUdDriver.h"
 #include "PcapFile.h"
 #include "PerfStats.h"

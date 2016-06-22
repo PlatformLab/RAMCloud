@@ -5,8 +5,8 @@ source scripts/common.bash
 port=11114
 cport=$(( $port + 1 ))
 
-masterLocator=fast+udp:host=127.0.0.1,port=$port
-coordinatorLocator=fast+udp:host=127.0.0.1,port=$cport
+masterLocator=basic+udp:host=127.0.0.1,port=$port
+coordinatorLocator=basic+udp:host=127.0.0.1,port=$cport
 
 portslay $port
 portslay $cport

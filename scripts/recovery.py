@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2010-2015 Stanford University
+# Copyright (c) 2010-2016 Stanford University
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -117,7 +117,7 @@ def recover(num_servers,
                     directory for the log files from this run.
     @type  log_dir: C{str}
 
-    @param transport: A transport name (e.g. infrc, fast+udp, tcp, ...)
+    @param transport: A transport name (e.g. infrc, basic+udp, tcp, ...)
     @type  transport: C{str}
 
     @param verbose: Print information about progress in starting clients

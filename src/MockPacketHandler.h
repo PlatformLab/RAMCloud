@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -13,10 +13,10 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "FastTransport.h"
+#include "Driver.h"
 
-#ifndef RAMCLOUD_MOCKFASTTRANSPORT_H
-#define RAMCLOUD_MOCKFASTTRANSPORT_H
+#ifndef RAMCLOUD_MOCKPACKETHANDLER_H
+#define RAMCLOUD_MOCKPACKETHANDLER_H
 
 namespace RAMCloud {
 
@@ -24,26 +24,53 @@ namespace RAMCloud {
  * This class is used for testing drivers; it accepts callbacks from drivers
  * and makes the packet data available for examination in tests.
  */
-class MockFastTransport : public FastTransport {
+class MockPacketHandler : public Driver::IncomingPacketHandler {
   public:
-    explicit MockFastTransport(Context* context, Driver *driver)
-            : FastTransport(context, driver), packetData(), sender(NULL) { }
-    ~MockFastTransport() {
+    explicit MockPacketHandler(Driver *driver)
+        : driver(driver)
+        , packetData()
+        , sender(NULL)
+    {
+        driver->connect(this);
+    }
+
+    ~MockPacketHandler() {
         delete sender;
     }
-    void handleIncomingPacket(Driver::Received *received) {
+
+    void handlePacket(Driver::Received* received)
+    {
         if (packetData.size() != 0) {
             packetData.append(", ");
         }
         packetData.append(received->payload, received->len);
         sender = received->sender->clone();
     }
+
+    // Used to wait for data to arrive on a driver by invoking the
+    // dispatcher's polling loop; gives up if a long time goes by with
+    // no data. Returns the contents of the incoming packet.
+    const char *receivePacket(Context* context) {
+        packetData.clear();
+        uint64_t start = Cycles::rdtsc();
+        while (true) {
+            context->dispatch->poll();
+            if (packetData.size() != 0) {
+                return packetData.c_str();
+            }
+            if (Cycles::toSeconds(Cycles::rdtsc() - start) > .1) {
+                return "no packet arrived";
+            }
+        }
+    }
+
+    Driver* driver;
     string packetData;
     const Driver::Address *sender;
   private:
-    DISALLOW_COPY_AND_ASSIGN(MockFastTransport);
+    DISALLOW_COPY_AND_ASSIGN(MockPacketHandler);
 };
 
 }  // namespace RAMCloud
 
-#endif // RAMCLOUD_MOCKFASTTRANSPORT_H
+#endif // RAMCLOUD_MOCKPACKETHANDLER_H

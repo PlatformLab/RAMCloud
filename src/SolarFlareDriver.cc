@@ -1,4 +1,4 @@
-/** Copyright (c) 2014 Stanford University
+/** Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,6 @@
 
 #include <net/if.h>
 #include "SolarFlareDriver.h"
-#include "FastTransport.h"
 #include "Memory.h"
 #include "Buffer.h"
 #include "IpAddress.h"
@@ -632,7 +631,7 @@ SolarFlareDriver::Poller::poll()
 
 /**
  * A helper method for the packets that arrive on the NIC. It passes the packet 
- * payload to the next layer in transport software (eg. FastTransport)
+ * payload to the next layer in transport software)
  * 
  * \param packetId
  *      This is the id of the packetBuff within the received memory chunk.
