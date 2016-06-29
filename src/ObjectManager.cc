@@ -457,10 +457,11 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
     // are written atomically. The log makes no atomicity guarantees across
     // multiple append calls and we don't want a tombstone going to backups
     // before the RpcResult, or vice versa.
-    Log::AppendVector appends[(rpcResult ? 2 : 1)];
+    Log::AppendVector appends[2];
 
     tombstone.assembleForLog(appends[0].buffer);
     appends[0].type = LOG_ENTRY_TYPE_OBJTOMB;
+    assert(appends[1].buffer.size() == 0); // assert for correct TableStats
     if (rpcResult) {
         rpcResult->assembleForLog(appends[1].buffer);
         appends[1].type = LOG_ENTRY_TYPE_RPCRESULT;
@@ -477,8 +478,8 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
 
     TableStats::increment(masterTableMetadata,
                           tablet.tableId,
-                          appends[0].buffer.size(),
-                          1);
+                          appends[0].buffer.size() + appends[1].buffer.size(),
+                          rpcResult ? 2 : 1);
     segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log.free(reference);
     remove(lock, key);
