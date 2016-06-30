@@ -578,6 +578,8 @@ TEST_F(BasicTransportTest, handlePacket_resendFromServer_restart) {
             driver->outputLog);
     driver->outputLog.clear();
     EXPECT_EQ(10lu, transport.outgoingRpcs[1]->transmitOffset);
+    transport.outgoingRpcs[1]->response->appendCopy("abcde", 5);
+    EXPECT_EQ(5lu, transport.outgoingRpcs[1]->response->size());
 
     driver->receivePacket("mock:server=1", BasicTransport::ResendHeader(
             BasicTransport::RpcId(666, 1), 0, 5,
@@ -586,6 +588,7 @@ TEST_F(BasicTransportTest, handlePacket_resendFromServer_restart) {
             "NEED_GRANT, RETRANSMISSION abcde",
             driver->outputLog);
     EXPECT_EQ(5lu, transport.outgoingRpcs[1]->transmitOffset);
+    EXPECT_EQ(0lu, transport.outgoingRpcs[1]->response->size());
 }
 TEST_F(BasicTransportTest,
         handlePacket_resendFromServer_transmitOffsetChanges) {

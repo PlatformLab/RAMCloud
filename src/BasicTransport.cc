@@ -717,6 +717,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                         header->offset, header->length);
 #endif
                 if (header->common.flags & RESTART) {
+                    clientRpc->response->reset();
                     clientRpc->transmitOffset = 0;
                     clientRpc->grantOffset = 0;
                     clientRpc->resendLimit = 0;
