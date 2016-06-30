@@ -367,7 +367,7 @@ TEST_F(BasicTransportTest, handlePacket_timeTraceFromServerUnknownSequence) {
             BasicTransport::LogTimeTraceHeader(BasicTransport::RpcId(666, 1),
             BasicTransport::FROM_SERVER));
     WorkerTimer::sync();
-    EXPECT_TRUE(TestUtil::contains(TimeTrace::globalTimeTrace->getTrace(),
+    EXPECT_TRUE(TestUtil::contains(TimeTrace::getTrace(),
             "client received LOG_TIME_TRACE"));
     EXPECT_EQ(0u, driver->stealCount);
 }
@@ -537,7 +537,7 @@ TEST_F(BasicTransportTest, handlePacket_grantFromServer) {
 TEST_F(BasicTransportTest, handlePacket_logTimeTraceFromServer) {
     MockWrapper wrapper("message1");
     session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
-    TimeTrace::globalTimeTrace->reset();
+    TimeTrace::reset();
 
     driver->receivePacket("mock:server=1", BasicTransport::LogTimeTraceHeader(
             BasicTransport::RpcId(666, 1), BasicTransport::FROM_SERVER));

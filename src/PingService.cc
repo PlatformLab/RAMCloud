@@ -278,7 +278,7 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         }
         case WireFormat::GET_TIME_TRACE:
         {
-            string s = context->timeTrace->getTrace();
+            string s = TimeTrace::getTrace();
             respHdr->outputLength = downCast<uint32_t>(s.length());
             rpc->replyPayload->appendCopy(s.c_str(), respHdr->outputLength);
             break;
@@ -299,7 +299,7 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         }
         case WireFormat::LOG_TIME_TRACE:
         {
-            context->timeTrace->printToLog();
+            TimeTrace::printToLog();
             break;
         }
         case WireFormat::GET_CACHE_TRACE:
@@ -329,7 +329,7 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         }
         case WireFormat::RESET_METRICS:
         {
-            context->timeTrace->reset();
+            TimeTrace::reset();
             break;
         }
         case WireFormat::START_PERF_COUNTERS:

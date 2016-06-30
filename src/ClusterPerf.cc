@@ -6357,7 +6357,7 @@ try
         cluster->serverControlAll(WireFormat::LOG_BASIC_TRANSPORT_ISSUES);
     }
     BasicTransport::logIssueStats();
-    cluster->clientContext->timeTrace->printToLog();
+    TimeTrace::printToLog();
 }
 catch (std::exception& e) {
     RAMCLOUD_LOG(ERROR, "%s", e.what());

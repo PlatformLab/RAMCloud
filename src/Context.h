@@ -42,7 +42,6 @@ class Service;
 class WorkerManager;
 class SessionAlarmTimer;
 class TableManager;
-class TimeTrace;
 class TransportManager;
 
 /**
@@ -89,7 +88,6 @@ class Context {
     SessionAlarmTimer* sessionAlarmTimer;
     PortAlarmTimer*    portAlarmTimer;
     CoordinatorSession* coordinatorSession;
-    TimeTrace* timeTrace;
     CacheTrace* cacheTrace;
     ObjectFinder* objectFinder; // On Client and Master, this locator tells
                                 // which master is the owner of an object.

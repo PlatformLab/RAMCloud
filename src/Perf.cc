@@ -1407,7 +1407,7 @@ double throwSwitch()
 double timeTrace()
 {
     int count = 100000;
-    TimeTrace trace;
+    TimeTrace::Buffer trace;
     trace.record("warmup record");
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {

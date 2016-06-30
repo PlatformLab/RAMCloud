@@ -27,58 +27,120 @@ namespace RAMCloud {
 
 /**
  * This class implements a circular buffer of entries, each of which
- * consists of a fine-grain timestamp and a short descriptive string.
- * It's typically used to record times at various points in an operation,
- * in order to find performance bottlenecks. It can record a trace relatively
- * efficiently, and then either return the trace either as a string or
- * print it to the system log.
+ * consists of a fine-grain timestamp, a short descriptive string, and
+ * a few additional values. It's typically used to record times at
+ * various points in an operation, in order to find performance bottlenecks.
+ * It can record a trace relatively efficiently (< 10ns as of 6/2016),
+ * and then either return the trace either as a string or print it to
+ * the system log.
  *
- * This class is thread-safe.
+ * This class is thread-safe. By default, trace information is recorded
+ * separately for each thread in order to avoid synchronization and cache
+ * consistency overheads; the thread-local traces are merged by methods
+ * such as printToLog, so the existence of multiple trace buffers is
+ * normally invisible.
+ *
+ * The TimeTrace class should never be constructed; it offers only
+ * static methods.
+ *
+ * If you want to use a single trace buffer rather than per-thread
+ * buffers, see the subclass TimeTrace::Buffer below.
  */
 class TimeTrace {
-  PUBLIC:
-    TimeTrace();
-    ~TimeTrace();
-    void record(uint64_t timestamp, const char* format, uint32_t arg0 = 0,
-            uint32_t arg1 = 0, uint32_t arg2 = 0, uint32_t arg3 = 0);
-    void record(const char* format, uint32_t arg0 = 0, uint32_t arg1 = 0,
-            uint32_t arg2 = 0, uint32_t arg3 = 0) {
+  public:
+    class Buffer;
+    static string getTrace();
+    static void printToLog();
+    static void printToLogBackground(Dispatch* dispatch);
+
+    /**
+     * Record an event in a thread-local buffer, creating a new buffer
+     * if this is the first record for this thread.
+     *
+     * \param timestamp
+     *      Identifies the time at which the event occurred.
+     * \param format
+     *      A format string for snprintf that will be used, along with
+     *      arg0..arg3, to generate a human-readable message describing what
+     *      happened, when the time trace is printed. The message is generated
+     *      by calling snprintf as follows:
+     *      snprintf(buffer, size, format, arg0, arg1, arg2, arg3)
+     *      where format and arg0..arg3 are the corresponding arguments to this
+     *      method. This pointer is stored in the time trace, so the caller must
+     *      ensure that its contents will not change over its lifetime in the
+     *      trace.
+     * \param arg0
+     *      Argument to use when printing a message about this event.
+     * \param arg1
+     *      Argument to use when printing a message about this event.
+     * \param arg2
+     *      Argument to use when printing a message about this event.
+     * \param arg3
+     *      Argument to use when printing a message about this event.
+     */
+    static inline void record(uint64_t timestamp, const char* format,
+            uint32_t arg0 = 0, uint32_t arg1 = 0, uint32_t arg2 = 0,
+            uint32_t arg3 = 0) {
+        if (threadBuffer == NULL) {
+            createThreadBuffer();
+        }
+        threadBuffer->record(timestamp, format, arg0, arg1, arg2, arg3);
+    }
+    static inline void record(const char* format, uint32_t arg0 = 0,
+            uint32_t arg1 = 0, uint32_t arg2 = 0, uint32_t arg3 = 0) {
         record(Cycles::rdtsc(), format, arg0, arg1, arg2, arg3);
     }
-    void printToLog();
-    void printToLogBackground(Dispatch* dispatch);
-    string getTrace();
-    void reset();
+
+    static void reset();
 
   PROTECTED:
-    void printInternal(string* s);
+    TimeTrace();
+    static void createThreadBuffer();
+    static void printInternal(std::vector<TimeTrace::Buffer*>* traces,
+            string* s);
 
     /**
      * This class is used to print the time trace to the log in the
      * background (as a WorkerTimer). Printing can take a long time,
      * so doing it in the foreground can potentially make a server
-     * appear crashed.
+     * appear crashed. All instances are assumed to be dynamically
+     * allocated;they delete themselves automatically.
      */
-
     class TraceLogger : public WorkerTimer {
       public:
-        TraceLogger(Dispatch* dispatch, TimeTrace* timeTrace)
+        explicit TraceLogger(Dispatch* dispatch)
                 : WorkerTimer(dispatch)
-                , timeTrace(timeTrace)
-        { }
-
-        virtual void handleTimerEvent() {
-            timeTrace->printToLog();
+                , isFinished(false)
+        {
+            start(0);
         }
+        virtual void handleTimerEvent();
 
-      PRIVATE:
-        // The TimeTrace to print to the log.
-        TimeTrace* timeTrace;
+        // Set to true once it has finished logging.
+        bool isFinished;
         DISALLOW_COPY_AND_ASSIGN(TraceLogger);
     };
 
+
+    // Points to a private per-thread TimeTrace::Buffer object; NULL means
+    // no such object has been created yet for the current thread.
+    static __thread Buffer* threadBuffer;
+
+    // Holds pointers to all of the thread-private TimeTrace objects created
+    // so far. Entries never get deleted from this object.
+    static std::vector<Buffer*> threadBuffers;
+
+    // Used for logging TimeTraces in the background as a WorkerTimer.
+    // Allocated/reallocated during calls to printToLogBackground.
+    // Warning: making backgroundLogger a static variable rather than a pointer
+    // causes order-of-deletion problems during static variable destruction.
+    static TraceLogger* backgroundLogger;
+
+    // Provides mutual exclusion on threadBuffers and backgroundLogger.
+    static SpinLock mutex;
+
     /**
-     * This structure holds one entry in the TimeTrace.
+     * This structure holds one entry in a TimeTrace::Buffer.
      */
     struct Event {
       uint64_t timestamp;        // Time when a particular event occurred.
@@ -94,39 +156,45 @@ class TimeTrace {
                                  // when printing out this event.
     };
 
-    // Total number of events that we can retain any given time.
-    static const int BUFFER_SIZE = 10000;
-
-    // Number of events to prefetch ahead, in order to minimize cache
-    // misses.
-    static const int NUM_PREFETCH = 2;
-
-    // Provides mutual exclusion when constructing backgroundLogger.
-    SpinLock mutex;
-
-    // Holds information from the most recent calls to the record method.
-    // Note: prefetching will cause NUM_PREFETCH extra elements past the
-    // end of the buffer, to be accessed (allocating extra space avoids
-    // the cost of being cleverer during prefetching).
-    Event events[BUFFER_SIZE + NUM_PREFETCH];
-
-    // Index within events of the slot to use for the next call to the
-    // record method.
-    Atomic<int> nextIndex;
-
-    // Count of number of calls to printInternal that are currently active;
-    // if nonzero, then it isn't safe to log new entries, since this could
-    // interfere with readers.
-    Atomic<int> activeReaders;
-
-    // For logging time traces in the background.
-    Tub<TraceLogger> backgroundLogger;
-
   public:
-    // Refers to the most recently created time trace; provides a convenient
-    // global variable for situations where no other TimeTrace pointer
-    // is readily available.
-    static TimeTrace* globalTimeTrace;
+    /**
+     * Represents a sequence of events, typically consisting of all those
+     * generated by one thread.  Has a fixed capacity, so slots are re-used
+     * on a circular basis.  This class is not thread-safe.
+     */
+    class Buffer {
+      public:
+        Buffer();
+        ~Buffer();
+        string getTrace();
+        void printToLog();
+        void record(uint64_t timestamp, const char* format, uint32_t arg0 = 0,
+                uint32_t arg1 = 0, uint32_t arg2 = 0, uint32_t arg3 = 0);
+        void record(const char* format, uint32_t arg0 = 0, uint32_t arg1 = 0,
+                uint32_t arg2 = 0, uint32_t arg3 = 0) {
+            record(Cycles::rdtsc(), format, arg0, arg1, arg2, arg3);
+        }
+        void reset();
+
+      PROTECTED:
+        // Total number of events that we can retain any given time.
+        static const int BUFFER_SIZE = 10000;
+
+        // Index within events of the slot to use for the next call to the
+        // record method.
+        int nextIndex;
+
+        // Count of number of calls to printInternal that are currently active
+        // for this buffer; if nonzero, then it isn't safe to log new
+        // entries, since this could interfere with readers.
+        Atomic<int> activeReaders;
+
+        // Holds information from the most recent calls to the record method.
+        TimeTrace::Event events[BUFFER_SIZE];
+
+        friend class TimeTrace;
+        DISALLOW_COPY_AND_ASSIGN(Buffer);
+    };
 };
 
 } // namespace RAMCloud

@@ -131,7 +131,7 @@ BasicTransport::deleteServerRpc(ServerRpc* serverRpc)
     TEST_LOG("RpcId (%lu, %lu)", serverRpc->rpcId.clientId,
             serverRpc->rpcId.sequence);
 #if TIME_TRACE
-    TimeTrace::globalTimeTrace->record("deleting server RPC, sequence %u",
+    TimeTrace::record("deleting server RPC, sequence %u",
             downCast<uint32_t>(serverRpc->rpcId.sequence));
 #endif
     incomingRpcs.erase(serverRpc->rpcId);
@@ -307,8 +307,7 @@ BasicTransport::sendBytes(const Driver::Address* address, RpcId rpcId,
     }
 
 #if TIME_TRACE
-    TimeTrace::globalTimeTrace->record(
-            "sent data, sequence %u, offset %u, length %u",
+    TimeTrace::record("sent data, sequence %u, offset %u, length %u",
             downCast<uint32_t>(rpcId.sequence), offset, length);
 #endif
 }
@@ -553,11 +552,10 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
             // server since the response). Discard the packet.
             if (common->opcode == LOG_TIME_TRACE) {
                 // For LOG_TIME_TRACE requests, dump the trace anyway.
-                TimeTrace::globalTimeTrace->record(
+                TimeTrace::record(
                         "client received LOG_TIME_TRACE for sequence %u",
                         downCast<uint32_t>(common->rpcId.sequence));
-                TimeTrace::globalTimeTrace->printToLogBackground(
-                        t->context->dispatch);
+                TimeTrace::printToLogBackground(t->context->dispatch);
             }
             TEST_LOG("Discarding unknown packet, sequence %lu",
                     common->rpcId.sequence);
@@ -585,7 +583,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                     return;
                 }
 #if TIME_TRACE
-                TimeTrace::globalTimeTrace->record(
+                TimeTrace::record(
                         "client received ALL_DATA, sequence %u, length %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         length);
@@ -604,7 +602,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 if (header == NULL)
                     goto packetLengthError;
 #if TIME_TRACE
-                TimeTrace::globalTimeTrace->record("client received DATA, "
+                TimeTrace::record("client received DATA, "
                         "sequence %u, offset %u, length %u, flags %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset, received->len, header->common.flags);
@@ -637,7 +635,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                                 + clientRpc->session->roundTripBytes
                                 + t->grantIncrement;
 #if TIME_TRACE
-                        TimeTrace::globalTimeTrace->record(
+                        TimeTrace::record(
                                 "client sending GRANT, sequence %u, offset %u",
                                 downCast<uint32_t>(
                                 header->common.rpcId.sequence),
@@ -662,14 +660,13 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                             clientRpc->resendLimit);
                     originalCount++;
                     if (originalCount == 10) {
-                        TimeTrace::globalTimeTrace->record(
+                        TimeTrace::record(
                                 "Original data arrived after resend, sequence "
                                 "%u, offset %u",
                                 downCast<uint32_t>(
                                 header->common.rpcId.sequence),
                                 clientRpc->grantOffset);
-                        TimeTrace::globalTimeTrace->printToLogBackground(
-                                t->context->dispatch);
+                        TimeTrace::printToLogBackground(t->context->dispatch);
                         LogTimeTraceHeader logHeader(header->common.rpcId,
                                 FROM_CLIENT);
                         t->driver->sendPacket(clientRpc->session->serverAddress,
@@ -685,7 +682,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 if (header == NULL)
                     goto packetLengthError;
 #if TIME_TRACE
-                TimeTrace::globalTimeTrace->record(
+                TimeTrace::record(
                         "client received GRANT, sequence %u, offset %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset);
@@ -702,11 +699,10 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
             }
 
             case PacketOpcode::LOG_TIME_TRACE: {
-                TimeTrace::globalTimeTrace->record(
+                TimeTrace::record(
                         "client received LOG_TIME_TRACE for sequence %u",
                         downCast<uint32_t>(common->rpcId.sequence));
-                TimeTrace::globalTimeTrace->printToLogBackground(
-                        t->context->dispatch);
+                TimeTrace::printToLogBackground(t->context->dispatch);
                 return;
             }
 
@@ -715,7 +711,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 if (header == NULL)
                     goto packetLengthError;
 #if TIME_TRACE
-                TimeTrace::globalTimeTrace->record("client received RESEND, "
+                TimeTrace::record("client received RESEND, "
                         "sequence %u, offset %u, length %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset, header->length);
@@ -764,7 +760,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 if (header == NULL)
                     goto packetLengthError;
 #if TIME_TRACE
-                TimeTrace::globalTimeTrace->record(
+                TimeTrace::record(
                         "server received ALL_DATA, sequence %u, length %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         received->len);
@@ -806,7 +802,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 if (header == NULL)
                     goto packetLengthError;
 #if TIME_TRACE
-                TimeTrace::globalTimeTrace->record("server received DATA, "
+                TimeTrace::record("server received DATA, "
                         "sequence %u, offset %u, length %u, flags %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset, received->len, header->common.flags);
@@ -827,7 +823,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 serverRpc->accumulator->addPacket(received, header);
 #if TIME_TRACE
                 if (header->offset == 0) {
-                    TimeTrace::globalTimeTrace->record(
+                    TimeTrace::record(
                             "server received opcode %u, totalLength %u",
                             serverRpc->requestPayload.getStart<
                             WireFormat::RequestCommon>()->opcode,
@@ -858,7 +854,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                                 serverRpc->requestPayload.size()
                                 + t->roundTripBytes + t->grantIncrement;
 #if TIME_TRACE
-                        TimeTrace::globalTimeTrace->record(
+                        TimeTrace::record(
                                 "server sending GRANT, sequence %u, offset %u",
                                 downCast<uint32_t>(
                                 header->common.rpcId.sequence),
@@ -888,12 +884,11 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                                 "sequence %lu",
                                 received->sender->toString().c_str(),
                                 common->rpcId.sequence);
-                        TimeTrace::globalTimeTrace->record(
+                        TimeTrace::record(
                                 "Original data arrived after RESEND for "
                                 "sequence %lu",
                                 downCast<uint32_t>(common->rpcId.sequence));
-                        TimeTrace::globalTimeTrace->printToLogBackground(
-                                t->context->dispatch);
+                        TimeTrace::printToLogBackground(t->context->dispatch);
                         LogTimeTraceHeader logHeader(header->common.rpcId,
                                 FROM_SERVER);
                         t->driver->sendPacket(serverRpc->clientAddress,
@@ -909,7 +904,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 if (header == NULL)
                     goto packetLengthError;
 #if TIME_TRACE
-                TimeTrace::globalTimeTrace->record(
+                TimeTrace::record(
                         "server received GRANT, sequence %u, offset %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset);
@@ -940,18 +935,16 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
             }
 
             case PacketOpcode::LOG_TIME_TRACE: {
-                TimeTrace::globalTimeTrace->record(
+                TimeTrace::record(
                         "server received LOG_TIME_TRACE for sequence %u",
                         downCast<uint32_t>(common->rpcId.sequence));
-                TimeTrace::globalTimeTrace->printToLogBackground(
-                        t->context->dispatch);
+                TimeTrace::printToLogBackground(t->context->dispatch);
                 return;
             }
 
             case PacketOpcode::PING: {
 #if TIME_TRACE
-                TimeTrace::globalTimeTrace->record(
-                        "server received PING, sequence %u",
+                TimeTrace::record("server received PING, sequence %u",
                         downCast<uint32_t>(common->rpcId.sequence));
 #endif
                 if (serverRpc == NULL) {
@@ -995,7 +988,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 if (header == NULL)
                     goto packetLengthError;
 #if TIME_TRACE
-                TimeTrace::globalTimeTrace->record("server received RESEND, "
+                TimeTrace::record("server received RESEND, "
                         "sequence %u, offset %u, length %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset, header->length);
@@ -1251,11 +1244,11 @@ BasicTransport::MessageAccumulator::requestRetransmission(BasicTransport *t,
     assert(endOffset > buffer->size());
 #if TIME_TRACE
     if (whoFrom == FROM_SERVER) {
-        TimeTrace::globalTimeTrace->record("server requesting retransmission "
+        TimeTrace::record("server requesting retransmission "
                 "of bytes %u-%u, sequence %u",
                 buffer->size(), endOffset, downCast<uint32_t>(rpcId.sequence));
     } else {
-        TimeTrace::globalTimeTrace->record("client requesting retransmission "
+        TimeTrace::record("client requesting retransmission "
                 "of bytes %u-%u, sequence %u",
                 buffer->size(), endOffset, downCast<uint32_t>(rpcId.sequence));
     }
@@ -1330,8 +1323,7 @@ BasicTransport::Timer::handleTimerEvent()
             // give the server a chance to handle the problem).
             if ((clientRpc->silentIntervals % t->pingIntervals) == 0) {
 #if TIME_TRACE
-                TimeTrace::globalTimeTrace->record(
-                        "client sending PING for sequence %u",
+                TimeTrace::record("client sending PING for sequence %u",
                         downCast<uint32_t>(sequence));
 #endif
                 PingHeader ping(RpcId(t->clientId, sequence), FROM_CLIENT);

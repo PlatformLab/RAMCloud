@@ -240,6 +240,7 @@ TEST_F(CoordinatorServiceTest, getTableConfig_invalid) {
 TEST_F(CoordinatorServiceTest, serverControlAll) {
     Buffer reqBuf;
     Buffer respBuf;
+    TimeTrace::reset();
     Service::Rpc rpc(NULL, &reqBuf, &respBuf);   // Fake RPC with no worker.
     WireFormat::ServerControlAll::Request* reqHdr =
                 reqBuf.emplaceAppend<WireFormat::ServerControlAll::Request>();
@@ -323,6 +324,7 @@ TEST_F(CoordinatorServiceTest, verifyMembership) {
 }
 
 TEST_F(CoordinatorServiceTest, checkServerControlRpcs_basic) {
+    TimeTrace::reset();
     std::list<CoordinatorService::ServerControlRpcContainer> rpcs;
 
     Buffer respBuf;
@@ -339,6 +341,7 @@ TEST_F(CoordinatorServiceTest, checkServerControlRpcs_basic) {
 }
 
 TEST_F(CoordinatorServiceTest, checkServerControlRpcs_ServerNotUpException) {
+    TimeTrace::reset();
     // Use MockTransport so that RPC will not be completed automatically.
     MockTransport transport(service->context);
     service->context->transportManager->unregisterMock();
@@ -381,6 +384,7 @@ TEST_F(CoordinatorServiceTest, checkServerControlRpcs_ServerNotUpException) {
 }
 
 TEST_F(CoordinatorServiceTest, checkServerControlRpcs_skipNotReady) {
+    TimeTrace::reset();
     // Use MockTransport so that RPC will not be completed automatically.
     MockTransport transport(service->context);
     service->context->transportManager->unregisterMock();
@@ -443,6 +447,7 @@ TEST_F(CoordinatorServiceTest, checkServerControlRpcs_skipNotReady) {
 }
 
 TEST_F(CoordinatorServiceTest, checkServerControlRpcs_truncated) {
+    TimeTrace::reset();
     std::list<CoordinatorService::ServerControlRpcContainer> rpcs;
 
     ServerConfig master2Config = masterConfig;

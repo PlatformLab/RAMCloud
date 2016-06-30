@@ -22,158 +22,221 @@ namespace RAMCloud {
 class TimeTraceTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
-    TimeTrace trace;
+    TimeTrace::Buffer buffer, buffer2, buffer3, buffer4;
+    std::vector<TimeTrace::Buffer*> buffers;
 
     TimeTraceTest()
         : logEnabler()
-        , trace()
+        , buffer()
+        , buffer2()
+        , buffer3()
+        , buffer4()
+        , buffers()
     {
         Cycles::mockCyclesPerSec = 2e09;
+        buffers.push_back(&buffer);
+        buffers.push_back(&buffer2);
+        buffers.push_back(&buffer3);
+        buffers.push_back(&buffer4);
+        TimeTrace::reset();
     }
 
     ~TimeTraceTest()
     {
         Cycles::mockCyclesPerSec = 0;
+        delete TimeTrace::backgroundLogger;
+        TimeTrace::backgroundLogger = NULL;
     }
 
   private:
     DISALLOW_COPY_AND_ASSIGN(TimeTraceTest);
 };
 
-TEST_F(TimeTraceTest, constructor) {
-    EXPECT_EQ(0, trace.events[0].format);
-    EXPECT_EQ(0, trace.events[0].format);
-}
-
-TEST_F(TimeTraceTest, record_basics) {
-    trace.record(100, "point a");
-    trace.record(200, "point b %u %u %d %u", 1, 2, -3, 4);
-    trace.record(350, "point c");
-    EXPECT_EQ("     0.0 ns (+   0.0 ns): point a\n"
-            "    50.0 ns (+  50.0 ns): point b 1 2 -3 4\n"
-            "   125.0 ns (+  75.0 ns): point c",
-            trace.getTrace());
-}
-
-TEST_F(TimeTraceTest, record_readersActive) {
-    trace.activeReaders = 1;
-    trace.record(100, "point a");
-    trace.record(200, "point b");
-    trace.activeReaders = 0;
-    trace.record(350, "point c");
-    EXPECT_EQ("     0.0 ns (+   0.0 ns): point c",
-            trace.getTrace());
-}
-
-TEST_F(TimeTraceTest, record_wrapAround) {
-    trace.nextIndex = TimeTrace::BUFFER_SIZE - 2;
-    trace.record(100, "near the end");
-    trace.record(200, "at the end");
-    trace.record(350, "beginning");
-    EXPECT_EQ(1, trace.nextIndex.load());
-    trace.nextIndex = TimeTrace::BUFFER_SIZE - 2;
-    EXPECT_EQ("     0.0 ns (+   0.0 ns): near the end\n"
-            "    50.0 ns (+  50.0 ns): at the end\n"
-            "   125.0 ns (+  75.0 ns): beginning",
-            trace.getTrace());
-}
-
 TEST_F(TimeTraceTest, getTrace) {
-    trace.record(100, "point a");
-    EXPECT_EQ("     0.0 ns (+   0.0 ns): point a",
-            trace.getTrace());
+    TimeTrace::record(100, "point a");
+    buffer.record(100, "point b");
+    TimeTrace::threadBuffers.push_back(&buffer);
+    EXPECT_EQ(2u, TimeTrace::threadBuffers.size());
+    EXPECT_EQ("     0.0 ns (+   0.0 ns): point a\n"
+            "     0.0 ns (+   0.0 ns): point b", TimeTrace::getTrace());
+    TimeTrace::threadBuffers.pop_back();
+}
+
+TEST_F(TimeTraceTest, printInternal_startAtBeginning) {
+    buffer.record(100, "point a");
+    buffer.record(200, "point b");
+    buffer.record(350, "point c");
+    EXPECT_EQ("     0.0 ns (+   0.0 ns): point a\n"
+            "    50.0 ns (+  50.0 ns): point b\n"
+            "   125.0 ns (+  75.0 ns): point c",
+            buffer.getTrace());
+    EXPECT_EQ(0, buffer.activeReaders);
+}
+TEST_F(TimeTraceTest, printInternal_startAtNextIndexPlus1) {
+    buffer.record(100, "point a");
+    buffer.record(200, "point b");
+    buffer.record(350, "point c");
+    buffer.record(360, "point d");
+    buffer.nextIndex = 1;
+    EXPECT_EQ("     0.0 ns (+   0.0 ns): point c\n"
+            "     5.0 ns (+   5.0 ns): point d",
+            buffer.getTrace());
+}
+TEST_F(TimeTraceTest, printInternal_pickStartingTimeAndPrune) {
+    buffer.record(100, "1.a");
+    buffer.record(300, "1.b");
+    buffer2.record(200, "2.a");
+    buffer2.record(250, "2.b");
+    buffer4.record(50, "4.a");
+    buffer4.record(550, "4.b");
+    TimeTrace::printInternal(&buffers, NULL);
+    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): 2.a | "
+            "printInternal:     25.0 ns (+  25.0 ns): 2.b | "
+            "printInternal:     50.0 ns (+  25.0 ns): 1.b | "
+            "printInternal:    175.0 ns (+ 125.0 ns): 4.b",
+            TestLog::get());
+}
+TEST_F(TimeTraceTest, printInternal_wrapAround) {
+    buffer.nextIndex = TimeTrace::Buffer::BUFFER_SIZE - 2;
+    buffer.record(100, "point a");
+    buffer.record(200, "point b");
+    buffer.record(350, "point c");
+    // -3 needed below because the event at nextIndex gets skipped...
+    buffer.nextIndex = TimeTrace::Buffer::BUFFER_SIZE - 3;
+    EXPECT_EQ("     0.0 ns (+   0.0 ns): point a\n"
+            "    50.0 ns (+  50.0 ns): point b\n"
+            "   125.0 ns (+  75.0 ns): point c",
+            buffer.getTrace());
+}
+TEST_F(TimeTraceTest, printInternal_printToStringWithArgs) {
+    buffer.record(200, "point b %d %d %d %u", 99, 101, -1, -2);
+    EXPECT_EQ("     0.0 ns (+   0.0 ns): point b 99 101 -1 4294967294",
+            buffer.getTrace());
+}
+TEST_F(TimeTraceTest, printInternal_printToLogWithArgs) {
+    buffer.record(100, "point a");
+    buffer.record(200, "point b %d %d %d %u", 99, 101, -1, -2);
+    buffer.record(350, "point c");
+    TimeTrace::printInternal(&buffers, NULL);
+    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a | "
+            "printInternal:     50.0 ns (+  50.0 ns): point b 99 101 "
+            "-1 4294967294 | "
+            "printInternal:    125.0 ns (+  75.0 ns): point c",
+            TestLog::get());
+}
+TEST_F(TimeTraceTest, printInternal_emptyTrace_stringVersion) {
+    buffer.nextIndex = 0;
+    EXPECT_EQ("No time trace events to print", buffer.getTrace());
+}
+TEST_F(TimeTraceTest, printInternal_emptyTrace_logVersion) {
+    buffer.nextIndex = 0;
+    TimeTrace::printInternal(&buffers, NULL);
+    EXPECT_EQ("printInternal: No time trace events to print", TestLog::get());
+    EXPECT_EQ(0, buffer.activeReaders);
 }
 
 TEST_F(TimeTraceTest, printToLog) {
-    trace.record(100, "point a");
-    trace.printToLog();
-    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a",
+    TimeTrace::record(100, "point a");
+    buffer.record(100, "point b");
+    TimeTrace::threadBuffers.push_back(&buffer);
+    EXPECT_EQ(2u, TimeTrace::threadBuffers.size());
+    TimeTrace::printToLog();
+    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a | "
+            "printInternal:      0.0 ns (+   0.0 ns): point b",
             TestLog::get());
+    TimeTrace::threadBuffers.pop_back();
 }
 
 TEST_F(TimeTraceTest, printToLogBackground) {
     Dispatch dispatch(false);
-    TimeTrace t;
-    t.record(100, "point a");
-    t.printToLogBackground(&dispatch);
+    TimeTrace::record(100, "point a");
+    TimeTrace::printToLogBackground(&dispatch);
     EXPECT_EQ("", TestLog::get());
     dispatch.poll();
     for (int i = 0; i < 1000; i++) {
-        if (TestLog::get().size() != 0) {
+        if (TimeTrace::backgroundLogger->isFinished) {
             break;
         }
         usleep(1000);
     }
+    EXPECT_TRUE(TimeTrace::backgroundLogger->isFinished);
     EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a",
             TestLog::get());
 }
 
 TEST_F(TimeTraceTest, reset) {
-    trace.record("first", 100);
-    trace.record("second", 200);
-    trace.record("third", 200);
-    trace.events[20].format = "sneaky";
-    trace.reset();
-    EXPECT_TRUE(trace.events[2].format == NULL);
-    EXPECT_FALSE(trace.events[20].format == NULL);
-    EXPECT_EQ(0, trace.nextIndex.load());
+    TimeTrace::record(100, "point a");
+    buffer.record(100, "point b");
+    TimeTrace::threadBuffers.push_back(&buffer);
+    TimeTrace::reset();
+    EXPECT_EQ(0, TimeTrace::threadBuffers[0]->nextIndex);
+    EXPECT_TRUE(TimeTrace::threadBuffers[0]->events[0].format == NULL);
+    EXPECT_EQ(0, buffer.nextIndex);
+    EXPECT_TRUE(buffer.events[0].format == NULL);
+    TimeTrace::threadBuffers.pop_back();
 }
 
-TEST_F(TimeTraceTest, printInternal_emptyTrace_stringVersion) {
-    trace.nextIndex = 0;
-    EXPECT_EQ("No time trace events to print", trace.getTrace());
+TEST_F(TimeTraceTest, Buffer_constructor) {
+    EXPECT_EQ(0, buffer.events[0].format);
+    EXPECT_EQ(0, buffer.events[0].format);
 }
-TEST_F(TimeTraceTest, printInternal_emptyTrace_logVersion) {
-    trace.nextIndex = 0;
-    trace.printInternal(NULL);
-    EXPECT_EQ("printInternal: No time trace events to print", TestLog::get());
-    EXPECT_EQ(0, trace.activeReaders);
-}
-TEST_F(TimeTraceTest, printInternal_startAtBeginning) {
-    trace.record(100, "point a");
-    trace.record(200, "point b");
-    trace.record(350, "point c");
+
+TEST_F(TimeTraceTest, Buffer_record_basics) {
+    buffer.record(100, "point a");
+    buffer.record(200, "point b %u %u %d %u", 1, 2, -3, 4);
+    buffer.record(350, "point c");
     EXPECT_EQ("     0.0 ns (+   0.0 ns): point a\n"
-            "    50.0 ns (+  50.0 ns): point b\n"
+            "    50.0 ns (+  50.0 ns): point b 1 2 -3 4\n"
             "   125.0 ns (+  75.0 ns): point c",
-            trace.getTrace());
-    EXPECT_EQ(0, trace.activeReaders);
+            buffer.getTrace());
 }
-TEST_F(TimeTraceTest, printInternal_startAtNextIndex) {
-    trace.record(100, "point a");
-    trace.record(200, "point b");
-    trace.record(350, "point c");
-    trace.nextIndex = 1;
-    EXPECT_EQ("     0.0 ns (+   0.0 ns): point b\n"
-            "    75.0 ns (+  75.0 ns): point c",
-            trace.getTrace());
+
+TEST_F(TimeTraceTest, Buffer_record_readersActive) {
+    buffer.activeReaders = 1;
+    buffer.record(100, "point a");
+    buffer.record(200, "point b");
+    buffer.activeReaders = 0;
+    buffer.record(350, "point c");
+    EXPECT_EQ("     0.0 ns (+   0.0 ns): point c",
+            buffer.getTrace());
 }
-TEST_F(TimeTraceTest, printInternal_wrapAround) {
-    trace.nextIndex = TimeTrace::BUFFER_SIZE - 2;
-    trace.record(100, "point a");
-    trace.record(200, "point b");
-    trace.record(350, "point c");
-    trace.nextIndex = TimeTrace::BUFFER_SIZE - 2;
-    EXPECT_EQ("     0.0 ns (+   0.0 ns): point a\n"
-            "    50.0 ns (+  50.0 ns): point b\n"
-            "   125.0 ns (+  75.0 ns): point c",
-            trace.getTrace());
+
+TEST_F(TimeTraceTest, Buffer_record_wrapAround) {
+    buffer.nextIndex = TimeTrace::Buffer::BUFFER_SIZE - 2;
+    buffer.record(100, "near the end");
+    buffer.record(200, "at the end");
+    buffer.record(350, "beginning");
+    EXPECT_EQ(1, buffer.nextIndex);
+    // -3 needed below because the event at nextIndex gets skipped...
+    buffer.nextIndex = TimeTrace::Buffer::BUFFER_SIZE - 3;
+    EXPECT_EQ("     0.0 ns (+   0.0 ns): near the end\n"
+            "    50.0 ns (+  50.0 ns): at the end\n"
+            "   125.0 ns (+  75.0 ns): beginning",
+            buffer.getTrace());
 }
-TEST_F(TimeTraceTest, printInternal_printfArguments) {
-    trace.record(200, "point b %d %d", 99, 101);
-    EXPECT_EQ("     0.0 ns (+   0.0 ns): point b 99 101",
-            trace.getTrace());
+
+TEST_F(TimeTraceTest, Buffer_getTrace) {
+    buffer.record(100, "point a");
+    EXPECT_EQ("     0.0 ns (+   0.0 ns): point a",
+            buffer.getTrace());
 }
-TEST_F(TimeTraceTest, printInternal_printToLog) {
-    trace.record(100, "point a");
-    trace.record(200, "point b %d %d", 99, 101);
-    trace.record(350, "point c");
-    trace.printInternal(NULL);
-    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a | "
-            "printInternal:     50.0 ns (+  50.0 ns): point b 99 101 | "
-            "printInternal:    125.0 ns (+  75.0 ns): point c",
+
+TEST_F(TimeTraceTest, Buffer_printToLog) {
+    buffer.record(100, "point a");
+    buffer.printToLog();
+    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a",
             TestLog::get());
 }
 
+TEST_F(TimeTraceTest, Buffer_reset) {
+    buffer.record("first", 100);
+    buffer.record("second", 200);
+    buffer.record("third", 200);
+    buffer.events[20].format = "sneaky";
+    buffer.reset();
+    EXPECT_TRUE(buffer.events[2].format == NULL);
+    EXPECT_FALSE(buffer.events[20].format == NULL);
+    EXPECT_EQ(0, buffer.nextIndex);
+}
 
 }  // namespace RAMCloud

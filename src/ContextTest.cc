@@ -29,7 +29,6 @@ TEST(Context, constructor) {
     EXPECT_TRUE(context.transportManager != NULL);
     EXPECT_TRUE(context.workerManager == NULL);
     EXPECT_TRUE(context.coordinatorSession != NULL);
-    EXPECT_TRUE(context.timeTrace != NULL);
     mockContextMemberThrowException = 2;
     TestLog::reset();
     EXPECT_THROW(Context inner(false), Exception);

@@ -26,7 +26,6 @@
 #include "ShortMacros.h"
 #include "SessionAlarm.h"
 #include "TableManager.h"
-#include "TimeTrace.h"
 #include "TransportManager.h"
 #include "WorkerManager.h"
 
@@ -75,7 +74,6 @@ Context::Context(bool hasDedicatedDispatchThread)
     , sessionAlarmTimer(NULL)
     , portAlarmTimer(NULL)
     , coordinatorSession(NULL)
-    , timeTrace(NULL)
     , cacheTrace(NULL)
     , objectFinder(NULL)
     , workerManager(NULL)
@@ -90,7 +88,6 @@ Context::Context(bool hasDedicatedDispatchThread)
 #if TESTING
         mockContextMember1 = new MockContextMember(1);
 #endif
-        timeTrace = new TimeTrace();
         cacheTrace = new CacheTrace();
         objectFinder = new ObjectFinder(this);
         dispatch = new Dispatch(hasDedicatedDispatchThread);
@@ -163,9 +160,6 @@ Context::destroy()
 
     delete dispatchExec;
     dispatchExec = NULL;
-
-    delete timeTrace;
-    timeTrace = NULL;
 
     delete cacheTrace;
     cacheTrace = NULL;

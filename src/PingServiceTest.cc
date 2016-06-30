@@ -542,7 +542,8 @@ TEST_F(PingServiceTest, serverControl_DispatchProfilerExceptions) {
 TEST_F(PingServiceTest, serverControl_getTimeTrace) {
     Buffer output;
 
-    context.timeTrace->record("sample");
+    TimeTrace::reset();
+    TimeTrace::record("sample");
     PingClient::serverControl(&context, serverId, WireFormat::GET_TIME_TRACE,
             "abc", 3, &output);
     EXPECT_EQ("     0.0 ns (+   0.0 ns): sample",
@@ -552,7 +553,8 @@ TEST_F(PingServiceTest, serverControl_getTimeTrace) {
 TEST_F(PingServiceTest, serverControl_logTimeTrace) {
     Buffer output;
 
-    context.timeTrace->record("sample");
+    TimeTrace::reset();
+    TimeTrace::record("sample");
     PingClient::serverControl(&context, serverId, WireFormat::LOG_TIME_TRACE,
                 "abc", 3, &output);
     EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): sample",
@@ -614,7 +616,7 @@ TEST_F(PingServiceTest, serverControl_addLogMessage_bad) {
 TEST_F(PingServiceTest, serverControl_resetMetrics) {
     Buffer output;
 
-    context.timeTrace->record("sample");
+    TimeTrace::record("sample");
     PingClient::serverControl(&context, serverId, WireFormat::RESET_METRICS);
     PingClient::serverControl(&context, serverId, WireFormat::GET_TIME_TRACE,
             "abc", 3, &output);
