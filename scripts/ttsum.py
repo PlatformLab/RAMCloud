@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2014 Stanford University
+# Copyright (c) 2014-2016 Stanford University
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -16,7 +16,7 @@
 
 """
 This program reads a log file and generates summary information for
-time trace information in the files.
+time trace information in the file.
 """
 
 from __future__ import division, print_function
@@ -127,9 +127,13 @@ parser = OptionParser(description=
         'present in the file(s) as specified by the arguments.',
         usage='%prog [options] file file ...',
         conflict_handler='resolve')
+parser.add_option('-a', '--alt', action='store_true', default=False,
+        dest='altFormat',
+        help='use alternate output format if -f is specified (print min, '
+        'max, etc. for cumulative time, not delta)')
 parser.add_option('-f', '--from', type='string', dest='startEvent',
-    help='measure times for other events relative to FROM; FROM contains a '
-            'substring of an event')
+        help='measure times for other events relative to FROM; FROM contains a '
+        'substring of an event')
 
 (options, files) = parser.parse_args()
 if len(files) == 0:
@@ -192,7 +196,7 @@ if options.startEvent:
         occurrences = relativeEvents[event]
 
         # Each iteration through the following loop processes the nth
-        # occurrences of this event.
+        # occurrence of this event.
         for i in range(len(occurrences)):
             eventName = event
             if i != 0:
@@ -202,16 +206,31 @@ if options.startEvent:
             times.sort()
             medianTime = times[len(times)//2]
             intervals.sort()
-            message = '%-*s  %8.1f %8.1f %8.1f %8.1f %8.1f %7d' % (nameLength,
-                eventName, medianTime, times[0], times[-1],
-                sum(times)/len(times), intervals[len(intervals)//2],
-                len(times))
+            medianInterval = intervals[len(intervals)//2]
+            if options.altFormat:
+                message = '%-*s  %8.1f %8.1f %8.1f %8.1f %8.1f %7d' % (
+                    nameLength, eventName, medianTime, times[0], times[-1],
+                    sum(times)/len(times), intervals[len(intervals)//2],
+                    len(times))
+            else:
+                message = '%-*s  %8.1f %8.1f %8.1f %8.1f %8.1f %7d' % (
+                    nameLength, eventName, medianTime, medianInterval,
+                    intervals[0], intervals[-1], sum(intervals)/len(intervals),
+                    len(intervals))
             outputInfo.append([medianTime, message])
 
     outputInfo.sort(key=lambda item: item[0])
-    print('%-*s    Median      Min      Max  Average    Delta   Count' % (nameLength,
-            "Event"))
-    print('%s------------------------------------------------------' %
-            ('-' * nameLength))
+    if options.altFormat:
+        print('%-*s    Median      Min      Max  Average    Delta   Count' % (nameLength,
+                "Event"))
+        print('%s------------------------------------------------------' %
+                ('-' * nameLength))
+    else:
+        print('%-*s     Cum.    ------------------Delta------------------' %
+                (nameLength, ""))
+        print('%-*s    Median   Median      Min      Max  Average   Count' %
+                (nameLength, "Event"))
+        print('%s------------------------------------------------------' %
+                ('-' * nameLength))
     for message in outputInfo:
         print(message[1])
