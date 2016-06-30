@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,7 +19,18 @@
 
 namespace RAMCloud {
 
-TEST(LogProtectorTest, initialState) {
+class LogProtectorTest : public ::testing::Test {
+  public:
+    LogProtectorTest()
+    {
+        // As of 6/2016, some tests seem to leave around junk in
+        // LogProtector::epochProviders, which can cause false errors.
+        // Just delete the junk.
+        LogProtector::epochProviders.clear();
+    }
+};
+
+TEST_F(LogProtectorTest, initialState) {
     LogProtector::Lock lock(LogProtector::epochProvidersMutex);
     EXPECT_EQ(0U, LogProtector::epochProviders.size());
     EXPECT_LE(1U, LogProtector::currentSystemEpoch);
@@ -33,13 +44,13 @@ class DummyEpochProvider : public LogProtector::EpochProvider {
     }
 };
 
-TEST(LogProtectorTest, epochProvider_construct) {
+TEST_F(LogProtectorTest, epochProvider_construct) {
     DummyEpochProvider ep;
     EXPECT_EQ(1U, LogProtector::epochProviders.size());
     EXPECT_EQ(&ep, LogProtector::epochProviders.front());
 }
 
-TEST(LogProtectorTest, epochProvider_destroy) {
+TEST_F(LogProtectorTest, epochProvider_destroy) {
     {
         DummyEpochProvider ep;
         EXPECT_EQ(1U, LogProtector::epochProviders.size());
@@ -49,13 +60,13 @@ TEST(LogProtectorTest, epochProvider_destroy) {
     EXPECT_EQ(-1UL, LogProtector::getEarliestOutstandingEpoch(~0));
 }
 
-TEST(LogProtectorTest, activity_construct) {
+TEST_F(LogProtectorTest, activity_construct) {
     LogProtector::Activity activity;
     EXPECT_EQ(1U, LogProtector::epochProviders.size());
     EXPECT_EQ(&activity, LogProtector::epochProviders.front());
 }
 
-TEST(LogProtectorTest, activity_destroy) {
+TEST_F(LogProtectorTest, activity_destroy) {
     {
         LogProtector::Activity activity;
         EXPECT_EQ(1U, LogProtector::epochProviders.size());
@@ -65,7 +76,7 @@ TEST(LogProtectorTest, activity_destroy) {
     EXPECT_EQ(-1UL, LogProtector::getEarliestOutstandingEpoch(~0));
 }
 
-TEST(LogProtectorTest, activity_start) {
+TEST_F(LogProtectorTest, activity_start) {
     LogProtector::currentSystemEpoch = 1;
     LogProtector::Activity activity;
     EXPECT_EQ(-1UL, activity.epoch);
@@ -79,7 +90,7 @@ TEST(LogProtectorTest, activity_start) {
     EXPECT_EQ(1, activity.activityMask);
 }
 
-TEST(LogProtectorTest, activity_stop) {
+TEST_F(LogProtectorTest, activity_stop) {
     LogProtector::currentSystemEpoch = 1;
     LogProtector::Activity activity;
     activity.start();
@@ -89,7 +100,7 @@ TEST(LogProtectorTest, activity_stop) {
     EXPECT_EQ(0, activity.activityMask);
 }
 
-TEST(LogProtectorTest, activity_getEarliestEpoch) {
+TEST_F(LogProtectorTest, activity_getEarliestEpoch) {
     LogProtector::currentSystemEpoch = 1;
     LogProtector::Activity activity;
     EXPECT_EQ(-1UL, activity.getEarliestEpoch(~0));
@@ -104,7 +115,7 @@ TEST(LogProtectorTest, activity_getEarliestEpoch) {
     EXPECT_EQ(-1UL, activity.getEarliestEpoch(4));
 }
 
-TEST(LogProtectorTest, guard) {
+TEST_F(LogProtectorTest, guard) {
     LogProtector::currentSystemEpoch = 1;
     LogProtector::Activity activity;
     EXPECT_EQ(-1UL, activity.epoch);
@@ -127,12 +138,12 @@ TEST(LogProtectorTest, guard) {
     EXPECT_EQ(0, activity.activityMask);
 }
 
-TEST(LogProtectorTest, getCurrentEpoch) {
+TEST_F(LogProtectorTest, getCurrentEpoch) {
     LogProtector::currentSystemEpoch = 28;
     EXPECT_EQ(28U, LogProtector::getCurrentEpoch());
 }
 
-TEST(LogProtectorTest, getEarliestOutstandingEpoch_basics) {
+TEST_F(LogProtectorTest, getEarliestOutstandingEpoch_basics) {
     EXPECT_EQ(-1UL, LogProtector::getEarliestOutstandingEpoch(~0));
 
     LogProtector::currentSystemEpoch = 57;
@@ -149,7 +160,7 @@ TEST(LogProtectorTest, getEarliestOutstandingEpoch_basics) {
     EXPECT_EQ(-1UL, LogProtector::getEarliestOutstandingEpoch(~0));
 }
 
-TEST(LogProtectorTest, getEarliestOutstandingEpoch_activityMask) {
+TEST_F(LogProtectorTest, getEarliestOutstandingEpoch_activityMask) {
     LogProtector::Activity a1, a2, a3;
     LogProtector::currentSystemEpoch = 44;
     a1.start();
@@ -163,7 +174,7 @@ TEST(LogProtectorTest, getEarliestOutstandingEpoch_activityMask) {
             Transport::ServerRpc::APPEND_ACTIVITY));
 }
 
-TEST(LogProtectorTest, incrementCurrentEpoch) {
+TEST_F(LogProtectorTest, incrementCurrentEpoch) {
     LogProtector::currentSystemEpoch = 98;
     EXPECT_EQ(99U, LogProtector::incrementCurrentEpoch());
     EXPECT_EQ(99U, LogProtector::getCurrentEpoch());
@@ -174,7 +185,7 @@ static void waitCaller(Context* context, int activityMask, bool* done) {
     *done = true;
 }
 
-TEST(LogProtectorTest, wait_activityMask) {
+TEST_F(LogProtectorTest, wait_activityMask) {
     LogProtector::Activity a1, a2, a3;
     LogProtector::currentSystemEpoch = 44;
     a1.start();
