@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -92,6 +92,13 @@ PerfStats::collectStats(PerfStats* total)
         total->logSyncCycles += stats->logSyncCycles;
         total->segmentUnopenedCycles += stats->segmentUnopenedCycles;
         total->workerActiveCycles += stats->workerActiveCycles;
+        total->btreeNodeReads += stats->btreeNodeReads;
+        total->btreeNodeWrites += stats->btreeNodeWrites;
+        total->btreeBytesRead += stats->btreeBytesRead;
+        total->btreeBytesWritten += stats->btreeBytesWritten;
+        total->btreeNodeSplits += stats->btreeNodeSplits;
+        total->btreeNodeCoalesces += stats->btreeNodeCoalesces;
+        total->btreeRebalances += stats->btreeRebalances;
         total->compactorInputBytes += stats->compactorInputBytes;
         total->compactorSurvivorBytes += stats->compactorSurvivorBytes;
         total->compactorActiveCycles += stats->compactorActiveCycles;
@@ -245,6 +252,22 @@ PerfStats::printClusterStats(Buffer* first, Buffer* second)
             formatMetricRate(&diff, "cleanerSurvivorBytes",
             " %8.2f", 1e-6).c_str()));
 
+    result.append("\nIndex B+ Tree Operations:\n");
+    result.append(format("%-30s %s\n", "  Node reads",
+            formatMetric(&diff, "btreeNodeReads", " %8.0f").c_str()));
+    result.append(format("%-30s %s\n", "  Node writes",
+            formatMetric(&diff, "btreeNodeWrites", " %8.0f").c_str()));
+    result.append(format("%-30s %s\n", "  Bytes read for nodes (KB)",
+            formatMetric(&diff, "btreeBytesRead", " %8.3f", 1e-3).c_str()));
+    result.append(format("%-30s %s\n", "  Bytes written for nodes (KB)",
+            formatMetric(&diff, "btreeBytesWritten", " %8.3f", 1e-3).c_str()));
+    result.append(format("%-30s %s\n", "  Node splits",
+            formatMetric(&diff, "btreeNodeSplits", " %8.0f").c_str()));
+    result.append(format("%-30s %s\n", "  Node coalesces",
+            formatMetric(&diff, "btreeNodeCoalesces", " %8.0f").c_str()));
+    result.append(format("%-30s %s\n", "  Node re-balances",
+            formatMetric(&diff, "btreeRebalances", " %8.0f").c_str()));
+
     result.append("\nBackup service:\n");
     result.append(format("%-30s %s\n", "  Backup bytes received (MB/s)",
             formatMetricRate(&diff, "backupBytesReceived",
@@ -339,6 +362,13 @@ PerfStats::clusterDiff(Buffer* before, Buffer* after,
         ADD_METRIC(writeKeyBytes);
         ADD_METRIC(dispatchActiveCycles);
         ADD_METRIC(workerActiveCycles);
+        ADD_METRIC(btreeNodeReads);
+        ADD_METRIC(btreeNodeWrites);
+        ADD_METRIC(btreeBytesRead);
+        ADD_METRIC(btreeBytesWritten);
+        ADD_METRIC(btreeNodeSplits);
+        ADD_METRIC(btreeNodeCoalesces);
+        ADD_METRIC(btreeRebalances);
         ADD_METRIC(logBytesAppended);
         ADD_METRIC(replicationRpcs);
         ADD_METRIC(logSyncCycles);

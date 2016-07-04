@@ -90,6 +90,38 @@ struct PerfStats {
     uint64_t workerActiveCycles;
 
     //--------------------------------------------------------------------
+    // Statistics for index operations. Only one copy of PerfStats is
+    // kept for all indexing structures, so the numbers below are
+    // aggregates for all indexlets on a server.
+    //--------------------------------------------------------------------
+    /// Total number of B+ Tree nodes read for normal operations (includes
+    /// nodes along the search/write paths) and split/join/re-balance operations
+    uint64_t btreeNodeReads;
+
+    /// Total number of B+ Tree nodes written (includes leaf inserts and
+    /// split/join/re-balance operations)
+    uint64_t btreeNodeWrites;
+
+    /// Total number of bytes read by the B+ tree corresponding with nodeReads
+    uint64_t btreeBytesRead;
+
+    /// Total number of bytes written by the B+ tree corresponding with
+    /// nodesWritten
+    uint64_t btreeBytesWritten;
+
+    /// Total number of node splits where one node becomes two (incurs at
+    /// least 3 nodeWrites)
+    uint64_t btreeNodeSplits;
+
+    /// Total number of node coalesces where two nodes become one (incurs at
+    /// least 2 nodeWrites)
+    uint64_t btreeNodeCoalesces;
+
+    /// Total number of B+ tree re-balances where two sibling nodes reshuffle
+    /// the BtreeEntries between the two (incurs 3 node writes)
+    uint64_t btreeRebalances;
+
+    //--------------------------------------------------------------------
     // Statistics for log replication follow below. These metrics are
     // related to new information appended to the head segment (i.e., not
     // including cleaning).

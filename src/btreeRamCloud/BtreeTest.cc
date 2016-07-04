@@ -2024,6 +2024,121 @@ TEST_F(BtreeTest, merge_leafPointers) {
     farRight = static_cast<IndexBtree::LeafNode*>(bt.readNode(farRightId, &out));
 }
 
+TEST_F(BtreeTest, perfStats) {
+    PerfStats start = PerfStats::threadStats;
+    PerfStats& now = PerfStats::threadStats;
+    IndexBtree bt(tableId, &objectManager);
+
+    Buffer buffer;
+    IndexBtree::InnerNode *innerNode =
+            buffer.emplaceAppend<IndexBtree::InnerNode>(&buffer, uint16_t(10));
+    IndexBtree::LeafNode *leafNode =
+            buffer.emplaceAppend<IndexBtree::LeafNode>(&buffer);
+
+    uint32_t numEntries = IndexBtree::innerslotmax + 1;
+    std::vector<BtreeEntry> entries;
+    std::vector<std::string> entryKeys;
+    generateKeysInRange(0, numEntries, entryKeys, entries, 4);
+
+    uint16_t i = 0;
+    for (; i < IndexBtree::innerslotmax; i++)
+        innerNode->insertAt(i, entries[i], i, uint16_t(i + 1));
+    innerNode->setRightMostLeafKey(entries[i]);
+
+    for (uint16_t i = 0; i < IndexBtree::leafslotmax; i++)
+        leafNode->insertAt(i, entries[i]);
+
+    EXPECT_EQ(0U, now.btreeNodeReads - start.btreeNodeReads);
+    EXPECT_EQ(0U, now.btreeBytesRead - start.btreeBytesRead);
+    EXPECT_EQ(0U, now.btreeNodeWrites - start.btreeNodeWrites);
+    EXPECT_EQ(0U, now.btreeBytesWritten - start.btreeBytesWritten);
+
+    // Simple write
+    NodeId nodeid = bt.writeNode(innerNode, 200);
+    bt.flush();
+    EXPECT_EQ(1U, now.btreeNodeWrites - start.btreeNodeWrites);
+    EXPECT_EQ(innerNode->serializedLength(),
+                            now.btreeBytesWritten - start.btreeBytesWritten);
+
+    // Invalid node read
+    bt.readNode(300, &buffer);
+    EXPECT_EQ(0U, now.btreeNodeReads - start.btreeNodeReads);
+    EXPECT_EQ(0U, now.btreeBytesRead - start.btreeBytesRead);
+
+    // valid node read
+    bt.readNode(nodeid, &buffer);
+    EXPECT_EQ(1U, now.btreeNodeReads - start.btreeNodeReads);
+    EXPECT_EQ(innerNode->serializedLength(),
+                                    now.btreeBytesRead - start.btreeBytesRead);
+}
+
+TEST_F(BtreeTest, perfStats_endToEnd) {
+    PerfStats start = PerfStats::threadStats;
+    PerfStats& now = PerfStats::threadStats;
+    uint16_t slots = IndexBtree::innerslotmax + 1;
+    IndexBtree bt(tableId, &objectManager);
+
+    std::vector<std::string> entryKeys;
+    std::vector<BtreeEntry> entries;
+    generateKeysInRange(0, slots, entryKeys, entries, 30);
+
+    // Insert 1
+    bt.insert(entries[0]);
+    EXPECT_EQ(1U, now.btreeNodeWrites - start.btreeNodeWrites);
+    EXPECT_EQ(0U, now.btreeNodeReads - start.btreeNodeReads);
+
+    // Insert another!
+    bt.insert(entries[1]);
+    EXPECT_EQ(2U, now.btreeNodeWrites - start.btreeNodeWrites);
+    EXPECT_EQ(1U, now.btreeNodeReads - start.btreeNodeReads);
+
+    // Insert up till the last one
+    for (size_t i = 2; i < entries.size() - 1; ++i)
+        bt.insert(entries[i]);
+
+    // Insert the last one and observe a split;
+    start = now;
+    bt.insert(entries[entries.size() - 1]);
+
+    EXPECT_EQ(1U, now.btreeNodeReads - start.btreeNodeReads);
+    EXPECT_EQ(3U, now.btreeNodeWrites - start.btreeNodeWrites);
+    EXPECT_EQ(1U, now.btreeNodeSplits - start.btreeNodeSplits);
+    EXPECT_EQ(0U, now.btreeNodeCoalesces - start.btreeNodeCoalesces);
+    EXPECT_EQ(0U, now.btreeRebalances - start.btreeRebalances);
+
+    // Fill up the left child node, delete one from the right child
+    // and observe re-balance.
+    for (size_t i = 0; i < entries.size()/2 - 1; ++i)
+        bt.insert(entries[i]);
+
+    // Sanity check to make sure no splits occurred
+    ASSERT_EQ(1U, now.btreeNodeSplits - start.btreeNodeSplits);
+    ASSERT_EQ(0U, now.btreeNodeCoalesces - start.btreeNodeCoalesces);
+    ASSERT_EQ(0U, now.btreeRebalances - start.btreeRebalances);
+
+    // Now erase the last two and observe a rebalance.
+    EXPECT_TRUE(bt.erase(entries[entries.size() - 1]));
+
+    start = now;
+    EXPECT_TRUE(bt.erase(entries[entries.size() - 2]));
+    EXPECT_EQ(3U, now.btreeNodeReads - start.btreeNodeReads);
+    EXPECT_EQ(3U, now.btreeNodeWrites - start.btreeNodeWrites);
+    EXPECT_EQ(0U, now.btreeNodeSplits - start.btreeNodeSplits);
+    EXPECT_EQ(0U, now.btreeNodeCoalesces - start.btreeNodeCoalesces);
+    EXPECT_EQ(1U, now.btreeRebalances - start.btreeRebalances);
+
+    // Finally, delete 3 more and observe a coalesce
+    EXPECT_TRUE(bt.erase(entries[entries.size() - 3]));
+    EXPECT_TRUE(bt.erase(entries[entries.size() - 4]));
+
+    start = now;
+    EXPECT_TRUE(bt.erase(entries[entries.size() - 5]));
+    EXPECT_EQ(3U, now.btreeNodeReads - start.btreeNodeReads);
+    EXPECT_EQ(2U, now.btreeNodeWrites - start.btreeNodeWrites);
+    EXPECT_EQ(0U, now.btreeNodeSplits - start.btreeNodeSplits);
+    EXPECT_EQ(1U, now.btreeNodeCoalesces - start.btreeNodeCoalesces);
+    EXPECT_EQ(0U, now.btreeRebalances - start.btreeRebalances);
+}
 
 void resetNode_underflowHelper(IndexBtree::Node *n, uint16_t numEntries) {
     n->slotuse = 0;
