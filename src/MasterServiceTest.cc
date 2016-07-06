@@ -439,9 +439,10 @@ TEST_F(MasterServiceTest, dropIndexletOwnership) {
             "indexlet in tableId 2, indexId 1",
             TestLog::get());
 
+    uint64_t backingTable = ramcloud->createTable("BackingTable");
     TestLog::reset();
     MasterClient::takeIndexletOwnership(&context, masterServer->serverId,
-            2, 1, 0, reinterpret_cast<const void*>(key1.c_str()),
+            2, 1, backingTable, reinterpret_cast<const void*>(key1.c_str()),
             (uint16_t)key1.length(),
             reinterpret_cast<const void*>(key2.c_str()),
             (uint16_t)key2.length());
@@ -455,14 +456,14 @@ TEST_F(MasterServiceTest, dropIndexletOwnership) {
 }
 
 TEST_F(MasterServiceTest, takeIndexletOwnership) {
-
+    uint64_t backingTableId = ramcloud->createTable("backingTable");
     TestLog::Enable _("takeIndexletOwnership");
 
     string key1 = "a";
     string key2 = "c";
     string key3 = "b";
     MasterClient::takeIndexletOwnership(&context, masterServer->serverId, 2,
-            1, 0, reinterpret_cast<const void *>(key1.c_str()),
+            1, backingTableId, reinterpret_cast<const void *>(key1.c_str()),
             (uint16_t)key1.length(),
             reinterpret_cast<const void *>(key2.c_str()),
             (uint16_t)key2.length());
@@ -471,7 +472,7 @@ TEST_F(MasterServiceTest, takeIndexletOwnership) {
 
     TestLog::reset();
     MasterClient::takeIndexletOwnership(&context, masterServer->serverId, 2,
-            1, 0, reinterpret_cast<const void *>(key1.c_str()),
+            1, backingTableId, reinterpret_cast<const void *>(key1.c_str()),
             (uint16_t)key1.length(),
             reinterpret_cast<const void *>(key2.c_str()),
             (uint16_t)key2.length());
@@ -484,7 +485,7 @@ TEST_F(MasterServiceTest, takeIndexletOwnership) {
     // Test partially overlapping sanity check.
     EXPECT_THROW(MasterClient::takeIndexletOwnership(
             &context, masterServer->serverId, 2,
-            1, 0, reinterpret_cast<const void *>(key1.c_str()),
+            1, backingTableId, reinterpret_cast<const void *>(key1.c_str()),
             (uint16_t)key1.length(),
             reinterpret_cast<const void *>(key3.c_str()),
             (uint16_t)key3.length()), ClientException);

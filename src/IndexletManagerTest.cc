@@ -111,6 +111,12 @@ TEST_F(IndexletManagerTest, addIndexlet) {
     string key4 = "k";
     string key5 = "u";
 
+    for (int i = 1; i <=5; ++i) {
+        char buf[120];
+        snprintf(buf, sizeof(buf), "backingTable%d", i);
+        ramcloud->createTable(buf);
+    }
+
     TestLog::Enable _("addIndexlet", "getIndexlet", NULL);
     EXPECT_NO_THROW(im->addIndexlet(dataTableId, 1, backingTableId,
             key2.c_str(), (uint16_t)key2.length(),
