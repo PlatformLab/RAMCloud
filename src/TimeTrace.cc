@@ -271,7 +271,7 @@ TimeTrace::Buffer::Buffer()
     , events()
 {
     // Mark all of the events invalid.
-    for (int i = 0; i < BUFFER_SIZE; i++) {
+    for (uint32_t i = 0; i < BUFFER_SIZE; i++) {
         events[i].format = NULL;
     }
 }
@@ -315,7 +315,7 @@ void TimeTrace::Buffer::record(uint64_t timestamp, const char* format,
     }
 
     Event* event = &events[nextIndex];
-    nextIndex = (nextIndex + 1) % BUFFER_SIZE;
+    nextIndex = (nextIndex + 1) & BUFFER_MASK;
 
     // There used to be code here for prefetching the next few events,
     // in order to minimize cache misses on the array of events. However,
@@ -358,7 +358,7 @@ void TimeTrace::Buffer::printToLog()
  */
 void TimeTrace::Buffer::reset()
 {
-    for (int i = 0; i < BUFFER_SIZE; i++) {
+    for (uint32_t i = 0; i < BUFFER_SIZE; i++) {
         if (events[i].format == NULL) {
             break;
         }

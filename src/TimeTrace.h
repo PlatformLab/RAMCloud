@@ -177,8 +177,14 @@ class TimeTrace {
         void reset();
 
       PROTECTED:
+        // Determines the number of events we can retain as an exponent of 2
+        static const uint8_t BUFFER_SIZE_EXP = 13;
+
         // Total number of events that we can retain any given time.
-        static const int BUFFER_SIZE = 10000;
+        static const uint32_t BUFFER_SIZE = 1 << BUFFER_SIZE_EXP;
+
+        // Bit mask used to implement a circular event buffer
+        static const uint32_t BUFFER_MASK = BUFFER_SIZE - 1;
 
         // Index within events of the slot to use for the next call to the
         // record method.
