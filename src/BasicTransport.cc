@@ -62,7 +62,13 @@ BasicTransport::BasicTransport(Context* context, const ServiceLocator* locator,
     , grantIncrement(5*maxDataPerPacket)
     , timer(this, context->dispatch)
     , timerInterval(0)
-    , timeoutIntervals(10)
+
+    // As of 7/2016, the value for timeoutIntervals is set relatively high.
+    // This is needed to handle issues on some machines (such as the NEC
+    // Atom cluster) where threads can get descheduled by the kernel for
+    // 10-30ms. This can result in delays in handling network packets, and
+    // we don't want those delays to result in RPC timeouts.
+    , timeoutIntervals(40)
     , pingIntervals(3)
 {
     driver->connect(new IncomingPacketHandler(this));
@@ -552,6 +558,10 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
             // server since the response). Discard the packet.
             if (common->opcode == LOG_TIME_TRACE) {
                 // For LOG_TIME_TRACE requests, dump the trace anyway.
+                LOG(NOTICE, "Client received LOG_TIME_TRACE request from "
+                        "server %s for (unknown) sequence %lu",
+                        received->sender->toString().c_str(),
+                        common->rpcId.sequence);
                 TimeTrace::record(
                         "client received LOG_TIME_TRACE for sequence %u",
                         downCast<uint32_t>(common->rpcId.sequence));
@@ -699,6 +709,10 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
             }
 
             case PacketOpcode::LOG_TIME_TRACE: {
+                LOG(NOTICE, "Client received LOG_TIME_TRACE request from "
+                        "server %s for sequence %lu",
+                        received->sender->toString().c_str(),
+                        common->rpcId.sequence);
                 TimeTrace::record(
                         "client received LOG_TIME_TRACE for sequence %u",
                         downCast<uint32_t>(common->rpcId.sequence));
@@ -764,7 +778,7 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
                 TimeTrace::record(
                         "server received ALL_DATA, sequence %u, length %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
-                        received->len);
+                        header->messageLength);
 #endif
                 if (serverRpc != NULL) {
                     // This shouldn't normally happen: it means this packet is
@@ -936,6 +950,10 @@ BasicTransport::IncomingPacketHandler::handlePacket(Driver::Received* received)
             }
 
             case PacketOpcode::LOG_TIME_TRACE: {
+                LOG(NOTICE, "Server received LOG_TIME_TRACE request from "
+                        "client %s for sequence %lu",
+                        received->sender->toString().c_str(),
+                        common->rpcId.sequence);
                 TimeTrace::record(
                         "server received LOG_TIME_TRACE for sequence %u",
                         downCast<uint32_t>(common->rpcId.sequence));
