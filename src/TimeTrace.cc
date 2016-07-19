@@ -121,6 +121,7 @@ TimeTrace::printInternal(std::vector<TimeTrace::Buffer*>* buffers, string* s)
     // Each iteration through this loop processes one event (the one with
     // the earliest timestamp).
     double prevTime = 0.0;
+    int eventsSinceCongestionCheck = 0;
     while (1) {
         TimeTrace::Buffer* buffer;
         Event* event;
@@ -170,6 +171,14 @@ TimeTrace::printInternal(std::vector<TimeTrace::Buffer*>* buffers, string* s)
 #pragma GCC diagnostic pop
             RAMCLOUD_LOG(NOTICE, "%8.1f ns (+%6.1f ns): %s", ns, ns - prevTime,
                     message);
+
+            // Make sure we're not monopolizing all of the buffer space
+            // in the logger.
+            eventsSinceCongestionCheck++;
+            if (eventsSinceCongestionCheck > 100) {
+                Logger::get().waitIfCongested();
+                eventsSinceCongestionCheck = 0;
+            }
         }
         prevTime = ns;
     }

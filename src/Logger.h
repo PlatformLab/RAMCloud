@@ -89,6 +89,7 @@ class Logger {
     void changeLogLevel(LogModule, int delta);
     void reset();
     void sync();
+    void waitIfCongested();
 
     void setLogLevels(LogLevel level);
     void setLogLevels(int level);
@@ -253,9 +254,16 @@ class Logger {
     std::condition_variable_any logDataAvailable;
 
     /**
-     * Total number of bytes available in messageBuffer.
+     * Used by waitIfCongested to wait for buffered log data to get
+     * printed.
      */
-    const int bufferSize;
+    std::condition_variable_any bufferSpaceFreed;
+
+    /**
+     * Total number of bytes available in messageBuffer; modified only for
+     * unit testing.
+     */
+    int bufferSize;
 
     /**
      * Buffer space (dynamically allocated, must be freed).
@@ -312,6 +320,12 @@ class Logger {
      * for testing.
      */
     struct timespec* testingLogTime;
+
+    /**
+     * PrintThreadMain will spin internally as long as this is true, which
+     * will keep it from printing information in the buffer. Intended
+     * for unit testing. */
+    volatile bool testingStallPrintThread;
 
     DISALLOW_COPY_AND_ASSIGN(Logger);
 };

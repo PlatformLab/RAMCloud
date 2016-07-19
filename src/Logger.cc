@@ -72,6 +72,7 @@ Logger::Logger(LogLevel level)
     , maxCollapseMapSize(DEFAULT_COLLAPSE_MAP_LIMIT)
     , nextCleanTime({0, 0})
     , logDataAvailable()
+    , bufferSpaceFreed()
     , bufferSize(1000000)
     , messageBuffer(new char[bufferSize])
     , nextToInsert(0)
@@ -82,6 +83,7 @@ Logger::Logger(LogLevel level)
     , testingBufferSize(0)
     , testingNoNotify(false)
     , testingLogTime(NULL)
+    , testingStallPrintThread(false)
 {
     setLogLevels(level);
 
@@ -346,6 +348,31 @@ Logger::changeLogLevels(int delta)
     for (int i = 0; i < NUM_LOG_MODULES; i++) {
         LogModule module = static_cast<LogModule>(i);
         changeLogLevel(module, delta);
+    }
+}
+
+/**
+ * If there is currently a large amount of buffered log output that has
+ * not yet been written, wait until this congestion eases before returning.
+ * This method is intended for use by background loggers that generate
+ * large amounts of data, such as the TimeTrace mechanism: they can
+ * invoke this method occasionally to throttle themeselves so that there
+ * is always plenty of buffer space for normal logging (if buffer space
+ * runs out, normal logging will block, and this can lock up the server).
+ */
+void
+Logger::waitIfCongested()
+{
+    Lock lock(mutex);
+    while (1) {
+        int bytesUsed = nextToInsert - nextToPrint;
+        if (bytesUsed < 0) {
+            bytesUsed = bytesUsed + bufferSize;
+        }
+        if (bytesUsed*2 < bufferSize) {
+            return;
+        }
+        bufferSpaceFreed.wait(lock);
     }
 }
 
@@ -736,6 +763,9 @@ Logger::printThreadMain(Logger* logger)
             // be called when the print thread is not running.
             bytesPrinted = write(fd, logger->messageBuffer + nextToPrint,
                     bytesToPrint);
+            while (logger->testingStallPrintThread) {
+                // Empty loop body.
+            }
         }
         if (bytesPrinted < 0) {
             fprintf(stderr, "Error writing log: %s\n", strerror(errno));
@@ -745,6 +775,7 @@ Logger::printThreadMain(Logger* logger)
         } else {
             logger->nextToPrint += downCast<int>(bytesPrinted);
         }
+        logger->bufferSpaceFreed.notify_all();
     }
 }
 

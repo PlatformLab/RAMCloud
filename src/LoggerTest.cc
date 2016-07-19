@@ -248,6 +248,58 @@ TEST_F(LoggerTest, changeLogLevels) {
         EXPECT_EQ(WARNING, l.logLevels[i]);
 }
 
+// Helper function that invokes Logger::waitIfCongested in a separate
+// thread.
+static void testLoggerCongested(Logger* logger, int* flag) {
+    logger->waitIfCongested();
+    *flag = 1;
+    TEST_LOG("waitIfCongested returned");
+}
+
+TEST_F(LoggerTest, waitIfCongested) {
+    Logger logger(NOTICE);
+    logger.fd = open("/dev/null", O_WRONLY);
+    logger.mustCloseFd = true;
+    logger.bufferSize = 1000;
+    logger.testingStallPrintThread = true;
+    logger.addToBuffer("abcdefghijklmnopqrstuvwxyz", 26);
+    logger.addToBuffer("abcdefghijklmnopqrstuvwxyz", 26);
+
+    // First attempt: plenty of space in buffer.
+    int flag = 0;
+    std::thread thread1(testLoggerCongested, &logger, &flag);
+    for (int i = 0; i < 100; i++) {
+        if (flag != 0) {
+            break;
+        }
+        usleep(1000);
+    }
+    ASSERT_EQ(1, flag);
+    thread1.join();
+    TestLog::reset();
+
+    // Second attempt: buffer short on space.
+    while (logger.nextToInsert <= 500) {
+        logger.addToBuffer("abcdefghijklmnopqrstuvwxyz", 26);
+    }
+    flag = 0;
+    std::thread thread2(testLoggerCongested, &logger, &flag);
+    usleep(1000);
+    EXPECT_EQ(0, flag);
+
+    // Unstall the printing thread and make sure that waitIfCongested
+    // returns.
+    logger.testingStallPrintThread = false;
+    for (int i = 0; i < 100; i++) {
+        if (flag != 0) {
+            break;
+        }
+        usleep(1000);
+    }
+    ASSERT_EQ(1, flag);
+    thread2.join();
+}
+
 TEST_F(LoggerTest, isLogging) {
     Logger l(WARNING);
     EXPECT_TRUE(l.isLogging(DEFAULT_LOG_MODULE, ERROR));
