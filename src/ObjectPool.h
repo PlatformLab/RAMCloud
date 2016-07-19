@@ -85,7 +85,9 @@ class ObjectPool
         // Catching this isn't intended, but could be done if the caller really
         // wants to, so make sure we free the pooled memory first.
         if (outstandingObjects > 0) {
-            RAMCLOUD_LOG(ERROR, "Pool destroyed before objects!");
+            RAMCLOUD_LOG(ERROR,
+                    "Pool destroyed with %lu objects still outstanding!",
+                    outstandingObjects);
         }
     }
 
@@ -93,7 +95,7 @@ class ObjectPool
      * Construct a new object of templated type T. This method allocates memory
      * from the pool if possible. If the pool is empty, it mallocs more space.
      * If malloc fails, the process is terminated.
-     * 
+     *
      * \param args
      *      Arguments to provide to T's constructor.
      * \throw

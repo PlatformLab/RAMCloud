@@ -84,7 +84,8 @@ TEST(ObjectPoolTest, destructor_objectsStillAllocated) {
 
     TestLog::Enable _;
     delete pool;
-    EXPECT_EQ("~ObjectPool: Pool destroyed before objects!", TestLog::get());
+    EXPECT_EQ("~ObjectPool: Pool destroyed with 1 objects still outstanding!",
+            TestLog::get());
 }
 
 TEST(ObjectPoolTest, construct) {
