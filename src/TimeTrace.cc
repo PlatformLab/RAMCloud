@@ -113,7 +113,8 @@ TimeTrace::printInternal(std::vector<TimeTrace::Buffer*>* buffers, string* s)
     for (uint32_t i = 0; i < buffers->size(); i++) {
         TimeTrace::Buffer* buffer = buffers->at(i);
         while ((buffer->events[current[i]].format != NULL) &&
-                (buffer->events[current[i]].timestamp < startTime)) {
+                (buffer->events[current[i]].timestamp < startTime) &&
+                (current[i] != buffer->nextIndex)) {
             current[i] = (current[i] + 1) % Buffer::BUFFER_SIZE;
         }
     }

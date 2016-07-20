@@ -56,7 +56,6 @@ TEST_F(TimeTraceTest, getTrace) {
     TimeTrace::record(100, "point a");
     buffer.record(100, "point b");
     TimeTrace::threadBuffers.push_back(&buffer);
-    EXPECT_EQ(2u, TimeTrace::threadBuffers.size());
     EXPECT_EQ("     0.0 ns (+   0.0 ns): point a\n"
             "     0.0 ns (+   0.0 ns): point b", TimeTrace::getTrace());
     TimeTrace::threadBuffers.pop_back();
@@ -94,6 +93,17 @@ TEST_F(TimeTraceTest, printInternal_pickStartingTimeAndPrune) {
             "printInternal:     25.0 ns (+  25.0 ns): 2.b | "
             "printInternal:     50.0 ns (+  25.0 ns): 1.b | "
             "printInternal:    175.0 ns (+ 125.0 ns): 4.b",
+            TestLog::get());
+}
+TEST_F(TimeTraceTest, printInternal_allEntriesInBufferBeforeStartingTime) {
+    buffer.record(100, "1.a");
+    buffer.record(300, "1.b");
+    for (uint32_t i = 0; i < buffer.BUFFER_SIZE; i++) {
+        buffer2.record(50, "2.xx");
+    }
+    TimeTrace::printInternal(&buffers, NULL);
+    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): 1.a | "
+            "printInternal:    100.0 ns (+ 100.0 ns): 1.b",
             TestLog::get());
 }
 TEST_F(TimeTraceTest, printInternal_wrapAround) {
@@ -139,7 +149,6 @@ TEST_F(TimeTraceTest, printToLog) {
     TimeTrace::record(100, "point a");
     buffer.record(100, "point b");
     TimeTrace::threadBuffers.push_back(&buffer);
-    EXPECT_EQ(2u, TimeTrace::threadBuffers.size());
     TimeTrace::printToLog();
     EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a | "
             "printInternal:      0.0 ns (+   0.0 ns): point b",
