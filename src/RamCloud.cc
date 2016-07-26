@@ -2196,7 +2196,7 @@ RamCloud::serverControlAll(WireFormat::ControlOp controlOp,
         const void* inputData, uint32_t inputLength,
         Buffer* outputData)
 {
-    ServerControlAllRpc rpc(this, controlOp,
+    ServerControlAllRpc rpc(clientContext, controlOp,
             inputData, inputLength, outputData);
     rpc.wait();
 }
@@ -2206,8 +2206,8 @@ RamCloud::serverControlAll(WireFormat::ControlOp controlOp,
  * #RamCloud::serverControlAll, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
- * \param ramcloud
- *      The RAMCloud object that governs this RPC.
+ * \param context
+ *      Global information about this client or server.
  * \param controlOp
  *      This defines the specific operation to be performed on the
  *      remote servers.
@@ -2221,10 +2221,10 @@ RamCloud::serverControlAll(WireFormat::ControlOp controlOp,
  *      A buffer that contains the return results, if any, from execution of the
  *      control operation on the remote server.
  */
-ServerControlAllRpc::ServerControlAllRpc(RamCloud* ramcloud,
+ServerControlAllRpc::ServerControlAllRpc(Context* context,
         WireFormat::ControlOp controlOp,
         const void* inputData, uint32_t inputLength, Buffer* outputData)
-    : CoordinatorRpcWrapper(ramcloud->clientContext,
+    : CoordinatorRpcWrapper(context,
             sizeof(WireFormat::ServerControlAll::Response), outputData)
 {
     WireFormat::ServerControlAll::Request*
@@ -2261,7 +2261,7 @@ RamCloud::logMessageAll(LogLevel level, const char* fmt, ...)
     toSend.emplaceAppend<LogLevel>(level);
     toSend.append(toAdd.data(), (uint32_t) toAdd.size());
 
-    ServerControlAllRpc rpc(this, WireFormat::LOG_MESSAGE,
+    ServerControlAllRpc rpc(clientContext, WireFormat::LOG_MESSAGE,
         toSend.getStart<char>(), toSend.size(), &outputData);
     rpc.wait();
 }
