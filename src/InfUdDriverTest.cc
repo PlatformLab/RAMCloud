@@ -16,18 +16,45 @@
 #include "TestUtil.h"
 #include "InfUdDriver.h"
 #include "IpAddress.h"
-#include "MockPacketHandler.h"
 
 namespace RAMCloud {
 class InfUdDriverTest : public ::testing::Test {
   public:
     Context context;
     TestLog::Enable logEnabler;
+    string packetData;
+    Driver::Address *sender;
 
     InfUdDriverTest()
         : context()
         , logEnabler()
+        , packetData()
+        , sender(NULL)
     {}
+
+    ~InfUdDriverTest() {
+        delete sender;
+    }
+
+    // Used to wait for data to arrive on a driver; gives up if a long
+    // time goes by with no data. Returns the contents of the incoming packet.
+    const char *receivePacket(Driver* driver) {
+        packetData.clear();
+        uint64_t start = Cycles::rdtsc();
+        while (true) {
+            std::vector<Driver::Received> received;
+            driver->receivePackets(1, &received);
+            if (!received.empty()) {
+                packetData.assign(received[0].payload, received[0].len);
+                delete sender;
+                sender = received[0].sender->clone();
+                return packetData.c_str();
+            }
+            if (Cycles::toSeconds(Cycles::rdtsc() - start) > .1) {
+                return "no packet arrived";
+            }
+        }
+    }
 
   private:
     DISALLOW_COPY_AND_ASSIGN(InfUdDriverTest);
@@ -36,14 +63,11 @@ class InfUdDriverTest : public ::testing::Test {
 TEST_F(InfUdDriverTest, basics) {
     // Send a packet from a client-style driver to a server-style
     // driver.
-    ServiceLocator serverLocator("fast+infud:");
-    InfUdDriver *server =
-            new InfUdDriver(&context, &serverLocator, false);
-    MockPacketHandler serverHandler(server);
+    ServiceLocator serverLocator("basic+infud:");
+    InfUdDriver server(&context, &serverLocator, false);
     InfUdDriver *client =
             new InfUdDriver(&context, NULL, false);
-    MockPacketHandler clientHandler(client);
-    ServiceLocator sl(server->getServiceLocator());
+    ServiceLocator sl(server.getServiceLocator());
     Driver::Address* serverAddress = client->newAddress(&sl);
 
     Buffer message;
@@ -53,16 +77,30 @@ TEST_F(InfUdDriverTest, basics) {
     client->sendPacket(serverAddress, "header:", 7, &iterator);
     TestLog::reset();
     EXPECT_STREQ("header:This is a sample message",
-            serverHandler.receivePacket(&context));
+            receivePacket(&server));
     EXPECT_EQ("", TestLog::get());
 
     // Send a response back in the other direction.
     message.reset();
     message.appendExternal("response", 8);
     Buffer::Iterator iterator2(&message);
-    server->sendPacket(serverHandler.sender, "h:", 2, &iterator2);
-    EXPECT_STREQ("h:response", clientHandler.receivePacket(&context));
+    server.sendPacket(sender, "h:", 2, &iterator2);
+    EXPECT_STREQ("h:response", receivePacket(client));
     delete serverAddress;
+}
+
+TEST_F(InfUdDriverTest, gbsOption) {
+    Cycles::mockCyclesPerSec = 2e09;
+    ServiceLocator serverLocator("basic+infud:gbs=40");
+    InfUdDriver driver(&context, &serverLocator, false);
+    EXPECT_EQ(2.5, driver.queueEstimator.bandwidth);
+    EXPECT_EQ(40, driver.bandwidthGbps);
+    EXPECT_EQ(10000u, driver.maxTransmitQueueSize);
+
+    ServiceLocator serverLocator2("basic+infud:gbs=1");
+    InfUdDriver driver2(&context, &serverLocator2, false);
+    EXPECT_EQ(4016u, driver2.maxTransmitQueueSize);
+    Cycles::mockCyclesPerSec = 0;
 }
 
 }  // namespace RAMCloud

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -42,7 +42,8 @@ class MockSyscall : public Syscall {
                     getsocknameErrno(0), ioctlErrno(0),
                     ioctlRetriesToSuccess(0), listenErrno(0), pipeErrno(0),
                     recvErrno(0), recvEof(false), recvfromErrno(0),
-                    recvfromEof(false), sendmsgErrno(0), sendmsgReturnCount(-1),
+                    recvfromEof(false), recvmmsgErrno(0),
+                    sendmsgErrno(0), sendmsgReturnCount(-1),
                     sendtoErrno(0), sendtoReturnCount(-1), setsockoptErrno(0),
                     socketErrno(0), writeErrno(0) {}
 
@@ -239,6 +240,17 @@ class MockSyscall : public Syscall {
         }
         errno = recvfromErrno;
         return -1;
+    }
+
+    int recvmmsgErrno;
+    ssize_t recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
+                     unsigned int flags, const struct timespec *timeout) {
+        if (recvmmsgErrno == 0) {
+            return ::recvmmsg(sockfd, msgvec, vlen, flags, timeout);
+        }
+        errno = recvmmsgErrno;
+        return -1;
+
     }
 
     int sendmsgErrno;

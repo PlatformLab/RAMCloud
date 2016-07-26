@@ -28,6 +28,7 @@
 #include "NetUtil.h"
 #include "ObjectPool.h"
 #include "MacIpAddress.h"
+#include "QueueEstimator.h"
 #include "ServiceLocator.h"
 #include "ShortMacros.h"
 #include "Transport.h"
@@ -48,9 +49,10 @@ class SolarFlareDriver : public Driver {
     explicit SolarFlareDriver(Context* context,
                               const ServiceLocator* localServiceLocator);
     virtual ~SolarFlareDriver();
-    virtual void connect(IncomingPacketHandler* incomingPacketHandler);
-    virtual void disconnect();
     virtual uint32_t getMaxPacketSize();
+    virtual int getTransmitQueueSpace(uint64_t currentTime);
+    virtual void receivePackets(int maxPackets,
+            std::vector<Received>* receivedPackets);
     virtual void release(char* payload);
     virtual void sendPacket(const Driver::Address* recipient,
                             const void* header,
@@ -240,34 +242,23 @@ class SolarFlareDriver : public Driver {
     /// driver in the construction time.
     int fd;
 
+    /// Effective network bandwidth, in Gbits/second.
+    int bandwidthGbps;
+
+    /// Used to estimate # bytes outstanding in the NIC's transmit queue.
+    QueueEstimator queueEstimator;
+
+    /// Upper limit on how many bytes should be queued for transmission
+    /// at any given time.
+    uint32_t maxTransmitQueueSize;
+
     void refillRxRing();
-    void handleReceived(int packetId, int packetLen);
+    void handleReceived(int packetId, int packetLen,
+            std::vector<Received>* receivedPackets);
     const char* rxDiscardTypeToStr(int type);
     const char* txErrTypeToStr(int type);
 
-    /**
-     * This is the object that polls the notifications from the event
-     * queue of the NIC. Dispatch loop invokes the poll() function of this
-     * object to fetch the received packets and transmit notifications off
-     * of the NIC.
-     */
-    class Poller : public Dispatch::Poller {
-      public:
-        explicit Poller(Context* context, SolarFlareDriver* solarFlareDriver)
-            : Dispatch::Poller(context->dispatch, "SolarFlareDriver::Poller"),
-            driver(solarFlareDriver) {}
-
-        virtual void poll();
-      private:
-
-      /// Pointer to the driver corresponding to this Poller object.
-      SolarFlareDriver* driver;
-      DISALLOW_COPY_AND_ASSIGN(Poller);
-    };
-    friend class Poller;
-    Tub<Poller> poller;
-
-    /// Name of the physica SolarFlare NIC that will send and receive packets
+    /// Name of the physical SolarFlare NIC that will send and receive packets
     /// for this SolarFlareDriver on the local machine.
     static const char ifName[];
     static Syscall* sys;

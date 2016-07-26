@@ -51,6 +51,7 @@
 #include "MurmurHash3.h"
 #include "Object.h"
 #include "ObjectPool.h"
+#include "QueueEstimator.h"
 #include "Segment.h"
 #include "SegmentIterator.h"
 #include "SpinLock.h"
@@ -1112,6 +1113,22 @@ double pingConditionVar()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of the QueueEstimator::getQueueSize method.
+double queueEstimator()
+{
+    int count = 1000000;
+    QueueEstimator estimator(8000);
+    uint64_t start = Cycles::rdtsc();
+    uint32_t total = 0;
+    for (int i = 0; i < count; i++) {
+        estimator.setQueueSize(1000, 100000+i);
+        total += estimator.getQueueSize(200000);
+    }
+    uint64_t stop = Cycles::rdtsc();
+    printf("Result: %u\n", total/count);
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the cost of reading the fine-grain cycle counter.
 double rdtscTest()
 {
@@ -1634,6 +1651,8 @@ TestInfo tests[] = {
      "Round-trip ping with std::condition_variable"},
     {"prefetch", perfPrefetch,
      "Prefetch instruction"},
+    {"queueEstimator", queueEstimator,
+     "Recompute # bytes outstanding in queue"},
     {"rdtsc", rdtscTest,
      "Read the fine-grain cycle counter"},
     {"segmentEntrySort", segmentEntrySort,

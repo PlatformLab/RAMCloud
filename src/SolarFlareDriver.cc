@@ -17,6 +17,7 @@
 #include "SolarFlareDriver.h"
 #include "Memory.h"
 #include "Buffer.h"
+#include "Cycles.h"
 #include "IpAddress.h"
 #include "MacAddress.h"
 #include "Syscall.h"
@@ -58,7 +59,6 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
     , arpCache()
     , localStringLocator()
     , localAddress()
-    , incomingPacketHandler()
     , driverHandle()
     , protectionDomain()
     , virtualInterface()
@@ -69,7 +69,9 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
     , buffsNotReleased(0)
     , rxRingFillLevel(0)
     , fd(-1)
-    , poller()
+    , bandwidthGbps(10)                   // Default bandwidth = 10 gbs
+    , queueEstimator(0)
+    , maxTransmitQueueSize(0)
 {
     if (localServiceLocator == NULL) {
 
@@ -122,17 +124,32 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
             "Created the locator string: %s", localStringLocator.c_str());
         localAddress.construct(sl);
 
-    } else if (!localServiceLocator->getOption<const char*>("mac", NULL)) {
-
-        // Find the mac address of this machine and append it to the service
-        // locator;
-        string macString = ",mac=" + getLocalMac(ifName);
-        localStringLocator = localServiceLocator->getOriginalString();
-        ServiceLocator sl(localStringLocator + macString);
-        localAddress.construct(sl);
     } else {
-        localStringLocator = localServiceLocator->getOriginalString();
-        localAddress.construct(*localServiceLocator);
+        if (!localServiceLocator->getOption<const char*>("mac", NULL)) {
+
+            // Find the mac address of this machine and append it to the service
+            // locator;
+            string macString = ",mac=" + getLocalMac(ifName);
+            localStringLocator = localServiceLocator->getOriginalString();
+            ServiceLocator sl(localStringLocator + macString);
+            localAddress.construct(sl);
+        } else {
+            localStringLocator = localServiceLocator->getOriginalString();
+            localAddress.construct(*localServiceLocator);
+        }
+
+        try {
+            bandwidthGbps = localServiceLocator->getOption<int>("gbs");
+        } catch (ServiceLocator::NoSuchKeyException& e) {}
+    }
+    queueEstimator.setBandwidth(1000*bandwidthGbps);
+    maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthGbps)
+            * MAX_DRAIN_TIME / 8.0);
+    uint32_t maxPacketSize = getMaxPacketSize();
+    if (maxTransmitQueueSize < 2*maxPacketSize) {
+        // Make sure that we advertise enough space in the transmit queue to
+        // prepare the next packet while the current one is transmitting.
+        maxTransmitQueueSize = 2*maxPacketSize;
     }
 
     // Adapter initializations. Fills driverHandle with driver resources
@@ -204,6 +221,10 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
     int numTxBuffers = TX_RING_CAP;
     txBufferPool.construct(bufferSize, numTxBuffers, this);
     arpCache.construct(context, localIp, ifName);
+
+    LOG(NOTICE, "SolarFlareDriver bandwidth: %d Gbits/sec, "
+            "maxTransmitQueueSize: %u bytes",
+            bandwidthGbps, maxTransmitQueueSize);
 }
 
 /**
@@ -217,7 +238,7 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
  *      RegisteredBuffs class.
  */
 SolarFlareDriver::RegisteredBuffs::RegisteredBuffs(int bufferSize,
-    int numBuffers, SolarFlareDriver* driver)
+        int numBuffers, SolarFlareDriver* driver)
     : memoryChunk()
     , registeredMemRegion()
     , bufferSize(bufferSize)
@@ -364,28 +385,131 @@ SolarFlareDriver::~SolarFlareDriver() {
     }
 }
 
-/// See docs in the ``Driver'' class.
-void
-SolarFlareDriver::connect(IncomingPacketHandler* incomingPacketHandler)
-{
-    this->incomingPacketHandler.reset(incomingPacketHandler);
-    poller.construct(context, this);
-}
-
-/// See docs in the ``Driver'' class.
-void
-SolarFlareDriver::disconnect()
-{
-    poller.destroy();
-    this->incomingPacketHandler.reset();
-}
-
-/// See docs in the ``Driver'' class.
+// See docs in the ``Driver'' class.
 uint32_t
 SolarFlareDriver::getMaxPacketSize()
 {
     return ETHERNET_MAX_DATA_LEN -
            downCast<uint32_t>(sizeof(IpHeader) + sizeof(UdpHeader));
+}
+
+// See docs in Driver class.
+int
+SolarFlareDriver::getTransmitQueueSpace(uint64_t currentTime)
+{
+    return maxTransmitQueueSize - queueEstimator.getQueueSize(currentTime);
+}
+
+// See docs in Driver class.
+void
+SolarFlareDriver::receivePackets(int maxPackets,
+            std::vector<Received>* receivedPackets)
+{
+    assert(driver->context->dispatch->isDispatchThread());
+    if (maxPackets > EF_VI_EVENT_POLL_NUM_EVS) {
+        maxPackets = EF_VI_EVENT_POLL_NUM_EVS;
+    }
+
+    // To receive packets, descriptors each identifying a buffer,
+    // are queued in the RX ring. The event queue is a channel
+    // from the adapter to software which notifies software when
+    // packets arrive from the network, and when transmits complete
+    // (so that the buffers can be freed or reused).
+    // events[] array contains the notifications that are fetched off
+    // of the event queue on NIC and correspond to this VI of this driver.
+    // Each member of the array could be a transmit completion notification
+    // or a notification to a received packet or an error that happened
+    // in receive or transmits.
+    ef_event events[EF_VI_EVENT_POLL_NUM_EVS];
+
+    // Contains the id of packets that have been successfully transmitted
+    // or failed. It will be used for fast access to the packet buffer
+    // that has been used for that transmission.
+    ef_request_id packetIds[EF_VI_TRANSMIT_BATCH];
+
+    // The application retrieves these events from event queue by calling
+    // ef_event_poll().
+    int eventCnt = ef_eventq_poll(&driver->virtualInterface, events,
+                                  maxPackets);
+    for (int i = 0; i < eventCnt; i++) {
+        LOG(DEBUG, "%d events polled off of NIC", eventCnt);
+        int numCompleted = 0;
+        int txErrorType = 0;
+        int rxDiscardType = 0;
+        switch (EF_EVENT_TYPE(events[i])) {
+
+            // A new packet has been received.
+            case EF_EVENT_TYPE_RX:
+
+                // The SolarFlare library provides macro functions
+                // EF_EVENT_RX_RQ_ID and EF_EVENT_RX_BYTES to find the id and
+                // length of the received packet from the notification that's
+                // been polled off of the event queue.
+                driver->handleReceived(EF_EVENT_RX_RQ_ID(events[i]),
+                                       EF_EVENT_RX_BYTES(events[i]),
+                                       receivedPackets);
+                driver->rxRingFillLevel--;
+                break;
+
+            // A packet transmit has been completed
+            case EF_EVENT_TYPE_TX:
+                 numCompleted =
+                    ef_vi_transmit_unbundle(&driver->virtualInterface,
+                                            &events[i],
+                                            packetIds);
+                for (int j = 0; j < numCompleted; j++) {
+                    PacketBuff* packetBuff =
+                        driver->txBufferPool->getBufferById(packetIds[j]);
+                    driver->txBufferPool->freeBuffersVec.push_back(packetBuff);
+                }
+                break;
+
+            // A packet has been received but it must be discarded because
+            // either its erroneous or is not targeted for this driver.
+            case EF_EVENT_TYPE_RX_DISCARD:
+
+                // This "if" statement will be taken out from the final code.
+                // Currently serves for the cases that we might specify
+                // an arbitrary mac address for string locator (something
+                // other than the actual mac address of the SolarFlare card)
+                if (EF_EVENT_RX_DISCARD_TYPE(events[i])
+                             == EF_EVENT_RX_DISCARD_OTHER) {
+                    driver->handleReceived(EF_EVENT_RX_DISCARD_RQ_ID(events[i]),
+                                           EF_EVENT_RX_DISCARD_BYTES(events[i]),
+                                           receivedPackets);
+                } else {
+                    rxDiscardType = EF_EVENT_RX_DISCARD_TYPE(events[i]);
+                    LOG(NOTICE, "Received discarded packet of type %d (%s)",
+                        rxDiscardType,
+                        driver->rxDiscardTypeToStr(rxDiscardType));
+
+                    // The buffer for the discarded received packet must be
+                    // returned to the receive free list
+                    int packetId = EF_EVENT_RX_DISCARD_RQ_ID(events[i]);
+                    PacketBuff* packetBuff =
+                        driver->rxBufferPool->getBufferById(packetId);
+                    driver->rxBufferPool->freeBuffersVec.push_back(packetBuff);
+                }
+                driver->rxRingFillLevel--;
+                break;
+
+            // Error happened in transmitting a packet.
+            case EF_EVENT_TYPE_TX_ERROR:
+                txErrorType = EF_EVENT_TX_ERROR_TYPE(events[i]);
+                LOG(WARNING, "TX error type %d (%s) happened!",
+                    txErrorType,
+                    driver->txErrTypeToStr(txErrorType));
+                break;
+            // Type of the event does not match to any above case statements.
+            default:
+                LOG(WARNING, "Unexpected event for event id %d", i);
+                break;
+        }
+    }
+
+    // Push back packet buffers to the RX ring to provide enough ring buffers
+    // for the incoming packets.
+    driver->refillRxRing();
 }
 
 /// See docs in the ``Driver'' class.
@@ -501,7 +625,7 @@ SolarFlareDriver::sendPacket(const Driver::Address* recipient,
         //LOG(NOTICE, "%s", (ethernetHeaderToStr(ethHdr)).c_str());
         //LOG(NOTICE, "%s", (ipHeaderToStr(ipHdr)).c_str());
         //LOG(NOTICE, "%s", (udpHeaderToStr(udpHdr)).c_str())
-    }else {
+    } else {
 
             // Could not resolve mac from the local ARP cache nor kernel ARP
             // cache. This probably means we don't have access to kernel ARP
@@ -514,124 +638,13 @@ SolarFlareDriver::sendPacket(const Driver::Address* recipient,
             LOG(WARNING, "Was not able to resolve the MAC address for the"
                 " packet destined to %s", inet_ntoa(destInAddr));
     }
+    queueEstimator.packetQueued(totalLen, Cycles::rdtsc());
 }
 
 /**
- * This method fetches the notifications off of the event queue on the 
- * NIC. The received packets are then forwarded to be handled by 
- * transport code and transmitted buffers will be returned to the transmit
- * buffer pool. This function is always called from dispatch loop.
- * See docs in the ``Driver'' class.
- */
-void
-SolarFlareDriver::Poller::poll()
-{
-    assert(driver->context->dispatch->isDispatchThread());
-
-    // To receive packets, descriptors each identifying a buffer,
-    // are queued in the RX ring. The event queue is a channel
-    // from the adapter to software which notifies software when
-    // packets arrive from the network, and when transmits complete
-    // (so that the buffers can be freed or reused).
-    // events[] array contains the notifications that are fetched off
-    // of the event queue on NIC and correspond to this VI of this driver.
-    // Each member of the array could be a transmit completion notification
-    // or a notification to a received packet or an error that happened
-    // in receive or transmits.
-    ef_event events[EF_VI_EVENT_POLL_NUM_EVS];
-
-    // Contains the id of packets that have been successfully transmitted
-    // or failed. It will be used for fast access to the packet buffer
-    // that has been used for that transmission.
-    ef_request_id packetIds[EF_VI_TRANSMIT_BATCH];
-
-    // The application retrieves these events from event queue by calling
-    // ef_event_poll().
-    int eventCnt = ef_eventq_poll(&driver->virtualInterface, events,
-                                  sizeof(events)/sizeof(events[0]));
-    for (int i = 0; i < eventCnt; i++) {
-        LOG(DEBUG, "%d events polled off of NIC", eventCnt);
-        int numCompleted = 0;
-        int txErrorType = 0;
-        int rxDiscardType = 0;
-        switch (EF_EVENT_TYPE(events[i])) {
-
-            // A new packet has been received.
-            case EF_EVENT_TYPE_RX:
-
-                // The SolarFlare library provides macro functions
-                // EF_EVENT_RX_RQ_ID and EF_EVENT_RX_BYTES to find the id and
-                // length of the received packet from the notification that's
-                // been polled off of the event queue.
-                driver->handleReceived(EF_EVENT_RX_RQ_ID(events[i]),
-                                       EF_EVENT_RX_BYTES(events[i]));
-                driver->rxRingFillLevel--;
-                break;
-
-            // A packet transmit has been completed
-            case EF_EVENT_TYPE_TX:
-                 numCompleted =
-                    ef_vi_transmit_unbundle(&driver->virtualInterface,
-                                            &events[i],
-                                            packetIds);
-                for (int j = 0; j < numCompleted; j++) {
-                    PacketBuff* packetBuff =
-                        driver->txBufferPool->getBufferById(packetIds[j]);
-                    driver->txBufferPool->freeBuffersVec.push_back(packetBuff);
-                }
-                break;
-
-            // A packet has been received but it must be discarded because
-            // either its erroneous or is not targeted for this driver.
-            case EF_EVENT_TYPE_RX_DISCARD:
-
-                // This "if" statement will be taken out from the final code.
-                // Currently serves for the cases that we might specify
-                // an arbitrary mac address for string locator (something
-                // other than the actual mac address of the SolarFlare card)
-                if (EF_EVENT_RX_DISCARD_TYPE(events[i])
-                             == EF_EVENT_RX_DISCARD_OTHER) {
-                    driver->handleReceived(
-                        EF_EVENT_RX_DISCARD_RQ_ID(events[i]),
-                        EF_EVENT_RX_DISCARD_BYTES(events[i]));
-                } else {
-                    rxDiscardType = EF_EVENT_RX_DISCARD_TYPE(events[i]);
-                    LOG(NOTICE, "Received discarded packet of type %d (%s)",
-                        rxDiscardType,
-                        driver->rxDiscardTypeToStr(rxDiscardType));
-
-                    // The buffer for the discarded received packet must be
-                    // returned to the receive free list
-                    int packetId = EF_EVENT_RX_DISCARD_RQ_ID(events[i]);
-                    PacketBuff* packetBuff =
-                        driver->rxBufferPool->getBufferById(packetId);
-                    driver->rxBufferPool->freeBuffersVec.push_back(packetBuff);
-                }
-                driver->rxRingFillLevel--;
-                break;
-
-            // Error happened in transmitting a packet.
-            case EF_EVENT_TYPE_TX_ERROR:
-                txErrorType = EF_EVENT_TX_ERROR_TYPE(events[i]);
-                LOG(WARNING, "TX error type %d (%s) happened!",
-                    txErrorType,
-                    driver->txErrTypeToStr(txErrorType));
-                break;
-            // Type of the event does not match to any above case statements.
-            default:
-                LOG(WARNING, "Unexpected event for event id %d", i);
-                break;
-        }
-    }
-
-    // At the end of the poller loop, we will push back packet buffers to the RX
-    // ring to provide enough number of ring buffers for the incoming packets.
-    driver->refillRxRing();
-}
-
-/**
- * A helper method for the packets that arrive on the NIC. It passes the packet 
- * payload to the next layer in transport software)
+ * A helper method for the packets that arrive on the NIC. It creates a
+ * Received that describes the incoming packet, copies the packet into
+ * the Received's buffer, and returns the packet buffer to the free pool.
  * 
  * \param packetId
  *      This is the id of the packetBuff within the received memory chunk.
@@ -639,10 +652,14 @@ SolarFlareDriver::Poller::poll()
  *      that memory chunk.
  * \param packetLen
  *      The actual length in bytes of the packet that's been received in NIC.
+ * \param receivedPackets
+ *      A Received containing the incoming packet is pushed onto the back
+ *      of this vector.
  *      
  */
 void
-SolarFlareDriver::handleReceived(int packetId, int packetLen)
+SolarFlareDriver::handleReceived(int packetId, int packetLen,
+        std::vector<Received>* receivedPackets)
 {
     assert(downCast<uint32_t>(packetLen) >=
                         rxPrefixLen + sizeof(EthernetHeader) +
@@ -673,24 +690,20 @@ SolarFlareDriver::handleReceived(int packetId, int packetLen)
     // Construct a buffer and copy the udp payload of the received packet into
     // the buffer.
     PacketBuff* copyBuffer = rxCopyPool.construct();
-    Received received;
-    received.payload = reinterpret_cast<char*>(copyBuffer->dmaBuffer);
-    received.len =
+    uint32_t length =
         downCast<uint32_t>(NTOHS(udpHdr->totalLength) -
         downCast<uint16_t>(sizeof(UdpHeader)));
-    received.driver = this;
-    received.sender = copyBuffer->macIpAddress.construct(ip, port, mac);
-
-    if (received.len != (totalLen - ETH_DATA_OFFSET)) {
+    if (length != (totalLen - ETH_DATA_OFFSET)) {
         LOG(WARNING, "total payload bytes received is %u,"
             " but UDP payload length is %u bytes",
-            (totalLen - ETH_DATA_OFFSET), received.len);
+            (totalLen - ETH_DATA_OFFSET), length);
     }
-    memcpy(copyBuffer->dmaBuffer, ethPkt + ETH_DATA_OFFSET, received.len);
+    memcpy(copyBuffer->dmaBuffer, ethPkt + ETH_DATA_OFFSET, length);
     buffsNotReleased++;
 
-    // Hand the received packet off to the transport layer.
-    (*incomingPacketHandler)(&received);
+    receivedPackets->emplace_back(
+            copyBuffer->macIpAddress.construct(ip, port, mac), this,
+            length, reinterpret_cast<char*>(copyBuffer->dmaBuffer));
 
     // return original RX ring buffer descriptor to the pool of RX buffer
     // descriptors.

@@ -19,26 +19,25 @@
  * driver using unconnected datagram queue-pairs (UD).
  */
 
-/*
- * Note that in UD mode, Infiniband receivers prepend a 40-byte
- * Global Routing Header (GRH) to all incoming frames. Immediately
- * following is the data transmitted. The interface is not symmetric:
- * Sending applications do not include a GRH in the buffers they pass
- * to the HCA.
- */
 
 #include <errno.h>
 #include <sys/types.h>
 
 #include "Common.h"
+#include "Cycles.h"
 #include "BitOps.h"
 #include "InfUdDriver.h"
 #include "PcapFile.h"
 #include "PerfStats.h"
 #include "ServiceLocator.h"
 #include "ShortMacros.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
+
+// Change 0 -> 1 in the following line to enable time tracing in
+// this driver.
+#define TIME_TRACE 0
 
 /**
  * Construct an InfUdDriver.
@@ -46,18 +45,21 @@ namespace RAMCloud {
  * \param context
  *      Overall information about the RAMCloud server or client.
  * \param sl
+ *      Service locator for transport that will be using this driver.
+ *      May contain any of the following parameters, which are used
+ *      to configure the new driver:
+ *      dev -      Infiniband device name to use.
+ *      devPort -  Infiniband port to use.
+ *      gbs -      Bandwidth of the Infiniband network, in Gbits/sec.
+ *                 Used for estimating transmit queue lengths.
+ *      mac -      MAC address for this host; if ethernet is true.
  *      Specifies the Infiniband device and physical port to use.
  *      If NULL, the first device and port are used by default.
- *      Note that Infiniband has no concept of statically allocated
- *      queue pair numbers (ports). This makes this driver unsuitable
- *      for servers until we add some facility for dynamic addresses
- *      and resolution.
  * \param ethernet
  *      Whether to use the Ethernet port.
  */
-InfUdDriver::InfUdDriver(Context* context,
-                                     const ServiceLocator *sl,
-                                     bool ethernet)
+InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
+        bool ethernet)
     : context(context)
     , realInfiniband()
     , infiniband()
@@ -76,8 +78,9 @@ InfUdDriver::InfUdDriver(Context* context,
     , qpn(0)
     , localMac()
     , locatorString()
-    , incomingPacketHandler()
-    , poller()
+    , bandwidthGbps(24)                   // Default bandwidth = 24 gbs
+    , queueEstimator(0)
+    , maxTransmitQueueSize(0)
 {
     const char *ibDeviceName = NULL;
     bool macAddressProvided = false;
@@ -100,7 +103,21 @@ InfUdDriver::InfUdDriver(Context* context,
             ibPhysicalPort = sl->getOption<int>("devport");
         } catch (ServiceLocator::NoSuchKeyException& e) {}
 
+        try {
+            bandwidthGbps = sl->getOption<int>("gbs");
+        } catch (ServiceLocator::NoSuchKeyException& e) {}
     }
+    queueEstimator.setBandwidth(1000*bandwidthGbps);
+    maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthGbps)
+            * MAX_DRAIN_TIME / 8.0);
+    uint32_t maxPacketSize = getMaxPacketSize();
+    if (maxTransmitQueueSize < 2*maxPacketSize) {
+        // Make sure that we advertise enough space in the transmit queue to
+        // prepare the next packet while the current one is transmitting.
+        maxTransmitQueueSize = 2*maxPacketSize;
+    }
+    LOG(NOTICE, "InfUdDriver bandwidth: %d Gbits/sec, maxTransmitQueueSize: "
+            "%u bytes", bandwidthGbps, maxTransmitQueueSize);
 
     if (ethernet && !macAddressProvided)
         localMac.construct(MacAddress::RANDOM);
@@ -108,7 +125,7 @@ InfUdDriver::InfUdDriver(Context* context,
     infiniband = realInfiniband.construct(ibDeviceName);
 
     // allocate rx and tx buffers
-    uint32_t bufSize = (getMaxPacketSize() +
+    uint32_t bufSize = (maxPacketSize +
         (localMac ? sizeof32(EthernetHeader) : GRH_SIZE));
     bufSize = BitOps::powerOfTwoGreaterOrEqual(bufSize);
     rxBuffers.construct(realInfiniband->pd, bufSize,
@@ -184,24 +201,6 @@ InfUdDriver::~InfUdDriver()
 /*
  * See docs in the ``Driver'' class.
  */
-void
-InfUdDriver::connect(IncomingPacketHandler* incomingPacketHandler) {
-    this->incomingPacketHandler.reset(incomingPacketHandler);
-    poller.construct(context, this);
-}
-
-/*
- * See docs in the ``Driver'' class.
- */
-void
-InfUdDriver::disconnect() {
-    poller.destroy();
-    this->incomingPacketHandler.reset();
-}
-
-/*
- * See docs in the ``Driver'' class.
- */
 uint32_t
 InfUdDriver::getMaxPacketSize()
 {
@@ -230,19 +229,22 @@ Infiniband::BufferDescriptor*
 InfUdDriver::getTransmitBuffer()
 {
     // if we've drained our free tx buffer pool, we must wait.
-    while (freeTxBuffers.empty()) {
-        ibv_wc retArray[MAX_TX_QUEUE_DEPTH];
-        int n = infiniband->pollCompletionQueue(txcq,
-                                                MAX_TX_QUEUE_DEPTH,
-                                                retArray);
-        for (int i = 0; i < n; i++) {
-            BufferDescriptor* bd =
-                reinterpret_cast<BufferDescriptor*>(retArray[i].wr_id);
-            freeTxBuffers.push_back(bd);
-
-            if (retArray[i].status != IBV_WC_SUCCESS) {
-                LOG(ERROR, "Transmit failed: %s",
-                    infiniband->wcStatusToString(retArray[i].status));
+    if (freeTxBuffers.empty()) {
+        reapTransmitBuffers();
+        if (freeTxBuffers.empty()) {
+            // We are temporarily out of buffers. Time how long it takes
+            // before a transmit buffer becomes available again (a long
+            // time is a bad sign); in the normal case this code should
+            // not be invoked.
+            uint64_t start = Cycles::rdtsc();
+            while (freeTxBuffers.empty()) {
+                reapTransmitBuffers();
+            }
+            double waitMs = 1e03 * Cycles::toSeconds(Cycles::rdtsc() - start);
+            if (waitMs > 5.0)  {
+                LOG(WARNING, "Long delay waiting for transmit buffers "
+                        "(%.1f ms elapsed, %lu buffers now free)",
+                        waitMs, freeTxBuffers.size());
             }
         }
     }
@@ -250,6 +252,37 @@ InfUdDriver::getTransmitBuffer()
     BufferDescriptor* bd = freeTxBuffers.back();
     freeTxBuffers.pop_back();
     return bd;
+}
+
+// See Driver.h for documentation
+int
+InfUdDriver::getTransmitQueueSpace(uint64_t currentTime)
+{
+    return maxTransmitQueueSize - queueEstimator.getQueueSize(currentTime);
+}
+
+/**
+ * Check the NIC to see if it is ready to return transmit buffers
+ * from previously-transmit packets. If there are any available,
+ * reclaim them. This method also detects and logs transmission errors.
+ */
+void
+InfUdDriver::reapTransmitBuffers()
+{
+#define MAX_TO_RETRIEVE 20
+    ibv_wc retArray[MAX_TO_RETRIEVE];
+    int numBuffers = infiniband->pollCompletionQueue(txcq,
+            MAX_TO_RETRIEVE, retArray);
+    for (int i = 0; i < numBuffers; i++) {
+        BufferDescriptor* bd =
+            reinterpret_cast<BufferDescriptor*>(retArray[i].wr_id);
+        freeTxBuffers.push_back(bd);
+
+        if (retArray[i].status != IBV_WC_SUCCESS) {
+            LOG(WARNING, "Infud transmit failed: %s",
+                infiniband->wcStatusToString(retArray[i].status));
+        }
+    }
 }
 
 /*
@@ -302,6 +335,7 @@ InfUdDriver::sendPacket(const Driver::Address *addr,
         payload->next();
     }
     uint32_t length = static_cast<uint32_t>(p - bd->buffer);
+    bd->messageBytes = length;
 
     if (pcapFile)
         pcapFile->append(bd->buffer, length);
@@ -309,35 +343,62 @@ InfUdDriver::sendPacket(const Driver::Address *addr,
     try {
         LOG(DEBUG, "sending %u bytes to %s...", length,
             addr->toString().c_str());
+#if TIME_TRACE
+        TimeTrace::record("before postSend in InfUdDriver");
+#endif
         infiniband->postSend(qp, bd, length,
                              localMac ? NULL
                                       : static_cast<const Address*>(addr),
                              QKEY);
+#if TIME_TRACE
+        TimeTrace::record("after postSend in InfUdDriver");
+#endif
+        queueEstimator.packetQueued(length, Cycles::rdtsc());
         PerfStats::threadStats.networkOutputBytes += length;
         LOG(DEBUG, "sent successfully!");
     } catch (...) {
         LOG(DEBUG, "send failed!");
         throw;
     }
+
+    // If there are a lot of outstanding transmit buffers, see if we
+    // can reclaim some of them. This code isn't strictly necessary, since
+    // we'll eventually reclaim them in getTransmitBuffer. However, if we
+    // wait until then, there could be a lot of them to reclaim, which will
+    // take a lot of time. Since that code is on the critical path, it could
+    // add to tail latency. If we do it here, there's some chance that we
+    // didn't actually have anything else to do, so the cost of reclamation
+    // will be hidden; even if it isn't, we'll pay in smaller chunks, which
+    // will have less of an impact on tail latency.
+    if (freeTxBuffers.size() < MAX_TX_QUEUE_DEPTH-10) {
+        reapTransmitBuffers();
+    }
 }
 
 /*
  * See docs in the ``Driver'' class.
  */
-int
-InfUdDriver::Poller::poll()
+void
+InfUdDriver::receivePackets(int maxPackets,
+            std::vector<Received>* receivedPackets)
 {
-    assert(driver->context->dispatch->isDispatchThread());
-    static const int MAX_COMPLETIONS = 8;
+    static const int MAX_COMPLETIONS = 50;
     ibv_wc wc[MAX_COMPLETIONS];
-    int numPackets = driver->infiniband->pollCompletionQueue(driver->qp->rxcq,
-            MAX_COMPLETIONS, wc);
+    uint32_t maxToReceive = (maxPackets < MAX_COMPLETIONS) ? maxPackets
+            : MAX_COMPLETIONS;
+    int numPackets = infiniband->pollCompletionQueue(qp->rxcq,
+            maxToReceive, wc);
     if (numPackets <= 0) {
         if (numPackets < 0) {
             LOG(ERROR, "pollCompletionQueue failed with result %d", numPackets);
         }
-        return 0;
+        return;
     }
+#if TIME_TRACE
+    TimeTrace::record(context->dispatch->currentTime,
+            "start of poller loop");
+    TimeTrace::record("InfUdDriver received %d packets", numPackets);
+#endif
 
     // First, prefetch the initial bytes of all the incoming packets. This
     // allows us to process multiple cache misses concurrently, which improves
@@ -355,69 +416,63 @@ InfUdDriver::Poller::poll()
         ibv_wc* incoming = &wc[i];
         BufferDescriptor *bd =
                 reinterpret_cast<BufferDescriptor *>(incoming->wr_id);
-        bd->messageBytes = incoming->byte_len;
         PacketBuf* buffer = NULL;
-        Received received;
         if (incoming->status != IBV_WC_SUCCESS) {
             LOG(ERROR, "error in Infiniband completion (%d: %s)",
                 incoming->status,
-                driver->infiniband->wcStatusToString(incoming->status));
+                infiniband->wcStatusToString(incoming->status));
             goto error;
         }
 
-        if (pcapFile)
-            pcapFile->append(bd->buffer, bd->messageBytes);
-
-        if (bd->messageBytes < (driver->localMac ? 60 : GRH_SIZE)) {
+        bd->messageBytes = incoming->byte_len;
+        if (bd->messageBytes < (localMac ? 60 : GRH_SIZE)) {
             LOG(ERROR, "received impossibly short packet: %d bytes",
                     bd->messageBytes);
             goto error;
         }
 
         {
-            Lock lock(driver->mutex);
-            buffer = driver->packetBufPool.construct();
-            driver->packetBufsUtilized++;
+            Lock lock(mutex);
+            buffer = packetBufPool.construct();
+            packetBufsUtilized++;
         }
 
-        received.driver = driver;
-        received.payload = buffer->payload;
+        uint32_t length;
+        const Driver::Address* sender;
         PerfStats::threadStats.networkInputBytes += bd->messageBytes;
         // copy from the infiniband buffer into our dynamically allocated
         // buffer.
-        if (driver->localMac) {
+        if (localMac) {
             auto& ethHdr = *reinterpret_cast<EthernetHeader*>(bd->buffer);
-            received.sender =
-                    buffer->macAddress.construct(ethHdr.sourceAddress);
-            received.len = ethHdr.length;
-            if (received.len + sizeof(ethHdr) > bd->messageBytes) {
+            sender = buffer->macAddress.construct(ethHdr.sourceAddress);
+            length = ethHdr.length;
+            if (length + sizeof(ethHdr) > bd->messageBytes) {
                 LOG(ERROR, "corrupt packet (data length %d, packet length %d",
-                        received.len, bd->messageBytes);
+                        length, bd->messageBytes);
                 goto error;
             }
-            memcpy(received.payload, bd->buffer + sizeof(ethHdr), received.len);
+            memcpy(buffer->payload, bd->buffer + sizeof(ethHdr), length);
         } else {
-            buffer->infAddress.construct(*driver->infiniband,
-                    driver->ibPhysicalPort, incoming->slid, incoming->src_qp);
-            received.sender = buffer->infAddress.get();
-            received.len = bd->messageBytes - GRH_SIZE;
-            memcpy(received.payload, bd->buffer + GRH_SIZE, received.len);
+            buffer->infAddress.construct(*infiniband,
+                    ibPhysicalPort, incoming->slid, incoming->src_qp);
+            sender = buffer->infAddress.get();
+            length = bd->messageBytes - GRH_SIZE;
+            memcpy(buffer->payload, bd->buffer + GRH_SIZE, length);
         }
-        driver->incomingPacketHandler->handlePacket(&received);
+        receivedPackets->emplace_back(sender, this, length, buffer->payload);
 
         // post the original infiniband buffer back to the receive queue
-        driver->infiniband->postReceive(driver->qp, bd);
+        infiniband->postReceive(qp, bd);
         continue;
 
       error:
         if (buffer != NULL) {
-            Lock lock(driver->mutex);
-            driver->packetBufPool.destroy(buffer);
-            driver->packetBufsUtilized--;
+            Lock lock(mutex);
+            packetBufPool.destroy(buffer);
+            packetBufsUtilized--;
         }
-        driver->infiniband->postReceive(driver->qp, bd);
+        infiniband->postReceive(qp, bd);
     }
-    return numPackets;
 }
 
 /**

@@ -22,19 +22,20 @@
 #include "Dispatch.h"
 #include "Driver.h"
 #include "MacAddress.h"
-#include "ObjectPool.h"
 #include "NetUtil.h"
+#include "ObjectPool.h"
+#include "QueueEstimator.h"
 #include "ServiceLocator.h"
 #include "Tub.h"
 
-// number of descriptors to allocate for the tx/rx rings
+// Number of descriptors to allocate for the tx/rx rings
 #define NDESC 256
-// maximum number of packet buffers that the memory pool can hold
+// Maximum number of packet buffers that the memory pool can hold
 #define NB_MBUF 8192
-// per-element size for the packet buffer memory pool
+// Per-element size for the packet buffer memory pool
 #define MBUF_SIZE (2048 + sizeof(struct rte_mbuf) + RTE_PKTMBUF_HEADROOM)
 
-//Forward declarations, so we don't have to include DPDK headers here.
+// Forward declarations, so we don't have to include DPDK headers here.
 struct rte_mempool;
 struct rte_ring;
 
@@ -50,15 +51,15 @@ class DpdkDriver : public Driver
 {
   public:
     static const uint32_t MAX_PAYLOAD_SIZE = 1400;
-    friend class Poller;
 
     explicit DpdkDriver(Context* context,
                         const ServiceLocator* localServiceLocator = NULL);
     virtual ~DpdkDriver();
     void close();
-    virtual void connect(IncomingPacketHandler* incomingPacketHandler);
-    virtual void disconnect();
     virtual uint32_t getMaxPacketSize();
+    virtual int getTransmitQueueSpace(uint64_t currentTime);
+    virtual void receivePackets(int maxPackets,
+            std::vector<Received>* receivedPackets);
     virtual void release(char *payload);
     virtual void sendPacket(const Address *addr,
                             const void *header,
@@ -83,29 +84,6 @@ class DpdkDriver : public Driver
     }
 
     Context* context;
-
-    /// Handler to invoke whenever packets arrive.
-    std::unique_ptr<IncomingPacketHandler> incomingPacketHandler;
-
-    /**
-     * An event handler that reads incoming packets and passes them on to
-     * #transport.
-     */
-
-    class Poller : public Dispatch::Poller {
-      public:
-        explicit Poller(Context* context, DpdkDriver* driver)
-            : Dispatch::Poller(context->dispatch, "DpdkDriver::Poller"),
-            driver(driver) {}
-
-        virtual int poll();
-      private:
-
-        // Driver on whose behalf this poller operates.
-        DpdkDriver* driver;
-        DISALLOW_COPY_AND_ASSIGN(Poller);
-    };
-    Tub<Poller> poller;
 
     /// Holds packet buffers that are no longer in use, for use in future
     /// requests; saves the overhead of calling malloc/free for each request.
@@ -135,6 +113,16 @@ class DpdkDriver : public Driver
     /// Holds packets that are addressed to localhost instead of going through
     /// the HW queues.
     struct rte_ring *loopbackRing;
+
+    // Effective network bandwidth, in Gbits/second.
+    int bandwidthGbps;
+
+    /// Used to estimate # bytes outstanding in the NIC's transmit queue.
+    QueueEstimator queueEstimator;
+
+    /// Upper limit on how many bytes should be queued for transmission
+    /// at any given time.
+    uint32_t maxTransmitQueueSize;
 
     DISALLOW_COPY_AND_ASSIGN(DpdkDriver);
 };

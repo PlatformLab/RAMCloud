@@ -16,12 +16,14 @@
 #ifndef RAMCLOUD_UDPDRIVER_H
 #define RAMCLOUD_UDPDRIVER_H
 
+#include <sys/socket.h>
 #include <vector>
 
 #include "Dispatch.h"
 #include "Driver.h"
 #include "IpAddress.h"
 #include "ObjectPool.h"
+#include "QueueEstimator.h"
 #include "Syscall.h"
 #include "Tub.h"
 
@@ -40,9 +42,10 @@ class UdpDriver : public Driver {
                        const ServiceLocator* localServiceLocator = NULL);
     virtual ~UdpDriver();
     void close();
-    virtual void connect(IncomingPacketHandler* incomingPacketHandler);
-    virtual void disconnect();
     virtual uint32_t getMaxPacketSize();
+    virtual int getTransmitQueueSpace(uint64_t currentTime);
+    virtual void receivePackets(int maxPackets,
+            std::vector<Received>* receivedPackets);
     virtual void release(char *payload);
     virtual void sendPacket(const Address *addr,
                             const void *header,
@@ -58,11 +61,20 @@ class UdpDriver : public Driver {
      * Structure to hold an incoming packet.
      */
     struct PacketBuf {
-        PacketBuf() : ipAddress() {}
-        IpAddress ipAddress;                   /// Address of sender (used to
-                                               /// send reply).
-        char payload[MAX_PAYLOAD_SIZE];        /// Packet data (may not fill all
-                                               /// of the allocated space).
+        PacketBuf() : ipAddress(), iovec()
+        {
+            iovec.iov_base = payload;
+            iovec.iov_len = MAX_PAYLOAD_SIZE;
+        }
+
+        /// Address of sender (used to  send reply).
+        IpAddress ipAddress;
+
+        /// Tells kernel call where to place incoming packet data.
+        struct iovec iovec;
+
+        /// Packet data (may not fill all of the allocated space).
+        char payload[MAX_PAYLOAD_SIZE];
     };
 
     /// Shared RAMCloud information.
@@ -72,33 +84,29 @@ class UdpDriver : public Driver {
     /// -1 means socket was closed because of error.
     int socketFd;
 
-    /// Handler to invoke whenever packets arrive.
-    std::unique_ptr<IncomingPacketHandler> incomingPacketHandler;
+    /// Maximum number of incoming packets we are prepared to receive in
+    /// a single kernel call.
+    static const int MAX_PACKETS_AT_ONCE = 10;
 
-    /**
-     * An event handler that reads incoming packets and passes them on to
-     * #transport.
-     */
-    class ReadHandler : public Dispatch::File {
-      public:
-        ReadHandler(int fd, UdpDriver* driver)
-            : Dispatch::File(driver->context->dispatch,
-                             fd, Dispatch::FileEvent::READABLE)
-            , driver(driver)
-        { }
-        virtual void handleFileEvent(int events);
-      private:
-        // Driver that owns this handler.
-        UdpDriver* driver;
-        DISALLOW_COPY_AND_ASSIGN(ReadHandler);
-    };
-    Tub<ReadHandler> readHandler;
+    /// Holds the arguments and results from a call to recvmmsg; see the
+    /// man page for that kernel call for details.
+    struct mmsghdr messageHeaders[MAX_PACKETS_AT_ONCE];
+
+    /// Entries in this array correspond to those in messageHeaders; they
+    /// hold the buffers that will be returned to transports.  NULL means
+    /// no PacketBuf has been allocated in that slot; it also means that
+    /// the corresponding slot in messageHeaders is uninitialized. If there
+    /// are NULL entries, they are always adjacent and occupy the first
+    /// slots in the array.
+    PacketBuf* buffers[MAX_PACKETS_AT_ONCE];
 
     /// Holds packet buffers that are no longer in use, for use in future
     /// requests; saves the overhead of calling malloc/free for each request.
     ObjectPool<PacketBuf> packetBufPool;
 
-    /// Tracks number of outstanding allocated payloads.  For detecting leaks.
+    /// Tracks number of outstanding allocated payloads, including those
+    /// currently reference in buffers as well as those that have been
+    /// returned to transports.  For detecting leaks.
     int packetBufsUtilized;
 
     /// Counts the number of packet buffers freed during destructors;
@@ -110,6 +118,16 @@ class UdpDriver : public Driver {
     /// The original ServiceLocator string. May be empty if the constructor
     /// argument was NULL. May also differ if dynamic ports are used.
     string locatorString;
+
+    // Effective network bandwidth, in Gbits/second.
+    int bandwidthGbps;
+
+    /// Used to estimate # bytes outstanding in the NIC's transmit queue.
+    QueueEstimator queueEstimator;
+
+    /// Upper limit on how many bytes should be queued for transmission
+    /// at any given time.
+    uint32_t maxTransmitQueueSize;
 
     DISALLOW_COPY_AND_ASSIGN(UdpDriver);
 };

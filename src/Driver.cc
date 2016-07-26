@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -16,6 +16,7 @@
 #include "Driver.h"
 
 namespace RAMCloud {
+uint32_t Driver::Received::stealCount = 0;
 
 /// Virtual destructor needed since this serves as an abstract base class.
 Driver::~Driver()
@@ -35,15 +36,6 @@ Driver::release(char *payload)
 {
 }
 
-/// Construct a received containing no data and unassociated with a Driver.
-Driver::Received::Received()
-    :  sender(NULL)
-    , driver(0)
-    , len(0)
-    , payload(0)
-{
-}
-
 /**
  * If this Received is associated with a Driver and its payload
  * hasn't been stolen then release the payload data to the Driver
@@ -51,7 +43,7 @@ Driver::Received::Received()
  */
 Driver::Received::~Received()
 {
-    if (payload)
+    if (payload && driver)
         driver->release(payload);
 }
 
@@ -97,6 +89,9 @@ Driver::Received::steal(uint32_t *len)
     payload = NULL;
     *len = this->len;
     this->len = 0;
+#ifdef TESTING
+    stealCount++;
+#endif
     return p;
 }
 

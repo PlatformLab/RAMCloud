@@ -20,9 +20,11 @@
 #include <sys/socket.h>
 
 #include "Common.h"
+#include "Cycles.h"
 #include "ShortMacros.h"
 #include "UdpDriver.h"
 #include "ServiceLocator.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -55,14 +57,36 @@ UdpDriver::UdpDriver(Context* context,
         const ServiceLocator* localServiceLocator)
     : context(context)
     , socketFd(-1)
-    , incomingPacketHandler()
-    , readHandler()
+    , messageHeaders()
+    , buffers()
     , packetBufPool()
     , packetBufsUtilized(0)
     , locatorString()
+    , bandwidthGbps(10)                   // Default bandwidth = 10 gbs
+    , queueEstimator(0)
+    , maxTransmitQueueSize(0)
 {
-    if (localServiceLocator != NULL)
+    if (localServiceLocator != NULL) {
         locatorString = localServiceLocator->getOriginalString();
+        try {
+            bandwidthGbps = localServiceLocator->getOption<int>("gbs");
+        } catch (ServiceLocator::NoSuchKeyException& e) {}
+    }
+    queueEstimator.setBandwidth(1000*bandwidthGbps);
+    maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthGbps)
+            * MAX_DRAIN_TIME / 8.0);
+    uint32_t maxPacketSize = getMaxPacketSize();
+    if (maxTransmitQueueSize < 2*maxPacketSize) {
+        // Make sure that we advertise enough space in the transmit queue to
+        // prepare the next packet while the current one is transmitting.
+        maxTransmitQueueSize = 2*maxPacketSize;
+    }
+    LOG(NOTICE, "UdpDriver bandwidth: %d Gbits/sec, maxTransmitQueueSize: "
+            "%u bytes", bandwidthGbps, maxTransmitQueueSize);
+
+    for (int i = 0; i < MAX_PACKETS_AT_ONCE; i++) {
+        buffers[i] = NULL;
+    }
 
     int fd = sys->socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
@@ -91,6 +115,12 @@ UdpDriver::UdpDriver(Context* context,
  */
 UdpDriver::~UdpDriver()
 {
+    for (int i = 0; i < MAX_PACKETS_AT_ONCE; i++) {
+        if (buffers[i] != NULL) {
+            release(buffers[i]->payload);
+            buffers[i] = NULL;
+        }
+    }
     if (packetBufsUtilized != 0)
         LOG(ERROR, "UdpDriver deleted with %d packets still in use",
             packetBufsUtilized);
@@ -103,8 +133,6 @@ UdpDriver::~UdpDriver()
 void
 UdpDriver::close()
 {
-    if (readHandler)
-        readHandler.destroy();
     if (socketFd != -1) {
         sys->close(socketFd);
         socketFd = -1;
@@ -112,27 +140,64 @@ UdpDriver::close()
 }
 
 // See docs in Driver class.
-void
-UdpDriver::connect(IncomingPacketHandler* incomingPacketHandler)
-{
-    this->incomingPacketHandler.reset(incomingPacketHandler);
-    readHandler.construct(socketFd, this);
-}
-
-// See docs in Driver class.
-void
-UdpDriver::disconnect()
-{
-    if (readHandler)
-        readHandler.destroy();
-    this->incomingPacketHandler.reset();
-}
-
-// See docs in Driver class.
 uint32_t
 UdpDriver::getMaxPacketSize()
 {
     return MAX_PAYLOAD_SIZE;
+}
+
+// See docs in Driver class.
+int
+UdpDriver::getTransmitQueueSpace(uint64_t currentTime)
+{
+    return maxTransmitQueueSize - queueEstimator.getQueueSize(currentTime);
+}
+
+// See docs in Driver class.
+void
+UdpDriver::receivePackets(int maxPackets,
+            std::vector<Received>* receivedPackets)
+{
+    if (maxPackets > MAX_PACKETS_AT_ONCE) {
+        maxPackets = MAX_PACKETS_AT_ONCE;
+    }
+
+    // Initialize the arguments that will be passed to the kernel call.
+    // Typically, some number of the initial buffers will be invalid
+    // because packets were received in them during the last call to
+    // this method.
+    for (int i = 0; i < MAX_PACKETS_AT_ONCE; i++) {
+        if (buffers[i] != NULL) {
+            break;
+        }
+        struct mmsghdr* header = &messageHeaders[i];
+        PacketBuf* buffer = packetBufPool.construct();
+        packetBufsUtilized++;
+        buffers[i] = buffer;
+        header->msg_hdr.msg_name = &buffer->ipAddress.address;
+        header->msg_hdr.msg_namelen = sizeof(buffer->ipAddress.address);
+        header->msg_hdr.msg_iov = &buffer->iovec;
+        header->msg_hdr.msg_iovlen = 1;
+        header->msg_hdr.msg_control = NULL;
+        header->msg_hdr.msg_controllen = 0;
+        header->msg_hdr.msg_flags = 0;
+    }
+    ssize_t numPackets = sys->recvmmsg(socketFd, messageHeaders,
+            maxPackets, MSG_DONTWAIT, NULL);
+    if (numPackets <= 0) {
+        if ((numPackets < 0) && (errno != EAGAIN) && (errno != EWOULDBLOCK)) {
+            LOG(WARNING, "UdpDriver error receiving from socket: %s",
+                    strerror(errno));
+        }
+        return;
+    }
+    for (int i = 0; i < numPackets; i++) {
+        struct mmsghdr* header = &messageHeaders[i];
+        PacketBuf* buffer = buffers[i];
+        receivedPackets->emplace_back(&buffer->ipAddress, this,
+                header->msg_len, buffer->payload);
+        buffers[i] = NULL;
+    }
 }
 
 // See docs in Driver class.
@@ -193,49 +258,8 @@ UdpDriver::sendPacket(const Address *addr,
         LOG(WARNING, "UdpDriver error sending to socket: %s", strerror(errno));
         return;
     }
+    queueEstimator.packetQueued(totalLength, Cycles::rdtsc());
     assert(static_cast<size_t>(r) == totalLength);
-}
-
-/**
- * Invoked by the dispatcher when our socket becomes readable.
- * Reads any available packets from the socket, and passes them on
- * to the associated transport.
- *
- * \param events
- *      Indicates whether the socket was readable, writable, or both
- *      (OR-ed combination of Dispatch::FileEvent bits).
- */
-void
-UdpDriver::ReadHandler::handleFileEvent(int events)
-{
-    PacketBuf* buffer;
-    // Each iteration through the following loop receives one
-    // incoming packet. Note: reading multiple packets in each call
-    // to this method improves throughput under load by 50%.
-    while (1) {
-        buffer = driver->packetBufPool.construct();
-        socklen_t addrlen = sizeof(buffer->ipAddress.address);
-        ssize_t r = sys->recvfrom(driver->socketFd, buffer->payload,
-                                  MAX_PAYLOAD_SIZE,
-                                  MSG_DONTWAIT,
-                                  &buffer->ipAddress.address, &addrlen);
-        if (r == -1) {
-            driver->packetBufPool.destroy(buffer);
-            if (errno == EAGAIN || errno == EWOULDBLOCK)
-                return;
-            LOG(WARNING, "UdpDriver error receiving from socket: %s",
-                    strerror(errno));
-            return;
-        }
-        Received received;
-        received.len = downCast<uint32_t>(r);
-
-        driver->packetBufsUtilized++;
-        received.payload = buffer->payload;
-        received.sender = &buffer->ipAddress;
-        received.driver = driver;
-        driver->incomingPacketHandler->handlePacket(&received);
-    }
 }
 
 // See docs in Driver class.

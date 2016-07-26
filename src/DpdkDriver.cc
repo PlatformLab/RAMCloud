@@ -35,11 +35,13 @@
 #pragma GCC diagnostic warning "-Wconversion"
 
 #include "Common.h"
+#include "Cycles.h"
 #include "ShortMacros.h"
 #include "DpdkDriver.h"
 #include "NetUtil.h"
 #include "ServiceLocator.h"
 #include "StringUtil.h"
+#include "TimeTrace.h"
 #include "Util.h"
 
 namespace RAMCloud
@@ -60,16 +62,17 @@ namespace RAMCloud
 
 DpdkDriver::DpdkDriver(Context* context,
                        const ServiceLocator* localServiceLocator)
-: context(context)
-, incomingPacketHandler()
-, poller()
-, packetBufPool()
-, packetBufsUtilized(0)
-, locatorString()
-, localMac()
-, portId(0)
-, packetPool(NULL)
-, loopbackRing(NULL)
+    : context(context)
+    , packetBufPool()
+    , packetBufsUtilized(0)
+    , locatorString()
+    , localMac()
+    , portId(0)
+    , packetPool(NULL)
+    , loopbackRing(NULL)
+    , bandwidthGbps(10)                   // Default bandwidth = 10 gbs
+    , queueEstimator(0)
+    , maxTransmitQueueSize(0)
 {
     struct ether_addr mac;
     struct rte_eth_link link;
@@ -78,14 +81,13 @@ DpdkDriver::DpdkDriver(Context* context,
     int ret;
 
     // parse the locator string, if specified, and obtain the values
-    // for the mac and devport options.
+    // for various parameters.
     if (localServiceLocator != NULL) {
         locatorString = localServiceLocator->getOriginalString();
         try {
             localMac.construct(
                     localServiceLocator->getOption<const char*>("mac"));
-        }
-        catch (ServiceLocator::NoSuchKeyException& e) {
+        } catch (ServiceLocator::NoSuchKeyException& e) {
         }
         try {
             string localPort = localServiceLocator->getOption("devport");
@@ -97,9 +99,20 @@ DpdkDriver::DpdkDriver(Context* context,
                         "Bad devport option in service locator: %s",
                         locatorString.c_str()));
             }
+        } catch (ServiceLocator::NoSuchKeyException& e) {
         }
-        catch (ServiceLocator::NoSuchKeyException& e) {
-        }
+        try {
+            bandwidthGbps = localServiceLocator->getOption<int>("gbs");
+        } catch (ServiceLocator::NoSuchKeyException& e) {}
+    }
+    queueEstimator.setBandwidth(1000*bandwidthGbps);
+    maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthGbps)
+            * MAX_DRAIN_TIME / 8.0);
+    uint32_t maxPacketSize = getMaxPacketSize();
+    if (maxTransmitQueueSize < 2*maxPacketSize) {
+        // Make sure that we advertise enough space in the transmit queue to
+        // prepare the next packet while the current one is transmitting.
+        maxTransmitQueueSize = 2*maxPacketSize;
     }
 
     // initialize the DPDK environment with some default parameters
@@ -137,7 +150,7 @@ DpdkDriver::DpdkDriver(Context* context,
     if (!localMac || localMac->isNull()) {
         rte_eth_macaddr_get(portId, &mac);
         localMac.construct(mac.addr_bytes);
-        locatorString = format("fast+dpdk:mac=%s,devport=%d",
+        locatorString = format("basic+dpdk:mac=%s,devport=%d",
                 localMac->toString().c_str(), portId);
     }
 
@@ -190,7 +203,9 @@ DpdkDriver::DpdkDriver(Context* context,
                 rte_strerror(rte_errno)));
     }
 
-    LOG(NOTICE, "DpdkDriver locator: %s", locatorString.c_str());
+    LOG(NOTICE, "DpdkDriver locator: %s, bandwidth: %d Gbits/sec, "
+            "maxTransmitQueueSize: %u bytes",
+            locatorString.c_str(), bandwidthGbps, maxTransmitQueueSize);
 
     // DPDK during initialization (rte_eal_init()) pins the running thread
     // to a single processor. This becomes a problem as the master worker
@@ -218,24 +233,6 @@ DpdkDriver::~DpdkDriver()
     rte_eth_dev_stop(portId);
 }
 
-void
-DpdkDriver::connect(IncomingPacketHandler* incomingPacketHandler)
-{
-    this->incomingPacketHandler.reset(incomingPacketHandler);
-    poller.construct(context, this);
-}
-
-// See docs in Driver class.
-
-void
-DpdkDriver::disconnect()
-{
-    poller.destroy();
-    this->incomingPacketHandler.reset();
-    LOG(NOTICE, "Driver disconnected");
-
-}
-
 // See docs in Driver class.
 
 uint32_t
@@ -245,7 +242,58 @@ DpdkDriver::getMaxPacketSize()
 }
 
 // See docs in Driver class.
+int
+DpdkDriver::getTransmitQueueSpace(uint64_t currentTime)
+{
+    return maxTransmitQueueSize - queueEstimator.getQueueSize(currentTime);
+}
 
+// See docs in Driver class.
+void
+DpdkDriver::receivePackets(int maxPackets,
+            std::vector<Received>* receivedPackets)
+{
+#define MAX_PACKETS_AT_ONCE 32
+    if (maxPackets > MAX_PACKETS_AT_ONCE) {
+        maxPackets = MAX_PACKETS_AT_ONCE;
+    }
+    struct rte_mbuf* mPkts[MAX_PACKETS_AT_ONCE];
+
+    // attempt to dequeue a batch of received packets from the NIC
+    // as well as from the loopback ring.
+    uint32_t incomingPkts = rte_eth_rx_burst(portId, 0, mPkts,
+            MAX_PACKETS_AT_ONCE/2);
+    uint32_t loopbackPkts = rte_ring_count(loopbackRing);
+    if (incomingPkts + loopbackPkts > MAX_PACKETS_AT_ONCE) {
+        loopbackPkts = MAX_PACKETS_AT_ONCE - incomingPkts;
+    }
+    for (uint32_t i = 0; i < loopbackPkts; i++) {
+        rte_ring_dequeue(loopbackRing,
+                reinterpret_cast<void**>(&mPkts[incomingPkts + i]));
+    }
+    uint32_t totalPkts = incomingPkts + loopbackPkts;
+
+    // Process received packets by constructing appropriate Received
+    // objects and copying the payload from the DPDK packet buffers.
+    for (uint32_t i = 0; i < totalPkts; i++) {
+        struct rte_mbuf* m = mPkts[i];
+        rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+        PacketBuf* buffer = packetBufPool.construct();
+        packetBufsUtilized++;
+        buffer->dpdkAddress.construct(
+                rte_pktmbuf_mtod(m, uint8_t *) + sizeof(struct ether_addr));
+        uint32_t length = rte_pktmbuf_data_len(m) -
+                sizeof32(NetUtil::EthernetHeader);
+        rte_memcpy(buffer->payload,
+                static_cast<char*>(rte_pktmbuf_mtod(m, void *))
+                + sizeof(NetUtil::EthernetHeader), length);
+        receivedPackets->emplace_back(buffer->dpdkAddress.get(), this,
+                length, buffer->payload);
+        rte_pktmbuf_free(m);
+    }
+}
+
+// See docs in Driver class.
 void
 DpdkDriver::release(char *payload)
 {
@@ -320,55 +368,7 @@ DpdkDriver::sendPacket(const Address *addr,
     } else {
         rte_eth_tx_burst(portId, 0, &mbuf, 1);
     }
-}
-
-int
-DpdkDriver::Poller::poll()
-{
-#define MAX_MBUFS_ON_STACK 32
-    // avoid heap allocations on the poll path by temporarily
-    // keeping a limited number of packet buffers on stack.
-    struct rte_mbuf* mPkts[MAX_MBUFS_ON_STACK];
-
-    // attempt to dequeue a batch of received packets from the NIC
-    // as well as from the loopback ring.
-    uint32_t incomingPkts = rte_eth_rx_burst(driver->portId, 0, mPkts,
-            MAX_MBUFS_ON_STACK/2);
-    uint32_t loopbackPkts = rte_ring_count(driver->loopbackRing);
-    if (incomingPkts + loopbackPkts > MAX_MBUFS_ON_STACK) {
-        loopbackPkts = MAX_MBUFS_ON_STACK - incomingPkts;
-    }
-    for (uint32_t i = 0; i < loopbackPkts; i++) {
-        rte_ring_dequeue(driver->loopbackRing,
-                reinterpret_cast<void**>(&mPkts[incomingPkts + i]));
-    }
-    uint32_t totalPkts = incomingPkts + loopbackPkts;
-    if (totalPkts == 0) {
-        return 0;
-    }
-
-    // process received packets by constructing appropriate Received
-    // objects, copying the payload from the DPDK packet buffers and
-    // passing them to the fast transport layer for further processing.
-    for (uint32_t i = 0; i < totalPkts; i++) {
-        struct rte_mbuf* m = mPkts[i];
-        rte_prefetch0(rte_pktmbuf_mtod(m, void *));
-        PacketBuf * rec_buffer = driver->packetBufPool.construct();
-        driver->packetBufsUtilized++;
-        Received received;
-        received.len = rte_pktmbuf_data_len(m) -
-                sizeof32(NetUtil::EthernetHeader);
-        received.sender = rec_buffer->dpdkAddress.construct(
-                rte_pktmbuf_mtod(m, uint8_t *) + sizeof(struct ether_addr));
-        received.driver = driver;
-        received.payload = rec_buffer->payload;
-        rte_memcpy(received.payload,
-                static_cast<char*>(rte_pktmbuf_mtod(m, void *))
-                + sizeof(NetUtil::EthernetHeader), received.len);
-        driver->incomingPacketHandler->handlePacket(&received);
-        rte_pktmbuf_free(m);
-    }
-    return 1;
+    queueEstimator.packetQueued(totalLength, Cycles::rdtsc());
 }
 
 string

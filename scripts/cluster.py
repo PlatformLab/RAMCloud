@@ -63,7 +63,7 @@ coord_locator_templates = {
     'infrc': 'infrc:host=%(host)s,port=%(port)d',
     # Coordinator uses udp even when rest of cluster uses infud
     # or infeth.
-    'basic+infud': 'basic+udp:host=%(host)s,port=%(port)d,rttMicros=6,gbs=30',
+    'basic+infud': 'tcp:host=%(host)s,port=%(port)d',
 }
 
 def server_locator(transport, host, port=server_port):

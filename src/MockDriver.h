@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -30,40 +30,43 @@ namespace RAMCloud {
 class MockDriver : public Driver {
   public:
     struct MockAddress : public Address {
-        explicit MockAddress(const ServiceLocator* serviceLocator)
-            : serviceLocator(*serviceLocator) {}
+        explicit MockAddress(string address)
+            : address(address) {}
         MockAddress(const MockAddress& other)
-            : Address(other), serviceLocator(other.serviceLocator) {}
+            : Address(other)
+            , address(other.address) {}
         MockAddress* clone() const {
-            return new MockAddress(*this);
+            return new MockAddress(address);
         }
         bool operator==(const MockAddress& other) const {
-            return (this->serviceLocator == other.serviceLocator);
+            return (this->address == other.address);
         }
         string toString() const {
-            return serviceLocator.getOriginalString();
+            return address;
         }
-        ServiceLocator serviceLocator;
+        string address;
       private:
         void operator=(const MockAddress&);
     };
 
-    class MockReceived: public Received {
-      public:
-        MockReceived(const char* sender, const void* header,
+    /**
+     * Holds an incoming packet and its Address.
+     */
+    static const int MAX_PAYLOAD_SIZE  = 1400;
+    struct PacketBuf {
+        MockAddress address;                   /// Address of sender.
+        uint32_t length;                       /// Number of valid bytes in
+                                               /// payload.
+        char payload[MAX_PAYLOAD_SIZE];        /// Packet data (may not fill all
+                                               /// of the allocated space).
+        PacketBuf(const char* sender, const void* header,
                 uint32_t headerLength, const char* body);
-        virtual ~MockReceived();
-        virtual char *steal(uint32_t *len);
-
-        // Locator corresponding to the sender argument to the constructor.
-        ServiceLocator locator;
-
-        // Address of the "sender".
-        const MockAddress senderAddress;
-
-        MockDriver* mockDriver;
-
-        DISALLOW_COPY_AND_ASSIGN(MockReceived);
+        ~PacketBuf()
+        {
+            // Trash the payload to cause problems for anyone trying to use
+            // it after it has been freed.
+            memset(payload, 'x', MAX_PAYLOAD_SIZE);
+        }
     };
 
     /// The type of a customer header serializer.  See headerToString.
@@ -72,31 +75,41 @@ class MockDriver : public Driver {
     MockDriver();
     explicit MockDriver(HeaderToString headerToString);
     virtual ~MockDriver();
-    virtual void connect(IncomingPacketHandler* incomingPacketHandler);
-    virtual void disconnect();
-    virtual uint32_t getMaxPacketSize() { return maxPacketSize; }
+    virtual uint32_t getMaxPacketSize() { return MAX_PAYLOAD_SIZE; }
+    virtual int getTransmitQueueSpace(uint64_t currentTime) {
+        return transmitQueueSpace;
+    }
+    virtual void receivePackets(int maxPackets,
+            std::vector<Received>* receivedPackets);
     virtual void release(char *payload);
     virtual void sendPacket(const Address* addr,
                             const void *header,
                             uint32_t headerLen,
                             Buffer::Iterator *payload);
     virtual string getServiceLocator();
-    void receivePacket(MockReceived *received);
 
+    /**
+     * Simulates the arrival of a packet in the driver.
+     * @param sender
+     *      String that will be treated as the Address for the sender.
+     * @param header
+     *      Object supplying the initial bytes of the packet.
+     * @param body
+     *      Null-terminated string that will be concatenated with the header
+     *      to form the packet.  NULL means no body.
+     */
     template<typename T>
-    inline void
-    receivePacket(const char* sender, T header, const char* body = NULL)
+    void
+    packetArrived(const char* sender, T header, const char* body = NULL)
     {
-        receivePacket(new MockReceived(sender, &header, sizeof32(header),
-                body));
+        PacketBuf* packet = new PacketBuf(sender, &header, sizeof32(header),
+                body);
+        incomingPackets.push_back(packet);
     }
 
     virtual Address* newAddress(const ServiceLocator* serviceLocator) {
-        return new MockAddress(serviceLocator);
+        return new MockAddress(serviceLocator->originalString);
     }
-
-    /// Handler to invoke whenever packets arrive.
-    std::unique_ptr<IncomingPacketHandler> incomingPacketHandler;
 
     /**
      * A function that serializes the header using a specific string format.
@@ -109,18 +122,18 @@ class MockDriver : public Driver {
      */
     string outputLog;
 
-    // Return value from getMaxPacketSize.
-    uint32_t maxPacketSize;
-
     // The following variables count calls to various methods, for use
     // by tests.
     uint32_t sendPacketCount;
-    uint32_t stealCount;
     uint32_t releaseCount;
 
-    // Holds info about all of the MockReceived objects created, so
-    // they can be freed when this object is destroyed.
-    std::vector<MockReceived*> packets;
+    // Pointers to all of the packets passed that were created by
+    // packetArrived but haven't yet been passed on to a transport.
+    // These are all dynamically allocated objects.
+    std::vector<PacketBuf*> incomingPackets;
+
+    // Returned as the result of getTransmitQueueSpace.
+    uint32_t transmitQueueSpace;
 
     DISALLOW_COPY_AND_ASSIGN(MockDriver);
 };

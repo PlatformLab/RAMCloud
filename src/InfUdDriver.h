@@ -27,6 +27,7 @@
 #include "Infiniband.h"
 #include "MacAddress.h"
 #include "ObjectPool.h"
+#include "QueueEstimator.h"
 #include "SpinLock.h"
 #include "Tub.h"
 
@@ -45,18 +46,16 @@ class InfUdDriver : public Driver {
 
   public:
     explicit InfUdDriver(Context* context,
-                         const ServiceLocator* localServiceLocator,
-                         bool ethernet);
+            const ServiceLocator* localServiceLocator, bool ethernet);
     virtual ~InfUdDriver();
-    virtual void connect(IncomingPacketHandler* incomingPacketHandler);
-    virtual void disconnect();
     virtual void dumpStats() { infiniband->dumpStats(); }
     virtual uint32_t getMaxPacketSize();
+    virtual int getTransmitQueueSpace(uint64_t currentTime);
+    virtual void receivePackets(int maxPackets,
+            std::vector<Received>* receivedPackets);
     virtual void release(char *payload);
-    virtual void sendPacket(const Driver::Address *addr,
-                            const void *header,
-                            uint32_t headerLen,
-                            Buffer::Iterator *payload);
+    virtual void sendPacket(const Driver::Address *addr, const void *header,
+                            uint32_t headerLen, Buffer::Iterator *payload);
     virtual string getServiceLocator();
 
     virtual Driver::Address* newAddress(const ServiceLocator* serviceLocator) {
@@ -68,14 +67,22 @@ class InfUdDriver : public Driver {
         }
     }
 
-  private:
+  PRIVATE:
     BufferDescriptor* getTransmitBuffer();
+    void reapTransmitBuffers();
 
     static const uint32_t MAX_RX_QUEUE_DEPTH = 2000;
-    static const uint32_t MAX_TX_QUEUE_DEPTH = 8;
+    static const uint32_t MAX_TX_QUEUE_DEPTH = 50;
     static const uint32_t MAX_RX_SGE_COUNT = 1;
     static const uint32_t MAX_TX_SGE_COUNT = 1;
-    // see comment at top of src/InfUdDriver.cc
+
+    /*
+     * Note that in UD mode, Infiniband receivers prepend a 40-byte
+     * Global Routing Header (GRH) to all incoming frames. Immediately
+     * following is the data transmitted. The interface is not symmetric:
+     * Sending applications do not include a GRH in the buffers they pass
+     * to the HCA.
+     */
     static const uint32_t GRH_SIZE = 40;
 
     struct EthernetHeader {
@@ -152,26 +159,15 @@ class InfUdDriver : public Driver {
     /// Our ServiceLocator, including the dynamic lid and qpn
     string              locatorString;
 
-    /// Handler to invoke whenever packets arrive.
-    /// NULL means #connect hasn't been called yet.
-    std::unique_ptr<IncomingPacketHandler> incomingPacketHandler;
+    // Effective network bandwidth, in Gbits/second.
+    int bandwidthGbps;
 
-    /**
-     * The following object is invoked by the dispatcher's polling loop;
-     * it reads incoming packets and passes them on to #transport.
-     */
-    class Poller : public Dispatch::Poller {
-      public:
-        explicit Poller(Context* context, InfUdDriver* driver)
-            : Dispatch::Poller(context->dispatch, "InfUdDriver::Poller")
-            , driver(driver) { }
-        virtual int poll();
-      private:
-        // Driver on whose behalf this poller operates.
-        InfUdDriver* driver;
-        DISALLOW_COPY_AND_ASSIGN(Poller);
-    };
-    Tub<Poller> poller;
+    /// Used to estimate # bytes outstanding in the NIC's transmit queue.
+    QueueEstimator queueEstimator;
+
+    /// Upper limit on how many bytes should be queued for transmission
+    /// at any given time.
+    uint32_t maxTransmitQueueSize;
 
     DISALLOW_COPY_AND_ASSIGN(InfUdDriver);
 };

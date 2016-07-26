@@ -121,12 +121,6 @@ class BasicTransport : public Transport {
         // dynamically allocated and must be freed by the session.
         Driver::Address* serverAddress;
 
-
-        /// The number of bytes corresponding to a round-trip time between
-        /// two machines. For additional information, see the documentation
-        /// for the definition of BasicTransport::roundTripBytes below.
-        uint32_t roundTripBytes;
-
         // True means the abort method has been invoked, sso this session
         // is no longer usable.
         bool aborted;
@@ -148,8 +142,8 @@ class BasicTransport : public Transport {
       public:
         MessageAccumulator(BasicTransport* t, Buffer* buffer);
         ~MessageAccumulator();
-        void addPacket(Driver::Received* received, DataHeader *header);
-        void appendFragment(char* payload, uint32_t offset, uint32_t length);
+        bool addPacket(DataHeader *header, uint32_t length);
+        bool appendFragment(DataHeader *header, uint32_t length);
         uint32_t requestRetransmission(BasicTransport *t,
                 const Driver::Address* address, RpcId grantOffset,
                 uint32_t limit, uint32_t roundTripBytes, uint8_t whoFrom);
@@ -166,16 +160,16 @@ class BasicTransport : public Transport {
         struct MessageFragment {
             /// Address of first byte of a DATA packet, as returned by
             /// Driver::steal.
-            char* payload;
+            DataHeader *header;
 
             /// # of bytes of message data available at payload.
             uint32_t length;
 
             MessageFragment()
-                    : payload(NULL), length(0)
+                    : header(NULL), length(0)
             {}
-            MessageFragment(char* payload, uint32_t length)
-                    : payload(payload), length(length)
+            MessageFragment(DataHeader *header, uint32_t length)
+                    : header(header), length(length)
             {}
         };
 
@@ -204,6 +198,9 @@ class BasicTransport : public Transport {
         /// The ClientSession on which to send/receive the RPC.
         Session* session;
 
+        /// Sequence number from this RPC's RpcId.
+        uint64_t sequence;
+
         /// Request message for the RPC.
         Buffer* request;
 
@@ -218,8 +215,13 @@ class BasicTransport : public Transport {
         /// been sent.
         uint32_t transmitOffset;
 
+        /// The number of bytes in the request message that it's OK for
+        /// us to transmit. Bytes after this cannot be transmitted until
+        /// we receive a GRANT for them.
+        uint32_t transmitLimit;
+
         /// Offset from the most recent GRANT packet we have sent for
-        /// this message, or 0 if we haven't sent any GRANTs.
+        /// the response for this RPC, or 0 if we haven't sent any GRANTs.
         uint32_t grantOffset;
 
         /// The sum of the offset and length fields from the most recent
@@ -232,20 +234,36 @@ class BasicTransport : public Transport {
         /// received any packets from the server.
         uint32_t silentIntervals;
 
+        /// Either 0 or NEED_GRANT; used in the flags for all outgoing
+        /// data packets.
+        uint8_t needGrantFlag;
+
+        /// True means that the request message is in the process of being
+        /// transmitted (and this object is linked on t->outgoingRequests).
+        bool transmitPending;
+
         /// Holds state of partially-received multi-packet responses.
         Tub<MessageAccumulator> accumulator;
 
-        ClientRpc(Session* session, Buffer* request,
+        /// Used to link this object into t->outgoingRequests.
+        IntrusiveListHook outgoingRequestLinks;
+
+        ClientRpc(Session* session, uint64_t sequence, Buffer* request,
                 Buffer* response, RpcNotifier* notifier)
             : session(session)
+            , sequence(sequence)
             , request(request)
             , response(response)
             , notifier(notifier)
             , transmitOffset(0)
+            , transmitLimit(0)
             , grantOffset(0)
             , resendLimit(0)
             , silentIntervals(0)
+            , needGrantFlag(0)
+            , transmitPending(false)
             , accumulator()
+            , outgoingRequestLinks()
         {}
 
       PRIVATE:
@@ -264,6 +282,11 @@ class BasicTransport : public Transport {
         /// the RPC completes.
         BasicTransport* t;
 
+        /// Uniquely identifies this RPC among all RPCs ever received by
+        /// this server. This is the *server's* sequence number; the client's
+        /// sequence number is in rpcId.
+        uint64_t sequence;
+
         /// Where to send the response once the RPC has executed.
         const Driver::Address* clientAddress;
 
@@ -274,6 +297,11 @@ class BasicTransport : public Transport {
         /// transmit to the client; all preceding bytes have already
         /// been sent. 0 means we have not yet started sending the response.
         uint32_t transmitOffset;
+
+        /// The number of bytes in the response message that it's OK for
+        /// us to transmit. Bytes after this cannot be transmitted until
+        /// we receive a GRANT for them.
+        uint32_t transmitLimit;
 
         /// Offset from the most recent GRANT packet we have sent for
         /// the request message, or 0 if we haven't sent any GRANTs.
@@ -293,39 +321,43 @@ class BasicTransport : public Transport {
         /// we're processing the request or we're sending the response now.
         bool requestComplete;
 
+        /// True means we have finished processing the request and are trying
+        /// to send a response.
+        bool sendingResponse;
+
+        /// Either 0 or NEED_GRANT; used in the flags for all outgoing
+        /// data packets.
+        uint8_t needGrantFlag;
+
         /// Holds state of partially-received multi-packet requests.
         Tub<MessageAccumulator> accumulator;
 
         /// Used to link this object into t->serverTimerList.
         IntrusiveListHook timerLinks;
 
-        ServerRpc(BasicTransport* transport,
+        /// Used to link this object into t->outgoingResponses.
+        IntrusiveListHook outgoingResponseLinks;
+
+        ServerRpc(BasicTransport* transport, uint64_t sequence,
                 const Driver::Address* clientAddress, RpcId rpcId)
             : t(transport)
+            , sequence(sequence)
             , clientAddress(clientAddress)
             , rpcId(rpcId)
             , transmitOffset(0)
+            , transmitLimit(0)
             , grantOffset(0)
             , resendLimit(0)
             , silentIntervals(0)
             , requestComplete(false)
+            , sendingResponse(false)
+            , needGrantFlag(0)
             , accumulator()
             , timerLinks()
+            , outgoingResponseLinks()
         {}
 
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);
-    };
-
-    /**
-     * An object of this class is passed to the driver and used by the
-     * driver to deliver incoming packets to us.
-     */
-    class IncomingPacketHandler : public Driver::IncomingPacketHandler {
-      public:
-        explicit IncomingPacketHandler(BasicTransport* t) : t(t) {}
-        void handlePacket(Driver::Received* received);
-        BasicTransport* t;
-        DISALLOW_COPY_AND_ASSIGN(IncomingPacketHandler);
     };
 
     /**
@@ -386,8 +418,8 @@ class BasicTransport : public Transport {
     // NEED_GRANT:               Used only in DATA packets. Nonzero means
     //                           the sender is transmitting the entire
     //                           message unilaterally; if not set, the last
-    //                           part of the message won't be sent without a
-    //                           GRANT from the server.
+    //                           part of the message won't be sent without
+    //                           GRANTs from the server.
     // RETRANSMISSION:           Used only in DATA packets. Nonzero means
     //                           this packet is being sent in response to a
     //                           RESEND or PING request (it has already been
@@ -504,14 +536,34 @@ class BasicTransport : public Transport {
             : common(PacketOpcode::LOG_TIME_TRACE, rpcId, flags) {}
     } __attribute__((packed));
 
+    /**
+     * Causes BasicTransport to be invoked during each iteration through
+     * the dispatch poller loop.
+     */
+    class Poller : public Dispatch::Poller {
+      public:
+        explicit Poller(Context* context, BasicTransport* t)
+            : Dispatch::Poller(context->dispatch, "BasicTransport::Poller")
+            , t(t) { }
+        virtual int poll();
+      private:
+        // Transport on whose behalf this poller operates.
+        BasicTransport* t;
+        DISALLOW_COPY_AND_ASSIGN(Poller);
+    };
+
   PRIVATE:
+    void deleteClientRpc(ClientRpc* clientRpc);
     void deleteServerRpc(ServerRpc* serverRpc);
     uint32_t getRoundTripBytes(const ServiceLocator* locator);
+    void handlePacket(Driver::Received* received);
     static string headerToString(const void* header, uint32_t headerLength);
     static string opcodeSymbol(uint8_t opcode);
     static void recordIssue(uint32_t* counter);
-    void sendBytes(const Driver::Address* address, RpcId rpcId,
-            Buffer* message, int offset, int length, uint8_t flags);
+    uint32_t sendBytes(const Driver::Address* address, RpcId rpcId,
+            Buffer* message, uint32_t offset, uint32_t maxBytes,
+            uint8_t flags, bool partialOK = false);
+    int tryToTransmitData();
 
     /// Shared RAMCloud information.
     Context* context;
@@ -519,16 +571,30 @@ class BasicTransport : public Transport {
     /// The Driver used to send and receive packets.
     Driver* driver;
 
+    /// Allows us to get invoked during the dispatch polling loop.
+    Poller poller;
+
     /// Maximum # bytes of message data that can fit in one packet.
-    int maxDataPerPacket;
+    uint32_t maxDataPerPacket;
 
     /// Unique identifier for this client (used to provide unique
     /// identification for RPCs).
     uint64_t clientId;
 
-    /// The sequence number to use in the next RPC (i.e., one higher than
-    /// the highest number ever used in the past).
-    uint64_t nextSequenceNumber;
+    /// The sequence number to use in the next outgoing RPC (i.e., one
+    /// higher than the highest number ever used in the past).
+    uint64_t nextClientSequenceNumber;
+
+    /// The sequence number to use for the next incoming RPC (i.e., one
+    /// higher than the highest number ever used in the past).
+    uint64_t nextServerSequenceNumber;
+
+    /// Holds incoming packets received from the driver. This is only
+    /// used temporarily during the poll method, but it's allocated here
+    /// so that we only pay the cost for storage allocation once (don't
+    /// want to reallocate space in every call to poll). Always empty,
+    /// except when the poll method is executing.
+    std::vector<Driver::Received> receivedPackets;
 
     /// Pool allocator for our ServerRpc objects.
     ServerRpcPool<ServerRpc> serverRpcPool;
@@ -545,14 +611,31 @@ class BasicTransport : public Transport {
     typedef std::map<uint64_t, ClientRpc*> ClientRpcMap;
     ClientRpcMap outgoingRpcs;
 
+    /// Holds RPCs for which we are the client, and for which the
+    /// request message has not yet been completely transmitted (once
+    /// the last byte of the request has been transmitted for the first
+    /// time, the RPC is removed from this map). An RPC may be in both
+    /// this list and outgoingRpcs simultaneously.
+    INTRUSIVE_LIST_TYPEDEF(ClientRpc, outgoingRequestLinks)
+            OutgoingRequestList;
+    OutgoingRequestList outgoingRequests;
+
     /// An RPC is in this map if (a) is one for which we are the server,
     /// (b) at least one byte of the request message has been received, and
     /// (c) the last byte of the response message has not yet been passed
     /// to the driver.  Note: this map could get large if the server gets
     /// backed up, so that there are a large number of RPCs that have been
-    /// receive but haven't yet been assigned to worker threads.
+    /// received but haven't yet been assigned to worker threads.
     typedef std::unordered_map<RpcId, ServerRpc*, RpcId::Hasher> ServerRpcMap;
     ServerRpcMap incomingRpcs;
+
+    /// Holds RPCs for which we are the server, and whose response is
+    /// partially transmitted (the response is ready to be sent, but the
+    /// last byte has not yet been sent). An RPC may be in both
+    /// this list and incomingRpcs simultaneously.
+    INTRUSIVE_LIST_TYPEDEF(ServerRpc, outgoingResponseLinks)
+            OutgoingResponseList;
+    OutgoingResponseList outgoingResponses;
 
     /// Subset of the objects in incomingRpcs that require monitoring by
     /// the timer. We keep this as a separate list so that the timer doesn't

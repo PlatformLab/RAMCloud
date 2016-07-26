@@ -7,9 +7,10 @@
 #      "dpdk" subdirectory, in which DPDK must have been properly built.
 
 
-if [ ! -f dpdk/build/kmod/igb_uio.ko ]
+if [ ! -f dpdk/x86_64-native-linuxapp-gcc/kmod/igb_uio.ko ]
 then
-    echo "Driver file dpdk/build/kmod/igb_uio.ko doesn't exist." \
+    echo "Driver file dpdk/x86_64-native-linuxapp-gcc/kmod/igb_uio.ko" \
+         "doesn't exist." \
          "Make sure you are in the right directory and have built DPDK."
     exit 1
 fi
@@ -20,8 +21,10 @@ mkdir -p /mnt/huge
 mount -t hugetlbfs nodev /mnt/huge
 chmod 777 /mnt/huge
 
-# Load the UIO driver and bind it to the eth2 port.
+# Load the UIO driver and bind it to the eth1 port (check the device
+# with "dpdk/tools/dpdk_nic_bind.py --status": select the numbers for
+# eth1.
 modprobe uio
-insmod dpdk/build/kmod/igb_uio.ko
-dpdk/tools/dpdk_nic_bind.py --bind=igb_uio eth2
+insmod dpdk/x86_64-native-linuxapp-gcc/kmod/igb_uio.ko
+dpdk/tools/dpdk_nic_bind.py --bind=igb_uio 04:00.0
 chmod 666 /dev/uio0

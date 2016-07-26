@@ -1,4 +1,4 @@
-/* Copyright (c) 2010 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -128,6 +128,11 @@ class Syscall {
     ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                      sockaddr *from, socklen_t* fromLen) {
         return ::recvfrom(sockfd, buf, len, flags, from, fromLen);
+    }
+    VIRTUAL_FOR_TESTING
+    ssize_t recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
+            unsigned int flags, const struct timespec *timeout) {
+        return ::recvmmsg(sockfd, msgvec, vlen, flags, timeout);
     }
     VIRTUAL_FOR_TESTING
     int select(int nfds, fd_set *readfds, fd_set *writefds,

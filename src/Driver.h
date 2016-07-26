@@ -17,6 +17,8 @@
 #define RAMCLOUD_DRIVER_H
 
 #include <memory>
+#include <vector>
+
 #include "Common.h"
 #include "Buffer.h"
 
@@ -62,23 +64,73 @@ class Driver {
     /**
      * Represents an incoming packet.
      *
-     * Provides a few safety and convenience methods for accessing packet data
-     * and, most importantly, it returns memory resources to the Driver that
-     * the packet data occupies.
-     *
-     * steal() allows higher-level code to take over the responsiblity of
-     * returning the memory to the Driver (PayloadChunk, for example, allows
-     * memory to be placed in a Buffer which is returned to the Driver when
-     * its containing Buffer is destroyed).
+     * A Received typically refers to resources owned by the driver, such
+     * as a packet buffer. These resources will be returned to the driver
+     * when the Received is destroyed. However, if the transport wishes to
+     * retain ownership of the packet buffer after the Received is destroyed
+     * (e.g. while the RPC is being processed), then it may call the
+     * steal method to take over responsibility for the packet buffer.
+     * If it does this, it must eventually call the Driver's release
+     * method to return the packet buffer.
      */
     class Received {
       public:
-        Received();
-        VIRTUAL_FOR_TESTING ~Received();
-        // Note: getOffset is defined in this header file.
-        template<typename T> T* getOffset(uint32_t offset);
+        /**
+         * Construct a Received that contains no data and is not
+         * associated with a Driver.
+         */
+        Received()
+            : sender(NULL)
+            , driver(0)
+            , len(0)
+            , payload(0)
+        {}
+
+        Received(const Address* sender, Driver *driver, uint32_t len,
+                char *payload)
+            : sender(sender)
+            , driver(driver)
+            , len(len)
+            , payload(payload)
+        {}
+
+        // Move constructor (needed for using in std::vectors)
+        Received(Received&& other)
+            : sender(other.sender)
+            , driver(other.driver)
+            , len(other.len)
+            , payload(other.payload)
+        {
+            other.sender = NULL;
+            other.driver = NULL;
+            other.len = 0;
+            other.payload = NULL;
+        }
+
+       ~Received();
+
         void* getRange(uint32_t offset, uint32_t length);
-        VIRTUAL_FOR_TESTING char *steal(uint32_t *len);
+
+        /**
+         * Allows data at a given offset into the Received to be treated as a
+         * specific type.
+         *
+         * \tparam T
+         *      The type to treat the data at payload + offset as.
+         * \param offset
+         *      Offset in bytes of the desired object within the payload.
+         * \return
+         *      Pointer to a T object at the desired offset, or NULL if
+         *      the requested object doesn't fit entirely within the payload.
+         */
+        template<typename T>
+        T*
+        getOffset(uint32_t offset)
+        {
+            return static_cast<T*>(getRange(offset, sizeof(T)));
+        }
+
+        char *steal(uint32_t *len);
 
         /// Address from which this data was received. The object referred
         /// to by this pointer will be stable as long as the packet data
@@ -98,14 +150,13 @@ class Driver {
         /// for it.
         char *payload;
 
+        /// Counts the total number of times that steal has been invoked
+        /// across all Received objects. Intended for unit testing; only
+        /// updated if compiled for TESTING.
+        static uint32_t stealCount;
+
       private:
         DISALLOW_COPY_AND_ASSIGN(Received);
-    };
-
-    /// See #connect().
-    struct IncomingPacketHandler {
-        virtual ~IncomingPacketHandler() {}
-        virtual void handlePacket(Received* received) = 0;
     };
 
     /**
@@ -145,17 +196,41 @@ class Driver {
         DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
 
-
     virtual ~Driver();
 
     /// \copydoc Transport::dumpStats
     virtual void dumpStats() {}
 
     /**
-     * The maximum number of bytes this Driver can transmit in a single call
-     * to sendPacket including both header and payload.
+     * The maximum number of bytes this Driver can transmit in a single
+     * packet, including both header and payload.
      */
     virtual uint32_t getMaxPacketSize() = 0;
+
+    /**
+     * This method provides a hint to transports about how many bytes
+     * they should send. The driver will operate most efficiently if
+     * transports don't send more bytes than indicated by the return value.
+     * This will keep the output queue relatively short, which allows better
+     * scheduling (e.g., a new short message or control packet can preempt
+     * a long ongoing message). At the same time, it will allow enough
+     * buffering so that the output queue doesn't completely run dry
+     * (resulting in unused network bandwidth) before the transport's poller
+     * checks this method again.
+     * \param currentTime
+     *      Current time, in Cycles::rdtsc ticks.
+     * \return
+     *      Number of bytes that can be transmitted without creating
+     *      a long output queue in the driver. Value may be negative
+     *      if transport has ignored this method and transmitted too
+     *      many bytes.
+     */
+    virtual int getTransmitQueueSpace(uint64_t currentTime)
+    {
+        // Default: no throttling of transmissions (probably not a good
+        // idea).
+        return 10000000;
+    }
 
     /**
      * Invoked by a transport when it has finished processing the data
@@ -163,29 +238,16 @@ class Driver {
      * at a safe time.
      *
      * \param payload
-     *      The payload field from the Received object used to pass the
-     *      packet to the transport when it was received.
+     *      The first byte of a packet that was previously "stolen"
+     *      (i.e., the payload field from the Received object used to
+     *      pass the packet to the transport when it was received).
      */
     virtual void release(char *payload);
 
-    /**
-     * Invoked by a transport to associate itself with this
-     * driver, so that the driver can invoke the transport's
-     * incoming packet handler whenever packets arrive.
-     * \param incomingPacketHandler
-     *      A functor which will be invoked for each incoming packet.
-     *      This should be allocated with new and this Driver instance will
-     *      take care of deleting it.
-     */
-    virtual void connect(IncomingPacketHandler* incomingPacketHandler) = 0;
-
-    /**
-     * Breaks the association between this driver and a particular
-     * transport instance, if there was one. Once this method has
-     * returned incoming packets will be ignored or discarded until
-     * #connect is invoked again.
-     */
-    virtual void disconnect() = 0;
+    template<typename T>
+    void release(T* payload) {
+        release(reinterpret_cast<char*>(payload));
+    }
 
     /**
      * Return a new Driver-specific network address for the given service
@@ -202,6 +264,20 @@ class Driver {
      *      Service locator option malformed.
      */
     virtual Address* newAddress(const ServiceLocator* serviceLocator) = 0;
+
+    /**
+     * Checks to see if any packets have arrived that have not already
+     * been returned by this method; if so, it returns some or all of
+     * them.
+     * \param maxPackets
+     *      The maximum number of packets that should be returned by
+     *      this application
+     * \param receivedPackets
+     *      Returned packets are appended to this vector, one Received
+     *      object per packet, in order of packet arrival.
+     */
+    virtual void receivePackets(int maxPackets,
+            std::vector<Received>* receivedPackets) = 0;
 
     /**
      * Associates a contiguous region of memory to a NIC so that the memory
@@ -284,34 +360,19 @@ class Driver {
      * other hosts to contact dynamically addressed services.
      */
     virtual string getServiceLocator() = 0;
+
+    /**
+     * The maximum amount of time it should take to drain the transmit
+     * queue for this driver when it is completely full (i.e.,
+     * getTransmitQueueSpace returns 0).  See the documentation for
+     * getTransmitQueueSpace for motivation. Specified in units of
+     * nanoseconds.
+     */
+    static const uint32_t MAX_DRAIN_TIME = 2000;
 };
 
 /**
- * Allows data at some offset into the Received to be treated as a
- * specific type.
- *
- * This must be in the header file because the template is instantiated
- * in multiple files.
- *
- * Example:  Header* header = getOffset<Header>(0);
- *
- * \tparam T
- *      The type to treat the data at payload + offset as.
- * \param offset
- *      An offset in the the Received payload to treat as a T.
- * \return
- *      A pointer to a T inside the Received payload.
- */
-template<typename T>
-T*
-Driver::Received::getOffset(uint32_t offset)
-{
-    return static_cast<T*>(getRange(offset, sizeof(T)));
-}
-
-/**
- * Thrown if a Driver cannot be initialized properly or if it encounters
- * a problem sending or receiving a packet.
+ * Thrown if a Driver cannot be initialized properly.
  */
 struct DriverException: public Exception {
     explicit DriverException(const CodeLocation& where)

@@ -14,7 +14,6 @@
  */
 
 #include "TestUtil.h"
-#include "MockPacketHandler.h"
 #include "MockSyscall.h"
 #include "Tub.h"
 #include "UdpDriver.h"
@@ -31,7 +30,7 @@ class UdpDriverTest : public ::testing::Test {
     MockSyscall* sys;
     Syscall *savedSyscall;
     TestLog::Enable logEnabler;
-    MockPacketHandler *clientHandler, *serverHandler;
+    Driver::Address *sender;
 
     UdpDriverTest()
         : context()
@@ -43,22 +42,46 @@ class UdpDriverTest : public ::testing::Test {
         , sys(NULL)
         , savedSyscall(NULL)
         , logEnabler()
-        , clientHandler(NULL)
-        , serverHandler(NULL)
+        , sender(NULL)
     {
         savedSyscall = UdpDriver::sys;
         sys = new MockSyscall();
         UdpDriver::sys = sys;
-        clientHandler = new MockPacketHandler(&client);
-        serverHandler = new MockPacketHandler(&server);
     }
 
     ~UdpDriverTest() {
-        // Note: don't delete clientHandler or serverHandler; they
-        // get deleted automatically by the driver.
         delete sys;
         sys = NULL;
         UdpDriver::sys = savedSyscall;
+        delete sender;
+    }
+
+    // Used to wait for data to arrive on a driver by invoking the
+    // dispatcher's receivePackets method; gives up if a long time
+    // goes by with no data. Returns the contents of all the incoming
+    // packets, separated by commas.
+    string receivePackets(UdpDriver* driver) {
+        std::vector<Driver::Received> receivedPackets;
+        for (int i = 0; i < 1000; i++) {
+            driver->receivePackets(5, &receivedPackets);
+            if (receivedPackets.size() > 0) {
+                break;
+            }
+            usleep(1000);
+        }
+        if (receivedPackets.size() == 0) {
+            return "no packet arrived";
+        }
+        string result;
+        sender = receivedPackets[0].sender->clone();
+        for (uint32_t i = 0; i < receivedPackets.size(); i++) {
+            if (i != 0) {
+                result.append(", ");
+            }
+            result.append(receivedPackets[i].payload,
+                    receivedPackets[i].len);
+        }
+        return result;
     }
 
     void sendMessage(UdpDriver *driver, IpAddress *address,
@@ -75,22 +98,35 @@ class UdpDriverTest : public ::testing::Test {
 };
 
 TEST_F(UdpDriverTest, basics) {
-    // Send a packet from a client-style driver to a server-style
-    // driver.
+    // Send a packet from a "client" to a "server" and back again.
     Buffer message;
     const char *testString = "This is a sample message";
     message.appendExternal(testString, downCast<uint32_t>(strlen(testString)));
     Buffer::Iterator iterator(&message);
     client.sendPacket(&serverAddress, "header:", 7, &iterator);
-    EXPECT_STREQ("header:This is a sample message",
-            serverHandler->receivePacket(&context));
+    EXPECT_EQ("header:This is a sample message",
+            receivePackets(&server));
 
     // Send a response back in the other direction.
     message.reset();
     message.appendExternal("response", 8);
     Buffer::Iterator iterator2(&message);
-    server.sendPacket(serverHandler->sender, "h:", 2, &iterator2);
-    EXPECT_STREQ("h:response", clientHandler->receivePacket(&context));
+    server.sendPacket(sender, "h:", 2, &iterator2);
+    EXPECT_EQ("h:response", receivePackets(&client));
+}
+
+TEST_F(UdpDriverTest, constructor_gbsOption) {
+    Cycles::mockCyclesPerSec = 2e09;
+    ServiceLocator serverLocator("basic+udp:host=localhost,port=8101,gbs=40");
+    UdpDriver driver(&context, &serverLocator);
+    EXPECT_EQ(2.5, driver.queueEstimator.bandwidth);
+    EXPECT_EQ(40, driver.bandwidthGbps);
+    EXPECT_EQ(10000u, driver.maxTransmitQueueSize);
+
+    ServiceLocator serverLocator2("basic+udp:host=localhost,port=8102,gbs=1");
+    UdpDriver driver2(&context, &serverLocator2);
+    EXPECT_EQ(2800u, driver2.maxTransmitQueueSize);
+    Cycles::mockCyclesPerSec = 0;
 }
 
 TEST_F(UdpDriverTest, constructor_errorInSocketCall) {
@@ -143,9 +179,39 @@ TEST_F(UdpDriverTest, close_closeSocket) {
     EXPECT_EQ("no exception", exceptionMessage);
 }
 
-TEST_F(UdpDriverTest, close_deleteReadHandler) {
-    server.close();
-    EXPECT_FALSE(server.readHandler);
+TEST_F(UdpDriverTest, getTransmitQueueSpace) {
+    Cycles::mockTscValue = 10000;
+    client.maxTransmitQueueSize = 1000;
+    EXPECT_EQ(1000, client.getTransmitQueueSpace(10000));
+    sendMessage(&client, &serverAddress, "0123456789", "abcdefghij");
+    EXPECT_EQ(980, client.getTransmitQueueSpace(10000));
+    sendMessage(&client, &serverAddress, "0123456789", "abcdefghij");
+    EXPECT_EQ(960, client.getTransmitQueueSpace(10000));
+    EXPECT_EQ(1000, client.getTransmitQueueSpace(1000000));
+    Cycles::mockTscValue = 0;
+}
+
+TEST_F(UdpDriverTest, receivePackets_errorInRecvmmsg) {
+    sys->recvmmsgErrno = EPERM;
+    std::vector<Driver::Received> received;
+    server.receivePackets(1, &received);
+    EXPECT_EQ("receivePackets: UdpDriver error receiving from socket: "
+            "Operation not permitted", TestLog::get());
+    EXPECT_EQ(0lu, received.size());
+}
+
+TEST_F(UdpDriverTest, receivePackets_noPacketAvailable) {
+    std::vector<Driver::Received> received;
+    server.receivePackets(10, &received);
+    EXPECT_EQ(0lu, received.size());
+}
+
+TEST_F(UdpDriverTest, receivePackets_multiplePackets) {
+    sendMessage(&client, &serverAddress, "header:", "first");
+    sendMessage(&client, &serverAddress, "header:", "second");
+    sendMessage(&client, &serverAddress, "header:", "third");
+    EXPECT_EQ("header:first, header:second, header:third",
+            receivePackets(&server));
 }
 
 TEST_F(UdpDriverTest, sendPacket_alreadyClosed) {
@@ -163,7 +229,7 @@ TEST_F(UdpDriverTest, sendPacket_headerEmpty) {
     message.appendExternal("xyzzy", 5);
     Buffer::Iterator iterator(&message);
     client.sendPacket(&serverAddress, "", 0, &iterator);
-    EXPECT_STREQ("xyzzy", serverHandler->receivePacket(&context));
+    EXPECT_EQ("xyzzy", receivePackets(&server));
 }
 
 TEST_F(UdpDriverTest, sendPacket_payloadEmpty) {
@@ -171,7 +237,7 @@ TEST_F(UdpDriverTest, sendPacket_payloadEmpty) {
     message.appendExternal("xyzzy", 5);
     Buffer::Iterator iterator(&message);
     client.sendPacket(&serverAddress, "header:", 7, &iterator);
-    EXPECT_STREQ("header:xyzzy", serverHandler->receivePacket(&context));
+    EXPECT_EQ("header:xyzzy", receivePackets(&server));
 }
 
 TEST_F(UdpDriverTest, sendPacket_multipleChunks) {
@@ -181,8 +247,7 @@ TEST_F(UdpDriverTest, sendPacket_multipleChunks) {
     message.appendExternal("abc", 3);
     Buffer::Iterator iterator(&message, 1, 23);
     client.sendPacket(&serverAddress, "header:", 7, &iterator);
-    EXPECT_STREQ("header:yzzy0123456789abc",
-            serverHandler->receivePacket(&context));
+    EXPECT_EQ("header:yzzy0123456789abc", receivePackets(&server));
 }
 
 TEST_F(UdpDriverTest, sendPacket_errorInSend) {
@@ -193,30 +258,6 @@ TEST_F(UdpDriverTest, sendPacket_errorInSend) {
     client.sendPacket(&serverAddress, "header:", 7, &iterator);
     EXPECT_EQ("sendPacket: UdpDriver error sending to socket: "
             "Operation not permitted", TestLog::get());
-}
-
-TEST_F(UdpDriverTest, ReadHandler_errorInRecv) {
-    sys->recvfromErrno = EPERM;
-    Driver::Received received;
-    server.readHandler->handleFileEvent(
-            Dispatch::FileEvent::READABLE);
-    EXPECT_EQ("handleFileEvent: UdpDriver error receiving from socket: "
-            "Operation not permitted", TestLog::get());
-}
-
-TEST_F(UdpDriverTest, ReadHandler_noPacketAvailable) {
-    server.readHandler->handleFileEvent(
-            Dispatch::FileEvent::READABLE);
-    EXPECT_EQ("", serverHandler->packetData);
-}
-
-TEST_F(UdpDriverTest, ReadHandler_multiplePackets) {
-    sendMessage(&client, &serverAddress, "header:", "first");
-    sendMessage(&client, &serverAddress, "header:", "second");
-    sendMessage(&client, &serverAddress, "header:", "third");
-    EXPECT_STREQ("header:first, header:second, header:third",
-            serverHandler->receivePacket(&context));
-    EXPECT_STREQ("no packet arrived", serverHandler->receivePacket(&context));
 }
 
 }  // namespace RAMCloud

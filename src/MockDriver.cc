@@ -23,14 +23,12 @@ namespace RAMCloud {
  * Construct a MockDriver which does not include the header in the outputLog.
  */
 MockDriver::MockDriver()
-            : incomingPacketHandler()
-            , headerToString(0)
+            : headerToString(0)
             , outputLog()
-            , maxPacketSize(1400)
             , sendPacketCount(0)
-            , stealCount(0)
             , releaseCount(0)
-            , packets()
+            , incomingPackets()
+            , transmitQueueSpace(10000)
 {
 }
 
@@ -43,31 +41,20 @@ MockDriver::MockDriver()
  *      for prefixing packets in the outputLog.
  */
 MockDriver::MockDriver(HeaderToString headerToString)
-            : incomingPacketHandler()
-            , headerToString(headerToString)
+            : headerToString(headerToString)
             , outputLog()
-            , maxPacketSize(1400)
             , sendPacketCount(0)
-            , stealCount(0)
             , releaseCount(0)
-            , packets()
+            , incomingPackets()
+            , transmitQueueSpace(10000)
 {
 }
 
 MockDriver::~MockDriver()
 {
-    foreach (MockReceived* received, packets) {
-        delete(received);
+    foreach (PacketBuf* packet, incomingPackets) {
+        delete(packet);
     }
-}
-
-void
-MockDriver::connect(IncomingPacketHandler* incomingPacketHandler) {
-    this->incomingPacketHandler.reset(incomingPacketHandler);
-}
-
-void
-MockDriver::disconnect() {
 }
 
 /**
@@ -79,6 +66,8 @@ MockDriver::disconnect() {
 void
 MockDriver::release(char *payload)
 {
+    delete reinterpret_cast<PacketBuf*>(payload - OFFSET_OF(
+            PacketBuf, payload));
     releaseCount++;
 }
 
@@ -95,6 +84,15 @@ MockDriver::sendPacket(const Address *addr,
                        Buffer::Iterator *payload)
 {
     sendPacketCount++;
+    uint32_t bytesSent = headerLen;
+    if (payload != NULL) {
+        bytesSent += payload->size();
+    }
+    if (bytesSent > transmitQueueSpace) {
+        transmitQueueSpace = 0;
+    } else {
+        transmitQueueSpace -= bytesSent;
+    }
 
     if (outputLog.length() != 0)
         outputLog.append(" | ");
@@ -139,24 +137,23 @@ MockDriver::getServiceLocator()
     return "mock:";
 }
 
-/**
- * Simulates the arrival of a packet
- * 
- * \param received
- *      Structure describing the packet. Must be dynamically allocated,
- *      and becomes our property; it will get freed when the MockDriver
- *      is destroyed.
- */
+// See documentation in Driver.h.
 void
-MockDriver::receivePacket(MockReceived *received)
+MockDriver::receivePackets(int maxPackets,
+            std::vector<Received>* receivedPackets)
 {
-    packets.push_back(received);
-    received->driver = received->mockDriver = this;
-    incomingPacketHandler->handlePacket(received);
+    int count = 0;
+    while ((count < maxPackets) && !incomingPackets.empty()) {
+        PacketBuf* source = incomingPackets[0];
+        receivedPackets->emplace_back(&source->address, this, source->length,
+                source->payload);
+        count++;
+        incomingPackets.erase(incomingPackets.begin());
+    }
 }
 
 /**
- * Construct an object to hold an incoming packet.
+ * Construct a PacketBuf.
  *
  * \param sender
  *      String that will be converted into an Address for the sender.
@@ -168,37 +165,21 @@ MockDriver::receivePacket(MockReceived *received)
  *      Null-terminated string that will be concatenated with the header
  *      to form the packet.  NULL means no body.
  */
-MockDriver::MockReceived::MockReceived(const char* sender, const void* header,
-        uint32_t headerLength, const char* body)
-    : locator(sender)
-    , senderAddress(&locator)
-    , mockDriver(NULL)
+MockDriver::PacketBuf::PacketBuf(const char* sender, const void* header,
+                uint32_t headerLength, const char* body)
+    : address(sender)
+    , length()
 {
-    this->sender = &senderAddress;
     uint32_t bodyLength = 0;
     if (body != NULL) {
         bodyLength = downCast<uint32_t>(strlen(body));
     }
-    payload = new char[headerLength + bodyLength];
+    assert(headerLength + bodyLength <= MAX_PAYLOAD_SIZE);
     memcpy(payload, header, headerLength);
     if (body != NULL) {
         memcpy(payload + headerLength, body, bodyLength);
     }
-    len = headerLength + bodyLength;
-}
-
-// See Driver::Received::steal.
-char*
-MockDriver::MockReceived::steal(uint32_t *length)
-{
-    mockDriver->stealCount++;
-    *length = len;
-    return payload;
-}
-
-MockDriver::MockReceived::~MockReceived()
-{
-    delete[] payload;
+    length = headerLength + bodyLength;
 }
 
 }  // namespace RAMCloud
