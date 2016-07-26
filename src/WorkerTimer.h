@@ -122,6 +122,14 @@ class WorkerTimer {
         /// workerThread waits on this when it has nothing to do.
         std::condition_variable waitingForWork;
 
+        /// Number of instances of checkTimer currently running for
+        /// this Manager.
+        int checkTimerCount;
+
+        /// Signaled whenever checkTimers completes for this Manager;
+        /// used by WorkerTimer::sync.
+        std::condition_variable checkTimersDone;
+
         /// Encapsulates a WorkerTimer pointer so that it can be kept in sorted
         /// order based on their triggerTime.
         struct TimerReference {

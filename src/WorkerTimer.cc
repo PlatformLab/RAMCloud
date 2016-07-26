@@ -177,6 +177,9 @@ WorkerTimer::sync()
     for (ManagerList::iterator it(managers.begin());
             it != managers.end(); it++) {
         Manager& manager = *it;
+        while (manager.checkTimerCount > 0) {
+            manager.checkTimersDone.wait(lock);
+        }
         manager.checkTimers(lock);
     }
 }
@@ -198,6 +201,8 @@ WorkerTimer::Manager::Manager(Dispatch* dispatch, Lock& lock)
     , earliestTriggerTime(~0ul)
     , workerThread()
     , waitingForWork()
+    , checkTimerCount(0)
+    , checkTimersDone()
     , activeTimers()
     , runnableTimers()
     , logProtectorActivity()
@@ -290,6 +295,7 @@ WorkerTimer::findManager(Dispatch* dispatch, Lock& lock)
  */
 void WorkerTimer::Manager::checkTimers(Lock& lock)
 {
+    checkTimerCount++;
     while (1) {
         WorkerTimer* ready = NULL;
         uint64_t now = Cycles::rdtsc();
@@ -339,6 +345,8 @@ void WorkerTimer::Manager::checkTimers(Lock& lock)
         ready->handlerRunning = false;
         ready->handlerFinished.notify_one();
     }
+    checkTimerCount--;
+    checkTimersDone.notify_all();
 }
 
 /**
