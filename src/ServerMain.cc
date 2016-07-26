@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -344,15 +344,18 @@ main(int argc, char *argv[])
         LOG(ERROR, "Fatal error in server at %s: %s",
             context.transportManager->getListeningLocatorsString().c_str(),
             e.what());
+        Logger::get().sync();
         return 1;
     } catch (const std::exception& e) {
         LOG(ERROR, "Fatal error in server at %s: %s",
             context.transportManager->getListeningLocatorsString().c_str(),
             e.what());
+        Logger::get().sync();
         return 1;
     } catch (...) {
         LOG(ERROR, "Unknown fatal error in server at %s",
             context.transportManager->getListeningLocatorsString().c_str());
+        Logger::get().sync();
         return 1;
     }
 }

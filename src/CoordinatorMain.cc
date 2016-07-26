@@ -153,10 +153,12 @@ main(int argc, char *argv[])
     } catch (const std::exception& e) {
         LOG(ERROR, "Fatal error in coordinator at %s: %s",
             localLocator.c_str(), e.what());
+        Logger::get().sync();
         return 1;
     } catch (...) {
         LOG(ERROR, "Unknown fatal error in coordinator at %s",
             localLocator.c_str());
+        Logger::get().sync();
         return 1;
     }
 }

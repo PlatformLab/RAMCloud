@@ -882,6 +882,7 @@ criticalErrorHandler(int signal, siginfo_t* info, void* ucontext)
     LOG(ERROR, "Backtrace:");
     for (int i = 1; i < frames; ++i)
         LOG(ERROR, "%s\n", symbols[i]);
+    Logger::get().sync();
 
     free(symbols);
 
