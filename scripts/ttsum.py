@@ -82,6 +82,8 @@ def scan(f, startingEvent):
         thisEventTime = float(match.group(1))
         thisEventInterval = float(match.group(2))
         thisEvent = match.group(3)
+        if options.noNumbers:
+            thisEvent = re.sub('[0-9]+', '?', thisEvent)
         if (thisEventTime < lastTime):
             print('Time went backwards at the following line:\n%s' % (line))
         lastTime = thisEventTime
@@ -134,6 +136,11 @@ parser.add_option('-a', '--alt', action='store_true', default=False,
 parser.add_option('-f', '--from', type='string', dest='startEvent',
         help='measure times for other events relative to FROM; FROM contains a '
         'substring of an event')
+parser.add_option('-n', '--numbers', action='store_false', default=True,
+        dest='noNumbers',
+        help='treat numbers in event names as significant; if this flag '
+        'is not specified, all numbers are replaced with ? (events will be '
+        'considered the same if they differ only in numeric fields)')
 
 (options, files) = parser.parse_args()
 if len(files) == 0:
