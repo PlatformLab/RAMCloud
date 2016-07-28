@@ -131,7 +131,7 @@ class Syscall {
     }
     VIRTUAL_FOR_TESTING
     ssize_t recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
-            unsigned int flags, const struct timespec *timeout) {
+            unsigned int flags, struct timespec *timeout) {
         return ::recvmmsg(sockfd, msgvec, vlen, flags, timeout);
     }
     VIRTUAL_FOR_TESTING

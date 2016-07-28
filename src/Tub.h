@@ -115,12 +115,12 @@ class Tub {
         if (this != &other) {
             if (other.occupied) {
                 if (occupied) {
-#if __GNUC__ && __GNUC__ >= 4 && __GNUC_MINOR__ >= 7
+#if __GNUC__ && ((__GNUC__ >= 4 && __GNUC_MINOR__ >= 7) || (__GNUC__ > 4))
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warray-bounds"
 #endif
                     *object = *other.object; // use ElementType's assignment
-#if __GNUC__ && __GNUC__ >= 4 && __GNUC_MINOR__ >= 7
+#if __GNUC__ && ((__GNUC__ >= 4 && __GNUC_MINOR__ >= 7) || (__GNUC__ > 4))
 #pragma GCC diagnostic pop
 #endif
                 } else {

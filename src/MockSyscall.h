@@ -244,7 +244,7 @@ class MockSyscall : public Syscall {
 
     int recvmmsgErrno;
     ssize_t recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
-                     unsigned int flags, const struct timespec *timeout) {
+                     unsigned int flags, struct timespec *timeout) {
         if (recvmmsgErrno == 0) {
             return ::recvmmsg(sockfd, msgvec, vlen, flags, timeout);
         }
