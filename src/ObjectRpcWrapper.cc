@@ -17,7 +17,6 @@
 #include "Logger.h"
 #include "ObjectFinder.h"
 #include "ObjectRpcWrapper.h"
-#include "RamCloud.h"
 
 namespace RAMCloud {
 

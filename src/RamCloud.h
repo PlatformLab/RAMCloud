@@ -16,9 +16,9 @@
 #ifndef RAMCLOUD_RAMCLOUD_H
 #define RAMCLOUD_RAMCLOUD_H
 
+#include "CoordinatorRpcWrapper.h"
 #include "IndexRpcWrapper.h"
 #include "LinearizableObjectRpcWrapper.h"
-#include "MasterClient.h"
 #include "ObjectBuffer.h"
 #include "ObjectRpcWrapper.h"
 #include "ServerMetrics.h"

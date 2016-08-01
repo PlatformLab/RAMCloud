@@ -14,17 +14,15 @@
  */
 
 #include "IndexRpcWrapper.h"
-#include "Logger.h"
 #include "MasterService.h"
-#include "ShortMacros.h"
 
 namespace RAMCloud {
 
 /**
  * Constructor for IndexRpcWrapper objects.
  *
- * \param ramcloud
- *      The RAMCloud object that governs this RPC.
+ * \param context
+ *      Overall information about RAMCloud cluster.
  * \param tableId
  *      The table containing the desired object.
  * \param indexId
@@ -49,12 +47,12 @@ namespace RAMCloud {
  *      of this buffer will be cleared automatically by the transport.
  */
 IndexRpcWrapper::IndexRpcWrapper(
-            RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
+            Context* context, uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
             uint32_t responseHeaderLength, Buffer* responseBuffer)
     : RpcWrapper(responseHeaderLength, responseBuffer)
-    , context(ramcloud->clientContext)
-    , objectFinder(ramcloud->clientContext->objectFinder)
+    , context(context)
+    , objectFinder(context->objectFinder)
     , tableId(tableId)
     , indexId(indexId)
     , key(key)

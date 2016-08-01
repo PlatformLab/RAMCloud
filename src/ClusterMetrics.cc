@@ -16,6 +16,7 @@
 #include "AbstractServerList.h"
 #include "Buffer.h"
 #include "ClusterMetrics.h"
+#include "CoordinatorClient.h"
 #include "Logger.h"
 #include "ShortMacros.h"
 

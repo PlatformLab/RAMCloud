@@ -17,9 +17,9 @@
 #include "Context.h"
 #include "CoordinatorServerList.h"
 #include "CoordinatorSession.h"
+#include "ClientException.h"
 #include "ServerIdRpcWrapper.h"
 #include "Cycles.h"
-#include "RamCloud.h"
 
 namespace RAMCloud {
 

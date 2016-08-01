@@ -13,14 +13,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "RamCloud.h"
 #include "RpcWrapper.h"
 
 #ifndef RAMCLOUD_OBJECTRPCWRAPPER_H
 #define RAMCLOUD_OBJECTRPCWRAPPER_H
 
 namespace RAMCloud {
-class RamCloud;
 
 /**
  * ObjectRpcWrapper manages the client side of RPCs that must be sent to the

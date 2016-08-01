@@ -17,7 +17,6 @@
 #include "Logger.h"
 #include "LinearizableObjectRpcWrapper.h"
 #include "RamCloud.h"
-#include "RpcTracker.h"
 
 namespace RAMCloud {
 

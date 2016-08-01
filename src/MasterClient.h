@@ -19,6 +19,7 @@
 #include "Buffer.h"
 #include "CoordinatorClient.h"
 #include "IndexRpcWrapper.h"
+#include "ObjectRpcWrapper.h"
 #include "Key.h"
 #include "LogMetadata.h"
 #include "ServerId.h"

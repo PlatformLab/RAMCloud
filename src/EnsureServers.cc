@@ -20,6 +20,7 @@
 
 #include "AbstractServerList.h"
 #include "Cycles.h"
+#include "CoordinatorClient.h"
 #include "ShortMacros.h"
 #include "OptionParser.h"
 #include "RamCloud.h"

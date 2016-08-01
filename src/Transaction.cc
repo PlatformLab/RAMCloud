@@ -15,6 +15,7 @@
 
 #include "ClientTransactionManager.h"
 #include "ClientTransactionTask.h"
+#include "ClientException.h"
 #include "Transaction.h"
 
 namespace RAMCloud {

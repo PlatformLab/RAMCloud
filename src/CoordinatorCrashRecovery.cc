@@ -26,6 +26,7 @@
 namespace po = boost::program_options;
 
 #include "RamCloud.h"
+#include "CoordinatorClient.h"
 #include "CycleCounter.h"
 #include "Cycles.h"
 #include "ServerId.h"

@@ -13,7 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "RamCloud.h"
 #include "RpcWrapper.h"
 
 #ifndef RAMCLOUD_INDEXRPCWRAPPER_H
@@ -22,9 +21,7 @@
 namespace RAMCloud {
 
 // Forward declarations
-class Context;
 class ObjectFinder;
-class RamCloud;
 class MasterService;
 
 /**
@@ -43,7 +40,7 @@ class MasterService;
 class IndexRpcWrapper : public RpcWrapper {
   public:
     explicit IndexRpcWrapper(
-            RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
+            Context* context, uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
             uint32_t responseHeaderLength, Buffer* responseBuffer = NULL);
 
