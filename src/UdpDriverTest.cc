@@ -60,10 +60,10 @@ class UdpDriverTest : public ::testing::Test {
     // dispatcher's receivePackets method; gives up if a long time
     // goes by with no data. Returns the contents of all the incoming
     // packets, separated by commas.
-    string receivePackets(UdpDriver* driver) {
+    string receivePackets(UdpDriver* driver, int maxPackets = 5) {
         std::vector<Driver::Received> receivedPackets;
         for (int i = 0; i < 1000; i++) {
-            driver->receivePackets(5, &receivedPackets);
+            driver->receivePackets(maxPackets, &receivedPackets);
             if (receivedPackets.size() > 0) {
                 break;
             }
@@ -128,7 +128,6 @@ TEST_F(UdpDriverTest, constructor_gbsOption) {
     EXPECT_EQ(2800u, driver2.maxTransmitQueueSize);
     Cycles::mockCyclesPerSec = 0;
 }
-
 TEST_F(UdpDriverTest, constructor_errorInSocketCall) {
     sys->socketErrno = EPERM;
     try {
@@ -139,7 +138,6 @@ TEST_F(UdpDriverTest, constructor_errorInSocketCall) {
     EXPECT_EQ("UdpDriver couldn't create socket: "
                 "Operation not permitted", exceptionMessage);
 }
-
 TEST_F(UdpDriverTest, constructor_socketInUse) {
     try {
         UdpDriver server2(&context, &serverLocator);
@@ -150,6 +148,28 @@ TEST_F(UdpDriverTest, constructor_socketInUse) {
             "'udp: host=localhost, port=8100': Address already in use",
             exceptionMessage);
 }
+TEST_F(UdpDriverTest, constructor_errorInServerSocketBind) {
+    sys->bindErrno = EPERM;
+    ServiceLocator serverLocator("basic+udp:host=localhost,port=8101");
+    try {
+        UdpDriver server2(&context, &serverLocator);
+    } catch (DriverException& e) {
+        exceptionMessage = e.message;
+    }
+    EXPECT_EQ("UdpDriver couldn't bind to locator "
+            "'basic+udp:host=localhost,port=8101': Operation not permitted",
+            exceptionMessage);
+}
+TEST_F(UdpDriverTest, constructor_errorInClientSocketBind) {
+    sys->bindErrno = EPERM;
+    try {
+        UdpDriver client2(&context, NULL);
+    } catch (DriverException& e) {
+        exceptionMessage = e.message;
+    }
+    EXPECT_EQ("UdpDriver couldn't bind client socket: "
+            "Operation not permitted", exceptionMessage);
+}
 
 TEST_F(UdpDriverTest, destructor_closeSocket) {
     // If the socket isn't closed, we won't be able to create another
@@ -157,7 +177,9 @@ TEST_F(UdpDriverTest, destructor_closeSocket) {
     Tub<UdpDriver> driver2;
     ServiceLocator locator("udp: host=localhost, port=8101");
     driver2.construct(&context, &locator);
+    TestLog::reset();
     driver2.destroy();
+    EXPECT_EQ("readerThreadMain: reader thread exited", TestLog::get());
     try {
         driver2.construct(&context, &locator);
     } catch (DriverException& e) {
@@ -191,35 +213,47 @@ TEST_F(UdpDriverTest, getTransmitQueueSpace) {
     Cycles::mockTscValue = 0;
 }
 
-TEST_F(UdpDriverTest, receivePackets_errorInRecvmmsg) {
-    sys->recvmmsgErrno = EPERM;
-    std::vector<Driver::Received> received;
-    server.receivePackets(1, &received);
-    EXPECT_EQ("receivePackets: UdpDriver error receiving from socket: "
-            "Operation not permitted", TestLog::get());
-    EXPECT_EQ(0lu, received.size());
-}
-
-TEST_F(UdpDriverTest, receivePackets_noPacketAvailable) {
+TEST_F(UdpDriverTest, receivePackets_noPacketsAvailable) {
     std::vector<Driver::Received> received;
     server.receivePackets(10, &received);
     EXPECT_EQ(0lu, received.size());
 }
+TEST_F(UdpDriverTest, receivePackets_receivePartialBatches) {
+    // First, stall the reader thread, so we can queue up a bunch
+    // of packets.
+    server.packetBatches[1].packetsAvailable = 2;
+    client.sendPacket(&serverAddress, "packet1", 7, NULL);
+    EXPECT_EQ("packet1", receivePackets(&server));
 
-TEST_F(UdpDriverTest, receivePackets_multiplePackets) {
-    sendMessage(&client, &serverAddress, "header:", "first");
-    sendMessage(&client, &serverAddress, "header:", "second");
-    sendMessage(&client, &serverAddress, "header:", "third");
-    EXPECT_EQ("header:first, header:second, header:third",
-            receivePackets(&server));
+    // Queue up a bunch of packets.
+    client.sendPacket(&serverAddress, "packet2", 7, NULL);
+    client.sendPacket(&serverAddress, "packet3", 7, NULL);
+    client.sendPacket(&serverAddress, "packet4", 7, NULL);
+    client.sendPacket(&serverAddress, "packet5", 7, NULL);
+    client.sendPacket(&serverAddress, "packet6", 7, NULL);
+
+    // Receive packets in 3 separate calls to receivePackets.
+    server.packetBatches[1].packetsAvailable = 0;
+    EXPECT_EQ("packet2, packet3, packet4", receivePackets(&server, 3));
+    EXPECT_EQ(5, server.packetBatches[1].packetsAvailable);
+    EXPECT_EQ(3, server.packetBatches[1].packetsRemoved);
+    EXPECT_EQ(1, server.currentBatch);
+    EXPECT_EQ("packet5", receivePackets(&server, 1));
+    EXPECT_EQ(5, server.packetBatches[1].packetsAvailable);
+    EXPECT_EQ(4, server.packetBatches[1].packetsRemoved);
+    EXPECT_EQ(1, server.currentBatch);
+    EXPECT_EQ("packet6", receivePackets(&server));
+    EXPECT_EQ(0, server.packetBatches[1].packetsAvailable);
+    EXPECT_EQ(0, server.packetBatches[1].packetsRemoved);
+    EXPECT_EQ(0, server.currentBatch);
 }
 
 TEST_F(UdpDriverTest, sendPacket_alreadyClosed) {
-    sys->sendmsgErrno = EPERM;
     Buffer message;
     message.appendExternal("xyzzy", 5);
     Buffer::Iterator iterator(&message);
     client.close();
+    TestLog::reset();
     client.sendPacket(&serverAddress, "header:", 7, &iterator);
     EXPECT_EQ("", TestLog::get());
 }
@@ -258,6 +292,80 @@ TEST_F(UdpDriverTest, sendPacket_errorInSend) {
     client.sendPacket(&serverAddress, "header:", 7, &iterator);
     EXPECT_EQ("sendPacket: UdpDriver error sending to socket: "
             "Operation not permitted", TestLog::get());
+}
+
+TEST_F(UdpDriverTest, stopReaderThread_basics) {
+    client.stopReaderThread();
+    TestUtil::waitForLog();
+    EXPECT_EQ("readerThreadMain: reader thread exited", TestLog::get());
+}
+TEST_F(UdpDriverTest, stopReaderThread_errorInGetsockname) {
+    sys->getsocknameErrno = EPERM;
+    client.stopReaderThread();
+    TestUtil::waitForLog();
+    EXPECT_EQ("stopReaderThread: getsockname returned error: "
+            "Operation not permitted", TestLog::get());
+    TestLog::reset();
+
+    // Second time should work fine.
+    client.stopReaderThread();
+    TestUtil::waitForLog();
+    EXPECT_EQ("readerThreadMain: reader thread exited", TestLog::get());
+}
+
+TEST_F(UdpDriverTest, readerThreadMain_waitForDispatchThread) {
+    server.packetBatches[1].packetsAvailable = 2;
+    client.sendPacket(&serverAddress, "packet1", 7, NULL);
+    EXPECT_EQ("packet1", receivePackets(&server));
+
+    // The server should now be stuck waiting for batch 1 to become
+    // available, so it shouldn't receive the following packet.
+    client.sendPacket(&serverAddress, "packet2", 7, NULL);
+    usleep(1000);
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(), "not keeping up"));
+    EXPECT_EQ(2, server.packetBatches[1].packetsAvailable);
+    EXPECT_TRUE(server.packetBatches[1].buffers[0] == NULL);
+    EXPECT_TRUE(server.packetBatches[1].buffers[1] == NULL);
+
+    // Release batch 1 and make sure that the second packet now arrives.
+    server.packetBatches[1].packetsAvailable = 0;
+    EXPECT_EQ("packet2", receivePackets(&server));
+}
+TEST_F(UdpDriverTest, readerThreadMain_exitWhileWaitingForDispatchThread) {
+    server.packetBatches[1].packetsAvailable = 2;
+    client.sendPacket(&serverAddress, "packet1", 7, NULL);
+    EXPECT_EQ("packet1", receivePackets(&server));
+
+    // The server should now be stuck waiting for batch 1 to become
+    // available, so it shouldn't receive the following packet.
+    usleep(1000);
+    EXPECT_TRUE(server.packetBatches[1].buffers[0] == NULL);
+
+    // Tell the thread to exit, and make sure it does exit.
+    server.readerThreadExit = true;
+    TestUtil::waitForLog("reader thread exited");
+    EXPECT_TRUE(TestUtil::contains(TestLog::get(), "reader thread exited"));
+}
+TEST_F(UdpDriverTest, readerThreadMain_initializeMsgHdrs) {
+    client.sendPacket(&serverAddress, "packet1", 7, NULL);
+    EXPECT_EQ("packet1", receivePackets(&server));
+    EXPECT_EQ(19lu, server.packetBufPool.outstandingObjects);
+    EXPECT_TRUE(server.packetBatches[0].buffers[0] == NULL);
+    EXPECT_FALSE(server.packetBatches[0].buffers[1] == NULL);
+    EXPECT_FALSE(server.packetBatches[1].buffers[0] == NULL);
+}
+TEST_F(UdpDriverTest, readerThreadMain_errorInRecvmmsg) {
+    sys->recvmmsgErrno = EPERM;
+    client.sendPacket(&serverAddress, "packet1", 7, NULL);
+    EXPECT_EQ("packet1", receivePackets(&server));
+    TestUtil::waitForLog();
+    EXPECT_EQ("readerThreadMain: UdpDriver error receiving from socket: "
+            "Operation not permitted", TestLog::get());
+
+    // Make sure subsequent packets can still be received, even after
+    // the error.
+    client.sendPacket(&serverAddress, "packet2", 7, NULL);
+    EXPECT_EQ("packet2", receivePackets(&server));
 }
 
 }  // namespace RAMCloud

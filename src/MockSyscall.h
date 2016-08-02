@@ -176,6 +176,7 @@ class MockSyscall : public Syscall {
             return ::getsockname(sockfd, addr, addrlen);
         }
         errno = getsocknameErrno;
+        getsocknameErrno = 0;
         return -1;
     }
 
@@ -249,6 +250,7 @@ class MockSyscall : public Syscall {
             return ::recvmmsg(sockfd, msgvec, vlen, flags, timeout);
         }
         errno = recvmmsgErrno;
+        recvmmsgErrno = 0;
         return -1;
 
     }

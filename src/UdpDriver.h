@@ -24,6 +24,7 @@
 #include "IpAddress.h"
 #include "ObjectPool.h"
 #include "QueueEstimator.h"
+#include "SpinLock.h"
 #include "Syscall.h"
 #include "Tub.h"
 
@@ -57,8 +58,11 @@ class UdpDriver : public Driver {
         return new IpAddress(serviceLocator);
     }
 
+  PROTECTED:
+    static void readerThreadMain(UdpDriver* driver);
+    void stopReaderThread();
     /**
-     * Structure to hold an incoming packet.
+     * Holds an incoming packet plus the address from which it came.
      */
     struct PacketBuf {
         PacketBuf() : ipAddress(), iovec()
@@ -77,6 +81,54 @@ class UdpDriver : public Driver {
         char payload[MAX_PAYLOAD_SIZE];
     };
 
+    /**
+     * The structure is used by a background thread to receive a group of
+     * incoming packets from the kernel; it is then used to pass those
+     * packets from the background thread to UdpDriver:: receivePackets.
+     */
+    struct PacketBatch {
+        /// Maximum number of packets that this structure can hold at
+        /// once; this is also the maximum number of packets we can receive
+        /// from the kernel in a single kernel call.
+        static const int MAX_PACKETS = 10;
+
+        /// Number of packets that have were received from the kernel.
+        /// 0 means all of the packets in the last batch have been returned by
+        /// receivePackets; it's now up to the background thread to receive
+        /// another batch of packets from the kernel. This variable is used
+        /// for synchronization between the dispatch thread and the background
+        /// thread, so Fences typically need to be placed after each read
+        /// and write.
+        Atomic<int> packetsAvailable;
+
+        /// Number of packets that have been returned by receivePackets.
+        /// Not used by the background thread.
+        int packetsRemoved;
+
+        /// Holds the arguments and results from the most recent call to
+        /// recvmmsg; see the man page for that kernel call for details.
+        struct mmsghdr messageHeaders[MAX_PACKETS];
+
+        /// Entries in this array correspond to those in messageHeaders; they
+        /// hold the buffers that will be returned to transports.  NULL means
+        /// no PacketBuf has been allocated in that slot; it also means that
+        /// the corresponding slot in messageHeaders is uninitialized. If there
+        /// are NULL entries, they are always adjacent and occupy the first
+        /// slots in the array.
+        PacketBuf* buffers[MAX_PACKETS];
+
+        PacketBatch()
+            : packetsAvailable(0)
+            , packetsRemoved(0)
+            , messageHeaders()
+            , buffers()
+        {
+            for (int i = 0; i < MAX_PACKETS; i++) {
+                buffers[i] = NULL;
+            }
+        }
+    };
+
     /// Shared RAMCloud information.
     Context* context;
 
@@ -84,30 +136,21 @@ class UdpDriver : public Driver {
     /// -1 means socket was closed because of error.
     int socketFd;
 
-    /// Maximum number of incoming packets we are prepared to receive in
-    /// a single kernel call.
-    static const int MAX_PACKETS_AT_ONCE = 10;
+    /// Keeping two of these structures allows the background thread to
+    /// read the next batch of packets while the dispatch thread is processing
+    /// the previous batch of packets.
+    PacketBatch packetBatches[2];
 
-    /// Holds the arguments and results from a call to recvmmsg; see the
-    /// man page for that kernel call for details.
-    struct mmsghdr messageHeaders[MAX_PACKETS_AT_ONCE];
-
-    /// Entries in this array correspond to those in messageHeaders; they
-    /// hold the buffers that will be returned to transports.  NULL means
-    /// no PacketBuf has been allocated in that slot; it also means that
-    /// the corresponding slot in messageHeaders is uninitialized. If there
-    /// are NULL entries, they are always adjacent and occupy the first
-    /// slots in the array.
-    PacketBuf* buffers[MAX_PACKETS_AT_ONCE];
+    /// 0 or 1: indicates which element of packetGroups will be processed
+    /// next by the dispatch thread.
+    int currentBatch;
 
     /// Holds packet buffers that are no longer in use, for use in future
     /// requests; saves the overhead of calling malloc/free for each request.
     ObjectPool<PacketBuf> packetBufPool;
 
-    /// Tracks number of outstanding allocated payloads, including those
-    /// currently reference in buffers as well as those that have been
-    /// returned to transports.  For detecting leaks.
-    int packetBufsUtilized;
+    /// Used to synchronize accesses to packetBufPool.
+    SpinLock mutex;
 
     /// Counts the number of packet buffers freed during destructors;
     /// used primarily for testing.
@@ -128,6 +171,14 @@ class UdpDriver : public Driver {
     /// Upper limit on how many bytes should be queued for transmission
     /// at any given time.
     uint32_t maxTransmitQueueSize;
+
+    /// The following thread runs in the background to wait for kernel calls
+    /// that receive packets.
+    Tub<std::thread> readerThread;
+
+    /// If the reader thread ever sees a true value in this variable, it
+    /// will exit immediately.
+    bool readerThreadExit;
 
     DISALLOW_COPY_AND_ASSIGN(UdpDriver);
 };

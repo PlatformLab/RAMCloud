@@ -21,6 +21,7 @@
 
 #include "Common.h"
 #include "Cycles.h"
+#include "Fence.h"
 #include "ShortMacros.h"
 #include "UdpDriver.h"
 #include "ServiceLocator.h"
@@ -57,14 +58,16 @@ UdpDriver::UdpDriver(Context* context,
         const ServiceLocator* localServiceLocator)
     : context(context)
     , socketFd(-1)
-    , messageHeaders()
-    , buffers()
+    , packetBatches()
+    , currentBatch(0)
     , packetBufPool()
-    , packetBufsUtilized(0)
+    , mutex("UdpDriver")
     , locatorString()
     , bandwidthGbps(10)                   // Default bandwidth = 10 gbs
     , queueEstimator(0)
     , maxTransmitQueueSize(0)
+    , readerThread()
+    , readerThreadExit(false)
 {
     if (localServiceLocator != NULL) {
         locatorString = localServiceLocator->getOriginalString();
@@ -84,10 +87,6 @@ UdpDriver::UdpDriver(Context* context,
     LOG(NOTICE, "UdpDriver bandwidth: %d Gbits/sec, maxTransmitQueueSize: "
             "%u bytes", bandwidthGbps, maxTransmitQueueSize);
 
-    for (int i = 0; i < MAX_PACKETS_AT_ONCE; i++) {
-        buffers[i] = NULL;
-    }
-
     int fd = sys->socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
         throw DriverException(HERE, "UdpDriver couldn't create socket",
@@ -104,9 +103,25 @@ UdpDriver::UdpDriver(Context* context,
                     format("UdpDriver couldn't bind to locator '%s'",
                     localServiceLocator->getOriginalString().c_str()), e);
         }
+    } else {
+        struct sockaddr_in address;
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_ANY);
+        address.sin_port = HTONS(0);
+        int r = sys->bind(fd, reinterpret_cast<struct sockaddr*>(&address),
+                sizeof(address));
+        if (r == -1) {
+            int e = errno;
+            sys->close(fd);
+            throw DriverException(HERE,
+                    "UdpDriver couldn't bind client socket", e);
+        }
+        LOG(NOTICE, "UdpDriver using port %d", NTOHS(address.sin_port));
     }
 
     socketFd = fd;
+
+    readerThread.construct(readerThreadMain, this);
 }
 
 /**
@@ -115,24 +130,28 @@ UdpDriver::UdpDriver(Context* context,
  */
 UdpDriver::~UdpDriver()
 {
-    for (int i = 0; i < MAX_PACKETS_AT_ONCE; i++) {
-        if (buffers[i] != NULL) {
-            release(buffers[i]->payload);
-            buffers[i] = NULL;
+    close();
+    for (int batch = 0; batch < 2; batch++) {
+        for (int i = 0; i < PacketBatch::MAX_PACKETS; i++) {
+            if (packetBatches[batch].buffers[i] != NULL) {
+                release(packetBatches[batch].buffers[i]->payload);
+                packetBatches[batch].buffers[i] = NULL;
+            }
         }
     }
-    if (packetBufsUtilized != 0)
-        LOG(ERROR, "UdpDriver deleted with %d packets still in use",
-            packetBufsUtilized);
-    close();
 }
 
 /**
- * Shuts down this driver: closes the socket, turns off event handlers, etc.
+ * Shuts down this driver: closes the socket, stops the reader thread, etc.
  */
 void
 UdpDriver::close()
 {
+    if (readerThread) {
+        stopReaderThread();
+        readerThread->join();
+        readerThread.destroy();
+    }
     if (socketFd != -1) {
         sys->close(socketFd);
         socketFd = -1;
@@ -158,45 +177,33 @@ void
 UdpDriver::receivePackets(int maxPackets,
             std::vector<Received>* receivedPackets)
 {
-    if (maxPackets > MAX_PACKETS_AT_ONCE) {
-        maxPackets = MAX_PACKETS_AT_ONCE;
-    }
-
-    // Initialize the arguments that will be passed to the kernel call.
-    // Typically, some number of the initial buffers will be invalid
-    // because packets were received in them during the last call to
-    // this method.
-    for (int i = 0; i < MAX_PACKETS_AT_ONCE; i++) {
-        if (buffers[i] != NULL) {
-            break;
-        }
-        struct mmsghdr* header = &messageHeaders[i];
-        PacketBuf* buffer = packetBufPool.construct();
-        packetBufsUtilized++;
-        buffers[i] = buffer;
-        header->msg_hdr.msg_name = &buffer->ipAddress.address;
-        header->msg_hdr.msg_namelen = sizeof(buffer->ipAddress.address);
-        header->msg_hdr.msg_iov = &buffer->iovec;
-        header->msg_hdr.msg_iovlen = 1;
-        header->msg_hdr.msg_control = NULL;
-        header->msg_hdr.msg_controllen = 0;
-        header->msg_hdr.msg_flags = 0;
-    }
-    ssize_t numPackets = sys->recvmmsg(socketFd, messageHeaders,
-            maxPackets, MSG_DONTWAIT, NULL);
-    if (numPackets <= 0) {
-        if ((numPackets < 0) && (errno != EAGAIN) && (errno != EWOULDBLOCK)) {
-            LOG(WARNING, "UdpDriver error receiving from socket: %s",
-                    strerror(errno));
-        }
+    PacketBatch* batch = &packetBatches[currentBatch];
+    int available = batch->packetsAvailable.load();
+    if (available == 0) {
         return;
     }
-    for (int i = 0; i < numPackets; i++) {
-        struct mmsghdr* header = &messageHeaders[i];
-        PacketBuf* buffer = buffers[i];
+    Fence::enter();
+    int limit = batch->packetsRemoved + maxPackets;
+    if (limit > available) {
+        limit = available;
+    }
+
+    for (int i = batch->packetsRemoved; i < limit; i++) {
+        struct mmsghdr* header = &batch->messageHeaders[i];
+        PacketBuf* buffer = batch->buffers[i];
         receivedPackets->emplace_back(&buffer->ipAddress, this,
                 header->msg_len, buffer->payload);
-        buffers[i] = NULL;
+        batch->buffers[i] = NULL;
+    }
+    if (limit < available) {
+        batch->packetsRemoved = limit;
+    } else {
+        // We're done with this batch; mark it as available to the reader
+        // thread and switch to the other batch.
+        batch->packetsRemoved = 0;
+        Fence::leave();
+        batch->packetsAvailable = 0;
+        currentBatch ^= 1;
     }
 }
 
@@ -204,14 +211,10 @@ UdpDriver::receivePackets(int maxPackets,
 void
 UdpDriver::release(char *payload)
 {
-    // Must sync with the dispatch thread, since this method could potentially
-    // be invoked in a worker.
-    Dispatch::Lock _(context->dispatch);
+    SpinLock::Guard guard(mutex);
 
     // Note: the payload is actually contained in a PacketBuf structure,
     // which we return to a pool for reuse later.
-    packetBufsUtilized--;
-    assert(packetBufsUtilized >= 0);
     packetBufPool.destroy(
         reinterpret_cast<PacketBuf*>(payload - OFFSET_OF(PacketBuf, payload)));
 }
@@ -262,11 +265,112 @@ UdpDriver::sendPacket(const Address *addr,
     assert(static_cast<size_t>(r) == totalLength);
 }
 
+/**
+ * Notify the reader thread that it should exit. Don't actually wait for the
+ * thread to return here, though.
+ */
+void
+UdpDriver::stopReaderThread()
+{
+    readerThreadExit = true;
+
+    struct sockaddr socketAddress;
+    socklen_t addressLength = sizeof(socketAddress);
+    if (sys->getsockname(socketFd, &socketAddress, &addressLength) < 0) {
+        RAMCLOUD_LOG(ERROR, "getsockname returned error: %s",
+                strerror(errno));
+        return;
+    }
+    IpAddress address(&socketAddress);
+    sendPacket(&address, "Please exit now", 15, NULL);
+}
+
 // See docs in Driver class.
 string
 UdpDriver::getServiceLocator()
 {
     return locatorString;
+}
+
+/**
+ * The main program for a thread that runs in the background, issuing
+ * blocking kernel calls to wait for incoming packets.
+ * \param driver
+ *      The UdpDriver on behalf of which this thread is operating.
+ */
+void
+UdpDriver::readerThreadMain(UdpDriver* driver)
+{
+    // Index within driver->packetBatches where we will read the next
+    // batch of packets.
+    int currentBatch = 0;
+
+    // Each iteration through the following loop makes one kernel call
+    // to receive packets.
+    while (1) {
+        PacketBatch* batch = &driver->packetBatches[currentBatch];
+
+        // Make sure that the dispatch thread isn't still working on the
+        // current batch.
+        while (batch->packetsAvailable != 0) {
+            // If we get here, it means that the dispatch thread hasn't
+            // yet handed off all the packets in a previous batch. This
+            // shouldn't happen very often, so, for simplicity, we just
+            // use a polling approach to wait (sleep, in case there's
+            // other useful work that can be done with this core).
+            RAMCLOUD_CLOG(NOTICE, "dispatch thread not keeping up with "
+                    "UdpDriver packet reader");
+            usleep(10);
+            if (driver->readerThreadExit) {
+                TEST_LOG("reader thread exited");
+                return;
+            }
+        }
+        Fence::enter();
+
+        // Initialize the arguments that will be passed to the kernel call.
+        // Typically, some number of the initial buffers will be invalid
+        // because packets were received if
+        {
+            SpinLock::Guard guard(driver->mutex);
+            for (int i = 0; i < PacketBatch::MAX_PACKETS; i++) {
+                if (batch->buffers[i] != NULL) {
+                    break;
+                }
+                struct mmsghdr* header = &batch->messageHeaders[i];
+                PacketBuf* buffer = driver->packetBufPool.construct();
+                batch->buffers[i] = buffer;
+                header->msg_hdr.msg_name = &buffer->ipAddress.address;
+                header->msg_hdr.msg_namelen = sizeof(buffer->ipAddress.address);
+                header->msg_hdr.msg_iov = &buffer->iovec;
+                header->msg_hdr.msg_iovlen = 1;
+                header->msg_hdr.msg_control = NULL;
+                header->msg_hdr.msg_controllen = 0;
+                header->msg_hdr.msg_flags = 0;
+            }
+        }
+
+        // Wait for one or more incoming packets
+        ssize_t numPackets = sys->recvmmsg(driver->socketFd,
+                batch->messageHeaders, PacketBatch::MAX_PACKETS,
+                MSG_WAITFORONE, NULL);
+        if (driver->readerThreadExit) {
+            TEST_LOG("reader thread exited");
+            return;
+        }
+        if (numPackets < 0) {
+            if ((errno != EAGAIN) && (errno != EWOULDBLOCK)) {
+                LOG(WARNING, "UdpDriver error receiving from socket: %s",
+                        strerror(errno));
+            }
+            continue;
+        }
+
+        // Hand this batch off to the dispatch thread.
+        Fence::leave();
+        batch->packetsAvailable = downCast<int>(numPackets);
+        currentBatch ^= 1;
+    }
 }
 
 } // namespace RAMCloud
