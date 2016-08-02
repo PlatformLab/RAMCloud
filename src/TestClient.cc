@@ -19,6 +19,7 @@
 // only the installed files.
 
 #include <stdio.h>
+#include "ClientException.h"
 #include "ramcloud/RamCloud.h"
 using namespace RAMCloud;
 

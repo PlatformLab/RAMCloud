@@ -16,6 +16,7 @@
 #include "TestUtil.h"       //Has to be first, compiler complains
 #include "ClientLeaseAgent.h"
 #include "MockCluster.h"
+#include "RamCloud.h"
 #include "TxRecoveryManager.h"
 
 namespace RAMCloud {

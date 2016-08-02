@@ -17,7 +17,7 @@
 #include "ClientLeaseAgent.h"
 #include "LeaseCommon.h"
 #include "MockCluster.h"
-
+#include "RamCloud.h"
 
 namespace RAMCloud {
 

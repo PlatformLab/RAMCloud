@@ -17,6 +17,7 @@
 #include "MockTransport.h"
 #include "ObjectFinder.h"
 #include "ObjectRpcWrapper.h"
+#include "RamCloud.h"
 #include "ShortMacros.h"
 
 namespace RAMCloud {

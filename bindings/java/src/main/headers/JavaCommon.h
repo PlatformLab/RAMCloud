@@ -21,6 +21,7 @@
 #ifndef RAMCLOUD_JAVACOMMON_H
 #define RAMCLOUD_JAVACOMMON_H
 
+#include <ClientException.h>
 #include "ByteBuffer.h"
 
 namespace RAMCloud {

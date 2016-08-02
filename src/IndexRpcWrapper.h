@@ -40,7 +40,7 @@ class MasterService;
 class IndexRpcWrapper : public RpcWrapper {
   public:
     explicit IndexRpcWrapper(
-            Context* context, uint64_t tableId, uint8_t indexId,
+            RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
             uint32_t responseHeaderLength, Buffer* responseBuffer = NULL);
 

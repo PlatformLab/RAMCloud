@@ -16,6 +16,7 @@
 #include "TestUtil.h"
 #include "LinearizableObjectRpcWrapper.h"
 #include "MockCluster.h"
+#include "RamCloud.h"
 #include "RpcTracker.h"
 #include "WireFormat.h"
 
