@@ -43,14 +43,9 @@ class Driver {
       protected:
         Address() {}
         Address(const Address& other) {}
+
       public:
         virtual ~Address() {}
-        /**
-         * Copies an address.
-         * \return
-         *      An address that the caller must free later.
-         */
-        virtual Address* clone() const = 0;
 
         /**
          * Return a string describing the contents of this Address (for
@@ -59,8 +54,38 @@ class Driver {
         virtual string toString() const = 0;
     };
 
-    typedef std::unique_ptr<Address> AddressPtr;
+  PROTECTED:
+    /**
+     * Holds an incoming packet plus the address from which it came.
+     *
+     * This struct template is only visible to the Driver sub-classes;
+     * Transport module interfaces with Received instead.
+     *
+     * PacketBuf and Received are separated because we would like to have
+     * fixed sized PacketBuf objects allocated from an object pool in a
+     * specific driver implementation, while Transport has to work with any
+     * driver whose packet size is not known statically.
+     *
+     * \tparam T
+     *      type of the sender's address
+     * \tparam N
+     *      the maximum size of the payload
+     */
+    template<typename T, uint32_t N>
+    struct PacketBuf {
+        PacketBuf()
+            : sender()
+            , payload()
+        {}
 
+        /// Address of sender (used to send reply).
+        Tub<T> sender;
+
+        /// Packet data (may not fill all of the allocated space).
+        char payload[N];
+    };
+
+  public:
     /**
      * Represents an incoming packet.
      *
@@ -75,17 +100,6 @@ class Driver {
      */
     class Received {
       public:
-        /**
-         * Construct a Received that contains no data and is not
-         * associated with a Driver.
-         */
-        Received()
-            : sender(NULL)
-            , driver(0)
-            , len(0)
-            , payload(0)
-        {}
-
         Received(const Address* sender, Driver *driver, uint32_t len,
                 char *payload)
             : sender(sender)
@@ -101,13 +115,11 @@ class Driver {
             , len(other.len)
             , payload(other.payload)
         {
-            other.sender = NULL;
-            other.driver = NULL;
             other.len = 0;
             other.payload = NULL;
         }
 
-       ~Received();
+        ~Received();
 
         void* getRange(uint32_t offset, uint32_t length);
 
@@ -136,10 +148,10 @@ class Driver {
         /// to by this pointer will be stable as long as the packet data
         /// is stable (i.e., if steal() is invoked, then the Address will
         /// live until release is invoked).
-        const Address* sender;
+        const Address* const sender;
 
         /// Driver the packet came from, where resources should be returned.
-        Driver *driver;
+        Driver* const driver;
 
         /// Length in bytes of received data.
         uint32_t len;
@@ -169,11 +181,6 @@ class Driver {
      */
     class PayloadChunk : public Buffer::Chunk {
       public:
-        static PayloadChunk* prependToBuffer(Buffer* buffer,
-                                             char* data,
-                                             uint32_t dataLength,
-                                             Driver* driver,
-                                             char* payload);
         static PayloadChunk* appendToBuffer(Buffer* buffer,
                                             char* data,
                                             uint32_t dataLength,
@@ -196,7 +203,7 @@ class Driver {
         DISALLOW_COPY_AND_ASSIGN(PayloadChunk);
     };
 
-    virtual ~Driver();
+    virtual ~Driver() {};
 
     /// \copydoc Transport::dumpStats
     virtual void dumpStats() {}
@@ -233,6 +240,8 @@ class Driver {
     }
 
     /**
+     * Return ownership of a packet buffer back to the driver.
+     *
      * Invoked by a transport when it has finished processing the data
      * in an incoming packet; used by drivers to recycle packet buffers
      * at a safe time.
@@ -242,7 +251,7 @@ class Driver {
      *      (i.e., the payload field from the Received object used to
      *      pass the packet to the transport when it was received).
      */
-    virtual void release(char *payload);
+    virtual void release(char *payload) = 0;
 
     template<typename T>
     void release(T* payload) {
@@ -344,8 +353,8 @@ class Driver {
      */
     template<typename T>
     void sendPacket(const Address* recipient,
-                            const T* header,
-                            Buffer::Iterator *payload)
+                    const T* header,
+                    Buffer::Iterator *payload)
     {
         sendPacket(recipient, header, sizeof(T), payload);
     }

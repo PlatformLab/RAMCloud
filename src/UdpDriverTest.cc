@@ -30,7 +30,7 @@ class UdpDriverTest : public ::testing::Test {
     MockSyscall* sys;
     Syscall *savedSyscall;
     TestLog::Enable logEnabler;
-    Driver::Address *sender;
+    Driver::Received *recv;
 
     UdpDriverTest()
         : context()
@@ -42,7 +42,7 @@ class UdpDriverTest : public ::testing::Test {
         , sys(NULL)
         , savedSyscall(NULL)
         , logEnabler()
-        , sender(NULL)
+        , recv(NULL)
     {
         savedSyscall = UdpDriver::sys;
         sys = new MockSyscall();
@@ -53,7 +53,7 @@ class UdpDriverTest : public ::testing::Test {
         delete sys;
         sys = NULL;
         UdpDriver::sys = savedSyscall;
-        delete sender;
+        delete recv;
     }
 
     // Used to wait for data to arrive on a driver by invoking the
@@ -73,7 +73,6 @@ class UdpDriverTest : public ::testing::Test {
             return "no packet arrived";
         }
         string result;
-        sender = receivedPackets[0].sender->clone();
         for (uint32_t i = 0; i < receivedPackets.size(); i++) {
             if (i != 0) {
                 result.append(", ");
@@ -81,6 +80,8 @@ class UdpDriverTest : public ::testing::Test {
             result.append(receivedPackets[i].payload,
                     receivedPackets[i].len);
         }
+        delete recv;
+        recv = new Driver::Received(std::move(receivedPackets[0]));
         return result;
     }
 
@@ -111,7 +112,7 @@ TEST_F(UdpDriverTest, basics) {
     message.reset();
     message.appendExternal("response", 8);
     Buffer::Iterator iterator2(&message);
-    server.sendPacket(sender, "h:", 2, &iterator2);
+    server.sendPacket(recv->sender, "h:", 2, &iterator2);
     EXPECT_EQ("h:response", receivePackets(&client));
 }
 
@@ -349,7 +350,7 @@ TEST_F(UdpDriverTest, readerThreadMain_exitWhileWaitingForDispatchThread) {
 TEST_F(UdpDriverTest, readerThreadMain_initializeMsgHdrs) {
     client.sendPacket(&serverAddress, "packet1", 7, NULL);
     EXPECT_EQ("packet1", receivePackets(&server));
-    EXPECT_EQ(19lu, server.packetBufPool.outstandingObjects);
+    EXPECT_EQ(20lu, server.packetBufPool.outstandingObjects);
     EXPECT_TRUE(server.packetBatches[0].buffers[0] == NULL);
     EXPECT_FALSE(server.packetBatches[0].buffers[1] == NULL);
     EXPECT_FALSE(server.packetBatches[1].buffers[0] == NULL);

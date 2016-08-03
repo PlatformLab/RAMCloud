@@ -69,16 +69,7 @@ class DpdkDriver : public Driver
                             Buffer::Iterator *payload);
     virtual string getServiceLocator();
 
-    /**
-     * Structure to hold an incoming packet.
-     */
-    struct PacketBuf
-    {
-        Tub<MacAddress> dpdkAddress;           /// Address of sender (used to
-                                               /// send reply).
-        char payload[MAX_PAYLOAD_SIZE];        /// Packet data.
-        PacketBuf() : dpdkAddress(), payload() { }
-    };
+    typedef Driver::PacketBuf<MacAddress, MAX_PAYLOAD_SIZE> PacketBuf;
 
     virtual Address* newAddress(const ServiceLocator* serviceLocator)
     {

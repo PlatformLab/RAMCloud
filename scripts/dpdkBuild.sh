@@ -18,8 +18,9 @@ fi
 
 # Configure the build process to produce a unified object archive file.
 sed -i s/CONFIG_RTE_BUILD_COMBINE_LIBS=n/CONFIG_RTE_BUILD_COMBINE_LIBS=y/ dpdk/config/common_linuxapp
+sed -i s/CONFIG_RTE_BUILD_SHARED_LIB=n/CONFIG_RTE_BUILD_SHARED_LIB=y/ dpdk/config/common_linuxapp
 
 # Build the libraries, assuming an x86_64 linux target, and a gcc-based
 # toolchain. Compile position-indepedent code, which will be linked by
 # RAMCloud code.
-cd dpdk && make config T=x86_64-native-linuxapp-gcc && CPU_CFLAGS="-fPIC" make
+cd dpdk && CPU_FLAGS="-fPIC" make install T=x86_64-native-linuxapp-gcc

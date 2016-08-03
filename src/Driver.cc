@@ -18,24 +18,6 @@
 namespace RAMCloud {
 uint32_t Driver::Received::stealCount = 0;
 
-/// Virtual destructor needed since this serves as an abstract base class.
-Driver::~Driver()
-{
-}
-
-/**
- * Return ownership of a packet buffer  back to the driver.
- *
- * \param payload
- *      The address of the first byte of data in a packet. The packet
- *      must previously have been passed to the transport via
- *      IncomingPacketHandler::handlePacket.
- */
-void
-Driver::release(char *payload)
-{
-}
-
 /**
  * If this Received is associated with a Driver and its payload
  * hasn't been stolen then release the payload data to the Driver
@@ -118,44 +100,11 @@ Driver::Received::steal(uint32_t *len)
  *      The address to release() to the Driver on destruction.
  */
 Driver::PayloadChunk*
-Driver::PayloadChunk::prependToBuffer(Buffer* buffer,
-                                             char* data,
-                                             uint32_t dataLength,
-                                             Driver* driver,
-                                             char* payload)
-{
-    PayloadChunk* chunk = buffer->allocAux<PayloadChunk>(data,
-            dataLength, driver, payload);
-    buffer->prependChunk(chunk);
-    return chunk;
-}
-
-/**
- * Prepend a subregion of payload data which releases the memory to the
- * Driver that allocated it when it's containing Buffer is destroyed.
- *
- * \param buffer
- *      The Buffer to prepend the data to.
- * \param data
- *      The address of the data to appear in the Buffer.  This must be
- *      inside the payload range specified later in the arguments.  The
- *      idea is that if there is some data at the front or end of the
- *      payload region that should be "stripped" before placing it in
- *      the Buffer that can be done here (i.e. Header).
- * \param dataLength
- *      The length in bytes of the region starting at data that is a
- *      subregion of the payload.
- * \param driver
- *      The Driver to release() this payload to on Buffer destruction.
- * \param payload
- *      The address to release() to the Driver on destruction.
- */
-Driver::PayloadChunk*
 Driver::PayloadChunk::appendToBuffer(Buffer* buffer,
-                                            char* data,
-                                            uint32_t dataLength,
-                                            Driver* driver,
-                                            char* payload)
+                                     char* data,
+                                     uint32_t dataLength,
+                                     Driver* driver,
+                                     char* payload)
 {
     PayloadChunk* chunk = buffer->allocAux<PayloadChunk>(data,
             dataLength, driver, payload);
@@ -190,9 +139,9 @@ Driver::PayloadChunk::~PayloadChunk()
  *      The address to release() to the Driver on destruction.
  */
 Driver::PayloadChunk::PayloadChunk(void* data,
-                                          uint32_t dataLength,
-                                          Driver* driver,
-                                          char* const payload)
+                                   uint32_t dataLength,
+                                   Driver* driver,
+                                   char* const payload)
     : Buffer::Chunk(data, dataLength)
     , driver(driver)
     , payload(payload)

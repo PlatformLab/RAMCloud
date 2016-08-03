@@ -47,7 +47,7 @@ model {
             baseName "ramcloud_java"
             binaries.all {
                 builtBy(javah)
-                cppCompiler.args "--std=c++0x", "-g"
+                cppCompiler.args "--std=c++11", "-g"
             }
             binaries.withType(StaticLibraryBinarySpec) {
                 buildable = false
@@ -62,7 +62,7 @@ model {
             baseName "ramcloud_java_test"
             binaries.all {
                 builtBy(javahTest)
-                cppCompiler.args "--std=c++0x"
+                cppCompiler.args "--std=c++11"
             }
             binaries.withType(StaticLibraryBinarySpec) {
                 buildable = false

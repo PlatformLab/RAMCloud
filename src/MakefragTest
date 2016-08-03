@@ -281,7 +281,7 @@ zooTest: $(OBJDIR)/zooTest
 # does *not* use the normal compilation flags, since we only want installed
 # info to be available.
 testInstall: install
-	g++ --std=c++0x -g -DNDEBUG -Iinstall/include -I. src/TestClient.cc \
+	g++ --std=c++11 -g -DNDEBUG -Iinstall/include -I. src/TestClient.cc \
             -o $(OBJDIR)/TestClient -Linstall/bin -lramcloud \
             -Wl,-rpath=install/bin $(TEST_INSTALL_FLAGS)
 

@@ -61,24 +61,15 @@ class UdpDriver : public Driver {
   PROTECTED:
     static void readerThreadMain(UdpDriver* driver);
     void stopReaderThread();
-    /**
-     * Holds an incoming packet plus the address from which it came.
-     */
-    struct PacketBuf {
-        PacketBuf() : ipAddress(), iovec()
-        {
-            iovec.iov_base = payload;
-            iovec.iov_len = MAX_PAYLOAD_SIZE;
-        }
 
-        /// Address of sender (used to  send reply).
-        IpAddress ipAddress;
+    struct PacketBuf : Driver::PacketBuf<IpAddress, MAX_PAYLOAD_SIZE> {
+        PacketBuf()
+            : Driver::PacketBuf<IpAddress, MAX_PAYLOAD_SIZE>()
+            , iovec{payload, MAX_PAYLOAD_SIZE}
+        {}
 
         /// Tells kernel call where to place incoming packet data.
         struct iovec iovec;
-
-        /// Packet data (may not fill all of the allocated space).
-        char payload[MAX_PAYLOAD_SIZE];
     };
 
     /**

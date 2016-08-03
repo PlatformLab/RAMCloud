@@ -191,7 +191,7 @@ UdpDriver::receivePackets(int maxPackets,
     for (int i = batch->packetsRemoved; i < limit; i++) {
         struct mmsghdr* header = &batch->messageHeaders[i];
         PacketBuf* buffer = batch->buffers[i];
-        receivedPackets->emplace_back(&buffer->ipAddress, this,
+        receivedPackets->emplace_back(buffer->sender.get(), this,
                 header->msg_len, buffer->payload);
         batch->buffers[i] = NULL;
     }
@@ -339,9 +339,10 @@ UdpDriver::readerThreadMain(UdpDriver* driver)
                 }
                 struct mmsghdr* header = &batch->messageHeaders[i];
                 PacketBuf* buffer = driver->packetBufPool.construct();
+                buffer->sender.construct();
                 batch->buffers[i] = buffer;
-                header->msg_hdr.msg_name = &buffer->ipAddress.address;
-                header->msg_hdr.msg_namelen = sizeof(buffer->ipAddress.address);
+                header->msg_hdr.msg_name = &buffer->sender->address;
+                header->msg_hdr.msg_namelen = sizeof(buffer->sender->address);
                 header->msg_hdr.msg_iov = &buffer->iovec;
                 header->msg_hdr.msg_iovlen = 1;
                 header->msg_hdr.msg_control = NULL;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -68,12 +68,6 @@ MacAddress::MacAddress(Random _)
     // set locally administered mac address, unicast
     address[0] &= 0xFC;
     address[0] |= 0x02;
-}
-
-inline MacAddress*
-MacAddress::clone() const
-{
-    return new MacAddress(*this);
 }
 
 inline string

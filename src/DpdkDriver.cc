@@ -322,14 +322,14 @@ DpdkDriver::receivePackets(int maxPackets,
             }
         }
         packetBufsUtilized++;
-        buffer->dpdkAddress.construct(
+        buffer->sender.construct(
                 rte_pktmbuf_mtod(m, uint8_t *) + sizeof(struct ether_addr));
         uint32_t length = rte_pktmbuf_data_len(m) -
                 sizeof32(NetUtil::EthernetHeader);
         rte_memcpy(buffer->payload,
                 static_cast<char*>(rte_pktmbuf_mtod(m, void *))
                 + sizeof(NetUtil::EthernetHeader), length);
-        receivedPackets->emplace_back(buffer->dpdkAddress.get(), this,
+        receivedPackets->emplace_back(buffer->sender.get(), this,
                 length, buffer->payload);
         rte_pktmbuf_free(m);
     }

@@ -61,9 +61,6 @@ class IpAddress : public Driver::Address {
     explicit IpAddress(const uint32_t ip, const uint16_t port);
     IpAddress(const IpAddress& other)
         : Address(other), address(other.address) {}
-    IpAddress* clone() const {
-        return new IpAddress(*this);
-    }
     string toString() const;
     sockaddr address;
     private:

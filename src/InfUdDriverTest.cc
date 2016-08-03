@@ -15,7 +15,6 @@
 
 #include "TestUtil.h"
 #include "InfUdDriver.h"
-#include "IpAddress.h"
 
 namespace RAMCloud {
 class InfUdDriverTest : public ::testing::Test {
@@ -23,17 +22,17 @@ class InfUdDriverTest : public ::testing::Test {
     Context context;
     TestLog::Enable logEnabler;
     string packetData;
-    Driver::Address *sender;
+    Driver::Received *recv;
 
     InfUdDriverTest()
         : context()
         , logEnabler()
         , packetData()
-        , sender(NULL)
+        , recv()
     {}
 
     ~InfUdDriverTest() {
-        delete sender;
+        delete recv;
     }
 
     // Used to wait for data to arrive on a driver; gives up if a long
@@ -46,9 +45,9 @@ class InfUdDriverTest : public ::testing::Test {
             driver->receivePackets(1, &received);
             if (!received.empty()) {
                 packetData.assign(received[0].payload, received[0].len);
-                delete sender;
-                sender = received[0].sender->clone();
-                return packetData.c_str();
+                delete recv;
+                recv = new Driver::Received(std::move(received[0]));
+                return packetData.data();
             }
             if (Cycles::toSeconds(Cycles::rdtsc() - start) > .1) {
                 return "no packet arrived";
@@ -84,7 +83,7 @@ TEST_F(InfUdDriverTest, basics) {
     message.reset();
     message.appendExternal("response", 8);
     Buffer::Iterator iterator2(&message);
-    server.sendPacket(sender, "h:", 2, &iterator2);
+    server.sendPacket(recv->sender, "h:", 2, &iterator2);
     EXPECT_STREQ("h:response", receivePacket(client));
     delete serverAddress;
 }

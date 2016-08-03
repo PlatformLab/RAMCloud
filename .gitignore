@@ -13,6 +13,7 @@
 
 /install/
 /bindings/java/build/
+/deps/
 /logs/
 /docs/doxygen/
 /docs/epydoc/

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -38,12 +38,6 @@ TEST(MacAddressTest, constructorRandom) {
         EXPECT_NE(r1.toString(),
                   r2.toString());
     }
-}
-
-TEST(MacAddressTest, clone) {
-    MacAddress r1(MacAddress::RANDOM);
-    std::unique_ptr<MacAddress> r2(r1.clone());
-    EXPECT_EQ(0, memcmp(r1.address, r2->address, 6));
 }
 
 TEST(MacAddressTest, toString) {
