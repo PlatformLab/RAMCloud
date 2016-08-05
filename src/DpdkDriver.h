@@ -1,5 +1,6 @@
 /* Copyright (c) 2015-2016 Stanford University
  * Copyright (c) 2014-2015 Huawei Technologies Co. Ltd.
+ * Copyright (c) 2014-2016 NEC Corporation
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,8 +33,9 @@
 #define NDESC 256
 // Maximum number of packet buffers that the memory pool can hold
 #define NB_MBUF 8192
-// Per-element size for the packet buffer memory pool
-#define MBUF_SIZE (2048 + sizeof(struct rte_mbuf) + RTE_PKTMBUF_HEADROOM)
+// per-element size for the packet buffer memory pool
+#define MBUF_SIZE (2048 + static_cast<uint32_t>(sizeof(struct rte_mbuf)) \
+                   + RTE_PKTMBUF_HEADROOM)
 
 // Forward declarations, so we don't have to include DPDK headers here.
 struct rte_mempool;
@@ -113,6 +115,17 @@ class DpdkDriver : public Driver
     /// Holds packets that are addressed to localhost instead of going through
     /// the HW queues.
     struct rte_ring *loopbackRing;
+
+    /// Hardware packet filter is provided by the NIC
+    bool hasHardwareFilter;
+
+    /// Ethernet Header struct used in software packet filter
+    struct EthernetHeader {
+        uint8_t destAddress[6];
+        uint8_t sourceAddress[6];
+        uint16_t etherType; // network order
+        uint16_t length;    // host order, length of payload
+    } __attribute__((packed));
 
     // Effective network bandwidth, in Gbits/second.
     int bandwidthGbps;

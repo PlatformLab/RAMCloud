@@ -1,5 +1,6 @@
 /* Copyright (c) 2015-2016 Stanford University
  * Copyright (c) 2014-2015 Huawei Technologies Co. Ltd.
+ * Copyright (c) 2014-2016 NEC Corporation
  * The original version of this module was contributed by Anthony Iliopoulos
  * at DBERC, Huawei
  *
@@ -32,6 +33,7 @@
 #include <rte_mbuf.h>
 #include <rte_memcpy.h>
 #include <rte_ring.h>
+#include <rte_version.h>
 #pragma GCC diagnostic warning "-Wconversion"
 
 #include "Common.h"
@@ -70,6 +72,7 @@ DpdkDriver::DpdkDriver(Context* context,
     , portId(0)
     , packetPool(NULL)
     , loopbackRing(NULL)
+    , hasHardwareFilter(true) // Cleared if not applicable at NIC initialization
     , bandwidthGbps(10)                   // Default bandwidth = 10 gbs
     , queueEstimator(0)
     , maxTransmitQueueSize(0)
@@ -117,14 +120,14 @@ DpdkDriver::DpdkDriver(Context* context,
 
     // initialize the DPDK environment with some default parameters
     const char *argv[] = {"rc", "-c 1", "-n 1"};
-    int argc = sizeof(argv) / sizeof(argv[0]);
+    int argc = static_cast<int>(sizeof(argv) / sizeof(argv[0]));
 
     ret = rte_eal_init(argc, const_cast<char**>(argv));
 
     // create an memory pool for accommodating packet buffers
     packetPool = rte_mempool_create("mbuf_pool", NB_MBUF,
                                       MBUF_SIZE, 32,
-                                      sizeof(struct rte_pktmbuf_pool_private),
+              static_cast<uint32_t>(sizeof(struct rte_pktmbuf_pool_private)),
                                       rte_pktmbuf_pool_init, NULL,
                                       rte_pktmbuf_init, NULL,
                                       rte_socket_id(), 0);
@@ -157,19 +160,42 @@ DpdkDriver::DpdkDriver(Context* context,
     // configure some default NIC port parameters
     memset(&portConf, 0, sizeof(portConf));
     portConf.rxmode.max_rx_pkt_len = MAX_PAYLOAD_SIZE +
-            sizeof(NetUtil::EthernetHeader);
+            static_cast<uint32_t>(sizeof(NetUtil::EthernetHeader));
     rte_eth_dev_configure(portId, 1, 1, &portConf);
 
     // setup a NIC/HW-based filter on the ethernet type so that
     // only FAST transport traffic is delivered from the NIC to
     // DPDK.
+#if RTE_VER_MAJOR < 2
     struct rte_ethertype_filter ethertype_filter;
 
     ethertype_filter.ethertype = NetUtil::EthPayloadType::FAST;
     ethertype_filter.priority_en = 0;
     ethertype_filter.priority = 0;
 
-    rte_eth_dev_add_ethertype_filter(portId, 0, &ethertype_filter, 0);
+    ret = rte_eth_dev_add_ethertype_filter(portId, 0, &ethertype_filter, 0);
+    if (ret < 0) {
+      LOG(WARNING, "failed to add ethertype filter\n");
+      hasHardwareFilter = false;
+    }
+#else
+    struct rte_eth_ethertype_filter filter;
+
+    ret = rte_eth_dev_filter_supported(portId,
+                                       RTE_ETH_FILTER_ETHERTYPE);
+    if (ret < 0) {
+      LOG(WARNING, "ethertype filter is not supported on port %u.\n", portId);
+      hasHardwareFilter = false;
+    } else {
+      memset(&filter, 0, sizeof(filter));
+      ret = rte_eth_dev_filter_ctrl(portId, RTE_ETH_FILTER_ETHERTYPE,
+                                    RTE_ETH_FILTER_ADD, &filter);
+      if (ret < 0) {
+        LOG(WARNING, "failed to add ethertype filter\n");
+        hasHardwareFilter = false;
+      }
+    }
+#endif
 
     // setup and initialize the receive and transmit NIC queues,
     // and activate the port.
@@ -185,8 +211,8 @@ DpdkDriver::DpdkDriver(Context* context,
     }
 
     // set the MTU that the NIC port should support
-    ret = rte_eth_dev_set_mtu(portId, MAX_PAYLOAD_SIZE +
-            sizeof(NetUtil::EthernetHeader));
+    ret = rte_eth_dev_set_mtu(portId, static_cast<uint16_t>(MAX_PAYLOAD_SIZE +
+            static_cast<uint32_t>(sizeof(NetUtil::EthernetHeader))));
     if (ret != 0) {
         throw DriverException(HERE, format(
                 "Failed to set the MTU on the Ethernet port: %s",
@@ -238,7 +264,8 @@ DpdkDriver::~DpdkDriver()
 uint32_t
 DpdkDriver::getMaxPacketSize()
 {
-    return MAX_PAYLOAD_SIZE - sizeof(NetUtil::EthernetHeader);
+    return MAX_PAYLOAD_SIZE
+            - static_cast<uint32_t>(sizeof(NetUtil::EthernetHeader));
 }
 
 // See docs in Driver class.
@@ -279,6 +306,21 @@ DpdkDriver::receivePackets(int maxPackets,
         struct rte_mbuf* m = mPkts[i];
         rte_prefetch0(rte_pktmbuf_mtod(m, void *));
         PacketBuf* buffer = packetBufPool.construct();
+
+        if (hasHardwareFilter) {
+            // Perform packet filtering by software to skip unrelevant
+            //  packets such as ipmi or kernel TCP/IP traffics.
+            // Still using EthPayloadType::FAST for BasicTransport.
+            char *data = rte_pktmbuf_mtod(m, char *);
+            auto& eth_header = *reinterpret_cast<EthernetHeader*>(data);
+            if (eth_header.etherType != HTONS(NetUtil::EthPayloadType::FAST)) {
+                LOG(DEBUG, "unknown ether type: %x\n",
+                    NTOHS(eth_header.etherType));
+                packetBufPool.destroy(buffer);
+                rte_pktmbuf_free(m);
+                continue;
+            }
+        }
         packetBufsUtilized++;
         buffer->dpdkAddress.construct(
                 rte_pktmbuf_mtod(m, uint8_t *) + sizeof(struct ether_addr));
