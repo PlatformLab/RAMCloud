@@ -47,7 +47,6 @@ class BasicTransport : public Transport {
         // any transport or driver state.
         return new Session(this, serviceLocator, timeoutMs);
     }
-    static void logIssueStats();
     void registerMemory(void* base, size_t bytes) {
         driver->registerMemory(base, bytes);
     }
@@ -220,6 +219,14 @@ class BasicTransport : public Transport {
         /// we receive a GRANT for them.
         uint32_t transmitLimit;
 
+        /// Generated from t->transmitSequenceNumber, used to prioritize
+        /// transmission of the request message.
+        uint64_t transmitSequenceNumber;
+
+        /// Cycles::rdtsc time of the most recent time that we transmitted
+        /// data bytes of the request.
+        uint64_t lastTransmitTime;
+
         /// Offset from the most recent GRANT packet we have sent for
         /// the response for this RPC, or 0 if we haven't sent any GRANTs.
         uint32_t grantOffset;
@@ -257,6 +264,8 @@ class BasicTransport : public Transport {
             , notifier(notifier)
             , transmitOffset(0)
             , transmitLimit(0)
+            , transmitSequenceNumber(0)
+            , lastTransmitTime(0)
             , grantOffset(0)
             , resendLimit(0)
             , silentIntervals(0)
@@ -295,13 +304,21 @@ class BasicTransport : public Transport {
 
         /// Offset within the response message of the next byte we should
         /// transmit to the client; all preceding bytes have already
-        /// been sent. 0 means we have not yet started sending the response.
+        /// been sent.
         uint32_t transmitOffset;
 
         /// The number of bytes in the response message that it's OK for
         /// us to transmit. Bytes after this cannot be transmitted until
         /// we receive a GRANT for them.
         uint32_t transmitLimit;
+
+        /// Generated from t->transmitSequenceNumber, used to prioritize
+        /// transmission of the response message.
+        uint64_t transmitSequenceNumber;
+
+        /// Cycles::rdtsc time of the most recent time that we transmitted
+        /// data bytes of the response.
+        uint64_t lastTransmitTime;
 
         /// Offset from the most recent GRANT packet we have sent for
         /// the request message, or 0 if we haven't sent any GRANTs.
@@ -346,6 +363,8 @@ class BasicTransport : public Transport {
             , rpcId(rpcId)
             , transmitOffset(0)
             , transmitLimit(0)
+            , transmitSequenceNumber(0)
+            , lastTransmitTime(0)
             , grantOffset(0)
             , resendLimit(0)
             , silentIntervals(0)
@@ -387,8 +406,8 @@ class BasicTransport : public Transport {
         DATA                   = 21,
         GRANT                  = 22,
         LOG_TIME_TRACE         = 23,
-        PING                   = 24,
-        RESEND                 = 25,
+        RESEND                 = 24,
+        ACK                    = 25,
         BOGUS                  = 26,      // Used only in unit tests.
         // If you add a new opcode here, you must also do the following:
         // * Change BOGUS so it is the highest opcode
@@ -422,8 +441,8 @@ class BasicTransport : public Transport {
     //                           GRANTs from the server.
     // RETRANSMISSION:           Used only in DATA packets. Nonzero means
     //                           this packet is being sent in response to a
-    //                           RESEND or PING request (it has already been
-    //                           sent previously).
+    //                           RESEND request (it has already been sent
+    //                           previously).
     // RESTART:                  Used only in RESEND packets: indicates that
     //                           the server has no knowledge of this request,
     //                           so the client should reset its state to
@@ -512,19 +531,6 @@ class BasicTransport : public Transport {
     } __attribute__((packed));
 
     /**
-     * Describes the wire format for PING packets. A PING is sent by a client
-     * if a long time elapses and the client has not received any portion of
-     * the response for an RPC. If the server cannot yet send a response,
-     * it should respond with a STILL_WORKING packet.
-     */
-    struct PingHeader {
-        CommonHeader common;         // Common header fields.
-
-        explicit PingHeader(RpcId rpcId, uint8_t flags)
-            : common(PacketOpcode::PING, rpcId, flags) {}
-    } __attribute__((packed));
-
-    /**
      * Describes the wire format for LOG_TIME_TRACE packets. These packets
      * are only used for debugging and performance analysis: the recipient
      * will write its time trace to the log.
@@ -534,6 +540,18 @@ class BasicTransport : public Transport {
 
         explicit LogTimeTraceHeader(RpcId rpcId, uint8_t flags)
             : common(PacketOpcode::LOG_TIME_TRACE, rpcId, flags) {}
+    } __attribute__((packed));
+
+    /**
+     * Describes the wire format for ACK packets. These packets are used
+     * to let the recipient know that the sender is still alive; they
+     * don't trigger any actions on the receiver except resetting timers.
+     */
+    struct AckHeader {
+        CommonHeader common;         // Common header fields.
+
+        explicit AckHeader(RpcId rpcId, uint8_t flags)
+            : common(PacketOpcode::ACK, rpcId, flags) {}
     } __attribute__((packed));
 
     /**
@@ -559,7 +577,6 @@ class BasicTransport : public Transport {
     void handlePacket(Driver::Received* received);
     static string headerToString(const void* header, uint32_t headerLength);
     static string opcodeSymbol(uint8_t opcode);
-    static void recordIssue(uint32_t* counter);
     uint32_t sendBytes(const Driver::Address* address, RpcId rpcId,
             Buffer* message, uint32_t offset, uint32_t maxBytes,
             uint8_t flags, bool partialOK = false);
@@ -588,6 +605,11 @@ class BasicTransport : public Transport {
     /// The sequence number to use for the next incoming RPC (i.e., one
     /// higher than the highest number ever used in the past).
     uint64_t nextServerSequenceNumber;
+
+    /// Assigned to a request or response when it becomes ready to transmit;
+    /// sequences requests and responses in a single timeline to implement
+    /// a FIFO priority system for large messages.
+    uint64_t transmitSequenceNumber;
 
     /// Holds incoming packets received from the driver. This is only
     /// used temporarily during the poll method, but it's allocated here
@@ -672,37 +694,8 @@ class BasicTransport : public Transport {
 
     /// If a client experiences this many timer wakeups without receiving
     /// any packets from the server for particular RPC, then it sends a
-    /// PING request.
+    /// RESEND request, assuming the response was lost.
     uint32_t pingIntervals;
-
-    // The following variables count networking issues (indications that
-    // packets have been lost or delayed).
-
-    /// Counts packets containing retransmitted data that we actually
-    /// used (if an incoming packet contains retransmitted data but
-    /// it duplicates data we already received from the original packets,
-    /// then this count isn't incremented). Each event on this counter
-    /// represents a packet loss (or a severe delay and reordering, so that
-    /// the retransmitted packet arrives first).
-    static uint32_t rcvdRetransmitCount;
-
-    /// Number of times our client side aborted an RPC because of a timeout.
-    static uint32_t clientAbortCount;
-
-    /// Number of times our server side aborted an RPC because of a timeout.
-    /// These are typically benign; see comments in the code for more details.
-    static uint32_t serverAbortCount;
-
-    /// Number of times our client side requested packet retransmission
-    /// because of unexpected delays in receiving data.
-    static uint32_t clientRequestRetransmitCount;
-
-    /// Number of times our server side requested packet retransmission
-    /// because of unexpected delays in receiving data.
-    static uint32_t serverRequestRetransmitCount;
-
-    /// Sum of all the above counts.
-    static uint32_t totalNetworkIssues;
 
     DISALLOW_COPY_AND_ASSIGN(BasicTransport);
 };

@@ -47,12 +47,6 @@ class BasicTransportTest : public ::testing::Test {
     {
         context.workerManager = new WorkerManager(&context, 5);
         context.workerManager->testingSaveRpcs = 1;
-        BasicTransport::rcvdRetransmitCount = 0;
-        BasicTransport::clientAbortCount = 0;
-        BasicTransport::serverAbortCount = 0;
-        BasicTransport::clientRequestRetransmitCount = 0;
-        BasicTransport::serverRequestRetransmitCount = 0;
-        BasicTransport::totalNetworkIssues = 0;
         Driver::Received::stealCount = 0;
     }
 
@@ -75,7 +69,8 @@ class BasicTransportTest : public ::testing::Test {
     // Convenience method: receive request, prepare response, but don't
     // call sendReply yet.
     BasicTransport::ServerRpc*
-    prepareToRespond(uint64_t sequence = 101, uint32_t responseSize = 20)
+    prepareToRespond(uint64_t sequence = 101, uint32_t responseSize = 20,
+            const char* responseData = "0123456789abcdefghijABCDEFGHIJ")
     {
         handlePacket("mock:client=1",
                 BasicTransport::AllDataHeader(
@@ -85,9 +80,25 @@ class BasicTransportTest : public ::testing::Test {
                 static_cast<BasicTransport::ServerRpc*>(
                 context.workerManager->waitForRpc(0));
         EXPECT_TRUE(serverRpc != NULL);
-        serverRpc->replyPayload.appendCopy("0123456789abcdefghijABCDEFGHIJ",
-                responseSize);
+        uint32_t dataLength = downCast<uint32_t>(strlen(responseData));
+        while (serverRpc->replyPayload.size() < responseSize) {
+            uint32_t chunkSize = responseSize - serverRpc->replyPayload.size();
+            if (chunkSize > dataLength) {
+                chunkSize = dataLength;
+            }
+            serverRpc->replyPayload.appendCopy(responseData, chunkSize);
+        }
         return serverRpc;
+    }
+
+    // Fill a character array with a single character value, leaving it
+    // null-terminated. Return a pointer to the array.
+    char*
+    fillString(char* dest, char value, size_t length)
+    {
+        memset(dest, value, length);
+        dest[length - 1] = 0;
+        return dest;
     }
 
   private:
@@ -213,30 +224,6 @@ TEST_F(BasicTransportTest, getRoundTripBytes_roundUpToEvenPackets) {
     EXPECT_EQ(1200u, transport.getRoundTripBytes(&locator));
 }
 
-TEST_F(BasicTransportTest, logIssueStats) {
-    BasicTransport::rcvdRetransmitCount = 1;
-    BasicTransport::clientAbortCount = 4;
-    BasicTransport::serverAbortCount = 5;
-    BasicTransport::clientRequestRetransmitCount = 7;
-    BasicTransport::serverRequestRetransmitCount = 8;
-    BasicTransport::totalNetworkIssues = 9;
-    BasicTransport::logIssueStats();
-    EXPECT_EQ("logIssueStats: 9 total networking issues: 1 received "
-            "retransmits, 4/5 aborts, 7/8 requested retransmits",
-            TestLog::get());
-}
-
-TEST_F(BasicTransportTest, recordIssue) {
-    BasicTransport::totalNetworkIssues = 97;
-    BasicTransport::recordIssue(&BasicTransport::clientAbortCount);
-    BasicTransport::recordIssue(&BasicTransport::clientAbortCount);
-    EXPECT_EQ("", TestLog::get());
-    BasicTransport::recordIssue(&BasicTransport::serverAbortCount);
-    EXPECT_EQ("logIssueStats: 100 total networking issues: "
-            "0 received retransmits, 2/1 aborts, 0/0 requested retransmits",
-            TestLog::get());
-}
-
 TEST_F(BasicTransportTest, sendBytes_basics) {
     transport.maxDataPerPacket = 10;
     Buffer buffer;
@@ -281,10 +268,11 @@ TEST_F(BasicTransportTest, sendBytes_shortMessage) {
     EXPECT_EQ(15u, count);
 }
 
-TEST_F(BasicTransportTest, tryToTransmitData_multipleRequestsToTransmit) {
+TEST_F(BasicTransportTest, tryToTransmitData_pickShortestRequest) {
     transport.maxDataPerPacket = 10;
     driver->transmitQueueSpace = 0;
-    MockWrapper wrapper1("012345678901234");
+    char longMessage[20001];
+    MockWrapper wrapper1(fillString(longMessage, 'a', sizeof(longMessage)));
     session->sendRequest(&wrapper1.request, &wrapper1.response, &wrapper1);
     MockWrapper wrapper2("abcd");
     session->sendRequest(&wrapper2.request, &wrapper2.response, &wrapper2);
@@ -293,35 +281,86 @@ TEST_F(BasicTransportTest, tryToTransmitData_multipleRequestsToTransmit) {
     driver->transmitQueueSpace = 18;
     uint32_t result = transport.tryToTransmitData();
     EXPECT_EQ("ALL_DATA FROM_CLIENT, rpcId 666.2 abcd | "
-            "DATA FROM_CLIENT, rpcId 666.1, totalLength 15, "
+            "DATA FROM_CLIENT, rpcId 666.3, totalLength 15, "
             "offset 0 0123456789",
             driver->outputLog);
     EXPECT_EQ(1u, result);
     EXPECT_EQ(2u, transport.outgoingRequests.size());
     BasicTransport::ClientRpc* clientRpc1 = transport.outgoingRpcs[1lu];
-    EXPECT_EQ(10u, clientRpc1->transmitOffset);
+    EXPECT_EQ(0u, clientRpc1->transmitOffset);
     BasicTransport::ClientRpc* clientRpc3 = transport.outgoingRpcs[3lu];
-    EXPECT_EQ(0u, clientRpc3->transmitOffset);
+    EXPECT_EQ(10u, clientRpc3->transmitOffset);
 }
-TEST_F(BasicTransportTest, tryToTransmitData_multipleResponsesToTransmit) {
+TEST_F(BasicTransportTest, tryToTransmitData_fifoOrderingForLongRequests) {
     transport.maxDataPerPacket = 10;
     driver->transmitQueueSpace = 0;
-    BasicTransport::ServerRpc* serverRpc1 = prepareToRespond(200, 15);
+    char longMessage1[20001];
+    char longMessage2[15001];
+    char longMessage3[11001];
+    MockWrapper wrapper1(fillString(longMessage1, 'a', sizeof(longMessage1)));
+    session->sendRequest(&wrapper1.request, &wrapper1.response, &wrapper1);
+    MockWrapper wrapper2(fillString(longMessage2, 'b', sizeof(longMessage2)));
+    session->sendRequest(&wrapper2.request, &wrapper2.response, &wrapper2);
+    MockWrapper wrapper3(fillString(longMessage3, 'c', sizeof(longMessage3)));
+    session->sendRequest(&wrapper3.request, &wrapper3.response, &wrapper3);
+    BasicTransport::ClientRpc* clientRpc1 = transport.outgoingRpcs[1lu];
+    BasicTransport::ClientRpc* clientRpc2 = transport.outgoingRpcs[2lu];
+    BasicTransport::ClientRpc* clientRpc3 = transport.outgoingRpcs[3lu];
+    clientRpc1->transmitSequenceNumber = clientRpc3->transmitSequenceNumber + 1;
+    driver->transmitQueueSpace = 10;
+    uint32_t result = transport.tryToTransmitData();
+    EXPECT_EQ("DATA FROM_CLIENT, rpcId 666.2, totalLength 15000, "
+            "offset 0 bbbbbbbbbb",
+            driver->outputLog);
+    EXPECT_EQ(1u, result);
+    EXPECT_EQ(0u, clientRpc1->transmitOffset);
+    EXPECT_EQ(10u, clientRpc2->transmitOffset);
+    EXPECT_EQ(0u, clientRpc3->transmitOffset);
+}
+TEST_F(BasicTransportTest, tryToTransmitData_pickShortestResponse) {
+    transport.maxDataPerPacket = 10;
+    driver->transmitQueueSpace = 0;
+    BasicTransport::ServerRpc* serverRpc1 = prepareToRespond(200, 20000,
+            "aaaaaaaaaa");
     serverRpc1->sendReply();
-    BasicTransport::ServerRpc* serverRpc2 = prepareToRespond(201, 5);
+    BasicTransport::ServerRpc* serverRpc2 = prepareToRespond(201, 5, "bbbbb");
     serverRpc2->sendReply();
-    BasicTransport::ServerRpc* serverRpc3 = prepareToRespond(202, 15);
+    BasicTransport::ServerRpc* serverRpc3 = prepareToRespond(202, 15, "ccccc");
     serverRpc3->sendReply();
     driver->transmitQueueSpace = 18;
     uint32_t result = transport.tryToTransmitData();
-    EXPECT_EQ("ALL_DATA FROM_SERVER, rpcId 100.201 01234 | "
-            "DATA FROM_SERVER, rpcId 100.200, totalLength 15, "
-            "offset 0 0123456789",
+    EXPECT_EQ("ALL_DATA FROM_SERVER, rpcId 100.201 bbbbb | "
+            "DATA FROM_SERVER, rpcId 100.202, totalLength 15, "
+            "offset 0 cccccccccc",
             driver->outputLog);
     EXPECT_EQ(1u, result);
     EXPECT_EQ(2u, transport.outgoingResponses.size());
     EXPECT_EQ(2u, transport.incomingRpcs.size());
-    EXPECT_EQ(10u, serverRpc1->transmitOffset);
+    EXPECT_EQ(0u, serverRpc1->transmitOffset);
+    EXPECT_EQ(5u, serverRpc2->transmitOffset);
+    EXPECT_EQ(10u, serverRpc3->transmitOffset);
+}
+TEST_F(BasicTransportTest, tryToTransmitData_fifoForLongResponses) {
+    transport.maxDataPerPacket = 10;
+    driver->transmitQueueSpace = 0;
+    BasicTransport::ServerRpc* serverRpc1 = prepareToRespond(200, 20000,
+            "aaaaaaaaaa");
+    serverRpc1->sendReply();
+    BasicTransport::ServerRpc* serverRpc2 = prepareToRespond(201, 15000,
+            "bbbbbbbbbb");
+    serverRpc2->sendReply();
+    BasicTransport::ServerRpc* serverRpc3 = prepareToRespond(202, 10000,
+            "cccccccccc");
+    serverRpc3->sendReply();
+    serverRpc1->transmitSequenceNumber = serverRpc3->transmitSequenceNumber + 1;
+    driver->transmitQueueSpace = 10;
+    uint32_t result = transport.tryToTransmitData();
+    EXPECT_EQ("DATA FROM_SERVER, rpcId 100.201, totalLength 15000, "
+            "offset 0 bbbbbbbbbb",
+            driver->outputLog);
+    EXPECT_EQ(1u, result);
+    EXPECT_EQ(0u, serverRpc1->transmitOffset);
+    EXPECT_EQ(10u, serverRpc2->transmitOffset);
     EXPECT_EQ(0u, serverRpc3->transmitOffset);
 }
 TEST_F(BasicTransportTest, tryToTransmitData_requestsAndResponsesToTransmit) {
@@ -684,23 +723,47 @@ TEST_F(BasicTransportTest, handlePacket_resendFromServer_restart) {
     handlePacket("mock:server=1", BasicTransport::ResendHeader(
             BasicTransport::RpcId(666, 1), 0, 5,
             BasicTransport::FROM_SERVER|BasicTransport::RESTART));
-    EXPECT_EQ("DATA FROM_CLIENT, rpcId 666.1, totalLength 20, offset 0, "
-            "NEED_GRANT, RETRANSMISSION abcde",
-            driver->outputLog);
     EXPECT_EQ(0u, transport.outgoingRpcs[1]->transmitOffset);
     EXPECT_EQ(5u, transport.outgoingRpcs[1]->transmitLimit);
 }
-TEST_F(BasicTransportTest, handlePacket_resendFromServer_resend) {
+TEST_F(BasicTransportTest, handlePacket_resendFromServer_sendAck) {
+    driver->transmitQueueSpace = 0;
     MockWrapper wrapper("abcdefghij0123456789");
     session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
     driver->outputLog.clear();
 
+    // Case 1: data hasn't actually been transmitted yet.
+    handlePacket("mock:server=1", BasicTransport::ResendHeader(
+            BasicTransport::RpcId(666, 1), 0, 10,
+            BasicTransport::FROM_SERVER));
+    EXPECT_EQ("ACK FROM_CLIENT, rpcId 666.1", driver->outputLog);
+
+    // Case 2: data was sent shortly before RESEND arrived.
+    Cycles::mockTscValue = context.dispatch->currentTime = 1000000;
+    driver->transmitQueueSpace = 10;
+    transport.tryToTransmitData();
+    driver->outputLog.clear();
+    Cycles::mockTscValue += transport.timerInterval - 10;
+    handlePacket("mock:server=1", BasicTransport::ResendHeader(
+            BasicTransport::RpcId(666, 1), 0, 10,
+            BasicTransport::FROM_SERVER));
+    EXPECT_EQ("ACK FROM_CLIENT, rpcId 666.1", driver->outputLog);
+    Cycles::mockTscValue = 0;
+}
+TEST_F(BasicTransportTest, handlePacket_resendFromServer_resend) {
+    Cycles::mockTscValue = context.dispatch->currentTime = 1000000;
+    MockWrapper wrapper("abcdefghij0123456789");
+    session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
+    driver->outputLog.clear();
+
+    Cycles::mockTscValue += transport.timerInterval + 10;
     handlePacket("mock:server=1", BasicTransport::ResendHeader(
             BasicTransport::RpcId(666, 1), 12, 20,
             BasicTransport::FROM_SERVER));
     EXPECT_EQ("DATA FROM_CLIENT, rpcId 666.1, totalLength 20, offset 12, "
             "RETRANSMISSION 23456789",
             driver->outputLog);
+    Cycles::mockTscValue = 0;
 }
 TEST_F(BasicTransportTest,
         handlePacket_resendFromServer_transmitOffsetChanges) {
@@ -719,14 +782,23 @@ TEST_F(BasicTransportTest,
     EXPECT_EQ(14u, transport.outgoingRpcs[1]->transmitLimit);
     EXPECT_EQ(10u, transport.outgoingRpcs[1]->transmitOffset);
 }
+TEST_F(BasicTransportTest, handlePacket_ackFromServer) {
+    MockWrapper wrapper("message1");
+    session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
+    driver->outputLog.clear();
+    transport.outgoingRpcs[1]->silentIntervals = 2;
+    handlePacket("mock:server=1", BasicTransport::AckHeader(
+            BasicTransport::RpcId(666, 1), BasicTransport::FROM_SERVER));
+    EXPECT_EQ(0u, transport.outgoingRpcs[1]->silentIntervals);
+}
 TEST_F(BasicTransportTest, handlePacket_unknownOpcodeFromServer) {
     MockWrapper wrapper("message1");
     session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
     driver->outputLog.clear();
     handlePacket("mock:server=1", BasicTransport::CommonHeader(
-            BasicTransport::PING, BasicTransport::RpcId(666, 1),
+            BasicTransport::BOGUS, BasicTransport::RpcId(666, 1),
             BasicTransport::FROM_SERVER));
-    EXPECT_EQ("handlePacket: unexpected opcode PING received from "
+    EXPECT_EQ("handlePacket: unexpected opcode 26 received from "
             "server mock:server=1", TestLog::get());
 }
 TEST_F(BasicTransportTest, handlePacket_allDataFromClient) {
@@ -925,60 +997,10 @@ TEST_F(BasicTransportTest, handlePacket_grantFromClient) {
     EXPECT_EQ(0lu, transport.serverTimerList.size());
     EXPECT_EQ(0lu, transport.serverRpcPool.outstandingAllocations);
 }
-TEST_F(BasicTransportTest, handlePacket_pingFromClient_unknownRpcId) {
-    transport.roundTripBytes = 1000;
-    handlePacket("mock:client=1",
-            BasicTransport::PingHeader(BasicTransport::RpcId(10, 11),
-            BasicTransport::FROM_CLIENT));
-    EXPECT_EQ("RESEND FROM_SERVER, rpcId 10.11, offset 0, length 1000, RESTART",
-            driver->outputLog);
-}
-TEST_F(BasicTransportTest, handlePacket_pingFromClient_stillProcessing) {
-    BasicTransport::ServerRpc* serverRpc = prepareToRespond();
-    transport.roundTripBytes = 15;
-    transport.maxDataPerPacket = 15;
-    serverRpc->grantOffset = 100;
-    handlePacket("mock:client=1",
-            BasicTransport::PingHeader(BasicTransport::RpcId(100, 101),
-            BasicTransport::FROM_CLIENT));
-    EXPECT_EQ("GRANT FROM_SERVER, rpcId 100.101, offset 100",
-            driver->outputLog);
-}
-TEST_F(BasicTransportTest, handlePacket_pingFromClient_resultPartiallySent) {
-    BasicTransport::ServerRpc* serverRpc = prepareToRespond();
-    transport.roundTripBytes = 15;
-    transport.maxDataPerPacket = 5;
-    serverRpc->sendReply();
-    transport.poller.poll();
-    EXPECT_EQ("DATA FROM_SERVER, rpcId 100.101, totalLength 20, offset 0, "
-            "NEED_GRANT 01234 | "
-            "DATA FROM_SERVER, rpcId 100.101, totalLength 20, offset 5, "
-            "NEED_GRANT 56789 | "
-            "DATA FROM_SERVER, rpcId 100.101, totalLength 20, offset 10, "
-            "NEED_GRANT abcde",
-            driver->outputLog);
-    driver->outputLog.clear();
-    handlePacket("mock:client=1",
-            BasicTransport::PingHeader(BasicTransport::RpcId(100, 101),
-            BasicTransport::FROM_CLIENT));
-    EXPECT_EQ("DATA FROM_SERVER, rpcId 100.101, totalLength 20, offset 0, "
-            "NEED_GRANT, RETRANSMISSION 01234",
-            driver->outputLog);
-}
-TEST_F(BasicTransportTest, handlePacket_resendFromClient_bogusResends) {
+TEST_F(BasicTransportTest, handlePacket_resendFromClient_packetTooShort) {
     prepareToRespond();
     transport.roundTripBytes = 5;
     transport.maxDataPerPacket = 5;
-
-    // RESEND arriving before result transmission starts: bogus.
-    TestLog::reset();
-    handlePacket("mock:client=1",
-            BasicTransport::ResendHeader(BasicTransport::RpcId(100, 101),
-            10, 5, BasicTransport::FROM_CLIENT));
-    EXPECT_EQ("handlePacket: unexpected RESEND from client mock:client=1",
-            TestLog::get());
-
-    // RESEND packet too short: bogus.
     TestLog::reset();
     handlePacket("mock:client=1", BasicTransport::CommonHeader(
             BasicTransport::RESEND, BasicTransport::RpcId(100, 101),
@@ -994,19 +1016,57 @@ TEST_F(BasicTransportTest, handlePacket_resendFromClient_unknownRpcId) {
     EXPECT_EQ("RESEND FROM_SERVER, rpcId 10.11, offset 0, length 31602, "
             "RESTART", driver->outputLog);
 }
+TEST_F(BasicTransportTest, handlePacket_resendFromClient_sendAck) {
+    driver->transmitQueueSpace = 0;
+    BasicTransport::ServerRpc* serverRpc = prepareToRespond();
+    transport.roundTripBytes = 15;
+    transport.maxDataPerPacket = 15;
+
+    // Case 1: sendReply hasn't been called yet
+    handlePacket("mock:client=1",
+            BasicTransport::ResendHeader(BasicTransport::RpcId(100, 101),
+            10, 5, BasicTransport::FROM_CLIENT));
+    EXPECT_EQ("ACK FROM_SERVER, rpcId 100.101",
+            driver->outputLog);
+
+    // Case 2: the response is ready, but no bytes have been transmitted yet.
+    driver->outputLog.clear();
+    serverRpc->sendReply();
+    handlePacket("mock:client=1",
+            BasicTransport::ResendHeader(BasicTransport::RpcId(100, 101),
+            5, 8, BasicTransport::FROM_CLIENT));
+    EXPECT_EQ("ACK FROM_SERVER, rpcId 100.101",
+            driver->outputLog);
+
+    // Case 3: we sent the bytes, but only recently.
+    Cycles::mockTscValue = context.dispatch->currentTime = 1000000;
+    driver->transmitQueueSpace = 100;
+    transport.tryToTransmitData();
+    driver->outputLog.clear();
+    Cycles::mockTscValue += transport.timerInterval - 10;
+    handlePacket("mock:client=1",
+            BasicTransport::ResendHeader(BasicTransport::RpcId(100, 101),
+            5, 8, BasicTransport::FROM_CLIENT));
+    EXPECT_EQ("ACK FROM_SERVER, rpcId 100.101",
+            driver->outputLog);
+    Cycles::mockTscValue = 0;
+}
 TEST_F(BasicTransportTest, handlePacket_resendFromClient_sendBytes) {
+    Cycles::mockTscValue = context.dispatch->currentTime = 1000000;
     BasicTransport::ServerRpc* serverRpc = prepareToRespond();
     transport.roundTripBytes = 15;
     transport.maxDataPerPacket = 15;
     serverRpc->sendReply();
 
     driver->outputLog.clear();
+    Cycles::mockTscValue += transport.timerInterval + 10;
     handlePacket("mock:client=1",
             BasicTransport::ResendHeader(BasicTransport::RpcId(100, 101),
             5, 8, BasicTransport::FROM_CLIENT));
     EXPECT_EQ("DATA FROM_SERVER, rpcId 100.101, totalLength 20, offset 5, "
             "NEED_GRANT, RETRANSMISSION 56789abc",
             driver->outputLog);
+    Cycles::mockTscValue = 0;
 }
 TEST_F(BasicTransportTest,
         handlePacket_resendFromClient_transmitOffsetChanges) {
@@ -1034,6 +1094,13 @@ TEST_F(BasicTransportTest,
             "NEED_GRANT, RETRANSMISSION fghij",
             driver->outputLog);
     EXPECT_EQ(25u, serverRpc->transmitOffset);
+}
+TEST_F(BasicTransportTest, handlePacket_ackFromClient) {
+    BasicTransport::ServerRpc* serverRpc = prepareToRespond();
+    serverRpc->silentIntervals = 2;
+    handlePacket("mock:client=1", BasicTransport::AckHeader(
+            BasicTransport::RpcId(100, 101), BasicTransport::FROM_CLIENT));
+    EXPECT_EQ(0u, serverRpc->silentIntervals);
 }
 TEST_F(BasicTransportTest, handlePacket_unknownOpcodeFromClient) {
     handlePacket("mock:client=1", BasicTransport::CommonHeader(
@@ -1125,28 +1192,6 @@ TEST_F(BasicTransportTest, addPacket_basics) {
             TestUtil::toString(&serverRpc->requestPayload));
     EXPECT_EQ(5u, Driver::Received::stealCount);
 }
-TEST_F(BasicTransportTest, addPacket_retransmitCount) {
-    handlePacket("mock:client=1",
-            BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 20, 0,
-            BasicTransport::FROM_CLIENT),
-            "P1111");
-    EXPECT_EQ(0u, BasicTransport::rcvdRetransmitCount);
-    handlePacket("mock:client=1",
-            BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 20, 10,
-            BasicTransport::FROM_CLIENT|BasicTransport::RETRANSMISSION),
-            "P3333");
-    EXPECT_EQ(1u, BasicTransport::rcvdRetransmitCount);
-    handlePacket("mock:client=1",
-            BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 20, 0,
-            BasicTransport::FROM_CLIENT|BasicTransport::RETRANSMISSION),
-            "P1111");
-    EXPECT_EQ(1u, BasicTransport::rcvdRetransmitCount);
-    handlePacket("mock:client=1",
-            BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 20, 5,
-            BasicTransport::FROM_CLIENT|BasicTransport::RETRANSMISSION),
-            "P2222");
-    EXPECT_EQ(2u, BasicTransport::rcvdRetransmitCount);
-}
 TEST_F(BasicTransportTest, addPacket_releasedSavedFragment) {
     // Receive a request in 2 packets; the first contains bytes 6-10,
     // the second contains bytes 0-10 (so the first, saved, fragment ends
@@ -1229,10 +1274,9 @@ TEST_F(BasicTransportTest, requestRetransmission) {
     uint32_t limit = serverRpc->accumulator->requestRetransmission(
             &transport, &address1, BasicTransport::RpcId(100, 101), 0, 100,
             BasicTransport::FROM_SERVER);
-    EXPECT_EQ(105u, limit);
-    EXPECT_EQ("RESEND FROM_SERVER, rpcId 100.101, offset 5, length 100",
+    EXPECT_EQ(100u, limit);
+    EXPECT_EQ("RESEND FROM_SERVER, rpcId 100.101, offset 5, length 95",
             driver->outputLog);
-    EXPECT_EQ(1u, BasicTransport::serverRequestRetransmitCount);
 
     // Second retransmit: no fragment, but grant was sent.
     driver->outputLog.clear();
@@ -1293,7 +1337,19 @@ TEST_F(BasicTransportTest, poll_outgoingPacket) {
     EXPECT_EQ(1u, result);
 }
 
+TEST_F(BasicTransportTest, handleTimerEvent_clientTransmissionNotStartedYet) {
+    driver->transmitQueueSpace = 0;
+    MockWrapper wrapper("message1");
+    session->sendRequest(&wrapper.request, &wrapper.response, &wrapper);
+    BasicTransport::ClientRpc* clientRpc = transport.outgoingRpcs[1lu];
+    transport.timer.handleTimerEvent();
+    EXPECT_EQ(0u, clientRpc->silentIntervals);
+    transport.timer.handleTimerEvent();
+    transport.timer.handleTimerEvent();
+    EXPECT_EQ(0u, clientRpc->silentIntervals);
+}
 TEST_F(BasicTransportTest, handleTimerEvent_clientPingAndAbort) {
+    transport.roundTripBytes = 100;
     MockWrapper wrapper(NULL);
     WireFormat::RequestCommon* header =
             wrapper.request.emplaceAppend<WireFormat::RequestCommon>();
@@ -1313,7 +1369,8 @@ TEST_F(BasicTransportTest, handleTimerEvent_clientPingAndAbort) {
     // The next call should ping.
     clientRpc->silentIntervals = transport.pingIntervals - 1;
     transport.timer.handleTimerEvent();
-    EXPECT_EQ("PING FROM_CLIENT, rpcId 666.1", driver->outputLog);
+    EXPECT_EQ("RESEND FROM_CLIENT, rpcId 666.1, offset 0, length 100",
+            driver->outputLog);
     driver->outputLog.clear();
     TestLog::reset();
 
@@ -1331,7 +1388,6 @@ TEST_F(BasicTransportTest, handleTimerEvent_clientPingAndAbort) {
     EXPECT_TRUE(TestUtil::contains(TestLog::get(),
             "handleTimerEvent: aborting READ RPC to server mock:node=3, "
             "sequence 1: timeout"));
-    EXPECT_EQ(1u, BasicTransport::clientAbortCount);
 }
 TEST_F(BasicTransportTest, handleTimerEvent_sendResendFromClient) {
     transport.roundTripBytes = 100;
@@ -1374,6 +1430,19 @@ TEST_F(BasicTransportTest, handleTimerEvent_sendResendFromClient) {
     EXPECT_EQ("RESEND FROM_CLIENT, rpcId 666.1, offset 8, length 147",
             driver->outputLog);
 }
+TEST_F(BasicTransportTest, handleTimerEvent_serverResponseTransmissionDelayed) {
+    driver->transmitQueueSpace = 0;
+    BasicTransport::ServerRpc* serverRpc = prepareToRespond();
+    transport.roundTripBytes = 15;
+    transport.maxDataPerPacket = 15;
+    serverRpc->sendReply();
+
+    transport.timer.handleTimerEvent();
+    EXPECT_EQ(0u, serverRpc->silentIntervals);
+    transport.timer.handleTimerEvent();
+    transport.timer.handleTimerEvent();
+    EXPECT_EQ(0u, serverRpc->silentIntervals);
+}
 TEST_F(BasicTransportTest, handleTimerEvent_serverAbortsRequest) {
     transport.timeoutIntervals = 2;
     handlePacket("mock:client=1",
@@ -1386,7 +1455,6 @@ TEST_F(BasicTransportTest, handleTimerEvent_serverAbortsRequest) {
     transport.timer.handleTimerEvent();
     EXPECT_EQ("deleteServerRpc: RpcId (100, 101)",
             TestLog::get());
-    EXPECT_EQ(1u, BasicTransport::serverAbortCount);
 }
 TEST_F(BasicTransportTest, handleTimerEvent_sendResendFromServer) {
     transport.roundTripBytes = 100;
@@ -1404,9 +1472,9 @@ TEST_F(BasicTransportTest, handleTimerEvent_sendResendFromServer) {
     EXPECT_EQ("", TestLog::get());
 
     transport.timer.handleTimerEvent();
-    EXPECT_EQ("RESEND FROM_SERVER, rpcId 100.101, offset 5, length 100",
+    EXPECT_EQ("RESEND FROM_SERVER, rpcId 100.101, offset 5, length 95",
             driver->outputLog);
-    EXPECT_EQ(105lu, serverRpc->resendLimit);
+    EXPECT_EQ(100lu, serverRpc->resendLimit);
 
     // Packet arrival stops resends (for a while).
     handlePacket("mock:client=1",
@@ -1417,7 +1485,7 @@ TEST_F(BasicTransportTest, handleTimerEvent_sendResendFromServer) {
     EXPECT_EQ("", driver->outputLog);
 
     transport.timer.handleTimerEvent();
-    EXPECT_EQ("RESEND FROM_SERVER, rpcId 100.101, offset 8, length 100",
+    EXPECT_EQ("RESEND FROM_SERVER, rpcId 100.101, offset 8, length 92",
             driver->outputLog);
 }
 
