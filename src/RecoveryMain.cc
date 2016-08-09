@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -370,6 +370,7 @@ try
         context.objectFinder->waitForAllTabletsNormal(tableId);
     }
     LOG(NOTICE, "all tablets now normal");
+    client.serverControlAll(WireFormat::LOG_TIME_TRACE);
 
     Buffer nb;
     uint64_t stopTime = Cycles::rdtsc();
