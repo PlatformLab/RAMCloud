@@ -6354,9 +6354,7 @@ try
     if (clientIndex == 0) {
         cluster->serverControlAll(WireFormat::LOG_TIME_TRACE);
         cluster->serverControlAll(WireFormat::LOG_CACHE_TRACE);
-        cluster->serverControlAll(WireFormat::LOG_BASIC_TRANSPORT_ISSUES);
     }
-    BasicTransport::logIssueStats();
     TimeTrace::printToLog();
 }
 catch (std::exception& e) {
