@@ -764,15 +764,6 @@ BasicTransport::handlePacket(Driver::Received* received)
                 if (!clientRpc->accumulator) {
                     clientRpc->accumulator.construct(this, clientRpc->response);
                 }
-                if ((header->common.flags & RETRANSMISSION)
-                        && (header->offset >= clientRpc->response->size())) {
-                    RAMCLOUD_CLOG(NOTICE,
-                            "Received retransmitted data from server %s, "
-                            "sequence %lu, offset %u, totalLength %u",
-                            received->sender->toString().c_str(),
-                            header->common.rpcId.sequence,
-                            header->offset, header->totalLength);
-                }
                 retainPacket = clientRpc->accumulator->addPacket(header,
                         received->len);
                 if (clientRpc->response->size() >= header->totalLength) {
@@ -880,6 +871,11 @@ BasicTransport::handlePacket(Driver::Received* received)
                     return;
 
                 }
+                RAMCLOUD_CLOG(NOTICE, "Retransmitting to server %s: "
+                        "sequence %lu, offset %u, length %u",
+                        received->sender->toString().c_str(),
+                        header->common.rpcId.sequence, header->offset,
+                        header->length);
                 sendBytes(clientRpc->session->serverAddress,
                         header->common.rpcId, clientRpc->request,
                         header->offset, header->length,
@@ -958,14 +954,6 @@ BasicTransport::handlePacket(Driver::Received* received)
                         header->messageLength, driver, payload);
                 serverRpc->requestComplete = true;
                 context->workerManager->handleRpc(serverRpc);
-                if (header->common.flags & RETRANSMISSION) {
-                    RAMCLOUD_CLOG(NOTICE,
-                            "Received retransmitted ALL_DATA from client %s, "
-                            "sequence %lu, length %u",
-                            received->sender->toString().c_str(),
-                            header->common.rpcId.sequence,
-                            header->messageLength);
-                }
                 return;
             }
 
@@ -993,15 +981,6 @@ BasicTransport::handlePacket(Driver::Received* received)
                     // ignore this packet.
                     TEST_LOG("ignoring extraneous packet");
                     goto serverDataDone;
-                }
-                if ((header->common.flags & RETRANSMISSION) && (header->offset
-                        >= serverRpc->requestPayload.size())) {
-                    RAMCLOUD_CLOG(NOTICE,
-                            "Received retransmitted data from client %s, "
-                            "sequence %lu, offset %u, totalLength %u",
-                            received->sender->toString().c_str(),
-                            header->common.rpcId.sequence,
-                            header->offset, header->totalLength);
                 }
                 retainPacket = serverRpc->accumulator->addPacket(header,
                         received->len);
@@ -1129,6 +1108,11 @@ BasicTransport::handlePacket(Driver::Received* received)
                             &ack, NULL);
                     return;
                 }
+                RAMCLOUD_CLOG(NOTICE, "Retransmitting to client %s: "
+                        "sequence %lu, offset %u, length %u",
+                        received->sender->toString().c_str(),
+                        header->common.rpcId.sequence, header->offset,
+                        header->length);
                 sendBytes(serverRpc->clientAddress,
                         serverRpc->rpcId, &serverRpc->replyPayload,
                         header->offset, header->length,
