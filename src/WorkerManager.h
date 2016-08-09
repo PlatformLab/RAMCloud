@@ -48,6 +48,9 @@ class WorkerManager : Dispatch::Poller {
     Transport::ServerRpc* waitForRpc(double timeoutSeconds);
 
   PROTECTED:
+  static inline void timeTrace(const char* format,
+        uint32_t arg0 = 0, uint32_t arg1 = 0, uint32_t arg2 = 0,
+        uint32_t arg3 = 0);
 
     /// How many microseconds worker threads should remain in their polling
     /// loop waiting for work. If no new arrives during this period the
@@ -130,7 +133,9 @@ class Worker {
     Tub<std::thread> thread;           /// Thread that executes this worker.
   public:
     int threadId;                      /// Identifier for this thread, assigned
-                                       /// by the ThreadId class.
+                                       /// by the ThreadId class; set when the
+                                       /// worker starts execution, 0 before
+                                       /// then.
     WireFormat::Opcode opcode;         /// Opcode value from most recent RPC.
     int level;                         /// RpcLevel of most recent RPC.
     Transport::ServerRpc* rpc;         /// RPC being serviced by this worker.
@@ -182,7 +187,7 @@ class Worker {
     explicit Worker(Context* context)
             : context(context)
             , thread()
-            , threadId(ThreadId::get())
+            , threadId(0)
             , opcode(WireFormat::Opcode::ILLEGAL_RPC_TYPE)
             , level(0)
             , rpc(NULL)

@@ -26,7 +26,6 @@
 #include "ShortMacros.h"
 #include "ServerRpcPool.h"
 #include "TimeTrace.h"
-#include "TimeTraceUtil.h"
 #include "WireFormat.h"
 #include "WorkerManager.h"
 
@@ -38,11 +37,21 @@
 // eviction from the cluster.
 // #define LOG_RPCS 1
 
-// Uncomment following line (or specifying -D SMTT on the make command line)
+namespace RAMCloud {
+// Uncomment the following line (or specify -D SMTT on the make command line)
 // to enable a bunch of time tracing in this module.
 // #define SMTT 1
 
-namespace RAMCloud {
+// Provides a shorthand way of invoking TimeTrace::record, compiled in or out
+// by the SMTT #ifdef.
+void
+WorkerManager::timeTrace(const char* format,
+        uint32_t arg0, uint32_t arg1, uint32_t arg2, uint32_t arg3)
+{
+#ifdef SMTT
+    TimeTrace::record(format, arg0, arg1, arg2, arg3);
+#endif
+}
 
 /**
  * Default object used to make system calls.
@@ -164,6 +173,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
         return;
     }
     int level = RpcLevel::getLevel(WireFormat::Opcode(header->opcode));
+    timeTrace("handleRpc processing opcode %d", header->opcode);
 #ifdef LOG_RPCS
     LOG(NOTICE, "Received %s RPC at %lu with %u bytes",
             WireFormat::opcodeSymbol(header->opcode),
@@ -186,6 +196,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
                 // Can't run this request right now.
                 levels[level].waitingRpcs.push(rpc);
                 rpcsWaiting++;
+                timeTrace("RPC deferred; threads busy");
                 return;
             }
         }
@@ -249,6 +260,8 @@ WorkerManager::poll()
         }
         foundWork = 1;
         Fence::enter();
+        timeTrace("dispatch thread starting cleanup for opcode %d, thread %d",
+                worker->opcode, worker->threadId);
 
         // The worker is either post-processing or idle; in either case,
         // there may be an RPC that we have to respond to. Save the RPC
@@ -305,11 +318,8 @@ WorkerManager::poll()
                     rpc->replyPayload.size());
 #endif
             rpc->sendReply();
-#ifdef SMTT
-            context->timeTrace->record(
-                    TimeTraceUtil::statusMsg(worker->threadId,
-                    worker->opcode, TimeTraceUtil::RequestStatus::REPLY_SENT));
-#endif
+            timeTrace("sent reply for opcode %d, thread %d",
+                    worker->threadId, worker->opcode);
 
         }
 
@@ -369,6 +379,7 @@ WorkerManager::waitForRpc(double timeoutSeconds) {
 void
 WorkerManager::workerMain(Worker* worker)
 {
+    worker->threadId = ThreadId::get();
     PerfStats::registerStats(&PerfStats::threadStats);
 
     // Cycles::rdtsc time that's updated continuously when this thread is idle.
@@ -384,12 +395,7 @@ WorkerManager::workerMain(Worker* worker)
             // Wait for WorkerManager to supply us with some work to do.
             while (worker->state.load() != Worker::WORKING) {
                 if (lastIdle >= stopPollingTime) {
-#ifdef SMTT
-                    worker->context->timeTrace->record(
-                            TimeTraceUtil::statusMsg(worker->threadId,
-                            worker->opcode,
-                            TimeTraceUtil::RequestStatus::WORKER_SLEEP));
-#endif
+                    timeTrace("worker thread %d sleeping", worker->threadId);
 
                     // It's been a long time since we've had any work to do; go
                     // to sleep so we don't waste any more CPU cycles.  Tricky
@@ -413,19 +419,15 @@ WorkerManager::workerMain(Worker* worker)
                             }
                         }
                     }
+                    timeTrace("worker thread %d waking", worker->threadId);
                 }
                 lastIdle = Cycles::rdtsc();
             }
             Fence::enter();
             if (worker->rpc == WORKER_EXIT)
                 break;
-
-#ifdef SMTT
-            worker->context->timeTrace->record(
-                    TimeTraceUtil::statusMsg(worker->threadId,
-                    worker->opcode,
-                    TimeTraceUtil::RequestStatus::WORKER_START));
-#endif
+            timeTrace("worker thread %d received opcode %d", worker->threadId,
+                    worker->opcode);
 
             worker->rpc->epoch = LogProtector::getCurrentEpoch();
             Service::Rpc rpc(worker, &worker->rpc->requestPayload,
@@ -434,13 +436,10 @@ WorkerManager::workerMain(Worker* worker)
 
             // Pass the RPC back to the dispatch thread for completion.
             Fence::leave();
-#ifdef SMTT
-            worker->context->timeTrace->record(
-                    TimeTraceUtil::statusMsg(worker->threadId,
-                    worker->opcode,
-                    TimeTraceUtil::RequestStatus::WORKER_DONE));
-#endif
             worker->state.store(Worker::POLLING);
+            timeTrace("worker thread %d completed opcode %d; "
+                    "dispatch thread signaled",
+                    worker->threadId, worker->opcode);
 
             // Update performance statistics.
             uint64_t current = Cycles::rdtsc();
@@ -506,15 +505,15 @@ Worker::handoff(Transport::ServerRpc* newRpc)
     Fence::leave();
 #ifdef SMTT
     if (rpc != WORKER_EXIT) {
-        context->timeTrace->record(
-                TimeTraceUtil::statusMsg(threadId,
-                opcode, TimeTraceUtil::RequestStatus::HANDOFF));
+        TimeTrace::record("handing off opcode %d to worker thread %d",
+                opcode, threadId);
     }
 #endif
     int prevState = state.exchange(WORKING);
     if (prevState == SLEEPING) {
         // The worker got tired of polling and went to sleep, so we
         // have to do extra work to wake it up.
+        WorkerManager::timeTrace("waking sleeping worker thread %d", threadId);
         if (WorkerManager::sys->futexWake(reinterpret_cast<int*>(&state), 1)
                 == -1) {
             LOG(ERROR,
@@ -524,6 +523,8 @@ Worker::handoff(Transport::ServerRpc* newRpc)
             // or unwinding the RPC.  As of 6/2011 it isn't clear what the
             // right action is, so things just get left in limbo.
         }
+        WorkerManager::timeTrace("futexWake completed for worker thread %d",
+                threadId);
     }
 }
 
@@ -537,11 +538,8 @@ Worker::sendReply()
 {
     Fence::leave();
     state.store(POSTPROCESSING);
-#ifdef SMTTXX
-    context->timeTrace->record(
-            TimeTraceUtil::statusMsg(threadId,
-            opcode, TimeTraceUtil::RequestStatus::POST_PROCESSING));
-#endif
+    WorkerManager::timeTrace("worker thread %d postprocesing opcode %d; "
+            "reply signaled to dispatch", threadId, opcode);
 }
 
 
