@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-20121 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -38,11 +38,8 @@ namespace RAMCloud {
  * Simple packet send/receive style interface. See Driver for more detail.
  */
 class InfUdDriver : public Driver {
-    typedef Infiniband::BufferDescriptor BufferDescriptor;
-    typedef Infiniband::QueuePairTuple QueuePairTuple;
     typedef Infiniband::QueuePair QueuePair;
     typedef Infiniband::Address Address;
-    typedef Infiniband::RegisteredBuffers RegisteredBuffers;
 
   public:
     explicit InfUdDriver(Context* context,
@@ -53,6 +50,7 @@ class InfUdDriver : public Driver {
     virtual int getTransmitQueueSpace(uint64_t currentTime);
     virtual void receivePackets(int maxPackets,
             std::vector<Received>* receivedPackets);
+    virtual void registerMemory(void* base, size_t bytes);
     virtual void release(char *payload);
     virtual void sendPacket(const Driver::Address *addr, const void *header,
                             uint32_t headerLen, Buffer::Iterator *payload);
@@ -68,13 +66,92 @@ class InfUdDriver : public Driver {
     }
 
   PRIVATE:
+
+    /**
+     * Stores information about a single packet buffer (used for both
+     * transmit and receive buffers).
+     */
+    struct BufferDescriptor {
+        /// First byte of the packet buffer.
+        char* buffer;
+
+        /// Length of the buffer, in bytes.
+        uint32_t length;
+
+        /// Infiniband memory region in which buffer is allocated.
+        ibv_mr* memoryRegion;
+
+        // Fields above here do not change once this structure has been
+        // allocated. Fields below are modified based on the buffer's usage,
+        // and may not always be valid.
+
+        /// If the buffer currently holds a packet, this gives the length
+        /// of that packet, in bytes.
+        uint32_t packetLength;
+
+        /// Unique Infiniband identifier for the HCA to which the packet will
+        /// be sent (or from which the packet was received).
+        uint16_t remoteLid;
+
+        /// One of the following addresses is used for each received packet
+        /// to identify the sender. Not used for transmitted packets.
+        Tub<Address> infAddress;
+        Tub<MacAddress> macAddress;
+
+        BufferDescriptor(char *buffer, uint32_t length, ibv_mr *region)
+            : buffer(buffer), length(length), memoryRegion(region),
+              packetLength(0), remoteLid(0), infAddress(), macAddress() {}
+
+      private:
+        DISALLOW_COPY_AND_ASSIGN(BufferDescriptor);
+    };
+
+    /**
+     * Represents a collection of buffers allocated in a memory region
+     * that has been registered with the HCA.
+     */
+    struct BufferPool {
+        BufferPool(Infiniband* infiniband, uint32_t bufferSize,
+                uint32_t numBuffers);
+        ~BufferPool();
+
+        /// Dynamically allocated memory for the buffers (must be freed).
+        char *bufferMemory;
+
+        /// HCA region associated with bufferMemory.
+        ibv_mr* memoryRegion;
+
+        /// Dynamically allocated array holding one descriptor for each
+        /// packet buffer in bufferMemory, in the same order as the
+        /// corresponding packet buffers.
+        BufferDescriptor* descriptors;
+
+        /// Buffers that are currently unused.
+        vector<BufferDescriptor*> freeBuffers;
+
+        /// Total number of buffers (and descriptors) allocated.)
+        uint32_t numBuffers;
+
+        DISALLOW_COPY_AND_ASSIGN(BufferPool);
+    };
+
     BufferDescriptor* getTransmitBuffer();
     void reapTransmitBuffers();
+    void refillReceiver();
 
-    static const uint32_t MAX_RX_QUEUE_DEPTH = 2000;
+    /// Total receive buffers allocated. At any given time, some may be in
+    /// the possession of the HCA, some (holding received data) may be in
+    /// the possession of higher-level software processing requests, and
+    /// some may be idle (in freeRxBuffers). We need a *lot* of these,
+    /// if we're going to handle multiple 8-MB incoming RPCs at once.
+    static const uint32_t TOTAL_RX_BUFFERS = 50000;
+
+    /// Maximum number of receive buffers that will be in the possession
+    /// of the HCA at once.
+    static const uint32_t MAX_RX_QUEUE_DEPTH = 1000;
+
+    /// Maximum number of transmit buffers that may be outstanding at once.
     static const uint32_t MAX_TX_QUEUE_DEPTH = 50;
-    static const uint32_t MAX_RX_SGE_COUNT = 1;
-    static const uint32_t MAX_TX_SGE_COUNT = 1;
 
     /*
      * Note that in UD mode, Infiniband receivers prepend a 40-byte
@@ -94,70 +171,71 @@ class InfUdDriver : public Driver {
                                     // packets
     } __attribute__((packed));
 
-    /**
-     * Structure to hold an incoming packet.
-     */
-    struct PacketBuf {
-        PacketBuf() : infAddress(), macAddress() {}
-        /**
-         * Address of sender (used to send reply).
-         */
-        Tub<Address> infAddress;
-        Tub<MacAddress> macAddress;
-        /**
-         * Packet data (may not fill all of the allocated space).
-         */
-        char payload[2048 - GRH_SIZE];
-    };
-
     /// Shared RAMCloud information.
     Context* context;
 
     /// See #infiniband.
     Tub<Infiniband> realInfiniband;
 
-    /**
-     * Used by this class to make all Infiniband verb calls.  In normal
-     * production use it points to #realInfiniband; for testing it points to a
-     * mock object.
-     */
+    /// Used by this class to make all Infiniband verb calls.  In normal
+    /// production use it points to #realInfiniband; for testing it points to a
+    /// mock object.
     Infiniband* infiniband;
 
+    /// Packet buffers used for receiving incoming packets.
+    Tub<BufferPool> rxPool;
+
+    /// Must be held whenever accessing rxPool.freeBuffers: it is shared
+    /// between worker threads (returning packet buffers when they are
+    /// finished) and the dispatch thread (moving buffers from there to the
+    /// HCA).
+    SpinLock mutex;
+
+    /// Number of receive buffers currently in the possession of the
+    /// HCA.
+    uint32_t rxBuffersInHca;
+
+    /// Used to log messages when receive buffer usage hits a new high.
+    /// Log the next message when the number of free receive buffers
+    /// drops to this level.
+    uint32_t rxBufferLogThreshold;
+
+    /// Packet buffers used to transmit outgoing packets.
+    Tub<BufferPool> txPool;
+
+    /// This value appears to be used for security. Each outgoing datagram
+    /// contains a QKey, which must match a QKey values stored with the
+    /// receiving queue pair.  This driver simply hard-wires this value.
     const uint32_t QKEY;
 
-    ibv_cq*                rxcq;           // verbs rx completion queue
-    ibv_cq*                txcq;           // verbs tx completion queue
-    QueuePair* qp;             // verbs queue pair wrapper
+    /// Completion queue for receiving incoming packets.
+    ibv_cq* rxcq;
 
-    /// Holds packet buffers that are no longer in use, for use any future
-    /// requests; saves the overhead of calling malloc/free for each request.
-    ObjectPool<PacketBuf> packetBufPool;
+    /// Completion queue used by the NIC to return buffers for
+    /// transmitted packets.
+    ibv_cq* txcq;
 
-    /// Number of current allocations from packetBufPool.
-    uint64_t            packetBufsUtilized;
+    /// Queue pair object associated with rxcq and txcq.
+    QueuePair* qp;
 
-    /// Must be held when manipulating packetBufPool or packetBufsUtilized
-    /// (allows the release method to run in worker threads without
-    /// acquiring the Dispatch lock).
-    SpinLock mutex;
-    typedef std::unique_lock<SpinLock> Lock;
+    /// Physical port on the HCA used by this transport.
+    int ibPhysicalPort;
 
-    /// Infiniband receive buffers, written directly by the HCA.
-    Tub<RegisteredBuffers> rxBuffers;
+    /// Identifies our HCA uniquely among all those in the Infiband
+    /// network; roughly equivalent to a host address.
+    int lid;
 
-    /// Infiniband transmit buffers
-    Tub<RegisteredBuffers> txBuffers;
+    /// Unique identifier for qp, among all queue pairs allocated by
+    /// this machine.
+    int qpn;
 
-    /// Infiniband transmit buffers that are not currently in use
-    vector<BufferDescriptor*> freeTxBuffers;
-
-    int ibPhysicalPort;                 // our HCA's physical port index
-    int lid;                            // our infiniband local id
-    int qpn;                            // our queue pair number
-    Tub<MacAddress> localMac;           // our MAC address (if Ethernet)
+    /// Our MAC address, if we're using an Ethernet port. If this has not
+    /// been constructed, it means we are using an Infiniband port, not
+    /// Ethernet.
+    Tub<MacAddress> localMac;
 
     /// Our ServiceLocator, including the dynamic lid and qpn
-    string              locatorString;
+    string locatorString;
 
     // Effective network bandwidth, in Gbits/second.
     int bandwidthGbps;
@@ -168,6 +246,24 @@ class InfUdDriver : public Driver {
     /// Upper limit on how many bytes should be queued for transmission
     /// at any given time.
     uint32_t maxTransmitQueueSize;
+
+    /// Address of the first byte of the "zero-copy region". This is an area
+    /// of memory that is addressable directly by the HCA. When transmitting
+    /// data from this region, we don't need to copy the data into packet
+    /// buffers; we can point the HCA at the memory directly. NULL if no
+    /// zero-copy region.
+    char* zeroCopyStart;
+
+    /// Address of the byte just after the last one of the zero-copy region.
+    /// NULL if no zero-copy region.
+    char* zeroCopyEnd;
+
+    /// Infiniband memory region associated with the zero-copy region, or
+    /// NULL if there is no zero-copy region.
+    ibv_mr* zeroCopyRegion;
+
+    /// Used to invoke reapTransmitBuffers after every Nth packet is sent.
+    int sendsSinceLastReap;
 
     DISALLOW_COPY_AND_ASSIGN(InfUdDriver);
 };
