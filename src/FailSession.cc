@@ -22,9 +22,8 @@ namespace RAMCloud {
  * Constructor for FailSession.
  */
 FailSession::FailSession()
-{
-    setServiceLocator("fail:");
-}
+    : Session("fail:")
+{}
 
 /**
  * Destructor for FailSession.

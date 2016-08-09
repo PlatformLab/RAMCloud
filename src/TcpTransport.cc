@@ -614,7 +614,8 @@ TcpTransport::IncomingMessage::readMessage(int fd) {
 TcpTransport::TcpSession::TcpSession(TcpTransport* transport,
         const ServiceLocator* serviceLocator,
         uint32_t timeoutMs)
-    : transport(transport)
+    : Session(serviceLocator->getOriginalString())
+    , transport(transport)
     , address(serviceLocator)
     , fd(-1), serial(1)
     , rpcsWaitingToSend()
@@ -626,7 +627,6 @@ TcpTransport::TcpSession::TcpSession(TcpTransport* transport,
     , alarm(transport->context->sessionAlarmTimer, this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
-    setServiceLocator(serviceLocator->getOriginalString());
     fd = sys->socket(PF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
         LOG(WARNING, "TcpTransport couldn't open socket for session: %s",
@@ -640,10 +640,10 @@ TcpTransport::TcpSession::TcpSession(TcpTransport* transport,
         sys->close(fd);
         fd = -1;
         LOG(WARNING, "TcpTransport couldn't connect to %s: %s",
-            getServiceLocator().c_str(), strerror(errno));
+            this->serviceLocator.c_str(), strerror(errno));
         throw TransportException(HERE, format(
                 "TcpTransport couldn't connect to %s",
-                getServiceLocator().c_str()), errno);
+                this->serviceLocator.c_str()), errno);
     }
 
     // Check to see if we accidentally connected to ourself. This can
@@ -806,7 +806,7 @@ TcpTransport::TcpSession::getRpcInfo()
     if (result.empty())
         result = "no active RPCs";
     result += " to server at ";
-    result += getServiceLocator();
+    result += serviceLocator;
     return result;
 }
 

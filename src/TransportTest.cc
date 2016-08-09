@@ -45,7 +45,7 @@ static void contentionThread(Transport::SessionRef* ref, bool* done)
 }
 
 TEST_F(TransportTest, sessionRef_contention) {
-    Transport::SessionRef wrappedSession = new Transport::Session();
+    Transport::SessionRef wrappedSession = new Transport::Session("");
     Transport::SessionRef copy = wrappedSession;
     bool done = false;
     std::thread child(contentionThread, &wrappedSession, &done);

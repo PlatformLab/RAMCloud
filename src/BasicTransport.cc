@@ -567,7 +567,8 @@ BasicTransport::tryToTransmitData()
  */
 BasicTransport::Session::Session(BasicTransport* t,
         const ServiceLocator* locator, uint32_t timeoutMs)
-    : t(t)
+    : Transport::Session(locator->getOriginalString())
+    , t(t)
     , serverAddress(NULL)
     , aborted(false)
 {
@@ -579,7 +580,6 @@ BasicTransport::Session::Session(BasicTransport* t,
         throw TransportException(HERE,
                 "BasicTransport couldn't parse service locator");
     }
-    setServiceLocator(locator->getOriginalString());
 }
 
 /*
@@ -642,7 +642,7 @@ BasicTransport::Session::getRpcInfo()
     if (result.empty())
         result = "no active RPCs";
     result += " to server at ";
-    result += getServiceLocator();
+    result += serviceLocator;
     return result;
 }
 

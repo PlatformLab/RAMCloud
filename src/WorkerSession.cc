@@ -30,10 +30,10 @@ namespace RAMCloud {
  */
 WorkerSession::WorkerSession(Context* context,
         Transport::SessionRef wrapped)
-    : context(context)
+    : Session(wrapped->serviceLocator)
+    , context(context)
     , wrapped(wrapped)
 {
-    setServiceLocator(wrapped->getServiceLocator());
     RAMCLOUD_TEST_LOG("created");
 }
 

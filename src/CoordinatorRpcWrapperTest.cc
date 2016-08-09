@@ -58,7 +58,7 @@ TEST_F(CoordinatorRpcWrapperTest, send) {
     wrapper.send();
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
     EXPECT_EQ("sendRequest: 100", transport.outputLog);
-    EXPECT_EQ("mock:", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:", wrapper.session->serviceLocator);
 }
 
 }  // namespace RAMCloud

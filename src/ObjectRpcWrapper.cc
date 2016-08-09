@@ -91,7 +91,7 @@ ObjectRpcWrapper::checkStatus()
         // configuration cache and try again.
         LOG(NOTICE, "Server %s doesn't store <%lu, 0x%lx>; "
                 "refreshing object map",
-                session->getServiceLocator().c_str(),
+                session->serviceLocator.c_str(),
                 tableId, keyHash);
         context->objectFinder->flush(tableId);
         send();

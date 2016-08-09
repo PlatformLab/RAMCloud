@@ -431,7 +431,7 @@ TxRecoveryManager::RecoveryTask::TxRecoveryRpcWrapper::handleTransportError()
     // to this session, and related to the object mappings.  The objects
     // will all be retried when \c finish is called.
     if (session.get() != NULL) {
-        context->transportManager->flushSession(session->getServiceLocator());
+        context->transportManager->flushSession(session->serviceLocator);
         session = NULL;
     }
     markOpsForRetry();
@@ -586,7 +586,7 @@ TxRecoveryManager::RecoveryTask::sendDecisionRpc()
         Transport::SessionRef session =
                 context->objectFinder->lookup(entry->tableId,
                                               entry->keyHash);
-        if (session->getServiceLocator() != rpcSession->getServiceLocator()
+        if (session->serviceLocator != rpcSession->serviceLocator
             || !nextRpc->appendOp(nextParticipantEntry)) {
             break;
         }
@@ -740,7 +740,7 @@ TxRecoveryManager::RecoveryTask::sendRequestAbortRpc()
         Transport::SessionRef session =
                 context->objectFinder->lookup(entry->tableId,
                                               entry->keyHash);
-        if (session->getServiceLocator() != rpcSession->getServiceLocator()
+        if (session->serviceLocator != rpcSession->serviceLocator
             || !nextRpc->appendOp(nextParticipantEntry)) {
             break;
         }

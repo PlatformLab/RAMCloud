@@ -77,7 +77,7 @@ TEST_F(IndexRpcWrapperTest, checkStatus_unknownIndexlet) {
     IndexRpcWrapper wrapper(&ramcloud, 10, 1, "abc", 3, 4, &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
-    EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=1", wrapper.session->serviceLocator);
     wrapper.response->emplaceAppend<WireFormat::ResponseCommon>()->status =
             STATUS_UNKNOWN_INDEXLET;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
@@ -87,7 +87,7 @@ TEST_F(IndexRpcWrapperTest, checkStatus_unknownIndexlet) {
             "given secondary key for table 10, index id 1; "
             "refreshing object map",
             TestLog::get());
-    EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=2", wrapper.session->serviceLocator);
 }
 
 TEST_F(IndexRpcWrapperTest, checkStatus_otherError) {
@@ -102,7 +102,7 @@ TEST_F(IndexRpcWrapperTest, checkStatus_otherError) {
     EXPECT_TRUE(wrapper.isReady());
     EXPECT_STREQ("FINISHED", wrapper.stateString());
     EXPECT_EQ("", TestLog::get());
-    EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=1", wrapper.session->serviceLocator);
 }
 
 TEST_F(IndexRpcWrapperTest, indexletNotFound) {
@@ -121,13 +121,13 @@ TEST_F(IndexRpcWrapperTest, handleTransportError) {
     IndexRpcWrapper wrapper(&ramcloud, 10, 1, "abc", 3, 4, &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
-    EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=1", wrapper.session->serviceLocator);
     wrapper.state = RpcWrapper::RpcState::FAILED;
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
     EXPECT_EQ("flushSession: flushing session for mock:refresh=1",
                 TestLog::get());
-    EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=2", wrapper.session->serviceLocator);
 }
 
 TEST_F(IndexRpcWrapperTest, send) {
@@ -137,7 +137,7 @@ TEST_F(IndexRpcWrapperTest, send) {
     wrapper.send();
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
     EXPECT_EQ("sendRequest: 100", transport.outputLog);
-    EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=1", wrapper.session->serviceLocator);
 }
 
 TEST_F(IndexRpcWrapperTest, send_noSession) {

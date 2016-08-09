@@ -345,7 +345,7 @@ try
         Transport::SessionRef session =
             context.objectFinder->lookup(tables[t], "0", 1);
         LOG(NOTICE, "%s has table %lu",
-            session->getServiceLocator().c_str(), tables[t]);
+            session->serviceLocator.c_str(), tables[t]);
     }
 
     // dump out coordinator rpc info
@@ -387,10 +387,10 @@ try
         auto session = context.objectFinder->lookup(tables[t], "0", 1);
         if (nb.size() == objectDataSize) {
             LOG(NOTICE, "recovered value read from %s has length %u",
-                session->getServiceLocator().c_str(), nb.size());
+                session->serviceLocator.c_str(), nb.size());
         } else {
             LOG(ERROR, "recovered value read from %s has length %u "
-                "(expected %u)", session->getServiceLocator().c_str(),
+                "(expected %u)", session->serviceLocator.c_str(),
                 nb.size(), objectDataSize);
             somethingWentWrong = true;
         }

@@ -224,7 +224,7 @@ MultiOp::finishRpc(MultiOp::PartRpc* rpc) {
                 // (Only log one message per call to this method).
                 LOG(NOTICE, "Server %s doesn't store <%lu, %*s>; "
                         "refreshing object map",
-                        rpc->session->getServiceLocator().c_str(),
+                        rpc->session->serviceLocator.c_str(),
                         request->tableId, (request->keyLength > 100) ? 100 :
                                 request->keyLength,
                         reinterpret_cast<const char*>(request->key));
@@ -478,7 +478,7 @@ MultiOp::PartRpc::handleTransportError()
     // will all be retried when \c finish is called.
     if (session.get() != NULL) {
         ramcloud->clientContext->transportManager->flushSession(
-                session->getServiceLocator());
+                session->serviceLocator);
         session = NULL;
     }
     for (uint32_t i = 0; i < reqHdr->count; i++) {

@@ -101,7 +101,7 @@ CoordinatorSession::getSession()
         locator = coordinatorLocator;
     }
     session = context->transportManager->openSession(locator);
-    if (session->getServiceLocator() != "fail:") {
+    if (session->serviceLocator != "fail:") {
         LOG(NOTICE, "Opened session with coordinator at %s", locator.c_str());
     }
     return session;

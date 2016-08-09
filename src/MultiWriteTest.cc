@@ -133,7 +133,7 @@ class MultiWriteTest : public ::testing::Test {
             separator = " ";
             if (request.rpcs[i]) {
                 result.append(format("%s(%d)",
-                    request.rpcs[i]->session->getServiceLocator().c_str(),
+                    request.rpcs[i]->session->serviceLocator.c_str(),
                     request.rpcs[i]->reqHdr->count));
             } else {
                 result.append("-");

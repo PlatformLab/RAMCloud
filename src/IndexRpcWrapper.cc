@@ -113,7 +113,7 @@ IndexRpcWrapper::checkStatus()
         LOG(NOTICE,
             "Server %s doesn't store given secondary key "
                 "for table %lu, index id %u; refreshing object map",
-            session->getServiceLocator().c_str(), tableId, indexId);
+            session->serviceLocator.c_str(), tableId, indexId);
         objectFinder->flush(tableId);
         send();
         return false;

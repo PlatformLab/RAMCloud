@@ -179,14 +179,14 @@ TEST_F(AbstractServerListTest, getSession_basics) {
     ServerId id1 = sl.add("mock:id=1", ServerStatus::UP);
     ServerId id2 = sl.add("mock:id=2", ServerStatus::UP);
     Transport::SessionRef session1 = sl.getSession(id1);
-    EXPECT_EQ("mock:id=1", session1->getServiceLocator());
+    EXPECT_EQ("mock:id=1", session1->serviceLocator);
     Transport::SessionRef session2 = sl.getSession(id2);
-    EXPECT_EQ("mock:id=2", session2->getServiceLocator());
+    EXPECT_EQ("mock:id=2", session2->serviceLocator);
     Transport::SessionRef session3 = sl.getSession(id1);
     EXPECT_EQ(session1, session3);
 }
 TEST_F(AbstractServerListTest, getSession_bogusId) {
-    EXPECT_EQ("fail:", sl.getSession({9999, 22})->getServiceLocator());
+    EXPECT_EQ("fail:", sl.getSession({9999, 22})->serviceLocator);
 }
 TEST_F(AbstractServerListTest, getSession_serverCrashed) {
     MockTransport transport(&context);
@@ -194,7 +194,7 @@ TEST_F(AbstractServerListTest, getSession_serverCrashed) {
 
     ServerId id1 = sl.add("mock:id=1", ServerStatus::CRASHED);
     Transport::SessionRef session1 = sl.getSession(id1);
-    EXPECT_EQ("fail:", session1->getServiceLocator());
+    EXPECT_EQ("fail:", session1->serviceLocator);
 }
 TEST_F(AbstractServerListTest, getSession_verifyServerId) {
     AbstractServerList::skipServerIdCheck = false;
@@ -208,9 +208,9 @@ TEST_F(AbstractServerListTest, getSession_verifyServerId) {
     ServerId id2 = sl.add("mock:host=ping", ServerStatus::UP,
             {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE});
     TestLog::Enable _;
-    EXPECT_EQ("mock:host=ping", sl.getSession(id1)->getServiceLocator());
+    EXPECT_EQ("mock:host=ping", sl.getSession(id1)->serviceLocator);
     EXPECT_EQ("", TestLog::get());
-    EXPECT_EQ("fail:", sl.getSession(id2)->getServiceLocator());
+    EXPECT_EQ("fail:", sl.getSession(id2)->serviceLocator);
     EXPECT_EQ("getSession: server for locator mock:host=ping has incorrect "
             "id (expected 1.0, got 0.0); discarding session",
             TestLog::get());
@@ -225,7 +225,7 @@ TEST_F(AbstractServerListTest, getSession_transportException) {
     Transport::SessionRef session = sl.getSession(id1);
     EXPECT_TRUE(TestUtil::contains(TestLog::get(), "getSession: couldn't "
             "verify server id for 0.0: connection failed"));
-    EXPECT_EQ("fail:", session->getServiceLocator());
+    EXPECT_EQ("fail:", session->serviceLocator);
 }
 TEST_F(AbstractServerListTest, getSession_retryIdVerification) {
     AbstractServerList::skipServerIdCheck = false;
@@ -238,7 +238,7 @@ TEST_F(AbstractServerListTest, getSession_retryIdVerification) {
             {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE});
     pingService.setServerId(id1);
     TestLog::Enable _;
-    EXPECT_EQ("mock:host=ping", sl.getSession(id1)->getServiceLocator());
+    EXPECT_EQ("mock:host=ping", sl.getSession(id1)->serviceLocator);
     EXPECT_EQ("getSession: retrying server id check for 0.0: server "
             "not yet enlisted", TestLog::get());
 }
@@ -249,11 +249,11 @@ TEST_F(AbstractServerListTest, flushSession) {
 
     ServerId id = sl.add("mock:id=1", ServerStatus::UP);
     Transport::SessionRef session1 = sl.getSession(id);
-    EXPECT_EQ("mock:id=1", session1->getServiceLocator());
+    EXPECT_EQ("mock:id=1", session1->serviceLocator);
     sl.flushSession({999, 999});
     sl.flushSession(id);
     Transport::SessionRef session2 = sl.getSession(id);
-    EXPECT_EQ("mock:id=1", session2->getServiceLocator());
+    EXPECT_EQ("mock:id=1", session2->serviceLocator);
     EXPECT_NE(session1, session2);
 }
 

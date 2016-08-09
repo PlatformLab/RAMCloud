@@ -1267,7 +1267,7 @@ double serialize() {
 double sessionRefCount()
 {
     int count = 1000000;
-    Transport::SessionRef ref1(new Transport::Session);
+    Transport::SessionRef ref1(new Transport::Session("test"));
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         Transport::SessionRef ref2 = ref1;

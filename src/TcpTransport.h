@@ -257,7 +257,8 @@ class TcpTransport : public Transport {
                 RpcNotifier* notifier);
       PRIVATE:
 #if TESTING
-        explicit TcpSession(TcpTransport* transport) : transport(transport),
+        explicit TcpSession(TcpTransport* transport) :
+            Session(""), transport(transport),
             address(), fd(-1), serial(1),
             rpcsWaitingToSend(), bytesLeftToSend(0),
             rpcsWaitingForResponse(), current(NULL),

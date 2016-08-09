@@ -80,7 +80,7 @@ TEST_F(WorkerSessionTest, getServiceLocator) {
     WorkerSession* wrappedSession = new WorkerSession(
             &context, transport.getSession());
     EXPECT_STREQ("test:",
-            wrappedSession->getServiceLocator().c_str());
+            wrappedSession->serviceLocator.c_str());
 }
 
 TEST_F(WorkerSessionTest, sendRequest) {

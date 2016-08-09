@@ -93,8 +93,8 @@ try
                 context.objectFinder->lookup(table, "0", 1);
         // Round-robin table allocation: create tables until we find we've
         // created an extra table on the server with mainTable.
-        if (session->getServiceLocator() ==
-            mainTableSession->getServiceLocator())
+        if (session->serviceLocator ==
+            mainTableSession->serviceLocator)
             break;
         client.write(table, "0", 1, value, objectDataSize);
         // Keep track of the table id of one of the backups that doesn't have
@@ -112,7 +112,7 @@ try
 
     Transport::SessionRef session =
         context.objectFinder->lookup(lastBackupTable, "0", 1);
-    LOG(NOTICE, "Killing %s", session->getServiceLocator().c_str());
+    LOG(NOTICE, "Killing %s", session->serviceLocator.c_str());
 
     CycleCounter<> backupRecoveryCycles;
     KillRpc killOp(&client, lastBackupTable, "0", 1);

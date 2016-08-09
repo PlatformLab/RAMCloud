@@ -67,16 +67,14 @@ MockTransport::getSession(const ServiceLocator* serviceLocator,
             "host=error") != NULL)
         throw TransportException(HERE, "Failed to open session");
 
-    MockSession* session = new MockSession(this, serviceLocator);
-    session->setServiceLocator(serviceLocator->getOriginalString());
-    return session;
+    return new MockSession(this, serviceLocator);
 }
 
 Transport::SessionRef
 MockTransport::getSession()
 {
-    MockSession* session =  new MockSession(this);
-    session->setServiceLocator("test:");
+    ServiceLocator sl("test:");
+    MockSession* session =  new MockSession(this, &sl);
     return session;
 }
 

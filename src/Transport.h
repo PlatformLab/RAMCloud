@@ -158,7 +158,6 @@ class Transport {
          * constructed by ServerRpcPool and removed when they're destroyed.
          */
         IntrusiveListHook outstandingRpcListHook;
-      protected:
 
       PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(ServerRpc);
@@ -169,8 +168,11 @@ class Transport {
      */
     class Session {
       public:
-        Session()
-            : refCount(0) , serviceLocator() {}
+        Session(const string& serviceLocator)
+            : refCount(0)
+            , serviceLocator(serviceLocator)
+        {}
+
         virtual ~Session() {
             assert(refCount == 0);
         }
@@ -223,22 +225,6 @@ class Transport {
         }
 
         /**
-         * \return
-         *      Return a reference to the service locator this Session is to.
-         */
-        const string& getServiceLocator() {
-            return serviceLocator;
-        }
-
-        /**
-         * \param locator
-         *      The service locator this Session is connected to.
-         */
-        void setServiceLocator(const string& locator) {
-            serviceLocator = locator;
-        }
-
-        /**
          * Shut down this session: abort any RPCs in progress and reject
          * any future calls to \c sendRequest. The caller is responsible
          * for logging the reason for the abort.
@@ -252,9 +238,12 @@ class Transport {
       PROTECTED:
         std::atomic<int> refCount;      /// Count of SessionRefs that exist
                                         /// for this Session.
-      PRIVATE:
-        string serviceLocator;
 
+      public:
+        /// The service locator this Session is connected to.
+        const string serviceLocator;
+
+      PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(Session);
     };
 

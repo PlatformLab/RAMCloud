@@ -98,12 +98,10 @@ struct BindTransport : public Transport {
       public:
         explicit BindSession(BindTransport& transport, Context* context,
                              const string& locator)
-            : transport(transport), context(context),
+            : Session(locator), transport(transport), context(context),
             lastRequest(NULL), lastResponse(NULL), lastNotifier(NULL),
             dontNotify(false)
-        {
-            setServiceLocator(locator);
-        }
+        {}
 
         void abort() {}
         void cancelRequest(RpcNotifier* notifier) {}

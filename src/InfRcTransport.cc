@@ -370,13 +370,13 @@ InfRcTransport::setNonBlocking(int fd)
  */
 InfRcTransport::InfRcSession::InfRcSession(
     InfRcTransport *transport, const ServiceLocator* sl, uint32_t timeoutMs)
-    : transport(transport)
+    : Session(sl->getOriginalString())
+    , transport(transport)
     , serverAddress()
     , qp(NULL)
     , sessionAlarm(transport->context->sessionAlarmTimer, this,
             (timeoutMs != 0) ? timeoutMs : DEFAULT_TIMEOUT_MS)
 {
-    setServiceLocator(sl->getOriginalString());
     IpAddress address(sl);
     serverAddress = reinterpret_cast<struct sockaddr_in*>(
             &address.address)->sin_addr;
@@ -408,7 +408,7 @@ InfRcTransport::InfRcSession::abort()
         if (rpc.session == this) {
             LOG(NOTICE, "InfRcTransport aborting %s request to %s",
                     WireFormat::opcodeSymbol(rpc.request),
-                    getServiceLocator().c_str());
+                    serviceLocator.c_str());
             rpc.notifier->failed();
             erase(transport->clientSendQueue, rpc);
             transport->clientRpcPool.destroy(&rpc);
@@ -422,7 +422,7 @@ InfRcTransport::InfRcSession::abort()
         if (rpc.session == this) {
             LOG(NOTICE, "InfRcTransport aborting %s request to %s",
                     WireFormat::opcodeSymbol(rpc.request),
-                    getServiceLocator().c_str());
+                    serviceLocator.c_str());
             rpc.notifier->failed();
             erase(transport->outstandingRpcs, rpc);
             --transport->numUsedClientSrqBuffers;
@@ -509,7 +509,7 @@ InfRcTransport::InfRcSession::getRpcInfo()
     if (result.empty())
         result = "no active RPCs";
     result += " to server at ";
-    result += getServiceLocator();
+    result += serviceLocator;
     return result;
 }
 
@@ -526,7 +526,7 @@ InfRcTransport::InfRcSession::sendRequest(Buffer* request,
     }
 
     LOG(DEBUG, "Sending %s request to %s with %u bytes",
-            WireFormat::opcodeSymbol(request), getServiceLocator().c_str(),
+            WireFormat::opcodeSymbol(request), serviceLocator.c_str(),
             request->size());
     if (request->size() > t->getMaxRpcSize()) {
         throw TransportException(HERE,
@@ -1385,7 +1385,7 @@ InfRcTransport::Poller::poll()
                 }
                 LOG(DEBUG, "Received %s response from %s with %u bytes",
                         WireFormat::opcodeSymbol(rpc.request),
-                        rpc.session->getServiceLocator().c_str(),
+                        rpc.session->serviceLocator.c_str(),
                         rpc.response->size());
                 rpc.state = ClientRpc::RESPONSE_RECEIVED;
                 ++metrics->transport.receive.messageCount;

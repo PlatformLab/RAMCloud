@@ -124,7 +124,7 @@ TEST_F(IndexLookupTest, construction) {
     TestLog::Enable _;
     IndexLookup indexLookup(ramcloud.get(), 10, azKeyRange);
     EXPECT_EQ("mock:indexserver=0",
-        indexLookup.lookupRpc.rpc->session->getServiceLocator());
+        indexLookup.lookupRpc.rpc->session->serviceLocator);
     EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
 }
 
@@ -196,13 +196,13 @@ TEST_F(IndexLookupTest, isReady_issueNextLookup) {
     }
     indexLookup.lookupRpc.rpc->response->emplaceAppend<char>('b');
     EXPECT_EQ("mock:indexserver=0",
-                indexLookup.lookupRpc.rpc->session->getServiceLocator());
+                indexLookup.lookupRpc.rpc->session->serviceLocator);
     indexLookup.lookupRpc.rpc->completed();
     EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
     indexLookup.isReady();
     EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
     EXPECT_EQ("mock:indexserver=1",
-            indexLookup.lookupRpc.rpc->session->getServiceLocator());
+            indexLookup.lookupRpc.rpc->session->serviceLocator);
 }
 
 // Rule 3(b):
@@ -243,7 +243,7 @@ TEST_F(IndexLookupTest, isReady_assignPKHashesToSameServer) {
     EXPECT_EQ(IndexLookup::SENT, indexLookup.lookupRpc.status);
     indexLookup.isReady();
     EXPECT_EQ("mock:dataserver=0",
-               indexLookup.readRpcs[0].rpc->session->getServiceLocator());
+               indexLookup.readRpcs[0].rpc->session->serviceLocator);
     EXPECT_EQ(10U, indexLookup.readRpcs[0].numHashes);
     EXPECT_EQ(9U, indexLookup.readRpcs[0].maxPos);
     EXPECT_EQ(IndexLookup::SENT, indexLookup.readRpcs[0].status);

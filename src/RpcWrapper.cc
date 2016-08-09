@@ -181,7 +181,7 @@ RpcWrapper::isReady() {
                     || (responseHeader->status == STATUS_OK)) {
                 LOG(ERROR, "Response from %s for %s RPC is too short "
                         "(needed at least %d bytes, got %d)",
-                        session->getServiceLocator().c_str(),
+                        session->serviceLocator.c_str(),
                         WireFormat::opcodeSymbol(&request),
                         responseHeaderLength,
                         downCast<int>(response->size()));
@@ -215,13 +215,13 @@ RpcWrapper::isReady() {
                 }
                 RAMCLOUD_CLOG(NOTICE,
                         "Server %s returned STATUS_RETRY from %s request: %s",
-                        session->getServiceLocator().c_str(),
+                        session->serviceLocator.c_str(),
                         WireFormat::opcodeSymbol(&request),
                         message);
             } else {
                 RAMCLOUD_CLOG(NOTICE,
                         "Server %s returned STATUS_RETRY from %s request",
-                        session->getServiceLocator().c_str(),
+                        session->serviceLocator.c_str(),
                         WireFormat::opcodeSymbol(&request));
             }
             retry(retryResponse->minDelayMicros,

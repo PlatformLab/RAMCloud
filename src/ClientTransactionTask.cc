@@ -416,7 +416,7 @@ ClientTransactionTask::sendDecisionRpc()
         Transport::SessionRef session =
                 ramcloud->clientContext->objectFinder->lookup(key->tableId,
                                                               key->keyHash);
-        if (session->getServiceLocator() != rpcSession->getServiceLocator()
+        if (session->serviceLocator != rpcSession->serviceLocator
                 || !nextRpc->appendOp(nextCacheEntry)) {
             break;
         }
@@ -467,7 +467,7 @@ ClientTransactionTask::sendPrepareRpc()
         Transport::SessionRef session =
                 ramcloud->clientContext->objectFinder->lookup(key->tableId,
                                                               key->keyHash);
-        if (session->getServiceLocator() != rpcSession->getServiceLocator()
+        if (session->serviceLocator != rpcSession->serviceLocator
                 || !nextRpc->appendOp(nextCacheEntry)) {
             break;
         }
@@ -535,7 +535,7 @@ ClientTransactionTask::ClientTransactionRpcWrapper::handleTransportError()
     // will all be retried when \c finish is called.
     if (session.get() != NULL) {
         ramcloud->clientContext->transportManager->flushSession(
-                session->getServiceLocator());
+                session->serviceLocator);
         session = NULL;
     }
     markOpsForRetry();

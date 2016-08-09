@@ -150,12 +150,11 @@ class MockTransport : public Transport {
 
     class MockSession : public Session {
         public:
-            explicit MockSession(MockTransport* transport)
-                : transport(transport),
-                serviceLocator(ServiceLocator("mock: anonymous=1")) {}
             MockSession(MockTransport* transport,
                         const ServiceLocator* serviceLocator)
-                : transport(transport), serviceLocator(*serviceLocator) {}
+                : Session(serviceLocator->getOriginalString())
+                , transport(transport)
+            {}
             virtual ~MockSession();
             void abort();
             virtual void cancelRequest(RpcNotifier* notifier);
@@ -164,7 +163,6 @@ class MockTransport : public Transport {
                     RpcNotifier* notifier);
         private:
             MockTransport* transport;
-            const ServiceLocator serviceLocator;
             DISALLOW_COPY_AND_ASSIGN(MockSession);
     };
 

@@ -78,7 +78,7 @@ TEST_F(ObjectRpcWrapperTest, checkStatus_unknownTablet) {
     ObjectRpcWrapper wrapper(ramcloud.clientContext, 10, "abc", 3, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
-    EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=1", wrapper.session->serviceLocator);
     wrapper.response->emplaceAppend<WireFormat::ResponseCommon>()->status =
             STATUS_UNKNOWN_TABLET;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
@@ -87,7 +87,7 @@ TEST_F(ObjectRpcWrapperTest, checkStatus_unknownTablet) {
     EXPECT_EQ("checkStatus: Server mock:refresh=1 doesn't store "
             "<10, 0xac94bec52029fa02>; refreshing object map",
             TestLog::get());
-    EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=2", wrapper.session->serviceLocator);
 }
 
 TEST_F(ObjectRpcWrapperTest, checkStatus_otherError) {
@@ -101,7 +101,7 @@ TEST_F(ObjectRpcWrapperTest, checkStatus_otherError) {
     EXPECT_TRUE(wrapper.isReady());
     EXPECT_STREQ("FINISHED", wrapper.stateString());
     EXPECT_EQ("", TestLog::get());
-    EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=1", wrapper.session->serviceLocator);
 }
 
 TEST_F(ObjectRpcWrapperTest, handleTransportError) {
@@ -109,13 +109,13 @@ TEST_F(ObjectRpcWrapperTest, handleTransportError) {
     ObjectRpcWrapper wrapper(ramcloud.clientContext, 10, "abc", 3, 4);
     wrapper.request.fillFromString("100");
     wrapper.send();
-    EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=1", wrapper.session->serviceLocator);
     wrapper.state = RpcWrapper::RpcState::FAILED;
     EXPECT_FALSE(wrapper.isReady());
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
     EXPECT_EQ("flushSession: flushing session for mock:refresh=1",
             TestLog::get());
-    EXPECT_EQ("mock:refresh=2", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=2", wrapper.session->serviceLocator);
 }
 
 TEST_F(ObjectRpcWrapperTest, send) {
@@ -124,7 +124,7 @@ TEST_F(ObjectRpcWrapperTest, send) {
     wrapper.send();
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
     EXPECT_EQ("sendRequest: 100", transport.outputLog);
-    EXPECT_EQ("mock:refresh=1", wrapper.session->getServiceLocator());
+    EXPECT_EQ("mock:refresh=1", wrapper.session->serviceLocator);
 }
 
 TEST_F(ObjectRpcWrapperTest, send_handleTableDoesntExistException) {

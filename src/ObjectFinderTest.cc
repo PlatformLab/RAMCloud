@@ -223,7 +223,7 @@ TEST_F(ObjectFinderTest, flush) {
 TEST_F(ObjectFinderTest, lookup) {
     uint64_t lastPollTime = objectFinder->context->dispatch->currentTime;
     Transport::SessionRef session = objectFinder->lookup(1, 0);
-    EXPECT_EQ("mock:host=server1", session->getServiceLocator());
+    EXPECT_EQ("mock:host=server1", session->serviceLocator);
     EXPECT_TRUE(objectFinder->context->dispatch->currentTime > lastPollTime);
 }
 
@@ -266,7 +266,7 @@ TEST_F(ObjectFinderTest, tryLookup_stringKey) {
     ASSERT_TRUE(session == NULL);
     session = objectFinder->tryLookup(1, "abc", 3);
     ASSERT_TRUE(session != NULL);
-    EXPECT_EQ("mock:host=server1", session->getServiceLocator());
+    EXPECT_EQ("mock:host=server1", session->serviceLocator);
 }
 
 TEST_F(ObjectFinderTest, tryLookup_stringKey_noSuchTable) {
@@ -281,7 +281,7 @@ TEST_F(ObjectFinderTest, tryLookup_keyHash) {
 
     Transport::SessionRef session = objectFinder->tryLookup(1, 9999lu);
     ASSERT_TRUE(session != NULL);
-    EXPECT_EQ("mock:host=server1", session->getServiceLocator());
+    EXPECT_EQ("mock:host=server1", session->serviceLocator);
 
     // Make sure that the session was cached.
     EXPECT_EQ(session, objectFinder->tryLookup(1, 9999lu));
@@ -304,7 +304,7 @@ TEST_F(ObjectFinderTest, tryLookup_index_success) {
     Transport::SessionRef session = objectFinder->tryLookup(1, 1, "abc", 3,
                                                             &indexDoesntExist);
     ASSERT_TRUE(session != NULL && !indexDoesntExist);
-    EXPECT_EQ("mock:host=server2", session->getServiceLocator());
+    EXPECT_EQ("mock:host=server2", session->serviceLocator);
 
     // Make sure that the session was cached.
     EXPECT_EQ(session, objectFinder->tryLookup(
@@ -330,21 +330,21 @@ TEST_F(ObjectFinderTest, tryLookupIndexlet) {
             tryLookup(1, 0, reinterpret_cast<void*>(&b), 1, &indexDoesntExist));
     EXPECT_EQ("mock:host=server0",
         static_cast<BindTransport::BindSession*>(session1.get())->
-                getServiceLocator());
+                serviceLocator);
 
     // middle of the first indexlet
     Transport::SessionRef session2(objectFinder->
             tryLookup(1, 0, reinterpret_cast<void*>(&g), 1, &indexDoesntExist));
     EXPECT_EQ("mock:host=server0",
         static_cast<BindTransport::BindSession*>(session2.get())->
-                getServiceLocator());
+                serviceLocator);
 
     // begin of the second indexlet
     Transport::SessionRef session3(objectFinder->
             tryLookup(1, 0, reinterpret_cast<void*>(&l), 1, &indexDoesntExist));
     EXPECT_EQ("mock:host=server1",
         static_cast<BindTransport::BindSession*>(session3.get())->
-                getServiceLocator());
+                serviceLocator);
 
     // end of the second or last indexlet
     Transport::SessionRef session4(objectFinder->
@@ -361,14 +361,14 @@ TEST_F(ObjectFinderTest, tryLookupIndexlet) {
             tryLookup(1, 1, reinterpret_cast<void*>(&b), 1, &indexDoesntExist));
     EXPECT_EQ("mock:host=server2",
         static_cast<BindTransport::BindSession*>(session6.get())->
-                getServiceLocator());
+                serviceLocator);
 
     // where last key is NULL
     Transport::SessionRef session7(objectFinder->
             tryLookup(1, 1, reinterpret_cast<void*>(&z), 1, &indexDoesntExist));
     EXPECT_EQ("mock:host=server3",
         static_cast<BindTransport::BindSession*>(session7.get())->
-                getServiceLocator());
+                serviceLocator);
 }
 
 TEST_F(ObjectFinderTest, tryLookupTablet) {
@@ -389,7 +389,7 @@ TEST_F(ObjectFinderTest, tryLookupTablet) {
     // find tablet in operation
     EXPECT_EQ("mock:host=server1",
         static_cast<BindTransport::BindSession*>(session9.get())->
-                getServiceLocator());
+                serviceLocator);
 
     // Looking up non-existant tablet, throws TableDoesntExistException
     EXPECT_THROW(Transport::SessionRef session1(
@@ -405,13 +405,13 @@ TEST_F(ObjectFinderTest, tryLookupTablet) {
     Transport::SessionRef session3(objectFinder->tryLookup(1, "testKey", 7));
     EXPECT_EQ("mock:host=server1",
         static_cast<BindTransport::BindSession*>(session3.get())->
-                getServiceLocator());
+                serviceLocator);
 
     // looking up key in the middle tablet
     Transport::SessionRef session4(objectFinder->tryLookup(2, "testKey", 7));
     EXPECT_EQ("mock:host=server6",
         static_cast<BindTransport::BindSession*>(session4.get())->
-                getServiceLocator());
+                serviceLocator);
 
     // looking up key in the middle of two tablets
     // Ensuring tableMap iterates in the correct range for a tableId.
@@ -424,7 +424,7 @@ TEST_F(ObjectFinderTest, tryLookupTablet) {
     Transport::SessionRef session6(objectFinder->tryLookup(5, "testKey", 7));
     EXPECT_EQ("mock:host=server5",
         static_cast<BindTransport::BindSession*>(session6.get())->
-                getServiceLocator());
+                serviceLocator);
 
     // looking up key after the last tablet
     EXPECT_THROW(Transport::SessionRef session7(
@@ -436,7 +436,7 @@ TEST_F(ObjectFinderTest, tryLookupTablet) {
     Transport::SessionRef session8(objectFinder->tryLookup(2, "testKey", 7));
     EXPECT_EQ("mock:host=server6",
             static_cast<BindTransport::BindSession*>(session8.get())->
-                    getServiceLocator());
+                    serviceLocator);
 }
 
 TEST_F(ObjectFinderTest, flushSession_tablet) {
