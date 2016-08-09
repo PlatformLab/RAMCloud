@@ -69,7 +69,7 @@ coord_locator_templates = {
 def server_locator(transport, host, port=server_port):
     """Generate a service locator for a master/backup process.
 
-    @param transport: A transport name (e.g. infrc, basic+udp, tcp, ...)
+    @param transport: A transport name (e.g. infrc, basic+infud, tcp, ...)
     @type  transport: C{str}
 
     @param host: A 3-tuple of (hostname, ip, id).
@@ -92,7 +92,7 @@ def server_locator(transport, host, port=server_port):
 def coord_locator(transport, host):
     """Generate a service locator for a coordinator process.
 
-    @param transport: A transport name (e.g. infrc, basic+udp, tcp, ...)
+    @param transport: A transport name (e.g. infrc, basic+infud, tcp, ...)
     @type  transport: C{str}
 
     @param host: A 3-tuple of (hostname, ip, id).
@@ -124,7 +124,7 @@ class Cluster(object):
     @ivar verbose: If True then print progress of starting clients/servers.
                    (default: False)
     @ivar transport: Transport name to use for servers
-                     (see server_locator_templates) (default: infrc).
+                     (see server_locator_templates) (default: basic+infud).
     @ivar replicas: Replication factor to use for each log segment. (default: 3)
     @ivar disk: Server args for specifying the storage device to use for
                 backups (default: default_disk1 taken from {,local}config.py).
@@ -170,7 +170,7 @@ class Cluster(object):
         """
         self.log_level = 'NOTICE'
         self.verbose = False
-        self.transport = 'infrc'
+        self.transport = 'basic+infud'
         self.replicas = 3
         self.disk = default_disk1
         self.disjunct = False
@@ -557,7 +557,7 @@ def run(
                                    # ignored.
         share_hosts=False,         # True means clients can be run on
                                    # machines running servers, if needed.
-        transport='infrc',         # Name of transport to use for servers.
+        transport='basic+infud',   # Name of transport to use for servers.
         verbose=False,             # Print information about progress in
                                    # starting clients and servers
         debug=False,               # If True, pause after starting all
@@ -743,7 +743,7 @@ if __name__ == '__main__':
             metavar='SECS',
             help="Abort if the client application doesn't finish within "
             'SECS seconds')
-    parser.add_option('-T', '--transport', default='infrc',
+    parser.add_option('-T', '--transport', default='basic+infud',
             help='Transport to use for communication with servers')
     parser.add_option('-v', '--verbose', action='store_true', default=False,
             help='Print progress messages')

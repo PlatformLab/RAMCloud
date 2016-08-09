@@ -22,8 +22,8 @@ source scripts/common.bash
 port=11112
 cport=$(( $port + 1 ))
 
-masterLocator=infrc:host=127.0.0.1,port=$port
-coordinatorLocator=infrc:host=127.0.0.1,port=$cport
+masterLocator=basic+udp:host=127.0.0.1,port=$port
+coordinatorLocator=basic+udp:host=127.0.0.1,port=$cport
 
 # Check to see if master and coordinator servers are running. If so, kill 'em!
 portslay $port

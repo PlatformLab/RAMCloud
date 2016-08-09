@@ -45,7 +45,7 @@ def recover(num_servers,
             timeout=100,
             log_level='NOTICE',
             log_dir='logs',
-            transport='infrc',
+            transport='basic+infud',
             verbose=False,
             debug=False):
     """Run a recovery on the cluster specified in the config module and
@@ -256,7 +256,7 @@ if __name__ == '__main__':
             metavar='SECS',
             help="Abort if the client application doesn't finish within "
                  'SECS seconds')
-    parser.add_option('-T', '--transport', default='infrc',
+    parser.add_option('-T', '--transport', default='basic+infud',
             help='Transport to use for communication with servers')
     parser.add_option('-v', '--verbose', action='store_true', default=False,
             help='Print progress messages')

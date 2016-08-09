@@ -719,7 +719,7 @@ if __name__ == '__main__':
             dest='master_args',
             help='Additional command-line arguments to pass to '
                  'each master')
-    parser.add_option('-T', '--transport', default='infrc',
+    parser.add_option('-T', '--transport', default='basic+infud',
             help='Transport to use for communication with servers')
     parser.add_option('-v', '--verbose', action='store_true', default=False,
             help='Print progress messages')
