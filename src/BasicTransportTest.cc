@@ -387,12 +387,11 @@ TEST_F(BasicTransportTest, tryToTransmitData_requestsAndResponsesToTransmit) {
             driver->outputLog);
     EXPECT_EQ(1u, result);
 }
-TEST_F(BasicTransportTest, tryToTransmitData_nothingToTransmit) {
-    driver->transmitQueueSpace = 0;
+TEST_F(BasicTransportTest, tryToTransmitData_negativeTransmitQueueSpace) {
+    driver->transmitQueueSpace = -999;
     MockWrapper wrapper1("012345678901234");
     session->sendRequest(&wrapper1.request, &wrapper1.response, &wrapper1);
-    int result = transport.tryToTransmitData();
-    EXPECT_EQ(0, result);
+    EXPECT_EQ("", driver->outputLog);
 }
 
 TEST_F(BasicTransportTest, Session_constructor) {

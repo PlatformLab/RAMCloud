@@ -446,8 +446,8 @@ BasicTransport::tryToTransmitData()
     // control packets (and retransmitted data) are always passed to the
     // driver immediately.
 
-    uint32_t transmitQueueSpace = driver->getTransmitQueueSpace(
-            context->dispatch->currentTime);
+    uint32_t transmitQueueSpace = static_cast<uint32_t>(std::max(0,
+            driver->getTransmitQueueSpace(context->dispatch->currentTime)));
     uint32_t maxBytes;
 
     // Each iteration of the following loop transmits data packets for
