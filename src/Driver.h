@@ -78,6 +78,8 @@ class Driver {
             , payload()
         {}
 
+        virtual ~PacketBuf() {}
+
         /// Address of sender (used to send reply).
         Tub<T> sender;
 
