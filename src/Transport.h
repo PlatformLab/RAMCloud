@@ -168,7 +168,7 @@ class Transport {
      */
     class Session {
       public:
-        Session(const string& serviceLocator)
+        explicit Session(const string& serviceLocator)
             : refCount(0)
             , serviceLocator(serviceLocator)
         {}
