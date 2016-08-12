@@ -317,7 +317,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
         metadata.construct(certificate,
                            70, 88, config.segmentSize, 0,
                            true, false);
-        BackupStorage::FrameRef frame = storage->open(true);
+        BackupStorage::FrameRef frame = storage->open(true, ServerId(), 0);
         frames.push_back(frame);
         frame->append(empty, 0, 0, 0, &metadata, sizeof(metadata));
     }
@@ -325,7 +325,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
         metadata.construct(certificate,
                            70, 89, config.segmentSize, 0,
                            false, false);
-        BackupStorage::FrameRef frame = storage->open(true);
+        BackupStorage::FrameRef frame = storage->open(true, ServerId(), 0);
         frames.push_back(frame);
         frame->append(empty, 0, 0, 0, &metadata, sizeof(metadata));
     }
@@ -334,7 +334,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
                            70, 90, config.segmentSize, 0,
                            true, false);
         metadata->checksum = 0;
-        BackupStorage::FrameRef frame = storage->open(true);
+        BackupStorage::FrameRef frame = storage->open(true, ServerId(), 0);
         frames.push_back(frame);
         frame->append(empty, 0, 0, 0, &metadata, sizeof(metadata));
     }
@@ -342,7 +342,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
         metadata.construct(certificate,
                            70, 91, config.segmentSize+100, 0,
                            true, false);
-        BackupStorage::FrameRef frame = storage->open(true);
+        BackupStorage::FrameRef frame = storage->open(true, ServerId(), 0);
         frames.push_back(frame);
         frame->append(empty, 0, 0, 0, &metadata, sizeof(metadata));
     }
@@ -350,7 +350,7 @@ TEST_F(BackupServiceTest, restartFromStorage)
         metadata.construct(certificate,
                            71, 89, config.segmentSize, 0,
                            false, false);
-        BackupStorage::FrameRef frame = storage->open(true);
+        BackupStorage::FrameRef frame = storage->open(true, ServerId(), 0);
         frames.push_back(frame);
         frame->append(empty, 0, 0, 0, &metadata, sizeof(metadata));
     }

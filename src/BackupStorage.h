@@ -340,13 +340,18 @@ class BackupStorage {
      * \param sync
      *      Only return from append() calls when all enqueued data and the most
      *      recently enqueued metadata are durable on storage.
+     * \param masterId
+     *      The server that owns the segment associated with this replica.
+     * \param segmentId
+     *      Unique identifier (in the log of masterId) of the segment
+     *      associated with this replica.
      * \return
      *      Reference to a frame through which handles all IO for a single
      *      replica. Maintains a reference count; when destroyed if the
      *      reference count drops to zero the frame will be freed for reuse with
      *      another replica.
      */
-    virtual FrameRef open(bool sync) = 0;
+    virtual FrameRef open(bool sync, ServerId masterId, uint64_t segmentId) = 0;
 
     /**
      * Returns the maximum number of bytes of metadata that can be stored

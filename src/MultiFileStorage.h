@@ -45,8 +45,8 @@ class MultiFileStorage : public BackupStorage {
 
     /**
      * Represents both in-memory and on-disk storage of a replica. After opened,
-     * a Frame remains associated with the same replica for the lifetime of that 
-     * replica. Frames are divided into framelets, which are the units that 
+     * a Frame remains associated with the same replica for the lifetime of that
+     * replica. Frames are divided into framelets, which are the units that
      * exist on individual files. See MultiFileStorage::bytesInFramelet() for
      * information on how Frames are divided into framelets.
      */
@@ -86,7 +86,7 @@ class MultiFileStorage : public BackupStorage {
         void performTask();
 
       PRIVATE:
-        void open(bool sync);
+        void open(bool sync, ServerId masterId, uint64_t segmentId);
 
         void performRead(Lock& lock);
         void performWrite(Lock& lock);
@@ -101,6 +101,17 @@ class MultiFileStorage : public BackupStorage {
          * how this index is used to map to regions of the storage files.
          */
         const size_t frameIndex;
+
+        /**
+         * Identifier for the master server whose log contains the segment
+         * associated with this replica.
+         */
+        ServerId masterId;
+
+        /**
+         * Segment number of the segment associated with this replica.
+         */
+        uint64_t segmentId;
 
         /**
          * Buffer where data is staged for writes and loaded into on load().
@@ -220,7 +231,7 @@ class MultiFileStorage : public BackupStorage {
                      int openFlags = 0);
     ~MultiFileStorage();
 
-    FrameRef open(bool sync);
+    FrameRef open(bool sync, ServerId masterId, uint64_t segmentId);
     uint32_t benchmark(BackupStrategy backupStrategy);
     size_t getMetadataSize();
     std::vector<FrameRef> loadAllMetadata();

@@ -73,6 +73,8 @@ MultiFileStorage::Frame::Frame(MultiFileStorage* storage, size_t frameIndex)
     : PriorityTask(storage->ioQueue)
     , storage(storage)
     , frameIndex(frameIndex)
+    , masterId()
+    , segmentId(0)
     , buffer(NULL, storage->bufferDeleter)
     , isOpen(false)
     , isClosed(false)
@@ -512,13 +514,20 @@ MultiFileStorage::Frame::reopen(size_t length)
  * \param sync
  *      Only return from append() calls when all enqueued data and the most
  *      recently enqueued metadata are durable on storage.
+ * \param masterId
+ *      The server that owns the segment associated with this replica.
+ * \param segmentId
+ *      Unique identifier (in the log of masterId) of the segment
+ *      associated with this replica.
  */
 void
-MultiFileStorage::Frame::open(bool sync)
+MultiFileStorage::Frame::open(bool sync, ServerId masterId, uint64_t segmentId)
 {
     Lock _(storage->mutex);
     if (isOpen || isClosed)
         return;
+    this->masterId = masterId;
+    this->segmentId = segmentId;
     buffer = storage->allocateBuffer();
 
     // Be careful, if this method throws an exception the storage layer
@@ -1066,6 +1075,11 @@ MultiFileStorage::allocateBuffer()
  * \param sync
  *      Only return from append() calls when all enqueued data and the  most
  *      recently enqueued metadata are durable on storage.
+ * \param masterId
+ *     The server that owns the segment associated with this replica.
+ * \param segmentId
+ *      Unique identifier (in the log of masterId) of the segment
+ *      associated with this replica.
  * \return
  *      Reference to a frame through which handles all IO for a single
  *      replica. Maintains a reference count; when destroyed if the
@@ -1073,7 +1087,7 @@ MultiFileStorage::allocateBuffer()
  *      another replica.
  */
 MultiFileStorage::FrameRef
-MultiFileStorage::open(bool sync)
+MultiFileStorage::open(bool sync, ServerId masterId, uint64_t segmentId)
 {
     Lock lock(mutex);
     FreeMap::size_type next = freeMap.find_next(lastAllocatedFrame);
@@ -1088,10 +1102,6 @@ MultiFileStorage::open(bool sync)
     }
     if (writeBuffersInUse >= maxWriteBuffers) {
         // Force the master to find some place else and/or backoff.
-        RAMCLOUD_CLOG(NOTICE, "Master tried to open a storage frame but "
-                "reached the maxNonVolatileBuffers limit of %lu (there are %lu "
-                "frames already buffered); rejecting",
-                maxWriteBuffers, writeBuffersInUse);
         throw BackupOpenRejectedException(HERE);
     }
     lastAllocatedFrame = next;
@@ -1100,7 +1110,7 @@ MultiFileStorage::open(bool sync)
     freeMap[frameIndex] = 0;
     Frame* frame = &frames[frameIndex];
     lock.unlock();
-    frame->open(sync);
+    frame->open(sync, masterId, segmentId);
     return {frame, BackupStorage::freeFrame};
 }
 
@@ -1351,7 +1361,7 @@ MultiFileStorage::fry()
     uint8_t zeroes[getMetadataSize()];
     memset(zeroes, 0, sizeof(zeroes));
     foreach (Frame& frame, frames) {
-        frame.open(true);
+        frame.open(true, ServerId(), 0);
         frame.append(empty, 0, 0, 0, zeroes, sizeof(zeroes));
         frame.free();
     }

@@ -66,7 +66,7 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
                  bool closed = true, bool primary = false,
                  bool screwItUp = false)
     {
-        frames.emplace_back(storage.open(true));
+        frames.emplace_back(storage.open(true, ServerId(), 0));
         SegmentCertificate certificate;
         uint32_t epoch = downCast<uint32_t>(segmentId) + 100;
         BackupReplicaMetadata metadata(certificate, crashedMasterId.getId(),

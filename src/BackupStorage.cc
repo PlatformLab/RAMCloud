@@ -44,7 +44,7 @@ BackupStorage::benchmark(BackupStrategy backupStrategy)
     BackupStorage::FrameRef frames[count];
 
     for (uint32_t i = 0; i < count; ++i) {
-        frames[i] = open(true);
+        frames[i] = open(true, ServerId(), 0);
         frames[i]->close();
     }
 

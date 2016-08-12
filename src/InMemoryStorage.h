@@ -138,7 +138,7 @@ class InMemoryStorage : public BackupStorage {
                     size_t frameCount,
                     size_t writeRateLimit);
 
-    FrameRef open(bool sync);
+    FrameRef open(bool sync, ServerId masterId, uint64_t segmentId);
     size_t getMetadataSize();
     std::vector<FrameRef> loadAllMetadata();
     void resetSuperblock(ServerId serverId,

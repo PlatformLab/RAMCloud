@@ -310,6 +310,11 @@ InMemoryStorage::InMemoryStorage(size_t segmentSize,
  * \param sync
  *      Ignored for InMemoryStorage. All append() calls store data
  *      synchronously.
+ * \param masterId
+ *      The server that owns the segment associated with this replica.
+ * \param segmentId
+ *      Unique identifier (in the log of masterId) of the segment
+ *      associated with this replica.
  * \return
  *      Reference to a frame through which handles all IO for a single
  *      replica. Maintains a reference count; when destroyed if the
@@ -317,7 +322,7 @@ InMemoryStorage::InMemoryStorage(size_t segmentSize,
  *      another replica.
  */
 BackupStorage::FrameRef
-InMemoryStorage::open(bool sync)
+InMemoryStorage::open(bool sync, ServerId masterId, uint64_t segmentId)
 {
     Lock lock(mutex);
     FreeMap::size_type next = freeMap.find_next(lastAllocatedFrame);

@@ -47,7 +47,7 @@ class InMemoryStorageTest : public ::testing::Test {
 };
 
 TEST_F(InMemoryStorageTest, Frame_append) {
-    BackupStorage::FrameRef frame = storage->open(false);
+    BackupStorage::FrameRef frame = storage->open(false, ServerId(), 0);
     frame->append(testSource, 0, 5, 0, test, testLength + 1);
 
     char* replica = bytes(frame->load());
@@ -58,7 +58,7 @@ TEST_F(InMemoryStorageTest, Frame_append) {
 }
 
 TEST_F(InMemoryStorageTest, open) {
-    BackupStorage::FrameRef frame = storage->open(false);
+    BackupStorage::FrameRef frame = storage->open(false, ServerId(), 0);
     EXPECT_EQ(0, storage->freeMap[0]);
     EXPECT_EQ(0u,
               static_cast<InMemoryStorage::Frame*>(frame.get())->frameIndex);

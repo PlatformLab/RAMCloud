@@ -607,7 +607,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
     if (reqHdr->open && !frame) {
         LOG(DEBUG, "Opening <%s,%lu>", masterId.toString().c_str(),
             segmentId);
-        frame = storage->open(config->backup.sync);
+        frame = storage->open(config->backup.sync, masterId, segmentId);
         frames[MasterSegmentIdPair(masterId, segmentId)] = frame;
     }
 
