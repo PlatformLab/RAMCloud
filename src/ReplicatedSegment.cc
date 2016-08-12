@@ -780,11 +780,11 @@ ReplicatedSegment::performWrite(Replica& replica)
                 LOG(WARNING, "Couldn't write to backup %s; server is down",
                     replica.backupId.toString().c_str());
             } catch (const BackupOpenRejectedException& e) {
-                RAMCLOUD_CLOG(NOTICE,
-                    "Couldn't open replica on backup %s; server may be "
-                    "overloaded or may already have a replica for this segment "
-                    "which was found on disk after a crash; will choose "
-                    "another backup", replica.backupId.toString().c_str());
+                // The open request was rejected; typically happens when
+                // backups get overloaded because write traffic exceeds
+                // bandwidth of secondary storage. Try assigning a
+                // different backup for this replica.
+                TEST_LOG("BackupOpenRejectedException");
                 replica.reset(replica.replacesLostReplica);
             } catch (const CallerNotInClusterException& e) {
                 // The backup seems to think we have crashed (or never existed).

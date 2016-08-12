@@ -1775,9 +1775,7 @@ TEST_F(ReplicatedSegmentTest, performWriteBackupRejectedOpen) {
     taskQueue.performTask(); // reap - second replica gets rejected
     EXPECT_EQ(
         "performWrite: Write RPC finished for replica slot 0 | "
-        "performWrite: Couldn't open replica on backup 1.0; server may be "
-        "overloaded or may already have a replica for this segment which "
-        "was found on disk after a crash; will choose another backup",
+        "performWrite: BackupOpenRejectedException",
         TestLog::get());
     ASSERT_TRUE(segment->replicas[0].isActive);
     EXPECT_EQ(openLen, segment->replicas[0].sent.bytes);
