@@ -25,15 +25,10 @@ TEST(SpinLockTest, basics) {
     EXPECT_EQ(0U, lock.contendedAcquisitions);
     EXPECT_EQ(0U, lock.contendedTicks);
 
-    EXPECT_EQ(0, lock.mutex.load());
     lock.lock();
-    EXPECT_EQ(1, lock.mutex.load());
     EXPECT_FALSE(lock.try_lock());
-    EXPECT_EQ(1, lock.mutex.load());
     lock.unlock();
-    EXPECT_EQ(0, lock.mutex.load());
     EXPECT_TRUE(lock.try_lock());
-    EXPECT_EQ(1, lock.mutex.load());
 
     EXPECT_EQ(1U, lock.acquisitions);
     EXPECT_EQ(0U, lock.contendedAcquisitions);

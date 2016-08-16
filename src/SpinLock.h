@@ -17,6 +17,7 @@
 #define RAMCLOUD_SPINLOCK_H
 
 #include <mutex>
+#include <atomic>
 
 #include "Atomic.h"
 #include "SpinLockStatistics.pb.h"
@@ -52,8 +53,8 @@ class SpinLock {
     typedef std::lock_guard<SpinLock> Guard;
 
   PRIVATE:
-    /// Implements the lock: 0 means free, anything else means locked.
-    Atomic<int> mutex;
+    /// Implements the lock: False means free, True means locked.
+    std::atomic_flag mutex;
 
     /// Descriptive name for this SpinLock. Used to identify the purpose of
     /// the lock, what it protects, where it exists in the codebase, etc.

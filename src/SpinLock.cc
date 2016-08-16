@@ -18,7 +18,6 @@
 
 #include "Common.h"
 #include "Cycles.h"
-#include "Fence.h"
 #include "SpinLock.h"
 
 namespace RAMCloud {
@@ -80,7 +79,7 @@ SpinLock::lock()
 {
     uint64_t startOfContention = 0;
 
-    while (mutex.exchange(1) != 0) {
+    while (mutex.test_and_set(std::memory_order_acquire)) {
         if (startOfContention == 0) {
             startOfContention = Cycles::rdtsc();
             if (logWaits) {
@@ -97,7 +96,6 @@ SpinLock::lock()
             }
         }
     }
-    Fence::enter();
 
     if (startOfContention != 0) {
         contendedTicks += (Cycles::rdtsc() - startOfContention);
@@ -117,12 +115,9 @@ SpinLock::lock()
 bool
 SpinLock::try_lock()
 {
-    int old = mutex.exchange(1);
-    if (old == 0) {
-        Fence::enter();
-        return true;
-    }
-    return false;
+    // test_and_set sets the flag to true and returns the previous value;
+    // if it's True, someone else is owning the lock.
+    return !mutex.test_and_set(std::memory_order_acquire);
 }
 
 /**
@@ -132,8 +127,7 @@ SpinLock::try_lock()
 void
 SpinLock::unlock()
 {
-    Fence::leave();
-    mutex.store(0);
+    mutex.clear(std::memory_order_release);
 }
 
 /**

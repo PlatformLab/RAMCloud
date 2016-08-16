@@ -1125,7 +1125,7 @@ double queueEstimator()
         total += estimator.getQueueSize(200000);
     }
     uint64_t stop = Cycles::rdtsc();
-    printf("Result: %u\n", total/count);
+    // printf("Result: %u\n", total/count);
     return Cycles::toSeconds(stop - start)/count;
 }
 
