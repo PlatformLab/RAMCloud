@@ -380,23 +380,6 @@ class BasicTransport : public Transport {
     };
 
     /**
-     * One object of this class is created for each BasicTransport; it
-     * is invoked at regular intervals to handle timer-driven issues such
-     * as requests for retransmission and aborts after timeouts.
-     */
-    class Timer : public Dispatch::Timer {
-      public:
-        explicit Timer(BasicTransport* t, Dispatch* dispatch);
-        virtual ~Timer() {}
-        virtual void handleTimerEvent();
-
-        // The transport on whose behalf this timer operates.
-        BasicTransport* t;
-
-        DISALLOW_COPY_AND_ASSIGN(Timer);
-    };
-
-    /**
      * This enum defines the opcode field values for packets. See the
      * xxxHeader class definitions below for more information about each
      * kind of packet
@@ -438,7 +421,7 @@ class BasicTransport : public Transport {
     //                           the sender is transmitting the entire
     //                           message unilaterally; if not set, the last
     //                           part of the message won't be sent without
-    //                           GRANTs from the server.
+    //                           GRANTs from the recipient.
     // RETRANSMISSION:           Used only in DATA packets. Nonzero means
     //                           this packet is being sent in response to a
     //                           RESEND request (it has already been sent
@@ -512,7 +495,7 @@ class BasicTransport : public Transport {
      * Describes the wire format for RESEND packets. A RESEND is sent by
      * the receiver back to the sender when it believes that some of the
      * message data was lost in transmission. The receiver should resend
-     * the specified portion of the message, even if it is already sent
+     * the specified portion of the message, even if it already sent
      * it before.
      */
     struct ResendHeader {
@@ -571,6 +554,7 @@ class BasicTransport : public Transport {
     };
 
   PRIVATE:
+    void checkTimeouts();
     void deleteClientRpc(ClientRpc* clientRpc);
     void deleteServerRpc(ServerRpc* serverRpc);
     uint32_t getRoundTripBytes(const ServiceLocator* locator);
@@ -680,12 +664,18 @@ class BasicTransport : public Transport {
     /// GRANTS, but it can result in additional buffering in the network.
     uint32_t grantIncrement;
 
-    /// Used to implement functionality triggered by time, such as retries
-    /// when packets are lost.
-    Timer timer;
-
-    /// Specifies the interval between timer wakeups, in units of rdtsc ticks.
+    /// Specifies the interval between calls to checkTimeouts, in units
+    /// of rdtsc ticks.
     uint64_t timerInterval;
+
+    /// At this Cycles::rdtsc time we'll start looking for a convenient
+    /// opportunity to call checkTimeouts.
+    uint64_t nextTimeoutCheck;
+
+    /// At this Cycles::rdtsc time we'll call checkTimeouts even if it's
+    /// not convenient. 0 means we haven't yet set a deadline (because we
+    /// haven't reached nextTimeoutCheck).
+    uint64_t timeoutCheckDeadline;
 
     /// If either client or server experiences this many timer wakeups without
     /// receiving any packets from the other end, then it will abort the

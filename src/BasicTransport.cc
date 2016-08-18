@@ -75,8 +75,9 @@ BasicTransport::BasicTransport(Context* context, const ServiceLocator* locator,
     , serverTimerList()
     , roundTripBytes(getRoundTripBytes(locator))
     , grantIncrement(5*maxDataPerPacket)
-    , timer(this, context->dispatch)
     , timerInterval(0)
+    , nextTimeoutCheck(0)
+    , timeoutCheckDeadline(0)
 
     // As of 7/2016, the value for timeoutIntervals is set relatively high.
     // This is needed to handle issues on some machines (such as the NEC
@@ -91,7 +92,7 @@ BasicTransport::BasicTransport(Context* context, const ServiceLocator* locator,
     // for up to about 1 ms before delivering them to applications. Shorter
     // intervals result in unnecessary retransmissions.
     timerInterval = Cycles::fromMicroseconds(2000);
-    timer.start(Cycles::rdtsc() + timerInterval);
+    nextTimeoutCheck = Cycles::rdtsc() + timerInterval;
 
     LOG(NOTICE, "BasicTransport parameters: maxDataPerPacket %u, "
             "roundTripBytes %u, grantIncrement %u, pingIntervals %d, "
@@ -108,7 +109,6 @@ BasicTransport::~BasicTransport()
 {
     // This cleanup is mostly for the benefit of unit tests: in production,
     // this destructor is unlikely ever to get called.
-    timer.stop();
 
     // Reclaim all of the RPC objects.
     for (ServerRpcMap::iterator it = incomingRpcs.begin();
@@ -521,7 +521,7 @@ BasicTransport::tryToTransmitData()
                     maxBytes, FROM_CLIENT|clientRpc->needGrantFlag);
             assert(bytesSent > 0);     // Otherwise, infinite loop.
             clientRpc->transmitOffset += bytesSent;
-            clientRpc->lastTransmitTime = context->dispatch->currentTime;
+            clientRpc->lastTransmitTime = Cycles::rdtsc();
             transmitQueueSpace -= bytesSent;
             if (clientRpc->transmitOffset >= clientRpc->request->size()) {
                 erase(outgoingRequests, *clientRpc);
@@ -539,7 +539,7 @@ BasicTransport::tryToTransmitData()
                     FROM_SERVER|serverRpc->needGrantFlag);
             assert(bytesSent > 0);     // Otherwise, infinite loop.
             serverRpc->transmitOffset += bytesSent;
-            serverRpc->lastTransmitTime = context->dispatch->currentTime;
+            serverRpc->lastTransmitTime = Cycles::rdtsc();
             transmitQueueSpace -= bytesSent;
             if (serverRpc->transmitOffset >= serverRpc->replyPayload.size()) {
                 // Delete the ServerRpc object as soon as we have transmitted
@@ -853,9 +853,12 @@ BasicTransport::handlePacket(Driver::Received* received)
                     }
                     return;
                 }
-                if (((header->offset >= clientRpc->transmitOffset)
-                        && ((header->offset + header->length)
-                        <= clientRpc->transmitLimit))
+                uint32_t resendEnd = header->offset + header->length;
+                if (resendEnd > clientRpc->transmitLimit) {
+                    // Needed in case a GRANT packet was lost.
+                    clientRpc->transmitLimit = resendEnd;
+                }
+                if ((header->offset >= clientRpc->transmitOffset)
                         || ((Cycles::rdtsc() - clientRpc->lastTransmitTime)
                         < timerInterval)) {
                     // One of two things has happened: either (a) we haven't
@@ -871,20 +874,20 @@ BasicTransport::handlePacket(Driver::Received* received)
                     return;
 
                 }
+                double elapsedMicros = Cycles::toSeconds(Cycles::rdtsc()
+                        - clientRpc->lastTransmitTime)*1e06;
                 RAMCLOUD_CLOG(NOTICE, "Retransmitting to server %s: "
-                        "sequence %lu, offset %u, length %u",
+                        "sequence %lu, offset %u, length %u, elapsed "
+                        "time %.1f us",
                         received->sender->toString().c_str(),
                         header->common.rpcId.sequence, header->offset,
-                        header->length);
+                        header->length, elapsedMicros);
                 sendBytes(clientRpc->session->serverAddress,
                         header->common.rpcId, clientRpc->request,
                         header->offset, header->length,
                         FROM_CLIENT|RETRANSMISSION|clientRpc->needGrantFlag,
                         true);
-                uint32_t resendEnd = header->offset + header->length;
-                if (resendEnd > clientRpc->transmitLimit) {
-                    clientRpc->transmitLimit = resendEnd;
-                }
+                clientRpc->lastTransmitTime = Cycles::rdtsc();
                 return;
             }
 
@@ -1089,10 +1092,13 @@ BasicTransport::handlePacket(Driver::Received* received)
                     driver->sendPacket(received->sender, &resend, NULL);
                     return;
                 }
+                uint32_t resendEnd = header->offset + header->length;
+                if (resendEnd > serverRpc->transmitLimit) {
+                    // Needed in case GRANT packet was lost.
+                    serverRpc->transmitLimit = resendEnd;
+                }
                 if (!serverRpc->sendingResponse
-                        || ((header->offset >= serverRpc->transmitOffset)
-                        && ((header->offset + header->length)
-                        <= serverRpc->transmitLimit))
+                        || (header->offset >= serverRpc->transmitOffset)
                         || ((Cycles::rdtsc() - serverRpc->lastTransmitTime)
                         < timerInterval)) {
                     // One of two things has happened: either (a) we haven't
@@ -1108,20 +1114,20 @@ BasicTransport::handlePacket(Driver::Received* received)
                             &ack, NULL);
                     return;
                 }
+                double elapsedMicros = Cycles::toSeconds(Cycles::rdtsc()
+                        - serverRpc->lastTransmitTime)*1e06;
                 RAMCLOUD_CLOG(NOTICE, "Retransmitting to client %s: "
-                        "sequence %lu, offset %u, length %u",
+                        "sequence %lu, offset %u, length %u, elapsed "
+                        "time %.1f us",
                         received->sender->toString().c_str(),
                         header->common.rpcId.sequence, header->offset,
-                        header->length);
+                        header->length, elapsedMicros);
                 sendBytes(serverRpc->clientAddress,
                         serverRpc->rpcId, &serverRpc->replyPayload,
                         header->offset, header->length,
                         RETRANSMISSION|FROM_SERVER|serverRpc->needGrantFlag,
                         true);
-                uint32_t resendEnd = header->offset + header->length;
-                if (resendEnd > serverRpc->transmitOffset) {
-                    serverRpc->transmitOffset = resendEnd;
-                }
+                serverRpc->lastTransmitTime = Cycles::rdtsc();
                 return;
             }
 
@@ -1386,6 +1392,37 @@ BasicTransport::Poller::poll()
         t->handlePacket(&t->receivedPackets[i]);
     }
 
+    // See if we should check for timeouts. Ideally, we'd like to do this
+    // every timerInterval. However, it's better not to call checkTimeouts
+    // when there are input packets pending, since checkTimeouts might then
+    // request retransmission of a packet that's waiting in the NIC. Thus,
+    // if necessary, we delay the call to checkTimeouts to find a time when
+    // we are caught up on input packets. If a long time goes by without ever
+    // catching up, then we invoke checkTimeouts anyway.
+    //
+    // Note: it isn't a disaster if we occasionally request an unnecessary
+    // retransmission, since the protocol will handle this fine. However, if
+    // too many of these happen, it will create noise in the logs, which will
+    // make it harder to notice when a *real* problem happens. Thus, it's
+    // best to eliminate spurious retransmissions as much as possible.
+    uint64_t now = Cycles::rdtsc();
+    if (now >= t->nextTimeoutCheck) {
+        if (t->timeoutCheckDeadline == 0) {
+            t->timeoutCheckDeadline = now + t->timerInterval;
+        }
+        if ((numPackets < MAX_PACKETS)
+                || (now >= t->timeoutCheckDeadline)) {
+            if (numPackets == MAX_PACKETS) {
+                RAMCLOUD_CLOG(NOTICE, "Deadline invocation of checkTimeouts");
+                timeTrace("Deadline invocation of checkTimeouts");
+            }
+            t->checkTimeouts();
+            result = 1;
+            t->nextTimeoutCheck = now + t->timerInterval;
+            t->timeoutCheckDeadline = 0;
+        }
+    }
+
     // Transmit data packets if possible.
     result |= t->tryToTransmitData();
 
@@ -1394,34 +1431,17 @@ BasicTransport::Poller::poll()
 }
 
 /**
- * Constructor for a transport's timer. Note: this method does not
- * actually start the timer.
- * 
- * \param t
- *      The transport on whose behalf this timer operates.
- * \param dispatch
- *      Dispatch object that will be used to invoke the timer.
- */
-BasicTransport::Timer::Timer(BasicTransport* t, Dispatch* dispatch)
-    : Dispatch::Timer(dispatch)
-    , t(t)
-{}
-
-/**
- * This method is invoked by the dispatcher at intervals determined
- * by t->timerInterval. It implements all of the timer-related functionality
- * for both clients and servers, such as requesting packet retransmission
- * and aborting RPCs.
+ * This method is invoked by poll at regular intervals to check for
+ * unexpected lapses in communication. It implements all of the timer-related
+ * functionality for both clients and servers, such as requesting packet
+ * retransmission and aborting RPCs.
  */
 void
-BasicTransport::Timer::handleTimerEvent()
+BasicTransport::checkTimeouts()
 {
-    // First, restart the timer.
-    start(Cycles::rdtsc() + t->timerInterval);
-
     // Scan all of the ClientRpc objects.
-    for (ClientRpcMap::iterator it = t->outgoingRpcs.begin();
-            it != t->outgoingRpcs.end(); ) {
+    for (ClientRpcMap::iterator it = outgoingRpcs.begin();
+            it != outgoingRpcs.end(); ) {
         uint64_t sequence = it->first;
         ClientRpc* clientRpc = it->second;
         if (clientRpc->transmitOffset == 0) {
@@ -1437,8 +1457,8 @@ BasicTransport::Timer::handleTimerEvent()
         // we delete the ClientRpc below.
         it++;
 
-        assert(t->timeoutIntervals > 2*t->pingIntervals);
-        if (clientRpc->silentIntervals >= t->timeoutIntervals) {
+        assert(timeoutIntervals > 2*pingIntervals);
+        if (clientRpc->silentIntervals >= timeoutIntervals) {
             // A long time has elapsed with no communication whatsoever
             // from the server, so abort the RPC.
             RAMCLOUD_LOG(WARNING, "aborting %s RPC to server %s, "
@@ -1447,7 +1467,7 @@ BasicTransport::Timer::handleTimerEvent()
                     clientRpc->session->serverAddress->toString().c_str(),
                     sequence);
             clientRpc->notifier->failed();
-            t->deleteClientRpc(clientRpc);
+            deleteClientRpc(clientRpc);
             continue;
         }
 
@@ -1458,12 +1478,14 @@ BasicTransport::Timer::handleTimerEvent()
             // and working. Note: the wait time for this ping is longer
             // than the server's wait time to request retransmission (first
             // give the server a chance to handle the problem).
-            if ((clientRpc->silentIntervals % t->pingIntervals) == 0) {
+            if ((clientRpc->silentIntervals % pingIntervals) == 0) {
                 timeTrace("client sending RESEND for sequence %u",
                         downCast<uint32_t>(sequence));
-                ResendHeader resend(RpcId(t->clientId, sequence), 0,
-                        t->roundTripBytes, FROM_CLIENT);
-                t->driver->sendPacket(clientRpc->session->serverAddress,
+                ResendHeader resend(RpcId(clientId, sequence), 0,
+                        roundTripBytes, FROM_CLIENT);
+                // The RESEND packet is effectively a grant...
+                clientRpc->grantOffset = roundTripBytes;
+                driver->sendPacket(clientRpc->session->serverAddress,
                         &resend, NULL);
             }
         } else {
@@ -1473,18 +1495,18 @@ BasicTransport::Timer::handleTimerEvent()
             assert(clientRpc->accumulator);
             if (clientRpc->silentIntervals >= 2) {
                 clientRpc->resendLimit =
-                        clientRpc->accumulator->requestRetransmission(t,
+                        clientRpc->accumulator->requestRetransmission(this,
                         clientRpc->session->serverAddress,
-                        RpcId(t->clientId, sequence),
-                        clientRpc->grantOffset, t->roundTripBytes, FROM_CLIENT);
+                        RpcId(clientId, sequence),
+                        clientRpc->grantOffset, roundTripBytes, FROM_CLIENT);
             }
         }
     }
 
     // Scan all of the ServerRpc objects for which network I/O is in
     // progress (either for the request or the response).
-    for (ServerTimerList::iterator it = t->serverTimerList.begin();
-            it != t->serverTimerList.end(); ) {
+    for (ServerTimerList::iterator it = serverTimerList.begin();
+            it != serverTimerList.end(); ) {
         ServerRpc* serverRpc = &(*it);
         if (serverRpc->sendingResponse && (serverRpc->transmitOffset == 0)) {
             // Looks like the transmit queue has been too backed up to start
@@ -1511,8 +1533,8 @@ BasicTransport::Timer::handleTimerEvent()
         //     retransmission but then the original data arrived, so we
         //     could process the RPC before the retransmitted data arrived.
         assert(serverRpc->sendingResponse || !serverRpc->requestComplete);
-        if (serverRpc->silentIntervals >= t->timeoutIntervals) {
-            t->deleteServerRpc(serverRpc);
+        if (serverRpc->silentIntervals >= timeoutIntervals) {
+            deleteServerRpc(serverRpc);
             continue;
         }
 
@@ -1520,9 +1542,9 @@ BasicTransport::Timer::handleTimerEvent()
         // message.
         if ((serverRpc->silentIntervals >= 2) && !serverRpc->requestComplete) {
             serverRpc->resendLimit =
-                    serverRpc->accumulator->requestRetransmission(t,
+                    serverRpc->accumulator->requestRetransmission(this,
                     serverRpc->clientAddress, serverRpc->rpcId,
-                    serverRpc->grantOffset, t->roundTripBytes, FROM_SERVER);
+                    serverRpc->grantOffset, roundTripBytes, FROM_SERVER);
         }
     }
 }
