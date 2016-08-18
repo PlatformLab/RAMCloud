@@ -190,13 +190,14 @@ BasicTransport::deleteServerRpc(ServerRpc* serverRpc)
  * \param locator
  *      Service locator that may contain "gbs" and "rttMicros" options.
  *      If NULL, or if any of the options  are missing, then defaults
- *      are supplied.
+ *      are supplied.  Note: as of 8/2016 these options don't work very well
+ *      because they are only visible to servers, not clients.
  */
 uint32_t
 BasicTransport::getRoundTripBytes(const ServiceLocator* locator)
 {
-    uint32_t gBitsPerSec = 10;
-    uint32_t roundTripMicros = 25;
+    uint32_t gBitsPerSec = 32;
+    uint32_t roundTripMicros = 7;
 
     if (locator  != NULL) {
         if (locator->hasOption("gbs")) {
