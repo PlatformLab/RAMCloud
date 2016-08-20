@@ -53,6 +53,7 @@ server_locator_templates = {
     'basic+infud': 'basic+infud:host=%(host1g)s',
     'unreliable+infud': 'unreliable+infud:host=%(host1g)s',
     'unreliable+infeth': 'unreliable+infeth:mac=00:11:22:33:44:%(id)02x',
+    'basic+dpdk': 'basic+dpdk:',
 }
 coord_locator_templates = {
     'tcp': 'tcp:host=%(host)s,port=%(port)d',
@@ -64,6 +65,7 @@ coord_locator_templates = {
     # Coordinator uses udp even when rest of cluster uses infud
     # or infeth.
     'basic+infud': 'basic+udp:host=%(host)s,port=%(port)d',
+    'basic+dpdk': 'basic+udp:host=%(host)s,port=%(port)d',
 }
 
 def server_locator(transport, host, port=server_port):
