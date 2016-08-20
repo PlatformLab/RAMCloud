@@ -180,7 +180,7 @@ endif
 #   "n" to build without shared libraries, in which case you will need to
 #   modify other variables below here).
 # * Then recompile: "make clean; make"
-DPDK ?= yes
+# DPDK ?= yes
 ifeq ($(DPDK),yes)
 
 # Modify the variable below (or set its value in MakefragPrivateTop) to
