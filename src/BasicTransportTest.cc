@@ -155,7 +155,7 @@ TEST_F(BasicTransportTest, sanityCheck) {
 }
 
 TEST_F(BasicTransportTest, constructor) {
-    EXPECT_EQ(31602u, transport.roundTripBytes);
+    EXPECT_EQ(28854u, transport.roundTripBytes);
 }
 
 TEST_F(BasicTransportTest, deleteClientRpc) {
@@ -189,20 +189,20 @@ TEST_F(BasicTransportTest, getRoundTripBytes_basics) {
 TEST_F(BasicTransportTest, getRoundTripBytes_noGbsOption) {
     transport.maxDataPerPacket = 100;
     ServiceLocator locator("mock:rttMicros=4");
-    EXPECT_EQ(5000u, transport.getRoundTripBytes(&locator));
+    EXPECT_EQ(16000u, transport.getRoundTripBytes(&locator));
 }
 TEST_F(BasicTransportTest, getRoundTripBytes_bogusGbsOption) {
     transport.maxDataPerPacket = 100;
     ServiceLocator locator("mock:gbs=xyz,rttMicros=4");
     TestLog::reset();
-    EXPECT_EQ(5000u, transport.getRoundTripBytes(&locator));
+    EXPECT_EQ(16000u, transport.getRoundTripBytes(&locator));
     EXPECT_EQ("getRoundTripBytes: Bad BasicTransport gbs option value 'xyz' "
             "(expected positive integer); ignoring option",
             TestLog::get());
 
     ServiceLocator locator2("mock:gbs=99foo,rttMicros=4");
     TestLog::reset();
-    EXPECT_EQ(5000u, transport.getRoundTripBytes(&locator2));
+    EXPECT_EQ(16000u, transport.getRoundTripBytes(&locator2));
     EXPECT_EQ("getRoundTripBytes: Bad BasicTransport gbs option value '99foo' "
             "(expected positive integer); ignoring option",
             TestLog::get());
@@ -210,20 +210,20 @@ TEST_F(BasicTransportTest, getRoundTripBytes_bogusGbsOption) {
 TEST_F(BasicTransportTest, getRoundTripBytes_noRttOption) {
     transport.maxDataPerPacket = 100;
     ServiceLocator locator("mock:gbs=8");
-    EXPECT_EQ(25000u, transport.getRoundTripBytes(&locator));
+    EXPECT_EQ(7000u, transport.getRoundTripBytes(&locator));
 }
 TEST_F(BasicTransportTest, getRoundTripBytes_bogusRttOption) {
     transport.maxDataPerPacket = 100;
     ServiceLocator locator("mock:gbs=8,rttMicros=xyz");
     TestLog::reset();
-    EXPECT_EQ(25000u, transport.getRoundTripBytes(&locator));
+    EXPECT_EQ(7000u, transport.getRoundTripBytes(&locator));
     EXPECT_EQ("getRoundTripBytes: Bad BasicTransport rttMicros option value "
             "'xyz' (expected positive integer); ignoring option",
             TestLog::get());
 
     ServiceLocator locator2("mock:gbs=8,rttMicros=5zzz");
     TestLog::reset();
-    EXPECT_EQ(25000u, transport.getRoundTripBytes(&locator2));
+    EXPECT_EQ(7000u, transport.getRoundTripBytes(&locator2));
     EXPECT_EQ("getRoundTripBytes: Bad BasicTransport rttMicros option value "
             "'5zzz' (expected positive integer); ignoring option",
             TestLog::get());
@@ -1023,7 +1023,7 @@ TEST_F(BasicTransportTest, handlePacket_resendFromClient_unknownRpcId) {
     handlePacket("mock:client=1",
             BasicTransport::ResendHeader(BasicTransport::RpcId(10, 11),
             10, 5, BasicTransport::FROM_CLIENT));
-    EXPECT_EQ("RESEND FROM_SERVER, rpcId 10.11, offset 0, length 31602, "
+    EXPECT_EQ("RESEND FROM_SERVER, rpcId 10.11, offset 0, length 28854, "
             "RESTART", driver->outputLog);
 }
 TEST_F(BasicTransportTest,
