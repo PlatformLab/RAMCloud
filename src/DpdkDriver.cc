@@ -163,24 +163,9 @@ DpdkDriver::DpdkDriver(Context* context,
             static_cast<uint32_t>(sizeof(NetUtil::EthernetHeader));
     rte_eth_dev_configure(portId, 1, 1, &portConf);
 
-    // setup a NIC/HW-based filter on the ethernet type so that
-    // only FAST transport traffic is delivered from the NIC to
-    // DPDK.
-#if RTE_VER_MAJOR < 2
-    struct rte_ethertype_filter ethertype_filter;
-
-    ethertype_filter.ethertype = NetUtil::EthPayloadType::FAST;
-    ethertype_filter.priority_en = 0;
-    ethertype_filter.priority = 0;
-
-    ret = rte_eth_dev_add_ethertype_filter(portId, 0, &ethertype_filter, 0);
-    if (ret < 0) {
-      LOG(WARNING, "failed to add ethertype filter\n");
-      hasHardwareFilter = false;
-    }
-#else
+    // Set up a NIC/HW-based filter on the ethernet type so that only
+    // only traffic to a particular port is received by this driver.
     struct rte_eth_ethertype_filter filter;
-
     ret = rte_eth_dev_filter_supported(portId,
                                        RTE_ETH_FILTER_ETHERTYPE);
     if (ret < 0) {
@@ -195,7 +180,6 @@ DpdkDriver::DpdkDriver(Context* context,
         hasHardwareFilter = false;
       }
     }
-#endif
 
     // setup and initialize the receive and transmit NIC queues,
     // and activate the port.

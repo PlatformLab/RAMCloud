@@ -163,98 +163,83 @@ COMFLAGS += -DINFINIBAND
 LIBS += -libverbs
 endif
 
-# Determines whether or not to build RAMCloud with DPDK support, such as
-# a DPDK driver for FastTransport. Note: DPDK must be present at "./dpdk"
-# (either directly or via a symbolic link). If you run the script
-# scripts/dpdkBuild.sh, it will install DPDK in an appropriate way.
-# RAMCloud currently assumes DPDK 1.8; build it with
-# "make install T=x86_64-native-linuxapp-gcc" (set CONFIG_RTE_BUILD_COMBINE_LIBS
-# and CONFIG_RTE_BUILD_SHARED_LIB to y in the .config file)
-DPDK ?= no
+# DPDK definitions:
+#
+# Uncomment the variable definition below (or specify DPDK=yes on the make
+# command line, or set the variable in MakefragPrivateTop) to build RAMCloud
+# with a DPDK driver for BasicTransport. You may also need to modify other
+# variables below.
+# To compile the DPDK library:
+# * Download the desired version (RAMCloud currently works with versions
+#   2.0 and higher).
+# * Invoke "make install T=x86_64-native-linuxapp-gcc" in the top-level
+#   directory.
+# * Change to the directory "x86_64-native-linuxapp-gcc".
+# * Edit the file ".config" in that directory to change the value of the
+#   CONFIG_RTE_BUILD_SHARED_LIB variable to "y" (you can also leave it
+#   "n" to build without shared libraries, in which case you will need to
+#   modify other variables below here).
+# * Then recompile: "make clean; make"
+DPDK ?= yes
 ifeq ($(DPDK),yes)
-#
-## Previous master for huawei-dpdk : Modified for comilation with
-#     wider versions of dpdk.
-# 
-# INCLUDES += -Idpdk/build/include
-## Note: --whole-archive is necessary to make sure that all of the facilities
-## of the library are available for dynamic linking later.
-# LIBS += -Wl,--whole-archive dpdk/build/lib/libintel_dpdk.a -Wl,--no-whole-archive -ldl
-# 
-# DPDK_INSTALL_DIR = dpdk/x86_64-native-linuxapp-gcc
-# INCLUDES += -I$(DPDK_INSTALL_DIR)/include
-# LIBS += $(DPDK_INSTALL_DIR)/lib/libintel_dpdk.so -ldl
-# TEST_INSTALL_FLAGS += $(DPDK_INSTALL_DIR)/lib/libintel_dpdk.so -ldl
-## Note: __STDC_LIMIT_MACROS definition below is needed to avoid
-## compilation errors in DPDK header files.
-# COMFLAGS += -DDPDK -Dtypeof=__typeof__
-## Needed as of DPDK 1.8; remove if later versions fix the problem.
-# CXXWARNS := $(CXXWARNS) -Wno-literal-suffix
-#
-RTE_TARGET  ?= x86_64-native-linuxapp-gcc
-COMFLAGS    += -DDPDK -Dtypeof=__typeof__
 
-ifeq ($(RTE_SDK),)
-# link with the libraries installed on the system
+# Modify the variable below (or set its value in MakefragPrivateTop) to
+# hold the path to the top-level DPDK directory (the parent of the
+# "x86_64-native-linuxapp-gcc" directory). Or, leave this variable
+# undefined if DPDK is installed in the standard system locations.
+DPDK_DIR ?= dpdk
+
+# Change the definition below if you compiled DPDK without shared libraries.
+# Note: this configuration is not well tested and may not work.
+DPDK_SHARED ?= yes
+
+DPDK_TARGET  ?= x86_64-native-linuxapp-gcc
+COMFLAGS    += -DDPDK
+
+ifeq ($(DPDK_DIR),)
+# DPDK is installed as part of the system
 ifeq ($(DPDK_SHARED),no)
-$(error DPDK_SHARED should be yes when linking libraries installed on the system)
+$(error DPDK_SHARED should be yes when DPDK is installed on the system)
 endif
 DPDK_SHARED := yes
-VER_FILE    := /usr/include/rte_version.h
 else
-# link with the libraries in the dpdk sdk under RTE_SDK
-ifeq ($(wildcard $(RTE_SDK)),)
-$(error RTE_SDK variable points to an invalid location)
+# Link with the libraries in the DPDK SDK under DPDK_DIR
+ifeq ($(wildcard $(DPDK_DIR)),)
+$(error DPDK_DIR variable points to an invalid location)
 endif
-ifeq ($(wildcard $(RTE_SDK)/$(RTE_TARGET)),)
-$(error $(RTE_SDK)/$(RTE_TARGET) not found. build and install the DPDK SDK first.)
+ifeq ($(wildcard $(DPDK_DIR)/$(DPDK_TARGET)),)
+$(error $(DPDK_DIR)/$(DPDK_TARGET) not found. Have you built DPDK?)
 endif
-
-DPDK_SHARED ?= no
-RTE_INCDIR := $(RTE_SDK)/$(RTE_TARGET)/include
-RTE_LIBDIR := $(RTE_SDK)/$(RTE_TARGET)/lib
-COMFLAGS   += -I$(RTE_INCDIR)
-LIBS       += -L$(RTE_LIBDIR)
-VER_FILE   := $(RTE_INCDIR)/rte_version.h
-# end of RTE_SDK
+COMFLAGS   += -I$(DPDK_DIR)/$(DPDK_TARGET)/include
+DPDK_LIB_DIR := $(DPDK_DIR)/$(DPDK_TARGET)/lib
+LIBS       += -L$(DPDK_LIB_DIR)
+DPDK_RPATH := -Wl,-rpath,$(abspath $(DPDK_LIB_DIR))
 endif
-
-DPDK_VER_MAJ := $(shell grep '^\#define RTE_VER_MAJOR' $(VER_FILE) | cut -d' ' -f 3)
-DPDK_VER_MIN := $(shell grep '^\#define RTE_VER_MINOR' $(VER_FILE) | cut -d' ' -f 3)
-# assume dpdk-v18 by default
-DPDK_VER_MAJ ?= 1
-DPDK_VER_MIN ?= 8
-DPDK_VER := $(DPDK_VER_MAJ)$(DPDK_VER_MIN)
 
 ifeq ($(DPDK_SHARED),yes)
-# link with the shared libraries
-## dpdk shared libraries.
-RTE_SHLIBS := -lethdev -lrte_mbuf -lrte_malloc -lrte_mempool
-RTE_SHLIBS += -lrte_ring -lrte_kvargs -lrte_eal
-## poll mode drivers, depends on dpdk configuration.
-RTE_SHLIBS += -lrte_pmd_e1000 -lrte_pmd_ixgbe -lrte_pmd_ring
-ifeq ($(shell test $(DPDK_VER) -lt 21 && echo 1), 1)
-RTE_SHLIBS += -lrte_pmd_virtio_uio
+# Link with shared libraries
+# The lines below include libraries if they exist (some DPDK releases have
+# them, some don't).
+DPDK_MALLOC := $(shell test -e $(DPDK_LIB_DIR)/librte_malloc.so \
+	&& echo '-lrte_malloc')
+DPDK_VERTIO_UIO := $(shell test -e $(DPDK_LIB_DIR)/librte_pmd_virtio_uio.so \
+	&& echo '-lrte_pmd_virtio_uio')
+DPDK_VERTIO := $(shell test -e $(DPDK_LIB_DIR)/librte_pmd_virtio.so \
+	&& echo '-lrte_pmd_virtio')
+DPDK_SHLIBS := -lethdev -lrte_mbuf -lrte_mempool -lrte_ring \
+	-lrte_kvargs -lrte_eal -lrte_pmd_e1000 -lrte_pmd_ixgbe \
+	-lrte_pmd_ring $(DPDK_MALLOC) $(DPDK_VIRTIO) $(DPDK_VERTIO_UIO)
+# -ldl required because librte_eal refers to dlopen()
+LIBS += $(DPDK_SHLIBS) $(DPDK_RPATH)
 else
-RTE_SHLIBS += -lrte_pmd_virtio
-endif
-## -ldl required because librte_eal refers to dlopen()
-LIBS += $(RTE_SHLIBS) -ldl
-else
-# link with the static link library
-## assume dpdk sdk is build with CONFIG_RTE_BUILD_COMBINE_LIBS=y and -fPIC
-RTE_ARLIBS := $(RTE_LIBDIR)/libintel_dpdk.a
+# Link with static libraries
+# DPDK must have been compiled with CONFIG_RTE_BUILD_COMBINE_LIBS=y and -fPIC
+DPDK_AR_LIBS := $(DPDK_LIB_DIR)/libintel_dpdk.a
 ## --whole-archive is required to link the pmd objects.
-LIBS += -Wl,--whole-archive $(RTE_ARLIBS) -Wl,--no-whole-archive -ldl
+LIBS += -Wl,--whole-archive $(DPDK_AR_LIBS) -Wl,--no-whole-archive -ldl
 endif
 
-ifneq ($(DEBUG),yes)
-COMFLAGS += -DWA_FOR_NDEBUG
-endif
-# tune for low latency
-COMFLAGS += -DTENTATIVE_TUNE
-
-# end of DPDK
+# End of DPDK definitions
 # =======
 endif
 
