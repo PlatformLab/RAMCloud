@@ -74,7 +74,8 @@ class IndexRpcWrapperTest : public ::testing::Test {
 TEST_F(IndexRpcWrapperTest, checkStatus_unknownIndexlet) {
     TestLog::Enable _;
     Buffer responseBuffer;
-    IndexRpcWrapper wrapper(&ramcloud, 10, 1, "abc", 3, 4, &responseBuffer);
+    IndexRpcWrapper wrapper(ramcloud.clientContext, 10, 1, "abc", 3, 4,
+            &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_EQ("mock:refresh=1", wrapper.session->serviceLocator);
@@ -93,7 +94,8 @@ TEST_F(IndexRpcWrapperTest, checkStatus_unknownIndexlet) {
 TEST_F(IndexRpcWrapperTest, checkStatus_otherError) {
     TestLog::Enable _;
     Buffer responseBuffer;
-    IndexRpcWrapper wrapper(&ramcloud, 10, 1, "abc", 3, 4, &responseBuffer);
+    IndexRpcWrapper wrapper(ramcloud.clientContext, 10, 1, "abc", 3, 4,
+            &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
     wrapper.response->emplaceAppend<WireFormat::ResponseCommon>()->status =
@@ -107,7 +109,8 @@ TEST_F(IndexRpcWrapperTest, checkStatus_otherError) {
 
 TEST_F(IndexRpcWrapperTest, indexletNotFound) {
     Buffer responseBuffer;
-    IndexRpcWrapper wrapper(&ramcloud, 10, 2, "abc", 3, 4, &responseBuffer);
+    IndexRpcWrapper wrapper(ramcloud.clientContext, 10, 2, "abc", 3, 4,
+            &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_TRUE(wrapper.isReady());
@@ -118,7 +121,8 @@ TEST_F(IndexRpcWrapperTest, indexletNotFound) {
 TEST_F(IndexRpcWrapperTest, handleTransportError) {
     TestLog::Enable _;
     Buffer responseBuffer;
-    IndexRpcWrapper wrapper(&ramcloud, 10, 1, "abc", 3, 4, &responseBuffer);
+    IndexRpcWrapper wrapper(ramcloud.clientContext, 10, 1, "abc", 3, 4,
+            &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_EQ("mock:refresh=1", wrapper.session->serviceLocator);
@@ -132,7 +136,8 @@ TEST_F(IndexRpcWrapperTest, handleTransportError) {
 
 TEST_F(IndexRpcWrapperTest, send) {
     Buffer responseBuffer;
-    IndexRpcWrapper wrapper(&ramcloud, 10, 1, "abc", 3, 4, &responseBuffer);
+    IndexRpcWrapper wrapper(ramcloud.clientContext, 10, 1, "abc", 3, 4,
+            &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_STREQ("IN_PROGRESS", wrapper.stateString());
@@ -143,7 +148,8 @@ TEST_F(IndexRpcWrapperTest, send) {
 TEST_F(IndexRpcWrapperTest, send_noSession) {
     TestLog::Enable _;
     Buffer responseBuffer;
-    IndexRpcWrapper wrapper(&ramcloud, 10, 2, "abc", 3, 4, &responseBuffer);
+    IndexRpcWrapper wrapper(ramcloud.clientContext, 10, 2, "abc", 3, 4,
+            &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_TRUE(wrapper.isReady());
@@ -155,7 +161,8 @@ TEST_F(IndexRpcWrapperTest, send_noSession) {
 
 TEST_F(IndexRpcWrapperTest, send_retry) {
     Buffer responseBuffer;
-    IndexRpcWrapper wrapper(&ramcloud, 99, 1, "abc", 3, 4, &responseBuffer);
+    IndexRpcWrapper wrapper(ramcloud.clientContext, 99, 1, "abc", 3, 4,
+            &responseBuffer);
     wrapper.request.fillFromString("100");
     wrapper.send();
     EXPECT_STREQ("RETRY", wrapper.stateString());

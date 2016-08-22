@@ -1427,7 +1427,7 @@ IndexServerControlRpc::IndexServerControlRpc(RamCloud* ramcloud,
         uint64_t tableId, uint8_t indexId, const void* key, uint16_t keyLength,
         WireFormat::ControlOp controlOp, const void* inputData,
         uint32_t inputLength, Buffer* outputData)
-    : IndexRpcWrapper(ramcloud, tableId, indexId, key, keyLength,
+    : IndexRpcWrapper(ramcloud->clientContext, tableId, indexId, key, keyLength,
             sizeof(WireFormat::ServerControl::Response), outputData)
 {
     WireFormat::ServerControl::Request* reqHdr(
@@ -1593,7 +1593,8 @@ LookupIndexKeysRpc::LookupIndexKeysRpc(
         uint64_t firstAllowedKeyHash,
         const void* lastKey, uint16_t lastKeyLength,
         uint32_t maxNumHashes, Buffer* responseBuffer)
-    : IndexRpcWrapper(ramcloud, tableId, indexId, firstKey, firstKeyLength,
+    : IndexRpcWrapper(ramcloud->clientContext, tableId, indexId,
+            firstKey, firstKeyLength,
             sizeof(WireFormat::LookupIndexKeys::Response), responseBuffer)
 {
     WireFormat::LookupIndexKeys::Request* reqHdr(

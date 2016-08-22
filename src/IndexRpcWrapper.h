@@ -20,10 +20,6 @@
 
 namespace RAMCloud {
 
-// Forward declarations
-class ObjectFinder;
-class MasterService;
-
 /**
  * IndexRpcWrapper manages the client side of RPCs that must be sent to
  * the server that stores a particular key for a particular secondary index.
@@ -40,12 +36,7 @@ class MasterService;
 class IndexRpcWrapper : public RpcWrapper {
   public:
     explicit IndexRpcWrapper(
-            RamCloud* ramcloud, uint64_t tableId, uint8_t indexId,
-            const void* key, uint16_t keyLength,
-            uint32_t responseHeaderLength, Buffer* responseBuffer = NULL);
-
-    explicit IndexRpcWrapper(
-            MasterService* master, uint64_t tableId, uint8_t indexId,
+            Context* context, uint64_t tableId, uint8_t indexId,
             const void* key, uint16_t keyLength,
             uint32_t responseHeaderLength, Buffer* responseBuffer = NULL);
 
@@ -62,10 +53,6 @@ class IndexRpcWrapper : public RpcWrapper {
 
     /// Overall information about the calling process.
     Context* context;
-
-    /// ObjectFinder corresponding to either the client or the server
-    /// invoking this rpc; used to find the server to send the rpc to.
-    ObjectFinder* objectFinder;
 
     /// Information about key that determines which server the request
     /// is sent to; we have to save this information for use in retries.

@@ -1954,7 +1954,7 @@ MasterService::requestInsertIndexEntries(Object& object)
                             keyLength).c_str(),
                     primaryKeyHash);
 
-            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
+            rpcs[keyIndex-1].construct(this->context, tableId, keyIndex,
                     key, keyLength, primaryKeyHash);
         }
     }
@@ -2003,7 +2003,7 @@ MasterService::requestRemoveIndexEntries(Object& object)
                             keyLength).c_str(),
                     primaryKeyHash);
 
-            rpcs[keyIndex-1].construct(this, tableId, keyIndex,
+            rpcs[keyIndex-1].construct(this->context, tableId, keyIndex,
                     key, keyLength, primaryKeyHash);
         }
     }

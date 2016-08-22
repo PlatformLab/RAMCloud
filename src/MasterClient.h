@@ -17,6 +17,7 @@
 #define RAMCLOUD_MASTERCLIENT_H
 
 #include "Buffer.h"
+#include "Context.h"
 #include "CoordinatorClient.h"
 #include "IndexRpcWrapper.h"
 #include "ObjectRpcWrapper.h"
@@ -31,7 +32,6 @@
 namespace RAMCloud {
 
 // forward declaration
-class MasterService;
 class Segment;
 
 /**
@@ -50,7 +50,7 @@ class MasterClient {
     static void dropTabletOwnership(Context* context, ServerId serverId,
             uint64_t tableId, uint64_t firstKeyHash, uint64_t lastKeyHash);
     static LogPosition getHeadOfLog(Context* context, ServerId serverId);
-    static void insertIndexEntry(MasterService* master,
+    static void insertIndexEntry(Context* context,
             uint64_t tableId, uint8_t indexId,
             const void* indexKey, KeyLength indexKeyLength,
             uint64_t primaryKeyHash);
@@ -73,7 +73,7 @@ class MasterClient {
             bool isIndexletData = false,
             uint64_t dataTableId = 0, uint8_t indexId = 0,
             const void* key = NULL, uint16_t keyLength = 0);
-    static void removeIndexEntry(MasterService* master,
+    static void removeIndexEntry(Context* context,
             uint64_t tableId, uint8_t indexId,
             const void* indexKey, KeyLength indexKeyLength,
             uint64_t primaryKeyHash);
@@ -152,7 +152,7 @@ class GetHeadOfLogRpc : public ServerIdRpcWrapper {
  */
 class InsertIndexEntryRpc : public IndexRpcWrapper {
   public:
-    InsertIndexEntryRpc(MasterService* master,
+    InsertIndexEntryRpc(Context* context,
             uint64_t tableId, uint8_t indexId,
             const void* indexKey, KeyLength indexKeyLength,
             uint64_t primaryKeyHash);
@@ -257,7 +257,7 @@ class RecoverRpc : public ServerIdRpcWrapper {
  */
 class RemoveIndexEntryRpc : public IndexRpcWrapper {
   public:
-    RemoveIndexEntryRpc(MasterService* master,
+    RemoveIndexEntryRpc(Context* context,
              uint64_t tableId, uint8_t indexId,
              const void* indexKey, KeyLength indexKeyLength,
              uint64_t primaryKeyHash);
