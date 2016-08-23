@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -43,7 +43,31 @@ clearCpuAffinity(void)
     for (int cpu = 0; cpu < numCpus; cpu++) {
         CPU_SET(cpu, &cpuSet);
     }
-    assert(sched_setaffinity(0, sizeof(cpuSet), &cpuSet) == 0);
+    if (sched_setaffinity(0, sizeof(cpuSet), &cpuSet) != 0) {
+        RAMCLOUD_LOG(ERROR, "sched_setaffinitity failed: %s", strerror(errno));
+    };
+}
+
+/**
+ * Returns a string describing the CPU affinity of the current thread.
+ * Each character in the string corresponds to a core; "X" means the
+ * thread can run on that core, "-" means it cannot.
+ */
+string
+getCpuAffinityString(void)
+{
+    cpu_set_t cpuSet;
+    int numCpus;
+
+    numCpus = downCast<int>(sysconf(_SC_NPROCESSORS_ONLN));
+    if (sched_getaffinity(0, sizeof(cpuSet), &cpuSet) != 0) {
+        RAMCLOUD_LOG(ERROR, "sched_getaffinitity failed: %s", strerror(errno));
+    };
+    string result;
+    for (int cpu = 0; cpu < numCpus; cpu++) {
+        result.append(CPU_ISSET(cpu, &cpuSet) ? "X" : "-");
+    }
+    return result;
 }
 
 /**

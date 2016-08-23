@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -61,6 +61,13 @@ TEST(UtilTest, getCpuAffinity) {
     cpu_set_t oldSet = Util::getCpuAffinity();
     for (int i = 0; i < CPU_COUNT(&oldSet); i++)
         EXPECT_TRUE(CPU_ISSET(i, &oldSet));
+}
+
+TEST(UtilTest, getCpuAffinityString) {
+    Util::pinThreadToCore(0);
+    EXPECT_EQ("X---", Util::getCpuAffinityString().substr(0, 4));
+    Util::clearCpuAffinity();
+    EXPECT_EQ("XXXX", Util::getCpuAffinityString().substr(0, 4));
 }
 
 TEST(UtilTest, setCpuAffinity) {

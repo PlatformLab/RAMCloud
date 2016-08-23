@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,6 +29,7 @@ namespace Util {
 
 void clearCpuAffinity(void);
 void genRandomString(char* str, const int length);
+string getCpuAffinityString(void);
 string hexDump(const void *buffer, uint64_t bytes);
 void spinAndCheckGaps(int count);
 bool timespecLess(const struct timespec& t1, const struct timespec& t2);
@@ -117,7 +118,7 @@ void setCpuAffinity(cpu_set_t cpuset) {
 /**
  * This function is used to seralize machine instructions so that no
  * instructions that appear after it in the current thread can run before any
- * instructions that appear before it. 
+ * instructions that appear before it.
  *
  * It is useful for putting around rdpmc instructions (to pinpoint cache
  * misses) as well as before rdtsc instructions, to prevent time pollution from
