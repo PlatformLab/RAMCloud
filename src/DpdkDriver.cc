@@ -49,6 +49,24 @@
 namespace RAMCloud
 {
 
+// Change 0 -> 1 in the following line to compile detailed time tracing in
+// this transport.
+#define TIME_TRACE 0
+
+// Provides a cleaner way of invoking TimeTrace::record, with the code
+// conditionally compiled in or out by the TIME_TRACE #ifdef.
+namespace {
+    inline void
+    timeTrace(const char* format,
+            uint32_t arg0 = 0, uint32_t arg1 = 0, uint32_t arg2 = 0,
+            uint32_t arg3 = 0)
+    {
+#if TIME_TRACE
+        TimeTrace::record(format, arg0, arg1, arg2, arg3);
+#endif
+    }
+}
+
 /*
  * Construct a DpdkDriver.
  *
@@ -169,7 +187,7 @@ DpdkDriver::DpdkDriver(Context* context,
     ret = rte_eth_dev_filter_supported(portId,
                                        RTE_ETH_FILTER_ETHERTYPE);
     if (ret < 0) {
-      LOG(WARNING, "ethertype filter is not supported on port %u.\n", portId);
+      LOG(WARNING, "ethertype filter is not supported on port %u.", portId);
       hasHardwareFilter = false;
     } else {
       memset(&filter, 0, sizeof(filter));
@@ -274,6 +292,9 @@ DpdkDriver::receivePackets(int maxPackets,
     // as well as from the loopback ring.
     uint32_t incomingPkts = rte_eth_rx_burst(portId, 0, mPkts,
             MAX_PACKETS_AT_ONCE/2);
+    if (incomingPkts > 0) {
+        timeTrace("DpdkDriver received %u packets", incomingPkts);
+    }
     uint32_t loopbackPkts = rte_ring_count(loopbackRing);
     if (incomingPkts + loopbackPkts > MAX_PACKETS_AT_ONCE) {
         loopbackPkts = MAX_PACKETS_AT_ONCE - incomingPkts;
@@ -386,6 +407,7 @@ DpdkDriver::sendPacket(const Address *addr,
         p += payload->getLength();
         payload->next();
     }
+    timeTrace("about to enqueue outgoing packet");
 
     // loopback if src mac == dst mac
     if (!memcmp(static_cast<const MacAddress*>(addr)->address,
@@ -394,6 +416,7 @@ DpdkDriver::sendPacket(const Address *addr,
     } else {
         rte_eth_tx_burst(portId, 0, &mbuf, 1);
     }
+    timeTrace("outgoing packet enqueued");
     queueEstimator.packetQueued(totalLength, Cycles::rdtsc());
 }
 
