@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -65,6 +65,9 @@ class CoordinatorClient {
     static WireFormat::ClientLease renewLease(Context* context,
             uint64_t leaseId);
     static void sendServerList(Context* context, ServerId destination);
+    static void serverControlAll(Context* context,
+            WireFormat::ControlOp controlOp, const void* inputData = NULL,
+            uint32_t inputLength = 0, Buffer* outputData = NULL);
     static void setMasterRecoveryInfo(Context* context, ServerId serverId,
             const ProtoBuf::MasterRecoveryInfo& recoveryInfo);
     static void verifyMembership(Context* context, ServerId serverId,
@@ -236,6 +239,22 @@ class SendServerListRpc : public CoordinatorRpcWrapper {
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(SendServerListRpc);
+};
+
+/**
+ * Encapsulates the state of a CoordinatorClient::serverControlAll
+ * request, allowing it to execute asynchronously.
+ */
+class ServerControlAllRpc : public CoordinatorRpcWrapper {
+  public:
+    ServerControlAllRpc(Context* context, WireFormat::ControlOp controlOp,
+        const void* inputData = NULL, uint32_t inputLength = 0,
+        Buffer* outputData = NULL);
+    ~ServerControlAllRpc() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait() {simpleWait(context);}
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(ServerControlAllRpc);
 };
 
 /**

@@ -973,22 +973,6 @@ class ObjectServerControlRpc : public ObjectRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a RamCloud::serverControlAll operation,
- * allowing it to execute asynchronously.
- */
-class ServerControlAllRpc : public CoordinatorRpcWrapper {
-  public:
-    ServerControlAllRpc(Context* context, WireFormat::ControlOp controlOp,
-        const void* inputData = NULL, uint32_t inputLength = 0,
-        Buffer* outputData = NULL);
-    ~ServerControlAllRpc() {}
-    /// \copydoc RpcWrapper::docForWait
-    void wait() {simpleWait(context);}
-  PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(ServerControlAllRpc);
-};
-
-/**
  * Encapsulates the state of a RamCloud::setRuntimeOption operation,
  * allowing it to execute asynchronously.
  */

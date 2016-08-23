@@ -18,6 +18,7 @@
 #include "RamCloud.h"
 #include "ClientLeaseAgent.h"
 #include "ClientTransactionManager.h"
+#include "CoordinatorClient.h"
 #include "CoordinatorSession.h"
 #include "Dispatch.h"
 #include "LinearizableObjectRpcWrapper.h"
@@ -2199,41 +2200,6 @@ RamCloud::serverControlAll(WireFormat::ControlOp controlOp,
     ServerControlAllRpc rpc(clientContext, controlOp,
             inputData, inputLength, outputData);
     rpc.wait();
-}
-
-/**
- * Constructor for ServerControlAllRpc: initiates an RPC in the same way as
- * #RamCloud::serverControlAll, but returns once the RPC has been initiated,
- * without waiting for it to complete.
- *
- * \param context
- *      Global information about this client or server.
- * \param controlOp
- *      This defines the specific operation to be performed on the
- *      remote servers.
- * \param inputData
- *      Input data, such as additional parameters, specific for the
- *      particular operation to be performed. Not all operations use
- *      this information.
- * \param inputLength
- *      Size in bytes of the contents for the inputData.
- * \param[out] outputData
- *      A buffer that contains the return results, if any, from execution of the
- *      control operation on the remote server.
- */
-ServerControlAllRpc::ServerControlAllRpc(Context* context,
-        WireFormat::ControlOp controlOp,
-        const void* inputData, uint32_t inputLength, Buffer* outputData)
-    : CoordinatorRpcWrapper(context,
-            sizeof(WireFormat::ServerControlAll::Response), outputData)
-{
-    WireFormat::ServerControlAll::Request*
-            reqHdr(allocHeader<WireFormat::ServerControlAll>());
-
-    reqHdr->controlOp = controlOp;
-    reqHdr->inputLength = inputLength;
-    request.append(inputData, inputLength);
-    send();
 }
 
 /**

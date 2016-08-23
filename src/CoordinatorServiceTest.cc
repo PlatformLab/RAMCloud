@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -238,39 +238,31 @@ TEST_F(CoordinatorServiceTest, getTableConfig_invalid) {
 }
 
 TEST_F(CoordinatorServiceTest, serverControlAll) {
-    Buffer reqBuf;
-    Buffer respBuf;
+    Buffer response;
     TimeTrace::reset();
-    Service::Rpc rpc(NULL, &reqBuf, &respBuf);   // Fake RPC with no worker.
-    WireFormat::ServerControlAll::Request* reqHdr =
-                reqBuf.emplaceAppend<WireFormat::ServerControlAll::Request>();
+    CoordinatorClient::serverControlAll(&context, WireFormat::GET_TIME_TRACE,
+            NULL, 0, &response);
     WireFormat::ServerControlAll::Response* respHdr =
-                respBuf.emplaceAppend<WireFormat::ServerControlAll::Response>();
-
-    reqHdr->common.opcode = WireFormat::SERVER_CONTROL_ALL;
-    reqHdr->common.service = WireFormat::COORDINATOR_SERVICE;
-    reqHdr->controlOp = WireFormat::GET_TIME_TRACE;
-
-    service->serverControlAll(reqHdr, respHdr, &rpc);
+                response.getStart<WireFormat::ServerControlAll::Response>();
     EXPECT_EQ(1U, respHdr->serverCount);
     EXPECT_EQ(1U, respHdr->respCount);
     EXPECT_EQ(45U, respHdr->totalRespLength);
+    const WireFormat::ServerControl::Response* entryHeader =
+            response.getOffset<WireFormat::ServerControl::Response>(
+            sizeof32(*respHdr));
+    const char* message = static_cast<const char*>(response.getRange(
+            sizeof32(*respHdr) + sizeof32(*entryHeader),
+            entryHeader->outputLength));
+    EXPECT_EQ("No time trace events to print",
+            string(message, entryHeader->outputLength));
 }
 
 TEST_F(CoordinatorServiceTest, serverControlAll_rpcErrors) {
-    Buffer reqBuf;
-    Buffer respBuf;
-    Service::Rpc rpc(NULL, &reqBuf, &respBuf);   // Fake RPC with no worker.
-    WireFormat::ServerControlAll::Request* reqHdr =
-                reqBuf.emplaceAppend<WireFormat::ServerControlAll::Request>();
+    Buffer response;
+    CoordinatorClient::serverControlAll(&context, WireFormat::ControlOp(0),
+            NULL, 0, &response);
     WireFormat::ServerControlAll::Response* respHdr =
-                respBuf.emplaceAppend<WireFormat::ServerControlAll::Response>();
-
-    reqHdr->common.opcode = WireFormat::SERVER_CONTROL_ALL;
-    reqHdr->common.service = WireFormat::COORDINATOR_SERVICE;
-    reqHdr->controlOp = WireFormat::ControlOp(0);
-
-    service->serverControlAll(reqHdr, respHdr, &rpc);
+                response.getStart<WireFormat::ServerControlAll::Response>();
     EXPECT_EQ(1U, respHdr->serverCount);
     EXPECT_EQ(1U, respHdr->respCount);
     EXPECT_EQ(16U, respHdr->totalRespLength);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -703,6 +703,67 @@ RenewLeaseRpc::wait()
         ClientException::throwException(HERE, respHdr->common.status);
 
     return respHdr->lease;
+}
+/**
+ * This RPC is used to invoke ServerControl on every server in the cluster; it
+ * returns all of the responses.
+ *
+ * \param context
+ *      Overall information about the RAMCloud server or client.
+ * \param controlOp
+ *      Specifies a particular operation to be performed on each server.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the raw response from the coordinator. See
+ *      WireFormat::ServerControlAll::Response for more details.
+ */
+void
+CoordinatorClient::serverControlAll(Context* context,
+        WireFormat::ControlOp controlOp, const void* inputData,
+        uint32_t inputLength, Buffer* outputData)
+{
+    ServerControlAllRpc rpc(context, controlOp, inputData, inputLength,
+            outputData);
+    rpc.wait();
+}
+
+/**
+ * Constructor for ServerControlAllRpc: initiates an RPC in the same way as
+ * #CoordinatorClient::serverControlAll, but returns once the RPC has been
+ * initiated, without waiting for it to complete.
+ *
+ * \param context
+ *      Global information about this client or server.
+ * \param controlOp
+ *      Specifies a particular operation to be performed on each server.
+ * \param inputData
+ *      Input data, such as additional parameters, specific for the
+ *      particular operation to be performed. Not all operations use
+ *      this information.
+ * \param inputLength
+ *      Size in bytes of the contents for the inputData.
+ * \param[out] outputData
+ *      A buffer that contains the return results, if any, from execution of the
+ *      control operation on the remote server.
+ */
+ServerControlAllRpc::ServerControlAllRpc(Context* context,
+        WireFormat::ControlOp controlOp,
+        const void* inputData, uint32_t inputLength, Buffer* outputData)
+    : CoordinatorRpcWrapper(context,
+            sizeof(WireFormat::ServerControlAll::Response), outputData)
+{
+    WireFormat::ServerControlAll::Request*
+            reqHdr(allocHeader<WireFormat::ServerControlAll>());
+
+    reqHdr->controlOp = controlOp;
+    reqHdr->inputLength = inputLength;
+    request.append(inputData, inputLength);
+    send();
 }
 
 /**
