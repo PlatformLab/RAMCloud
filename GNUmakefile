@@ -183,11 +183,12 @@ endif
 # DPDK ?= yes
 ifeq ($(DPDK),yes)
 
-# Modify the variable below (or set its value in MakefragPrivateTop) to
-# hold the path to the top-level DPDK directory (the parent of the
-# "x86_64-native-linuxapp-gcc" directory). Or, leave this variable
-# undefined if DPDK is installed in the standard system locations.
-DPDK_DIR ?= dpdk
+# Uncomment the line below and modify its value (or set the value in
+# MakefragPrivateTop) to hold the path to the top-level DPDK directory
+# (the parent of the "x86_64-native-linuxapp-gcc" directory). Or, leave
+# this variable undefined if DPDK is installed in the standard system
+# locations.
+# DPDK_DIR ?= deps/dpdk-16.07
 
 # Change the definition below if you compiled DPDK without shared libraries.
 # Note: this configuration is not well tested and may not work.
