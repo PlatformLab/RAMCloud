@@ -203,6 +203,7 @@ ifeq ($(DPDK_SHARED),no)
 $(error DPDK_SHARED should be yes when DPDK is installed on the system)
 endif
 DPDK_SHARED := yes
+DPDK_LIB_DIR ?= /usr/lib64
 else
 # Link with the libraries in the DPDK SDK under DPDK_DIR
 ifeq ($(wildcard $(DPDK_DIR)),)
