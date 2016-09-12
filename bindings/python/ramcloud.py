@@ -131,9 +131,6 @@ def load_so():
     so.rc_dropTable.argtypes = [client, name]
     so.rc_dropTable.restype  = status
 
-    so.rc_getStatus.argtypes = []
-    so.rc_getStatus.restype  = status
-
     so.rc_getTableId.argtypes = [client, name, POINTER(table)]
     so.rc_getTableId.restype  = status
 

@@ -186,12 +186,6 @@ class RamCloud {
      */
     Context* clientContext;
 
-    /**
-     * Status returned from the most recent RPC.  Warning: as of 7/2012 this
-     * field is not properly set.
-     */
-    Status status;
-
   public: // public for now to make administrative calls from clients
 
     // See "Header Minimization" in designNotes for info on why these

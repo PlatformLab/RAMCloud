@@ -275,17 +275,6 @@ void rc_enumerateTableFinalize(void *enumerationState) {
     delete tableEnumerator;
 }
 
-/**
- * Return the completion status from the most recent RPC.
- *
- * \return
- *      See above.
- */
-Status
-rc_getStatus(struct rc_client* client) {
-    return client->client->status;
-}
-
 Status
 rc_getTableId(struct rc_client* client, const char* name,
         uint64_t* tableId)

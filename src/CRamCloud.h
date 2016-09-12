@@ -65,8 +65,6 @@ Status    rc_enumerateTableNext(struct rc_client* client,
                                 uint32_t* dataLength, const void** data);
 void      rc_enumerateTableFinalize(void *enumerationState);
 
-
-Status    rc_getStatus(struct rc_client* client);
 Status    rc_getTableId(struct rc_client* client, const char* name,
                             uint64_t* tableId);
 
