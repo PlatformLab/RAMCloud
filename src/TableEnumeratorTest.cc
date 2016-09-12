@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -39,7 +39,7 @@ class TableEnumeratorTest : public ::testing::Test {
 
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=master1";
         cluster.addServer(config);
         config.localLocator = "mock:host=master2";

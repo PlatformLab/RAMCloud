@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -55,7 +55,7 @@ class MultiIncrementTest : public ::testing::Test {
 
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=master1";
         config.maxObjectKeySize = 512;
         config.maxObjectDataSize = 1024;
@@ -63,11 +63,11 @@ class MultiIncrementTest : public ::testing::Test {
         config.segletSize = 128*1024;
         cluster.addServer(config);
         config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=master2";
         cluster.addServer(config);
         config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=master3";
         cluster.addServer(config);
         ramcloud.construct(&context, "mock:host=coordinator");

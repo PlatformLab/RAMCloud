@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -97,7 +97,7 @@ class ServiceMask {
     /**
      * Return a comma-separated, human-readable list of the services marked as
      * available in this ServiceMask.  Example output:
-     * "MASTER_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE"
+     * "MASTER_SERVICE, ADMIN_SERVICE, MEMBERSHIP_SERVICE"
      */
     string toString() const
     {

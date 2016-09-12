@@ -15,12 +15,12 @@
 
 #include "Common.h"
 #include "ShortMacros.h"
+#include "AdminService.h"
 #include "CoordinatorService.h"
 #include "ExternalStorage.h"
 #include "MemoryMonitor.h"
 #include "MockExternalStorage.h"
 #include "OptionParser.h"
-#include "PingService.h"
 #include "PortAlarm.h"
 #include "ServerId.h"
 #include "TableManager.h"
@@ -145,7 +145,7 @@ main(int argc, char *argv[])
                                               deadServerTimeout,
                                               false,
                                               neverKill);
-        PingService pingService(&context);
+        AdminService adminService(&context);
         while (true) {
             context.dispatch->poll();
         }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,7 +32,7 @@ serviceTypeSymbol(ServiceType type) {
         case MASTER_SERVICE:        return "MASTER_SERVICE";
         case BACKUP_SERVICE:        return "BACKUP_SERVICE";
         case COORDINATOR_SERVICE:   return "COORDINATOR_SERVICE";
-        case PING_SERVICE:          return "PING_SERVICE";
+        case ADMIN_SERVICE:         return "ADMIN_SERVICE";
         case MEMBERSHIP_SERVICE:    return "MEMBERSHIP_SERVICE";
         default:                    return "INVALID_SERVICE";
     }
@@ -40,7 +40,7 @@ serviceTypeSymbol(ServiceType type) {
 
 /**
  * Given an Opcode, return a human-readable string containing
- * the symbolic name for the opcode, such as "PING"
+ * the symbolic name for the opcode, such as "ADMIN"
  *
  * \param opcode
  *      Identifies the operation requested in an RPC; must be one

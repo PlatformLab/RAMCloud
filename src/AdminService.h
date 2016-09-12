@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_PINGSERVICE_H
-#define RAMCLOUD_PINGSERVICE_H
+#ifndef RAMCLOUD_ADMINSERVICE_H
+#define RAMCLOUD_ADMINSERVICE_H
 
 #include "Service.h"
 #include "ServerList.h"
@@ -26,10 +26,10 @@ namespace RAMCloud {
  * separate service allows them to have their own threads so that ping-related
  * requests don't block, even if other parts of the server are overloaded.
  */
-class PingService : public Service {
+class AdminService : public Service {
   public:
-    explicit PingService(Context* context);
-    ~PingService();
+    explicit AdminService(Context* context);
+    ~AdminService();
     void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
 
   PRIVATE:
@@ -65,10 +65,10 @@ class PingService : public Service {
     /// false.
     bool returnUnknownId;
 
-    DISALLOW_COPY_AND_ASSIGN(PingService);
+    DISALLOW_COPY_AND_ASSIGN(AdminService);
 };
 
 
 } // end RAMCloud
 
-#endif  // RAMCLOUD_PINGSERVICE_H
+#endif  // RAMCLOUD_ADMINSERVICE_H

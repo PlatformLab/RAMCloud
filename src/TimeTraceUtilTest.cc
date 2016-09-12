@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -49,9 +49,9 @@ TEST_F(TimeTraceUtilTest, queueLengthMsg) {
     EXPECT_STREQ("Backup queue length is 100",
             TimeTraceUtil::queueLengthMsg(
             WireFormat::ServiceType::BACKUP_SERVICE, 100));
-    EXPECT_STREQ("Ping queue length is > 100",
+    EXPECT_STREQ("Admin queue length is > 100",
             TimeTraceUtil::queueLengthMsg(
-            WireFormat::ServiceType::PING_SERVICE, 101));
+            WireFormat::ServiceType::ADMIN_SERVICE, 101));
 }
 
 TEST_F(TimeTraceUtilTest, initStatusMessages_opcodes) {

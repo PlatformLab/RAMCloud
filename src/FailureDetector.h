@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,7 +20,7 @@
 #include <list>
 
 #include "Common.h"
-#include "PingClient.h"
+#include "AdminClient.h"
 #include "ServiceLocator.h"
 #include "ServerId.h"
 #include "ServerList.h"

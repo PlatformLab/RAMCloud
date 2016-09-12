@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -46,16 +46,16 @@ class RamCloudTest : public ::testing::Test {
 
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=master1";
         cluster.addServer(config);
         config.services = {WireFormat::MASTER_SERVICE,
                            WireFormat::BACKUP_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=master2";
         cluster.addServer(config);
-        config.services = {WireFormat::PING_SERVICE};
-        config.localLocator = "mock:host=ping1";
+        config.services = {WireFormat::ADMIN_SERVICE};
+        config.localLocator = "mock:host=admin1";
         cluster.addServer(config);
 
         ramcloud.construct(&context, "mock:host=coordinator");
@@ -615,7 +615,7 @@ TEST_F(RamCloudTest, getRuntimeOption) {
 
 TEST_F(RamCloudTest, testingKill) {
     TestLog::reset();
-    cluster.servers[0]->ping->ignoreKill = true;
+    cluster.servers[0]->adminService->ignoreKill = true;
     // Create the RPC object directly rather than calling testingKill
     // (testingKill would hang in objectFinder->waitForTabletDown).
     KillRpc rpc(ramcloud.get(), tableId1, "0", 1);

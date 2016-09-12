@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,8 +16,8 @@
 #include "TransportManager.h"
 
 #include "AbstractServerList.h"
+#include "AdminClient.h"
 #include "Cycles.h"
-#include "PingClient.h"
 #include "FailSession.h"
 #include "ServerTracker.h"
 
@@ -159,7 +159,7 @@ AbstractServerList::getSession(ServerId id)
         while (1) {
             ServerId actualId;
             try {
-                actualId = PingClient::getServerId(context, session);
+                actualId = AdminClient::getServerId(context, session);
             } catch (TransportException& e) {
                 // Can't even communicate with the server; fail the session.
                 RAMCLOUD_LOG(NOTICE,

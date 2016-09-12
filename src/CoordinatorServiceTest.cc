@@ -53,7 +53,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         service = cluster.coordinator.get();
 
         masterConfig.services = {WireFormat::MASTER_SERVICE,
-                                 WireFormat::PING_SERVICE,
+                                 WireFormat::ADMIN_SERVICE,
                                  WireFormat::MEMBERSHIP_SERVICE};
         masterConfig.localLocator = "mock:host=master";
         Server* masterServer = cluster.addServer(masterConfig);
@@ -90,7 +90,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         bool end = false;
         while (!end) {
             nextServerId = service->serverList.nextServer(nextServerId,
-                    {WireFormat::PING_SERVICE}, &end, false);
+                    {WireFormat::ADMIN_SERVICE}, &end, false);
             if (!end && nextServerId.isValid()) {
                 rpcs->emplace_back(service->context, nextServerId, controlOp,
                                    (const void*)NULL, (uint32_t)0);
@@ -138,12 +138,12 @@ TEST_F(CoordinatorServiceTest, getServerList) {
     master2Config.localLocator = "mock:host=master2";
     master2Config.services = {WireFormat::MASTER_SERVICE,
                               WireFormat::BACKUP_SERVICE,
-                              WireFormat::PING_SERVICE};
+                              WireFormat::ADMIN_SERVICE};
     cluster.addServer(master2Config);
     ServerConfig backupConfig = masterConfig;
     backupConfig.localLocator = "mock:host=backup1";
     backupConfig.services = {WireFormat::BACKUP_SERVICE,
-                             WireFormat::PING_SERVICE};
+                             WireFormat::ADMIN_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
     CoordinatorClient::getServerList(&context, &list);
@@ -156,12 +156,12 @@ TEST_F(CoordinatorServiceTest, getServerList_backups) {
     master2Config.localLocator = "mock:host=master2";
     master2Config.services = {WireFormat::MASTER_SERVICE,
                               WireFormat::BACKUP_SERVICE,
-                              WireFormat::PING_SERVICE};
+                              WireFormat::ADMIN_SERVICE};
     cluster.addServer(master2Config);
     ServerConfig backupConfig = masterConfig;
     backupConfig.localLocator = "mock:host=backup1";
     backupConfig.services = {WireFormat::BACKUP_SERVICE,
-                             WireFormat::PING_SERVICE};
+                             WireFormat::ADMIN_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
     CoordinatorClient::getBackupList(&context, &list);
@@ -174,12 +174,12 @@ TEST_F(CoordinatorServiceTest, getServerList_masters) {
     master2Config.localLocator = "mock:host=master2";
     master2Config.services = {WireFormat::MASTER_SERVICE,
                               WireFormat::BACKUP_SERVICE,
-                              WireFormat::PING_SERVICE};
+                              WireFormat::ADMIN_SERVICE};
     cluster.addServer(master2Config);
     ServerConfig backupConfig = masterConfig;
     backupConfig.localLocator = "mock:host=backup1";
     backupConfig.services = {WireFormat::BACKUP_SERVICE,
-                             WireFormat::PING_SERVICE};
+                             WireFormat::ADMIN_SERVICE};
     cluster.addServer(backupConfig);
     ProtoBuf::ServerList list;
     CoordinatorClient::getMasterList(&context, &list);
@@ -350,7 +350,7 @@ TEST_F(CoordinatorServiceTest, checkServerControlRpcs_ServerNotUpException) {
     master2Config.localLocator = "mock:host=master2";
     master2Config.services = {WireFormat::MASTER_SERVICE,
                               WireFormat::BACKUP_SERVICE,
-                              WireFormat::PING_SERVICE};
+                              WireFormat::ADMIN_SERVICE};
     Server* crashingServer = cluster.addServer(master2Config);
 
     populateServerControlRpcList(&rpcs, &rpc, WireFormat::GET_TIME_TRACE);
@@ -387,12 +387,12 @@ TEST_F(CoordinatorServiceTest, checkServerControlRpcs_skipNotReady) {
     master2Config.localLocator = "mock:host=master2";
     master2Config.services = {WireFormat::MASTER_SERVICE,
                               WireFormat::BACKUP_SERVICE,
-                              WireFormat::PING_SERVICE};
+                              WireFormat::ADMIN_SERVICE};
     cluster.addServer(master2Config);
     ServerConfig backupConfig = masterConfig;
     backupConfig.localLocator = "mock:host=backup1";
     backupConfig.services = {WireFormat::BACKUP_SERVICE,
-                             WireFormat::PING_SERVICE};
+                             WireFormat::ADMIN_SERVICE};
     cluster.addServer(backupConfig);
 
     std::list<CoordinatorService::ServerControlRpcContainer> rpcs;
@@ -446,7 +446,7 @@ TEST_F(CoordinatorServiceTest, checkServerControlRpcs_truncated) {
     master2Config.localLocator = "mock:host=master2";
     master2Config.services = {WireFormat::MASTER_SERVICE,
                               WireFormat::BACKUP_SERVICE,
-                              WireFormat::PING_SERVICE};
+                              WireFormat::ADMIN_SERVICE};
     cluster.addServer(master2Config);
 
     Buffer respBuf;
@@ -475,7 +475,7 @@ TEST_F(CoordinatorServiceTest, verifyServerFailure) {
     context.transportManager->registerMock(&mockTransport, "mock2");
     service->serverList.haltUpdater();
     ServerId deadId = service->serverList.enlistServer(
-                {WireFormat::PING_SERVICE}, 0, 100, "mock2:");
+                {WireFormat::ADMIN_SERVICE}, 0, 100, "mock2:");
     EXPECT_TRUE(service->verifyServerFailure(deadId));
 
     // Case 3: Never kill

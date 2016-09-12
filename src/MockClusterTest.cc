@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for
  * any purpose with or without fee is hereby granted, provided that
@@ -68,7 +68,7 @@ TEST_F(MockClusterTest, addServer) {
     EXPECT_FALSE(server->master);
     EXPECT_TRUE(server->backup);
     EXPECT_FALSE(server->membership);
-    EXPECT_FALSE(server->ping);
+    EXPECT_FALSE(server->adminService);
     EXPECT_EQ(1u, cluster->servers.size());
     Segment segment;
     BackupClient::writeSegment(&context, server->serverId, ServerId(),
@@ -114,7 +114,7 @@ TEST_F(MockClusterTest, benchMembershipCreate) {
 }
 
 TEST_F(MockClusterTest, benchPingCreate) {
-    config.services = {WireFormat::PING_SERVICE};
+    config.services = {WireFormat::ADMIN_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }
@@ -123,7 +123,7 @@ TEST_F(MockClusterTest, benchFullCreate) {
     config.services = {WireFormat::MASTER_SERVICE,
                        WireFormat::BACKUP_SERVICE,
                        WireFormat::MEMBERSHIP_SERVICE,
-                       WireFormat::PING_SERVICE};
+                       WireFormat::ADMIN_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
 }

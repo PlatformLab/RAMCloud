@@ -42,6 +42,8 @@ endif
 SHARED_SRCFILES := \
 		   src/AbstractLog.cc \
 		   src/AbstractServerList.cc \
+		   src/AdminClient.cc \
+		   src/AdminService.cc \
 		   src/ArpCache.cc \
 		   src/BasicTransport.cc \
 		   src/CacheTrace.cc \
@@ -121,8 +123,6 @@ SHARED_SRCFILES := \
 		   src/PcapFile.cc \
 		   src/PerfCounter.cc \
 		   src/PerfStats.cc \
-		   src/PingClient.cc \
-		   src/PingService.cc \
 		   src/PortAlarm.cc \
 		   src/PreparedOp.cc \
 		   src/RamCloud.cc \

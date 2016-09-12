@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -56,7 +56,7 @@ namespace RAMCloud {
  *    forever.
  *  - Control over the details of the coordinator is limited to just choosing
  *    its service locator.  The coordinator of the MockCluster doesn't run
- *    additional services like the PingService.  For now, those must be created
+ *    additional services like the AdminService.  For now, those must be created
  *    manually and registered.  In the future, perhaps the coordinator will
  *    have a CoordinatorConfig of some kind to make this easier.  It was
  *    just left out because it wouldn't have simplified our test much at the

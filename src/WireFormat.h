@@ -38,7 +38,7 @@ enum ServiceType {
     MASTER_SERVICE,
     BACKUP_SERVICE,
     COORDINATOR_SERVICE,
-    PING_SERVICE,
+    ADMIN_SERVICE,
     MEMBERSHIP_SERVICE,
     INVALID_SERVICE, // One higher than the max.
 };
@@ -709,7 +709,7 @@ struct GetMasterConfig {
 
 struct GetMetrics {
     static const Opcode opcode = Opcode::GET_METRICS;
-    static const ServiceType service = PING_SERVICE;
+    static const ServiceType service = ADMIN_SERVICE;
     struct Request {
         RequestCommon common;
     } __attribute__((packed));
@@ -759,7 +759,7 @@ struct GetServerConfig {
 
 struct GetServerId {
     static const Opcode opcode = GET_SERVER_ID;
-    static const ServiceType service = PING_SERVICE;
+    static const ServiceType service = ADMIN_SERVICE;
     struct Request {
         RequestCommon common;
     } __attribute__((packed));
@@ -953,7 +953,7 @@ struct IsReplicaNeeded {
 
 struct Kill {
     static const Opcode opcode = KILL;
-    static const ServiceType service = PING_SERVICE;
+    static const ServiceType service = ADMIN_SERVICE;
     struct Request {
         RequestCommon common;
     } __attribute__((packed));
@@ -1163,7 +1163,7 @@ struct MultiOp {
 
 struct Ping {
     static const Opcode opcode = Opcode::PING;
-    static const ServiceType service = PING_SERVICE;
+    static const ServiceType service = ADMIN_SERVICE;
     struct Request {
         RequestCommon common;
         uint64_t callerId;          // ServerId of the caller, or invalid
@@ -1211,7 +1211,7 @@ struct PrepForMigration {
 
 struct ProxyPing {
     static const Opcode opcode = PROXY_PING;
-    static const ServiceType service = PING_SERVICE;
+    static const ServiceType service = ADMIN_SERVICE;
     struct Request {
         RequestCommon common;
         uint64_t serverId;             // ServerId of the server to ping.
@@ -1443,7 +1443,7 @@ struct RenewLease {
 
 struct ServerControl {
     static const Opcode opcode = Opcode::SERVER_CONTROL;
-    static const ServiceType service = PING_SERVICE;
+    static const ServiceType service = ADMIN_SERVICE;
 
     /// Distinguishes between the ObjectServerControl, IndexServerControl,
     /// and ServerControl types.

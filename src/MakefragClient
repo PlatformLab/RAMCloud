@@ -26,6 +26,7 @@ endif
 
 CLIENT_SRCFILES := \
 		   src/AbstractServerList.cc \
+		   src/AdminClient.cc \
 		   src/ArpCache.cc \
 		   src/BasicTransport.cc \
 		   src/Buffer.cc \
@@ -80,7 +81,6 @@ CLIENT_SRCFILES := \
 		   src/PcapFile.cc \
 		   src/PerfCounter.cc \
 		   src/PerfStats.cc \
-		   src/PingClient.cc \
 		   src/PortAlarm.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \

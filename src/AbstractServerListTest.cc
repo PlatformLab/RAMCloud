@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,7 +19,7 @@
 #include "AbstractServerList.h"
 #include "BindTransport.h"
 #include "FailSession.h"
-#include "PingService.h"
+#include "AdminService.h"
 #include "ServerTracker.h"
 #include "ShortMacros.h"
 
@@ -200,13 +200,13 @@ TEST_F(AbstractServerListTest, getSession_verifyServerId) {
     AbstractServerList::skipServerIdCheck = false;
     BindTransport transport(&context);
     TransportManager::MockRegistrar mockRegistrar(&context, transport);
-    PingService pingService(&context);
+    AdminService adminService(&context);
     transport.registerServer(&context, "mock:host=ping");
     ServerId id1 = sl.add("mock:host=ping", ServerStatus::UP,
-            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE});
-    pingService.setServerId(id1);
+            {WireFormat::MASTER_SERVICE, WireFormat::ADMIN_SERVICE});
+    adminService.setServerId(id1);
     ServerId id2 = sl.add("mock:host=ping", ServerStatus::UP,
-            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE});
+            {WireFormat::MASTER_SERVICE, WireFormat::ADMIN_SERVICE});
     TestLog::Enable _;
     EXPECT_EQ("mock:host=ping", sl.getSession(id1)->serviceLocator);
     EXPECT_EQ("", TestLog::get());
@@ -220,7 +220,7 @@ TEST_F(AbstractServerListTest, getSession_transportException) {
     BindTransport transport(&context);
     TransportManager::MockRegistrar mockRegistrar(&context, transport);
     ServerId id1 = sl.add("error:", ServerStatus::UP,
-            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE});
+            {WireFormat::MASTER_SERVICE, WireFormat::ADMIN_SERVICE});
     TestLog::Enable _;
     Transport::SessionRef session = sl.getSession(id1);
     EXPECT_TRUE(TestUtil::contains(TestLog::get(), "getSession: couldn't "
@@ -231,12 +231,12 @@ TEST_F(AbstractServerListTest, getSession_retryIdVerification) {
     AbstractServerList::skipServerIdCheck = false;
     BindTransport transport(&context);
     TransportManager::MockRegistrar mockRegistrar(&context, transport);
-    PingService pingService(&context);
-    pingService.returnUnknownId = true;
+    AdminService adminService(&context);
+    adminService.returnUnknownId = true;
     transport.registerServer(&context, "mock:host=ping");
     ServerId id1 = sl.add("mock:host=ping", ServerStatus::UP,
-            {WireFormat::MASTER_SERVICE, WireFormat::PING_SERVICE});
-    pingService.setServerId(id1);
+            {WireFormat::MASTER_SERVICE, WireFormat::ADMIN_SERVICE});
+    adminService.setServerId(id1);
     TestLog::Enable _;
     EXPECT_EQ("mock:host=ping", sl.getSession(id1)->serviceLocator);
     EXPECT_EQ("getSession: retrying server id check for 0.0: server "
@@ -320,7 +320,7 @@ TEST_F(AbstractServerListTest, nextServer) {
     EXPECT_TRUE(end);
 
     // nothing matches
-    next = sl.nextServer(ServerId(5U, -1U), {WireFormat::PING_SERVICE}, &end);
+    next = sl.nextServer(ServerId(5U, -1U), {WireFormat::ADMIN_SERVICE}, &end);
     EXPECT_EQ("invalid", next.toString());
     EXPECT_TRUE(end);
 }

@@ -125,7 +125,7 @@ class InProgressTransactionTest : public ::testing::Test {
 
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=master1";
         config.maxObjectKeySize = 512;
         config.maxObjectDataSize = 1024;
@@ -134,12 +134,12 @@ class InProgressTransactionTest : public ::testing::Test {
         server1 = cluster.addServer(config);
         service1 = server1->master.get();
         config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=master2";
         server2 = cluster.addServer(config);
         service2 = server2->master.get();
         config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=master3";
         server3 = cluster.addServer(config);
         service3 = server3->master.get();

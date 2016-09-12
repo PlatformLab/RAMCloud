@@ -23,12 +23,12 @@
 #include "TableConfig.pb.h"
 
 #include "Common.h"
+#include "AdminClient.h"
 #include "ClientException.h"
 #include "ClientLeaseAuthority.h"
 #include "CoordinatorServerList.h"
 #include "CoordinatorUpdateManager.h"
 #include "MasterRecoveryManager.h"
-#include "PingClient.h"
 #include "RawMetrics.h"
 #include "Recovery.h"
 #include "RuntimeOptions.h"

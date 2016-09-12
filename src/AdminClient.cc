@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,7 +19,7 @@
 #include "ClientException.h"
 #include "Cycles.h"
 #include "Dispatch.h"
-#include "PingClient.h"
+#include "AdminClient.h"
 #include "ShortMacros.h"
 #include "TransportManager.h"
 
@@ -50,7 +50,7 @@ namespace RAMCloud {
  *      it is part of the cluster anymore.
  */
 void
-PingClient::ping(Context* context, ServerId targetId, ServerId callerId)
+AdminClient::ping(Context* context, ServerId targetId, ServerId callerId)
 {
     PingRpc rpc(context, targetId, callerId);
     rpc.wait();
@@ -58,7 +58,7 @@ PingClient::ping(Context* context, ServerId targetId, ServerId callerId)
 
 /**
  * Constructor for PingRpc: initiates an RPC in the same way as
- * #PingClient::ping, but returns once the RPC has been initiated,
+ * #AdminClient::ping, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
  * \param context
@@ -143,7 +143,7 @@ PingRpc::wait(uint64_t timeoutNanoseconds)
  *      existed, it has since crashed.
  */
 uint64_t
-PingClient::proxyPing(Context* context, ServerId proxyId, ServerId targetId,
+AdminClient::proxyPing(Context* context, ServerId proxyId, ServerId targetId,
         uint64_t timeoutNanoseconds)
 {
     ProxyPingRpc rpc(context, proxyId, targetId, timeoutNanoseconds);
@@ -152,7 +152,7 @@ PingClient::proxyPing(Context* context, ServerId proxyId, ServerId targetId,
 
 /**
  * Constructor for ProxyPingRpc: initiates an RPC in the same way as
- * #PingClient::proxyPing, but returns once the RPC has been initiated,
+ * #AdminClient::proxyPing, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
  * \param context
@@ -227,7 +227,7 @@ ProxyPingRpc::wait()
  *      control operation on the remote server.
  */
 void
-PingClient::serverControl(Context* context, ServerId serverId,
+AdminClient::serverControl(Context* context, ServerId serverId,
         WireFormat::ControlOp controlOp, const void* inputData,
         uint32_t inputLength, Buffer* outputData)
 {
@@ -239,7 +239,7 @@ PingClient::serverControl(Context* context, ServerId serverId,
 
 /**
  * Constructor for ServerControlRpc: initiates an RPC in the same way as
- * #PingClient::serverControl, but returns once the RPC has been initiated,
+ * #AdminClient::serverControl, but returns once the RPC has been initiated,
  * without waiting for it to complete.
  *
  * \param context
@@ -330,7 +330,7 @@ ServerControlRpc::waitRaw()
  *      The arguments to the format string.
  */
 void
-PingClient::logMessage(Context* context, ServerId serverId,
+AdminClient::logMessage(Context* context, ServerId serverId,
         LogLevel level, const char* fmt, ...)
 {
     Buffer toSend;
@@ -371,7 +371,7 @@ PingClient::logMessage(Context* context, ServerId serverId,
  *      communicating with the server.
  */
 ServerId
-PingClient::getServerId(Context* context, Transport::SessionRef session)
+AdminClient::getServerId(Context* context, Transport::SessionRef session)
 {
     GetServerIdRpc rpc(context, session);
     return rpc.wait();

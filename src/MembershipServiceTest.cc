@@ -57,7 +57,7 @@ class MembershipServiceTest : public ::testing::Test {
         context.externalStorage  = &storage;
         transport.registerServer(&context, "mock:host=member");
         serverList.testingAdd({serverId, "mock:host=member",
-                               {WireFormat::PING_SERVICE}, 100,
+                               {WireFormat::ADMIN_SERVICE}, 100,
                               ServerStatus::UP});
     }
 
@@ -75,11 +75,11 @@ TEST_F(MembershipServiceTest, updateServerList_single) {
     CoordinatorServerList* source(context2.coordinatorServerList);
     source->haltUpdater();
     ServerId id1 = source->enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 0, 100, "mock:host=55");
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=55");
     ServerId id2 = source->enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 0, 100, "mock:host=56");
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=56");
     ServerId id3 = source->enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 0, 100, "mock:host=57");
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=57");
     ProtoBuf::ServerList fullList;
     source->serialize(&fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
@@ -109,17 +109,17 @@ TEST_F(MembershipServiceTest, updateServerList_multi) {
 
     // Full List v1
     ServerId id1 = source->enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 0, 100, "mock:host=55");
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=55");
     source->serialize(&fullList, {WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE});
     // Update v2
     ServerId id2 = source->enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 0, 100, "mock:host=56");
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=56");
     EXPECT_EQ(2U, source->updates.size());
     update2 = source->updates.back().incremental;
     // Update v3
     ServerId id3 = source->enlistServer({WireFormat::MASTER_SERVICE,
-            WireFormat::PING_SERVICE}, 0, 100, "mock:host=57");
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=57");
     update3 = source->updates.back().incremental;
 
 

@@ -18,6 +18,7 @@
 #include <getopt.h>
 #include <assert.h>
 
+#include "AdminClient.h"
 #include "ClusterMetrics.h"
 #include "Cycles.h"
 #include "ShortMacros.h"
@@ -26,7 +27,6 @@
 #include "OptionParser.h"
 #include "RamCloud.h"
 #include "Tub.h"
-#include "PingClient.h"
 
 using namespace RAMCloud;
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for
  * any purpose with or without fee is hereby granted, provided that
@@ -16,9 +16,9 @@
  */
 
 #include "TestUtil.h"
+#include "AdminService.h"
 #include "ClusterMetrics.h"
 #include "MockCluster.h"
-#include "PingService.h"
 #include "RamCloud.h"
 #include "ServerList.h"
 
@@ -35,7 +35,7 @@ TEST_F(ClusterMetricsTest, load) {
     Context context;
     MockCluster cluster(&context);
 
-    PingService pingforCoordinator(&cluster.coordinatorContext);
+    AdminService adminforCoordinator(&cluster.coordinatorContext);
 
     RamCloud ramcloud(&context, "mock:host=coordinator");
 
@@ -43,13 +43,13 @@ TEST_F(ClusterMetricsTest, load) {
     ServerConfig ping1Config = ServerConfig::forTesting();
     ping1Config.localLocator = "mock:host=ping1";
     ping1Config.services = {WireFormat::BACKUP_SERVICE,
-                            WireFormat::PING_SERVICE};
+                            WireFormat::ADMIN_SERVICE};
     cluster.addServer(ping1Config);
 
     ServerConfig ping2Config = ping1Config;
     ping2Config.localLocator = "mock:host=ping2";
     ping2Config.services = {WireFormat::MASTER_SERVICE,
-                            WireFormat::PING_SERVICE};
+                            WireFormat::ADMIN_SERVICE};
     cluster.addServer(ping2Config);
 
     ClusterMetrics clusterMetrics;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -42,7 +42,7 @@ Server::Server(Context* context, const ServerConfig* config)
     , master()
     , backup()
     , membership()
-    , ping()
+    , adminService()
     , enlistTimer()
 {
     context->coordinatorSession->setLocation(
@@ -166,8 +166,8 @@ Server::createAndRegisterServices()
                              &config);
     }
 
-    if (config.services.has(WireFormat::PING_SERVICE)) {
-        ping.construct(context);
+    if (config.services.has(WireFormat::ADMIN_SERVICE)) {
+        adminService.construct(context);
     }
 
     return formerServerId;
@@ -203,10 +203,10 @@ Server::enlist(ServerId replacingId)
                                                backupReadSpeed);
     LOG(NOTICE, "Enlisted; serverId %s", serverId.toString().c_str());
 
-    // Finish PingService initialization first, so that the getServerId
+    // Finish AdminService initialization first, so that the getServerId
     // RPC will work; otherwise, no one can open connections to us.
-    if (ping)
-        ping->setServerId(serverId);
+    if (adminService)
+        adminService->setServerId(serverId);
     if (master)
         master->setServerId(serverId);
     if (backup)

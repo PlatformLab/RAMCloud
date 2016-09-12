@@ -645,7 +645,7 @@ CoordinatorService::serverControlAll(
         // If there are still servers left, send out 1 RPC
         if (!end) {
             nextServerId = serverList.nextServer(nextServerId,
-                                                 {WireFormat::PING_SERVICE},
+                                                 {WireFormat::ADMIN_SERVICE},
                                                  &end,
                                                  false);
             if (!end && nextServerId.isValid()) {

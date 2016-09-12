@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for
  * any purpose with or without fee is hereby granted, provided that
@@ -43,7 +43,7 @@ class ServerTest: public ::testing::Test {
         config.services = {WireFormat::MASTER_SERVICE,
                            WireFormat::BACKUP_SERVICE,
                            WireFormat::MEMBERSHIP_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.coordinatorLocator = cluster.coordinatorLocator;
         config.localLocator = "mock:host=server0";
         server.construct(&context, &config);
@@ -59,7 +59,7 @@ class ServerTest: public ::testing::Test {
 TEST_F(ServerTest, startForTesting) {
     server->startForTesting(cluster.transport);
     cluster.syncCoordinatorServerList();
-    PingClient::ping(&context, server->serverId, ServerId());
+    AdminClient::ping(&context, server->serverId, ServerId());
 }
 
 // run is too much of a pain to and not that interesting.
@@ -69,15 +69,15 @@ TEST_F(ServerTest, createAndRegisterServices) {
     EXPECT_TRUE(server->master);
     EXPECT_TRUE(server->backup);
     EXPECT_TRUE(server->membership);
-    EXPECT_TRUE(server->ping);
+    EXPECT_TRUE(server->adminService);
     EXPECT_EQ(server->master.get(),
         context.services[WireFormat::MASTER_SERVICE]);
     EXPECT_EQ(server->backup.get(),
         context.services[WireFormat::BACKUP_SERVICE]);
     EXPECT_EQ(server->membership.get(),
         context.services[WireFormat::MEMBERSHIP_SERVICE]);
-    EXPECT_EQ(server->ping.get(),
-        context.services[WireFormat::PING_SERVICE]);
+    EXPECT_EQ(server->adminService.get(),
+        context.services[WireFormat::ADMIN_SERVICE]);
 }
 
 TEST_F(ServerTest, enlist) {
@@ -88,7 +88,7 @@ TEST_F(ServerTest, enlist) {
     EXPECT_EQ(
         "enlistServer: Enlisting server at mock:host=server0 "
         "(server id 1.0) supporting services: MASTER_SERVICE, "
-        "BACKUP_SERVICE, PING_SERVICE, MEMBERSHIP_SERVICE | "
+        "BACKUP_SERVICE, ADMIN_SERVICE, MEMBERSHIP_SERVICE | "
         "enlistServer: Backup at id 1.0 has 100 MB/s read",
          TestLog::get());
     ASSERT_TRUE(server->master->serverId.isValid());

@@ -94,11 +94,11 @@ class IndexLookupTest : public ::testing::Test {
 
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=master1";
         cluster.addServer(config);
 
-        config.services = {WireFormat::PING_SERVICE};
+        config.services = {WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=ping1";
         cluster.addServer(config);
 

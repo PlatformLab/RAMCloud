@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,13 +16,13 @@
 #ifndef RAMCLOUD_SERVER_H
 #define RAMCLOUD_SERVER_H
 
+#include "AdminService.h"
 #include "BackupService.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorSession.h"
 #include "FailureDetector.h"
 #include "MasterService.h"
 #include "MembershipService.h"
-#include "PingService.h"
 #include "ServerConfig.h"
 #include "ServerId.h"
 #include "ServerList.h"
@@ -111,10 +111,10 @@ class Server {
     Tub<MembershipService> membership;
 
     /**
-     * The PingService running on this Server, if requested, else empty.
+     * The AdminService running on this Server, if requested, else empty.
      * See config.services.
      */
-    Tub<PingService> ping;
+    Tub<AdminService> adminService;
 
     // The class and variable below are used to run enlistment in a
     // worker thread, so that post-enlistment initialization doesn't

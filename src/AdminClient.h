@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_PINGCLIENT_H
-#define RAMCLOUD_PINGCLIENT_H
+#ifndef RAMCLOUD_ADMINCLIENT_H
+#define RAMCLOUD_ADMINCLIENT_H
 
 #include "ServerId.h"
 #include "ServerIdRpcWrapper.h"
@@ -28,7 +28,7 @@ namespace RAMCloud {
  * The class contains only static methods, so you shouldn't ever need
  * to instantiate an object.
  */
-class PingClient {
+class AdminClient {
   public:
     static void ping(Context* context, ServerId targetId,
             ServerId callerId = ServerId());
@@ -44,11 +44,11 @@ class PingClient {
             Transport::SessionRef session);
 
   private:
-    PingClient();
+    AdminClient();
 };
 
 /**
- * Encapsulates the state of a PingClient::getServerId request, allowing
+ * Encapsulates the state of a AdminClient::getServerId request, allowing
  * it to execute asynchronously. This RPC is unusual in that it's a subclass
  * of RpcWrapper; this means that it doesn't retry if there are any problems
  * (this is the correct behavior for its normal usage in verifying server ids).
@@ -67,7 +67,7 @@ class GetServerIdRpc : public RpcWrapper {
 };
 
 /**
- * Encapsulates the state of a PingClient::ping
+ * Encapsulates the state of a AdminClient::ping
  * request, allowing it to execute asynchronously.
  */
 class PingRpc : public ServerIdRpcWrapper {
@@ -84,7 +84,7 @@ class PingRpc : public ServerIdRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a PingClient::proxyPing
+ * Encapsulates the state of a AdminClient::proxyPing
  * request, allowing it to execute asynchronously.
  */
 class ProxyPingRpc : public ServerIdRpcWrapper {
@@ -99,7 +99,7 @@ class ProxyPingRpc : public ServerIdRpcWrapper {
 };
 
 /**
- * Encapsulates the state of a PingClient::serverControl operation,
+ * Encapsulates the state of a AdminClient::serverControl operation,
  * allowing it to execute asynchronously.
  */
 class ServerControlRpc : public ServerIdRpcWrapper {
@@ -116,4 +116,4 @@ class ServerControlRpc : public ServerIdRpcWrapper {
 
 } // namespace RAMCloud
 
-#endif // RAMCLOUD_PINGCLIENT_H
+#endif // RAMCLOUD_ADMINCLIENT_H

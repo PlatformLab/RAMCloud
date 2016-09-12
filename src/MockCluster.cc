@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -96,7 +96,7 @@ MockCluster::~MockCluster()
  * which will work for most tests.  From there different tests will need
  * to override a few things.  Most importantly, for any configuration it
  * is important to select which services will run on the server.
- * For example, config.services = {MASTER_SERVICE, PING_SERVICE}.
+ * For example, config.services = {MASTER_SERVICE, ADMIN_SERVICE}.
  * Examples of other things that can be configured include number of
  * replicas, size of segments, number of segment frames on the backup
  * storage, etc.).
@@ -119,7 +119,7 @@ MockCluster::~MockCluster()
  * Example usage:
  *
  * ServerConfig config = ServerConfig::forTesting();
- * config.services = {BACKUP_SERVICE, PING_SERVICE};
+ * config.services = {BACKUP_SERVICE, ADMIN_SERVICE};
  * auto* backup = cluster.get<BackupClient>(cluster.addServer(config));
  * backup->openSegment({99, 0}, 10);
  *

@@ -22,8 +22,8 @@
 #include "RawMetrics.h"
 #include "ShortMacros.h"
 #include "PerfStats.h"
-#include "PingClient.h"
-#include "PingService.h"
+#include "AdminClient.h"
+#include "AdminService.h"
 #include "ServerList.h"
 #include "TimeTrace.h"
 #include "CacheTrace.h"
@@ -31,7 +31,7 @@
 namespace RAMCloud {
 
 /**
- * Construct a PingService.
+ * Construct an AdminService.
  *
  * \param context
  *      Overall information about the RAMCloud server. The caller is assumed
@@ -39,17 +39,17 @@ namespace RAMCloud {
  *      will not return a valid ServerList version in response to pings.
  *      The new service will be registered in this context.
  */
-PingService::PingService(Context* context)
+AdminService::AdminService(Context* context)
     : context(context)
     , ignoreKill(false)
     , returnUnknownId(false)
 {
-    context->services[WireFormat::PING_SERVICE] = this;
+    context->services[WireFormat::ADMIN_SERVICE] = this;
 }
 
-PingService::~PingService()
+AdminService::~AdminService()
 {
-    context->services[WireFormat::PING_SERVICE] = NULL;
+    context->services[WireFormat::ADMIN_SERVICE] = NULL;
 }
 
 /**
@@ -58,7 +58,7 @@ PingService::~PingService()
  * \copydetails Service::ping
  */
 void
-PingService::getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
+AdminService::getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
              WireFormat::GetMetrics::Response* respHdr,
              Rpc* rpc)
 {
@@ -74,7 +74,7 @@ PingService::getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
  * \copydetails Service::ping
  */
 void
-PingService::getServerId(const WireFormat::GetServerId::Request* reqHdr,
+AdminService::getServerId(const WireFormat::GetServerId::Request* reqHdr,
              WireFormat::GetServerId::Response* respHdr,
              Rpc* rpc)
 {
@@ -95,7 +95,7 @@ PingService::getServerId(const WireFormat::GetServerId::Request* reqHdr,
  * \copydetails Service::ping
  */
 void
-PingService::ping(const WireFormat::Ping::Request* reqHdr,
+AdminService::ping(const WireFormat::Ping::Request* reqHdr,
              WireFormat::Ping::Response* respHdr,
              Rpc* rpc)
 {
@@ -131,7 +131,7 @@ PingService::ping(const WireFormat::Ping::Request* reqHdr,
  * \copydetails Service::ping
  */
 void
-PingService::proxyPing(const WireFormat::ProxyPing::Request* reqHdr,
+AdminService::proxyPing(const WireFormat::ProxyPing::Request* reqHdr,
              WireFormat::ProxyPing::Response* respHdr,
              Rpc* rpc)
 {
@@ -155,7 +155,7 @@ PingService::proxyPing(const WireFormat::ProxyPing::Request* reqHdr,
  * \copydetails Service::ping
  */
 void
-PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
+AdminService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
                            WireFormat::ServerControl::Response* respHdr,
                            Rpc* rpc)
 {
@@ -350,7 +350,7 @@ PingService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
  * This should only be used for debugging and performance testing.
  */
 void
-PingService::kill(const WireFormat::Kill::Request* reqHdr,
+AdminService::kill(const WireFormat::Kill::Request* reqHdr,
                   WireFormat::Kill::Response* respHdr,
                   Rpc* rpc)
 {
@@ -363,31 +363,32 @@ PingService::kill(const WireFormat::Kill::Request* reqHdr,
  * Dispatch an RPC to the right handler based on its opcode.
  */
 void
-PingService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
+AdminService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
     switch (opcode) {
         case WireFormat::GetMetrics::opcode:
-            callHandler<WireFormat::GetMetrics, PingService,
-                        &PingService::getMetrics>(rpc);
+            callHandler<WireFormat::GetMetrics, AdminService,
+                        &AdminService::getMetrics>(rpc);
             break;
         case WireFormat::GetServerId::opcode:
-            callHandler<WireFormat::GetServerId, PingService,
-                        &PingService::getServerId>(rpc);
+            callHandler<WireFormat::GetServerId, AdminService,
+                        &AdminService::getServerId>(rpc);
             break;
         case WireFormat::Ping::opcode:
-            callHandler<WireFormat::Ping, PingService, &PingService::ping>(rpc);
+            callHandler<WireFormat::Ping, AdminService,
+                        &AdminService::ping>(rpc);
             break;
         case WireFormat::ProxyPing::opcode:
-            callHandler<WireFormat::ProxyPing, PingService,
-                        &PingService::proxyPing>(rpc);
+            callHandler<WireFormat::ProxyPing, AdminService,
+                        &AdminService::proxyPing>(rpc);
             break;
         case WireFormat::ServerControl::opcode:
-            callHandler<WireFormat::ServerControl, PingService,
-                        &PingService::serverControl>(rpc);
+            callHandler<WireFormat::ServerControl, AdminService,
+                        &AdminService::serverControl>(rpc);
             break;
         case WireFormat::Kill::opcode:
-            callHandler<WireFormat::Kill, PingService,
-                        &PingService::kill>(rpc);
+            callHandler<WireFormat::Kill, AdminService,
+                        &AdminService::kill>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);

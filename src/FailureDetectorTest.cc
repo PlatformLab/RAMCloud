@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,9 +19,9 @@
 
 #include "TestUtil.h"
 
+#include "AdminClient.h"
 #include "CoordinatorClient.h"
 #include "CoordinatorSession.h"
-#include "PingClient.h"
 #include "FailureDetector.h"
 #include "ServerList.pb.h"
 #include "ServerList.h"
@@ -72,7 +72,7 @@ class FailureDetectorTest : public ::testing::Test {
     {
         ServerDetails dummy1;
         ServerChangeEvent dummy2;
-        serverList.testingAdd({id, locator, {WireFormat::PING_SERVICE},
+        serverList.testingAdd({id, locator, {WireFormat::ADMIN_SERVICE},
                                100, ServerStatus::UP});
         fd->serverTracker.getChange(dummy1, dummy2);
     }

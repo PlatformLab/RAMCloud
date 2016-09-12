@@ -67,7 +67,7 @@ class IndexletManagerTest : public ::testing::Test {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE,
                            WireFormat::BACKUP_SERVICE,
-                           WireFormat::PING_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.localLocator = "mock:host=master1";
         cluster.addServer(config);
 

@@ -30,6 +30,7 @@ TESTS_SRCFILES := \
       src/btreeRamCloud/BtreeTest.cc \
 		  src/AbstractLogTest.cc \
 		  src/AbstractServerListTest.cc \
+		  src/AdminServiceTest.cc \
 		  src/AtomicTest.cc \
 		  src/ArpCacheTest.cc \
 		  src/BackupFailureMonitorTest.cc \
@@ -120,7 +121,6 @@ TESTS_SRCFILES := \
 		  src/ParticipantListTest.cc \
 		  src/PerfCounterTest.cc \
 		  src/PerfStatsTest.cc \
-		  src/PingServiceTest.cc \
 		  src/PortAlarm.cc \
 		  src/PortAlarmTest.cc \
 		  src/PreparedOpTest.cc \
