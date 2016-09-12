@@ -417,7 +417,7 @@ TEST_F(TcpTransportTest, sendMessage_sendPartOfHeader) {
     Buffer payload;
     payload.fillFromString("0xaa55aa55 30 40");
     EXPECT_EQ(0, TcpTransport::sendMessage(fd, 222,
-            &payload, 12 + sizeof(TcpTransport::Header) - 6));
+            &payload, 12 + sizeof32(TcpTransport::Header) - 6));
     Transport::ServerRpc* serverRpc = workerManager->waitForRpc(1.0);
     EXPECT_TRUE(serverRpc != NULL);
     EXPECT_EQ("0xaa55aa55 30 40",

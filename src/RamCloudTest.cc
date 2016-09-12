@@ -416,7 +416,7 @@ TEST_F(RamCloudTest, incrementDouble) {
     EXPECT_EQ(2U, version);
     EXPECT_DOUBLE_EQ(2.14, ramcloud->incrementDouble(tableId1,
             "key1", 4, -2.0));
-    ramcloud->write(tableId1, "key2", 4, &value, sizeof(value)-1);
+    ramcloud->write(tableId1, "key2", 4, &value, sizeof32(value)-1);
     EXPECT_THROW(ramcloud->incrementDouble(tableId1, "key21", 4, 0.0),
                  InvalidObjectException);
 }
@@ -429,7 +429,7 @@ TEST_F(RamCloudTest, incrementInt64) {
             NULL, &version));
     EXPECT_EQ(2U, version);
     EXPECT_EQ(111L, ramcloud->incrementInt64(tableId1, "key1", 4, -3L));
-    ramcloud->write(tableId1, "key2", 4, &value, sizeof(int64_t)-1);
+    ramcloud->write(tableId1, "key2", 4, &value, sizeof32(int64_t)-1);
     EXPECT_THROW(ramcloud->incrementInt64(tableId1, "key21", 4, 1);,
                  InvalidObjectException);
 }

@@ -59,8 +59,8 @@ class TableStatsTest : public ::testing::Test {
         TableStats::serialize(&digestBuffer, &mtm);
         return reinterpret_cast<const TableStats::Digest*>(
                     digestBuffer.getRange(0,
-                                          sizeof(TableStats::DigestHeader) +
-                                          3 * sizeof(TableStats::DigestEntry)));
+                    sizeof32(TableStats::DigestHeader) +
+                    3 * sizeof32(TableStats::DigestEntry)));
     }
 
     DISALLOW_COPY_AND_ASSIGN(TableStatsTest);

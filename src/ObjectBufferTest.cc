@@ -40,12 +40,12 @@ class ObjectBufferTest : public ::testing::Test {
         cumulativeKeyLengths[0] = 3;
         cumulativeKeyLengths[1] = 6;
         cumulativeKeyLengths[2] = 9;
-        buffer.appendExternal(cumulativeKeyLengths, 3 *sizeof(KeyLength));
+        buffer.appendExternal(cumulativeKeyLengths, 3 *sizeof32(KeyLength));
 
         // append keys here.
-        buffer.appendExternal(&stringKeys[0], sizeof(stringKeys[0]));
-        buffer.appendExternal(&stringKeys[1], sizeof(stringKeys[1]));
-        buffer.appendExternal(&stringKeys[2], sizeof(stringKeys[2]));
+        buffer.appendExternal(&stringKeys[0], sizeof32(stringKeys[0]));
+        buffer.appendExternal(&stringKeys[1], sizeof32(stringKeys[1]));
+        buffer.appendExternal(&stringKeys[2], sizeof32(stringKeys[2]));
 
         // append data
         buffer.appendExternal(&dataBlob[0], 2);

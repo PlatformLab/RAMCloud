@@ -134,7 +134,7 @@ TEST_P(SegmentTest, append_outOfSpace) {
 
     // How many N-length writes can we make to this segment?
     char buf[107];
-    uint32_t bytesPerAppend = sizeof(buf) + 2;  // EntryHeader, length, data
+    uint32_t bytesPerAppend = sizeof32(buf) + 2;  // EntryHeader, length, data
     uint32_t expectedAppends = GetParam()->segmentSize / bytesPerAppend;
 
     uint32_t actualAppends = 0;
@@ -401,7 +401,8 @@ TEST_P(SegmentTest, getOffset) {
     SegmentAndAllocator segAndAlloc(GetParam());
     Segment& s = *segAndAlloc.segment;
     Segment::Reference ref;
-    char data[s.segletSize * 2] = {0, };
+    char data[s.segletSize * 2];
+    data[0] = 0;
     uint32_t currentHead = 0;
     Segment::EntryHeader entryHeader(LOG_ENTRY_TYPE_OBJ, s.segletSize - 2);
 

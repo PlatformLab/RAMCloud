@@ -120,7 +120,7 @@ TEST_F(RpcResultTest, constructor_fromBuffer) {
 
     WireFormat::Write::Response* resp =
         reinterpret_cast<WireFormat::Write::Response*>(
-            record.respBuffer->getRange(sizeof(RpcResult::Header) + 5,
+            record.respBuffer->getRange(sizeof32(RpcResult::Header) + 5,
                  sizeof(WireFormat::Write::Response)));
     EXPECT_EQ(Status::STATUS_OK, resp->common.status);
     EXPECT_EQ(123UL, resp->version);

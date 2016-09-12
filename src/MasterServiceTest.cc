@@ -1389,13 +1389,13 @@ TEST_F(MasterServiceTest, multiIncrement_malformedRequests) {
 
     Buffer requestPayload;
     Buffer replyPayload;
-    requestPayload.appendExternal(&reqHdr, sizeof(reqHdr));
-    replyPayload.appendExternal(&respHdr, sizeof(respHdr));
+    requestPayload.appendExternal(&reqHdr, sizeof32(reqHdr));
+    replyPayload.appendExternal(&respHdr, sizeof32(respHdr));
 
     Service::Rpc rpc(NULL, &requestPayload, &replyPayload);
 
     // Part field is bogus.
-    requestPayload.appendExternal(&part, sizeof(part) - 1);
+    requestPayload.appendExternal(&part, sizeof32(part) - 1);
     respHdr.common.status = STATUS_OK;
     service->multiIncrement(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
@@ -1575,20 +1575,20 @@ TEST_F(MasterServiceTest, multiRemove_malformedRequests) {
 
     Buffer requestPayload;
     Buffer replyPayload;
-    requestPayload.appendExternal(&reqHdr, sizeof(reqHdr));
-    replyPayload.appendExternal(&respHdr, sizeof(respHdr));
+    requestPayload.appendExternal(&reqHdr, sizeof32(reqHdr));
+    replyPayload.appendExternal(&respHdr, sizeof32(respHdr));
 
     Service::Rpc rpc(NULL, &requestPayload, &replyPayload);
 
     // Part field is bogus.
-    requestPayload.appendExternal(&part, sizeof(part) - 1);
+    requestPayload.appendExternal(&part, sizeof32(part) - 1);
     respHdr.common.status = STATUS_OK;
     service->multiRemove(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
 
     // Key is missing.
     requestPayload.truncate(requestPayload.size() - (sizeof32(part) - 1));
-    requestPayload.appendExternal(&part, sizeof(part));
+    requestPayload.appendExternal(&part, sizeof32(part));
     respHdr.common.status = STATUS_OK;
     service->multiRemove(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
@@ -1719,19 +1719,19 @@ TEST_F(MasterServiceTest, multiWrite_malformedRequests) {
 
     Buffer requestPayload;
     Buffer replyPayload;
-    requestPayload.appendExternal(&reqHdr, sizeof(reqHdr));
-    replyPayload.appendExternal(&respHdr, sizeof(respHdr));
+    requestPayload.appendExternal(&reqHdr, sizeof32(reqHdr));
+    replyPayload.appendExternal(&respHdr, sizeof32(respHdr));
 
     Service::Rpc rpc(NULL, &requestPayload, &replyPayload);
 
     // part field is bogus
-    requestPayload.appendExternal(&part, sizeof(part) - 1);
+    requestPayload.appendExternal(&part, sizeof32(part) - 1);
     respHdr.common.status = STATUS_OK;
     service->multiWrite(&reqHdr, &respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr.common.status);
 
     requestPayload.truncate(requestPayload.size() - (sizeof32(part) - 1));
-    requestPayload.appendExternal(&part, sizeof(part));
+    requestPayload.appendExternal(&part, sizeof32(part));
 
     // Malformed requests with both the key and the value length fields
     // as bogus and requests with only the value length field bogus will
