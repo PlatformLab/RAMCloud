@@ -1301,6 +1301,7 @@ TEST_F(BasicTransportTest, requestRetransmission) {
 }
 
 TEST_F(BasicTransportTest, poll_nothingToDo) {
+    transport.nextTimeoutCheck = ~0;
     uint32_t result = transport.poller.poll();
     EXPECT_EQ(0u, result);
 }
