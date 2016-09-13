@@ -200,7 +200,7 @@ TEST_F(AbstractServerListTest, getSession_verifyServerId) {
     AbstractServerList::skipServerIdCheck = false;
     BindTransport transport(&context);
     TransportManager::MockRegistrar mockRegistrar(&context, transport);
-    AdminService adminService(&context);
+    AdminService adminService(&context, NULL, NULL);
     transport.registerServer(&context, "mock:host=ping");
     ServerId id1 = sl.add("mock:host=ping", ServerStatus::UP,
             {WireFormat::MASTER_SERVICE, WireFormat::ADMIN_SERVICE});
@@ -231,7 +231,7 @@ TEST_F(AbstractServerListTest, getSession_retryIdVerification) {
     AbstractServerList::skipServerIdCheck = false;
     BindTransport transport(&context);
     TransportManager::MockRegistrar mockRegistrar(&context, transport);
-    AdminService adminService(&context);
+    AdminService adminService(&context, NULL, NULL);
     adminService.returnUnknownId = true;
     transport.registerServer(&context, "mock:host=ping");
     ServerId id1 = sl.add("mock:host=ping", ServerStatus::UP,

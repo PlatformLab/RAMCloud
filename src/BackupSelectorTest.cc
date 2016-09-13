@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -39,7 +39,7 @@ struct BackupSelectorTest : public ::testing::Test {
     {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::MEMBERSHIP_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         Server* server = cluster.addServer(config);
         ObjectManager* objectManager = &server->master->objectManager;
         selector = objectManager->replicaManager.backupSelector.get();
@@ -52,7 +52,7 @@ struct BackupSelectorTest : public ::testing::Test {
     void addEqualHosts(std::vector<ServerId>& ids) {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::BACKUP_SERVICE,
-                           WireFormat::MEMBERSHIP_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.backup.mockSpeed = 100;
         for (uint32_t i = 1; i < 10; i++) {
             config.localLocator = format("mock:host=backup%u", i);
@@ -63,7 +63,7 @@ struct BackupSelectorTest : public ::testing::Test {
     void addDifferentHosts(std::vector<ServerId>& ids) {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::BACKUP_SERVICE,
-                           WireFormat::MEMBERSHIP_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         for (uint32_t i = 1; i < 10; i++) {
             config.backup.mockSpeed = i * 10;
             config.localLocator = format("mock:host=backup%u", i);
@@ -332,7 +332,7 @@ TEST_F(BackupSelectorTest, conflictWithAny_allowLocalBackup_true) {
     // Reset BackupSelector with allowLocalBackup = true
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::MASTER_SERVICE,
-                       WireFormat::MEMBERSHIP_SERVICE};
+                       WireFormat::ADMIN_SERVICE};
     config.master.allowLocalBackup = true;
     Server* server = cluster.addServer(config);
     ObjectManager* objectManager = &server->master->objectManager;

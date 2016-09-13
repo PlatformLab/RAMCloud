@@ -97,7 +97,7 @@ class ServiceMask {
     /**
      * Return a comma-separated, human-readable list of the services marked as
      * available in this ServiceMask.  Example output:
-     * "MASTER_SERVICE, ADMIN_SERVICE, MEMBERSHIP_SERVICE"
+     * "MASTER_SERVICE, ADMIN_SERVICE"
      */
     string toString() const
     {

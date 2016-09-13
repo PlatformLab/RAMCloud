@@ -625,7 +625,7 @@ class GcMockMasterService : public Service {
         const RequestCommon* hdr =
             rpc->requestPayload->getStart<RequestCommon>();
         switch (hdr->service) {
-        case MEMBERSHIP_SERVICE:
+        case ADMIN_SERVICE:
             switch (opcode) {
             default:
                 FAIL();
@@ -662,7 +662,7 @@ TEST_F(BackupServiceTest, GarbageCollectReplicaFoundOnStorageTask) {
     TestLog::Enable _("tryToFreeReplica");
     GcMockMasterService master;
     context.services[MASTER_SERVICE] = &master;
-    context.services[MEMBERSHIP_SERVICE] = &master;
+    context.services[ADMIN_SERVICE] = &master;
     cluster->transport.registerServer(&context, "mock:host=m");
     ServerList* backupServerList = static_cast<ServerList*>(
         backup->context->serverList);

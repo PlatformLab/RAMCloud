@@ -178,9 +178,6 @@ TimeTraceUtil::initQueueLengthMessages()
             case WireFormat::ServiceType::ADMIN_SERVICE:
                 typeString = "Admin";
                 break;
-            case WireFormat::ServiceType::MEMBERSHIP_SERVICE:
-                typeString = "Membership";
-                break;
             default:
                 typeString = "Unknown";
         }

@@ -55,7 +55,7 @@ struct ServerConfig {
         , localLocator()
         , clusterName("__unnamed__")
         , services{WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE,
-                   WireFormat::MEMBERSHIP_SERVICE}
+                   WireFormat::ADMIN_SERVICE}
         , preferredIndex(0)
         , detectFailures(false)
         , pinMemory(false)
@@ -79,7 +79,7 @@ struct ServerConfig {
         , localLocator()
         , clusterName("__unnamed__")
         , services{WireFormat::MASTER_SERVICE, WireFormat::BACKUP_SERVICE,
-                   WireFormat::ADMIN_SERVICE, WireFormat::MEMBERSHIP_SERVICE}
+                   WireFormat::ADMIN_SERVICE}
         , preferredIndex(0)
         , detectFailures(true)
         , pinMemory(true)

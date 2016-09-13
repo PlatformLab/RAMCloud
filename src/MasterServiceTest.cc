@@ -115,7 +115,7 @@ class MasterServiceTest : public ::testing::Test {
 
         backup1Config.localLocator = "mock:host=backup1";
         backup1Config.services = {WireFormat::BACKUP_SERVICE,
-                WireFormat::MEMBERSHIP_SERVICE};
+                WireFormat::ADMIN_SERVICE};
         backup1Config.segmentSize = segmentSize;
         backup1Config.backup.numSegmentFrames = 30;
         Server* server = cluster.addServer(backup1Config);
@@ -127,7 +127,7 @@ class MasterServiceTest : public ::testing::Test {
         masterConfig.maxObjectDataSize = segmentSize / 4;
         masterConfig.localLocator = "mock:host=master";
         masterConfig.services = {WireFormat::MASTER_SERVICE,
-                WireFormat::MEMBERSHIP_SERVICE};
+                WireFormat::ADMIN_SERVICE};
         masterConfig.master.logBytes = segmentSize * 30;
         masterConfig.master.numReplicas = 1;
         masterServer = cluster.addServer(masterConfig);
@@ -4645,7 +4645,7 @@ class MasterRecoverTest : public ::testing::Test {
         ServerConfig config = ServerConfig::forTesting();
         config.localLocator = "mock:host=backup1";
         config.services = {WireFormat::BACKUP_SERVICE,
-                WireFormat::MEMBERSHIP_SERVICE};
+                WireFormat::ADMIN_SERVICE};
         config.segmentSize = segmentSize;
         config.backup.numSegmentFrames = segmentFrames;
         Server* server = cluster.addServer(config);
@@ -4666,7 +4666,7 @@ class MasterRecoverTest : public ::testing::Test {
         ServerConfig config = ServerConfig::forTesting();
         config.localLocator = "mock:host=master";
         config.services = {WireFormat::MASTER_SERVICE,
-                WireFormat::MEMBERSHIP_SERVICE};
+                WireFormat::ADMIN_SERVICE};
         config.master.numReplicas = 2;
         return cluster.addServer(config)->master.get();
     }
@@ -4707,7 +4707,7 @@ TEST_F(MasterRecoverTest, recover) {
     ServerList serverList2(&context2);
     context2.transportManager->registerMock(&cluster.transport);
     serverList2.testingAdd({backup1Id, "mock:host=backup1",
-            {WireFormat::BACKUP_SERVICE, WireFormat::MEMBERSHIP_SERVICE},
+            {WireFormat::BACKUP_SERVICE, WireFormat::ADMIN_SERVICE},
             100, ServerStatus::UP});
     ServerId serverId(99, 0);
     ReplicaManager mgr(&context2, &serverId, 1, false, false);

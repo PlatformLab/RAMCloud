@@ -22,7 +22,6 @@
 #include "CoordinatorSession.h"
 #include "FailureDetector.h"
 #include "MasterService.h"
-#include "MembershipService.h"
 #include "ServerConfig.h"
 #include "ServerId.h"
 #include "ServerList.h"
@@ -103,12 +102,6 @@ class Server {
      * See config.services.
      */
     Tub<BackupService> backup;
-
-    /**
-     * The MembershipService running on this Server, if requested, else empty.
-     * See config.services.
-     */
-    Tub<MembershipService> membership;
 
     /**
      * The AdminService running on this Server, if requested, else empty.

@@ -117,7 +117,7 @@ class LogSyncTest : public ::testing::Test {
 
         backup1Config.localLocator = "mock:host=backup1";
         backup1Config.services = {WireFormat::BACKUP_SERVICE,
-                WireFormat::MEMBERSHIP_SERVICE};
+                WireFormat::ADMIN_SERVICE};
         backup1Config.segmentSize = segmentSize;
         backup1Config.backup.numSegmentFrames = 30;
         Server* server = cluster.addServer(backup1Config);
@@ -129,7 +129,7 @@ class LogSyncTest : public ::testing::Test {
         masterConfig.maxObjectDataSize = segmentSize / 4;
         masterConfig.localLocator = "mock:host=master";
         masterConfig.services = {WireFormat::MASTER_SERVICE,
-                WireFormat::MEMBERSHIP_SERVICE};
+                WireFormat::ADMIN_SERVICE};
         masterConfig.master.logBytes = segmentSize * 30;
         masterConfig.master.numReplicas = 1;
         masterServer = cluster.addServer(masterConfig);

@@ -32,7 +32,7 @@ namespace RAMCloud {
 
 /**
  * Create a new FailureDetector object. Note that this class depends on the
- * MembershipService running and keeping the global Context::serverList up
+ * AdminService running and keeping the global Context::serverList up
  * to date. Without it, we'd not know of new servers to ping.
  *
  * \param context

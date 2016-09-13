@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1233,7 +1233,7 @@ CoordinatorServerList::getWork(Tub<UpdateServerListRpc>* rpc) {
         Entry* server = serverList[i].entry.get();
         // Does server exist and is it updatable?
         if (server && server->status == ServerStatus::UP &&
-                server->services.has(WireFormat::MEMBERSHIP_SERVICE)) {
+                server->services.has(WireFormat::ADMIN_SERVICE)) {
 
             // Record Stats
             numUpdatableServers++;

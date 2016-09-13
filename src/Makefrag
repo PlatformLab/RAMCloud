@@ -102,7 +102,6 @@ SHARED_SRCFILES := \
 		   src/MasterClient.cc \
 		   src/MasterService.cc \
 		   src/MasterTableMetadata.cc \
-		   src/MembershipService.cc \
 		   src/Memory.cc \
 		   src/MemoryMonitor.cc \
 		   src/MinCopysetsBackupSelector.cc \

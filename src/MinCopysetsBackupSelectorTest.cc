@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2012 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -44,7 +44,7 @@ struct MinCopysetsBackupSelectorTest : public ::testing::Test {
     {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::MASTER_SERVICE,
-                           WireFormat::MEMBERSHIP_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.master.numReplicas = 3u;
         config.master.useMinCopysets = true;
         Server* server = cluster.addServer(config);

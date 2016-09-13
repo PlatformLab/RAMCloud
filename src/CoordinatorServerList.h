@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -206,8 +206,6 @@ class CoordinatorServerList : public AbstractServerList{
     * push cluster membership updates so that servers have an up-to-date view of
     * all other servers in the cluster and receive failure notifications that
     * may require some action.
-    *
-    * See #MembershipService for more information.
     */
     class UpdateServerListRpc : public ServerIdRpcWrapper {
       friend class CoordinatorServerList;

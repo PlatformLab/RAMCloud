@@ -39,7 +39,6 @@ enum ServiceType {
     BACKUP_SERVICE,
     COORDINATOR_SERVICE,
     ADMIN_SERVICE,
-    MEMBERSHIP_SERVICE,
     INVALID_SERVICE, // One higher than the max.
 };
 
@@ -745,7 +744,7 @@ struct GetRuntimeOption {
 
 struct GetServerConfig {
     static const Opcode opcode = GET_SERVER_CONFIG;
-    static const ServiceType service = MEMBERSHIP_SERVICE;
+    static const ServiceType service = ADMIN_SERVICE;
     struct Request {
         RequestCommon common;
     } __attribute__((packed));
@@ -1872,7 +1871,7 @@ struct TxHintFailed {
 
 struct UpdateServerList {
     static const Opcode opcode = UPDATE_SERVER_LIST;
-    static const ServiceType service = MEMBERSHIP_SERVICE;
+    static const ServiceType service = ADMIN_SERVICE;
     struct Request {
         RequestCommonWithId common;
 

@@ -41,7 +41,6 @@ Server::Server(Context* context, const ServerConfig* config)
     , failureDetector()
     , master()
     , backup()
-    , membership()
     , adminService()
     , enlistTimer()
 {
@@ -160,14 +159,10 @@ Server::createAndRegisterServices()
         LOG(NOTICE, "Backup service started");
     }
 
-    if (config.services.has(WireFormat::MEMBERSHIP_SERVICE)) {
-        membership.construct(context,
-                             static_cast<ServerList*>(context->serverList),
-                             &config);
-    }
-
     if (config.services.has(WireFormat::ADMIN_SERVICE)) {
-        adminService.construct(context);
+        adminService.construct(context,
+                               static_cast<ServerList*>(context->serverList),
+                               &config);
     }
 
     return formerServerId;
@@ -211,8 +206,6 @@ Server::enlist(ServerId replacingId)
         master->setServerId(serverId);
     if (backup)
         backup->setServerId(serverId);
-    if (membership)
-        membership->setServerId(serverId);
 
     if (config.detectFailures) {
         failureDetector.construct(context, serverId);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012 Stanford University
+/* Copyright (c) 2010-2016 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -17,7 +17,6 @@
 #include "TestUtil.h"
 #include "BindTransport.h"
 #include "FailSession.h"
-#include "MembershipService.h"
 #include "MockTransportFactory.h"
 #include "MockTransport.h"
 #include "ServerList.h"

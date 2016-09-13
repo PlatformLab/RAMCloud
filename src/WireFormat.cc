@@ -33,7 +33,6 @@ serviceTypeSymbol(ServiceType type) {
         case BACKUP_SERVICE:        return "BACKUP_SERVICE";
         case COORDINATOR_SERVICE:   return "COORDINATOR_SERVICE";
         case ADMIN_SERVICE:         return "ADMIN_SERVICE";
-        case MEMBERSHIP_SERVICE:    return "MEMBERSHIP_SERVICE";
         default:                    return "INVALID_SERVICE";
     }
 }

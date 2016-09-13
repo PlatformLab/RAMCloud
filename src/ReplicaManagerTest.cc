@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2015 Stanford University
+/* Copyright (c) 2009-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -47,7 +47,7 @@ struct ReplicaManagerTest : public ::testing::Test {
     {
         ServerConfig config = ServerConfig::forTesting();
         config.services = {WireFormat::BACKUP_SERVICE,
-                           WireFormat::MEMBERSHIP_SERVICE};
+                           WireFormat::ADMIN_SERVICE};
         config.segmentSize = segmentSize;
         config.backup.numSegmentFrames = 4;
         config.localLocator = "mock:host=backup1";
@@ -331,7 +331,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
 
     ServerConfig config = ServerConfig::forTesting();
     config.services = {WireFormat::BACKUP_SERVICE,
-                       WireFormat::MEMBERSHIP_SERVICE};
+                       WireFormat::ADMIN_SERVICE};
     config.segmentSize = segmentSize;
     config.backup.numSegmentFrames = 4;
     config.localLocator = "mock:host=backup3";

@@ -18,7 +18,6 @@
 #include "CoordinatorClient.h"
 #include "CoordinatorService.h"
 #include "MasterService.h"
-#include "MembershipService.h"
 #include "MockCluster.h"
 #include "MockTransport.h"
 #include "RamCloud.h"
@@ -53,8 +52,7 @@ class CoordinatorServiceTest : public ::testing::Test {
         service = cluster.coordinator.get();
 
         masterConfig.services = {WireFormat::MASTER_SERVICE,
-                                 WireFormat::ADMIN_SERVICE,
-                                 WireFormat::MEMBERSHIP_SERVICE};
+                                 WireFormat::ADMIN_SERVICE};
         masterConfig.localLocator = "mock:host=master";
         Server* masterServer = cluster.addServer(masterConfig);
         master = masterServer->master.get();
@@ -89,8 +87,12 @@ class CoordinatorServiceTest : public ::testing::Test {
         ServerId nextServerId;
         bool end = false;
         while (!end) {
+            // Note: MASTER_SERVICE below should really be ADMIN_SERVICE,
+            // except that we sometimes want to use servers here that don't
+            // have an ADMIN_SERVICE because they aren't capable of responding
+            // to server list updates.
             nextServerId = service->serverList.nextServer(nextServerId,
-                    {WireFormat::ADMIN_SERVICE}, &end, false);
+                    {WireFormat::MASTER_SERVICE}, &end, false);
             if (!end && nextServerId.isValid()) {
                 rpcs->emplace_back(service->context, nextServerId, controlOp,
                                    (const void*)NULL, (uint32_t)0);
@@ -349,8 +351,7 @@ TEST_F(CoordinatorServiceTest, checkServerControlRpcs_ServerNotUpException) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
     master2Config.services = {WireFormat::MASTER_SERVICE,
-                              WireFormat::BACKUP_SERVICE,
-                              WireFormat::ADMIN_SERVICE};
+                              WireFormat::BACKUP_SERVICE};
     Server* crashingServer = cluster.addServer(master2Config);
 
     populateServerControlRpcList(&rpcs, &rpc, WireFormat::GET_TIME_TRACE);
@@ -386,14 +387,12 @@ TEST_F(CoordinatorServiceTest, checkServerControlRpcs_skipNotReady) {
     ServerConfig master2Config = masterConfig;
     master2Config.localLocator = "mock:host=master2";
     master2Config.services = {WireFormat::MASTER_SERVICE,
-                              WireFormat::BACKUP_SERVICE,
-                              WireFormat::ADMIN_SERVICE};
+                              WireFormat::BACKUP_SERVICE};
     cluster.addServer(master2Config);
-    ServerConfig backupConfig = masterConfig;
-    backupConfig.localLocator = "mock:host=backup1";
-    backupConfig.services = {WireFormat::BACKUP_SERVICE,
-                             WireFormat::ADMIN_SERVICE};
-    cluster.addServer(backupConfig);
+    ServerConfig master3Config = masterConfig;
+    master3Config.localLocator = "mock:host=master3";
+    master3Config.services = {WireFormat::MASTER_SERVICE};
+    cluster.addServer(master3Config);
 
     std::list<CoordinatorService::ServerControlRpcContainer> rpcs;
 

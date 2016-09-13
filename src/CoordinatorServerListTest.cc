@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2015 Stanford University
+/* Copyright (c) 2011-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -122,7 +122,7 @@ class CoordinatorServerListTest : public ::testing::Test {
     // that would be stored in external storage for that entry.
     string createStorageEntry(ServerId serverId, ServiceMask services =
             ServiceMask({WireFormat::MASTER_SERVICE,
-                    WireFormat::MEMBERSHIP_SERVICE}),
+                    WireFormat::ADMIN_SERVICE}),
             ServerStatus status = ServerStatus::UP, uint64_t version = 1,
             uint64_t updateSequenceNumber = 1,
             const char* locator = "mock:host=master", uint32_t readSpeed = 100,
@@ -465,7 +465,7 @@ TEST_F(CoordinatorServerListTest, recover_formatErrorInExternalData) {
 TEST_F(CoordinatorServerListTest, recover_entryConflict) {
     string server2 = createStorageEntry(ServerId(2, 4));
     string server2a = createStorageEntry(ServerId(2, 1),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::CRASHED);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::CRASHED);
     storage->getChildrenNames.push("2");
     storage->getChildrenValues.push(server2);
     storage->getChildrenNames.push("2a");
@@ -479,16 +479,16 @@ TEST_F(CoordinatorServerListTest, recover_entryConflict) {
     EXPECT_EQ("couldn't process external data at servers/2a (server id 2.1): "
             "server list slot 2 already occupied", message);
     EXPECT_EQ("nextGenerationNumber: 5, serverId: 2.4, "
-            "services: MASTER_SERVICE, MEMBERSHIP_SERVICE, status: UP, "
+            "services: MASTER_SERVICE, ADMIN_SERVICE, status: UP, "
             "locator: mock:host=master, readSpeed: 100, "
             "masterRecoveryInfo: {id: 222, epoch: 77}, replicationId: 55",
             toString(2));
 }
 TEST_F(CoordinatorServerListTest, recover_serverRemoved) {
     string server1 = createStorageEntry(ServerId(1, 2),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::REMOVE, 5, 10);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::REMOVE, 5, 10);
     CoordinatorServerList::Entry* entry2 = initServer(ServerId(2, 3),
-            "mock:host=master", {WireFormat::MEMBERSHIP_SERVICE}, 444,
+            "mock:host=master", {WireFormat::ADMIN_SERVICE}, 444,
             ServerStatus::CRASHED);
     entry2->pendingUpdates.push_back(createUpdate(
             ServerStatus::CRASHED, 5, 10));
@@ -507,20 +507,20 @@ TEST_F(CoordinatorServerListTest, recover_serverRemoved) {
     EXPECT_EQ("nextGenerationNumber: 3, no entry",
             toString(1));
     EXPECT_EQ("nextGenerationNumber: 4, serverId: 2.3, "
-            "services: MEMBERSHIP_SERVICE, status: CRASHED, "
+            "services: ADMIN_SERVICE, status: CRASHED, "
             "locator: mock:host=master, readSpeed: 444, "
             "masterRecoveryInfo: {id: 4, epoch: 17}, replicationId: 12345",
             toString(2));
 }
 TEST_F(CoordinatorServerListTest, recover_updateMasterAndBackupCounts) {
     string server1 = createStorageEntry(ServerId(1, 0),
-            {WireFormat::MEMBERSHIP_SERVICE, WireFormat::MASTER_SERVICE,
+            {WireFormat::ADMIN_SERVICE, WireFormat::MASTER_SERVICE,
             WireFormat::BACKUP_SERVICE}, ServerStatus::UP);
     string server2 = createStorageEntry(ServerId(2, 0),
-            {WireFormat::MEMBERSHIP_SERVICE, WireFormat::MASTER_SERVICE},
+            {WireFormat::ADMIN_SERVICE, WireFormat::MASTER_SERVICE},
             ServerStatus::CRASHED);
     string server3 = createStorageEntry(ServerId(32, 0),
-            {WireFormat::MEMBERSHIP_SERVICE, WireFormat::BACKUP_SERVICE},
+            {WireFormat::ADMIN_SERVICE, WireFormat::BACKUP_SERVICE},
             ServerStatus::UP);
     storage->getChildrenNames.push("a");
     storage->getChildrenValues.push(server1);
@@ -536,11 +536,11 @@ TEST_F(CoordinatorServerListTest, recover_updateMasterAndBackupCounts) {
 TEST_F(CoordinatorServerListTest, recover_notifyTrackers) {
     TestLog::Enable _("fireCallback", "enqueueChange", NULL);
     string server1 = createStorageEntry(ServerId(1, 0),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::UP);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::UP);
     string server2 = createStorageEntry(ServerId(2, 0),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::CRASHED);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::CRASHED);
     string server3 = createStorageEntry(ServerId(3, 0),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::REMOVE, 10, 100);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::REMOVE, 10, 100);
     storage->getChildrenNames.push("a");
     storage->getChildrenValues.push(server1);
     storage->getChildrenNames.push("b");
@@ -557,11 +557,11 @@ TEST_F(CoordinatorServerListTest, recover_notifyTrackers) {
 }
 TEST_F(CoordinatorServerListTest, recover_recomputeVersion) {
     string server1 = createStorageEntry(ServerId(1, 0),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::UP, 10);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::UP, 10);
     string server2 = createStorageEntry(ServerId(2, 0),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::UP, 15);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::UP, 15);
     string server3 = createStorageEntry(ServerId(32, 0),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::UP, 5);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::UP, 5);
     storage->getChildrenNames.push("a");
     storage->getChildrenValues.push(server1);
     storage->getChildrenNames.push("b");
@@ -574,9 +574,9 @@ TEST_F(CoordinatorServerListTest, recover_recomputeVersion) {
 }
 TEST_F(CoordinatorServerListTest, recover_incompleteUpdates) {
     string server1 = createStorageEntry(ServerId(1, 2),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::UP, 5, 10);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::UP, 5, 10);
     CoordinatorServerList::Entry* entry2 = initServer(ServerId(2, 3),
-            "mock:host=master", {WireFormat::MEMBERSHIP_SERVICE}, 444,
+            "mock:host=master", {WireFormat::ADMIN_SERVICE}, 444,
             ServerStatus::CRASHED);
     entry2->pendingUpdates.push_back(createUpdate(
             ServerStatus::CRASHED, 4, 9));
@@ -608,7 +608,7 @@ TEST_F(CoordinatorServerListTest, recover_incompleteUpdates) {
     // storage.
     ProtoBuf::ServerListEntry info;
     EXPECT_TRUE(info.ParseFromString(cluster.externalStorage.setData));
-    EXPECT_EQ("services: 16 server_id: 12884901890 "
+    EXPECT_EQ("services: 8 server_id: 12884901890 "
             "service_locator: \"mock:host=master\" "
             "expected_read_mbytes_per_sec: 444 status: 1 "
             "replication_id: 12345 master_recovery_info { "
@@ -622,14 +622,14 @@ TEST_F(CoordinatorServerListTest, recover_incompleteUpdates) {
     EXPECT_EQ(2lu, sl->updates.size());
     CoordinatorServerList::ServerListUpdate* update = &sl->updates[0];
     EXPECT_EQ(5lu, update->version);
-    EXPECT_EQ("server { services: 16 server_id: 12884901890 "
+    EXPECT_EQ("server { services: 8 server_id: 12884901890 "
             "service_locator: \"mock:host=master\" "
             "expected_read_mbytes_per_sec: 0 "
             "status: 1 replication_id: 12345 } version_number: 5 type: UPDATE",
             update->incremental.ShortDebugString());
     update = &sl->updates[1];
     EXPECT_EQ(6lu, update->version);
-    EXPECT_EQ("server { services: 16 server_id: 12884901890 "
+    EXPECT_EQ("server { services: 8 server_id: 12884901890 "
             "service_locator: \"mock:host=master\" "
             "expected_read_mbytes_per_sec: 0 "
             "status: 2 replication_id: 12345 } version_number: 6 type: UPDATE",
@@ -681,9 +681,9 @@ TEST_F(CoordinatorServerListTest, recover_repairReplicationGroups) {
 }
 TEST_F(CoordinatorServerListTest, recover_setVerifiedVersionToVersion) {
     string server1 = createStorageEntry(ServerId(1, 2),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::UP, 51, 111);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::UP, 51, 111);
     string server2 = createStorageEntry(ServerId(2, 3),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::UP, 50, 109);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::UP, 50, 109);
     storage->getChildrenNames.push("x");
     storage->getChildrenValues.push(server1);
     storage->getChildrenNames.push("y");
@@ -697,9 +697,9 @@ TEST_F(CoordinatorServerListTest, recover_setVerifiedVersionToVersion) {
 TEST_F(CoordinatorServerListTest, recover_setVerifiedVersionBeforeFirstUpdate)
 {
     string server1 = createStorageEntry(ServerId(1, 2),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::UP, 51, 111);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::UP, 51, 111);
     string server2 = createStorageEntry(ServerId(2, 3),
-            {WireFormat::MEMBERSHIP_SERVICE}, ServerStatus::UP, 50, 109);
+            {WireFormat::ADMIN_SERVICE}, ServerStatus::UP, 50, 109);
     storage->getChildrenNames.push("x");
     storage->getChildrenValues.push(server1);
     storage->getChildrenNames.push("y");
@@ -1078,7 +1078,7 @@ TEST_F(CoordinatorServerListTest, repairReplicationGroups) {
 TEST_F(CoordinatorServerListTest, pushUpdate) {
     CoordinatorServerList::Entry* entry = initServer({2, 0},
             "mock:host=server1",
-            {WireFormat::MASTER_SERVICE, WireFormat::MEMBERSHIP_SERVICE},
+            {WireFormat::MASTER_SERVICE, WireFormat::ADMIN_SERVICE},
             400, ServerStatus::UP);
     sl->version = 10;
     sl->pushUpdate(lock, entry);
@@ -1086,7 +1086,7 @@ TEST_F(CoordinatorServerListTest, pushUpdate) {
     EXPECT_EQ(1UL, sl->updates.size());
     CoordinatorServerList::ServerListUpdate* update = &(sl->updates.front());
     EXPECT_EQ(11UL, update->version);
-    EXPECT_EQ("server { services: 17 server_id: 2 "
+    EXPECT_EQ("server { services: 9 server_id: 2 "
             "service_locator: \"mock:host=server1\" "
             "expected_read_mbytes_per_sec: 0 status: 0 "
             "replication_id: 12345 } version_number: 11 type: UPDATE",
@@ -1094,7 +1094,7 @@ TEST_F(CoordinatorServerListTest, pushUpdate) {
 }
 
 TEST_F(CoordinatorServerListTest, insertUpdate_basics) {
-    ServerId id = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    ServerId id = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server");
     CoordinatorServerList::Entry* entry = sl->getEntry(id);
     sl->updates.clear();
@@ -1109,9 +1109,9 @@ TEST_F(CoordinatorServerListTest, insertUpdate_basics) {
     EXPECT_EQ(52u, sl->updates[3].version);
 }
 TEST_F(CoordinatorServerListTest, insertUpdate_duplicate) {
-    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    ServerId id1 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server");
-    ServerId id2 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    ServerId id2 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server");
     CoordinatorServerList::Entry* entry1 = sl->getEntry(id1);
     CoordinatorServerList::Entry* entry2 = sl->getEntry(id2);
@@ -1158,7 +1158,7 @@ TEST_F(CoordinatorServerListTest, isClusterUpToDate) {
 
     // Add a server.
     sl->enlistServer(
-            {WireFormat::MASTER_SERVICE, WireFormat::MEMBERSHIP_SERVICE},
+            {WireFormat::MASTER_SERVICE, WireFormat::ADMIN_SERVICE},
             0, 0, "mock:host=server1");
     EXPECT_FALSE(sl->isClusterUpToDate(lock));
 
@@ -1174,9 +1174,9 @@ TEST_F(CoordinatorServerListTest, isClusterUpToDate) {
 }
 
 TEST_F(CoordinatorServerListTest, pruneUpdates_badMaxConfirmedVersion) {
-    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server1");
-    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server2");
 
     string message("no exception");
@@ -1197,7 +1197,7 @@ TEST_F(CoordinatorServerListTest, pruneUpdates_basics) {
 
     // Create 10 items on the update list
     for (int i = 1; i <= 10; i++) {
-        sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+        sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
                 "mock:host=server");
     }
 
@@ -1234,7 +1234,7 @@ TEST_F(CoordinatorServerListTest, pruneUpdates_updateVersionLessThanEntry) {
             &cluster.coordinatorContext.getCoordinatorService()->updateManager;
     updateManager->reset();
 
-    ServerId id = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    ServerId id = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server");
     CoordinatorServerList::Entry* entry = sl->getEntry(id);
     entry->pendingUpdates.clear();
@@ -1257,7 +1257,7 @@ TEST_F(CoordinatorServerListTest, pruneUpdates_updateVersionGreaterThanEntry) {
             &cluster.coordinatorContext.getCoordinatorService()->updateManager;
     updateManager->reset();
 
-    ServerId id = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    ServerId id = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server");
     CoordinatorServerList::Entry* entry = sl->getEntry(id);
     entry->pendingUpdates.clear();
@@ -1282,7 +1282,7 @@ TEST_F(CoordinatorServerListTest, pruneUpdates_updateVersionGreaterThanEntry) {
 }
 
 TEST_F(CoordinatorServerListTest, pruneUpdates_cleanupRemovedServer) {
-    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    ServerId id1 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server1");
     sl->serverCrashed(id1);
     sl->recoveryCompleted(id1);
@@ -1303,12 +1303,12 @@ TEST_F(CoordinatorServerListTest, pruneUpdates_cleanupRemovedServer) {
 
 TEST_F(CoordinatorServerListTest, sync) {
     // Test that sync wakes up thread and flushes all updates
-    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server");
     transport->setInput("0 1 0");
 
     sl->sync();
-    EXPECT_EQ("sendRequest: 0x40023 1 0 11 273 0 /0 /x18/0",
+    EXPECT_EQ("sendRequest: 0x30023 1 0 11 273 0 /0 /x18/0",
             transport->outputLog);
     transport->clearOutput();
 
@@ -1331,7 +1331,7 @@ TEST_F(CoordinatorServerListTest, updateLoopAndWaitForWork) {
 
     // Enlist a server: this will wake up the updater, which will start
     // an RPC.
-    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server1");
     waitUpdaterSleeping(false);
     EXPECT_FALSE(sl->updaterSleeping);
@@ -1357,11 +1357,11 @@ TEST_F(CoordinatorServerListTest, updateLoopAndWaitForWork) {
 TEST_F(CoordinatorServerListTest, checkUpdates) {
     // Create a cluster with 3 servers, which means we need to send out
     // updates to each of the servers.
-    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server1");
-    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server2");
-    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server3");
     EXPECT_EQ(3UL, sl->updates.size());
 
@@ -1405,9 +1405,9 @@ TEST_F(CoordinatorServerListTest, checkUpdates) {
 TEST_F(CoordinatorServerListTest, checkUpdates_ServerNotUpException) {
     // Create a cluster with 2 servers, which means we need to send out
     // updates to each of the servers.
-    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server1");
-    ServerId s2 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 100,
+    ServerId s2 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 100,
             "mock:host=server2");
 
     // Start update RPCs in parallel.
@@ -1450,7 +1450,7 @@ TEST_F(CoordinatorServerListTest, getWork_emptyServerList) {
 }
 
 TEST_F(CoordinatorServerListTest, getWork_noWorkFoundForEpoch) {
-    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
     EXPECT_TRUE(sl->getWork(&rpc));
     EXPECT_EQ(1UL, sl->numUpdatingServers);
@@ -1464,14 +1464,14 @@ TEST_F(CoordinatorServerListTest, getWork_noWorkFoundForEpoch) {
 
 TEST_F(CoordinatorServerListTest, getWork_serverCrashed) {
     ServerId id1 = sl->enlistServer(
-            {WireFormat::MASTER_SERVICE, WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+            {WireFormat::MASTER_SERVICE, WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
     CoordinatorServerList::Entry* e = sl->getEntry(id1);
     e->status = ServerStatus::CRASHED;
     EXPECT_FALSE(sl->getWork(&rpc));
 }
 
-TEST_F(CoordinatorServerListTest, getWork_noMembershipService) {
+TEST_F(CoordinatorServerListTest, getWork_noAdminService) {
     sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=server1");
     EXPECT_FALSE(sl->getWork(&rpc));
@@ -1479,11 +1479,11 @@ TEST_F(CoordinatorServerListTest, getWork_noMembershipService) {
 
 TEST_F(CoordinatorServerListTest, getWork_fullListUpdate) {
     ServerId id1 = sl->enlistServer(
-            {WireFormat::MASTER_SERVICE, WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+            {WireFormat::MASTER_SERVICE, WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
     EXPECT_TRUE(sl->getWork(&rpc));
     EXPECT_EQ("opcode: UPDATE_SERVER_LIST, protobuf: "
-            "server { services: 17 server_id: 1 "
+            "server { services: 9 server_id: 1 "
             "service_locator: \"mock:host=server1\" "
             "expected_read_mbytes_per_sec: 0 status: 0 replication_id: 0 } "
             "version_number: 1 type: FULL_LIST",
@@ -1502,7 +1502,7 @@ TEST_F(CoordinatorServerListTest, getWork_incrementalUpdates) {
             "mock:host=server2");
     ServerId id3 = sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0,
             "mock:host=server3");
-    ServerId id4 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    ServerId id4 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server4");
 
     // Process all pending updates
@@ -1536,7 +1536,7 @@ TEST_F(CoordinatorServerListTest, getWork_incrementalUpdates) {
 
 TEST_F(CoordinatorServerListTest, getWork_skipEntriesAlreadySeen) {
     // Create a bunch of servers.
-    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    ServerId id1 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
     sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0, "mock:host=server2");
     sl->enlistServer({WireFormat::MASTER_SERVICE}, 0, 0, "mock:host=server3");
@@ -1564,10 +1564,10 @@ TEST_F(CoordinatorServerListTest, getWork_skipEntriesAlreadySeen) {
 TEST_F(CoordinatorServerListTest, getWork_updateStatsAndPrune) {
     // Create two servers.
     ServerId id1 = sl->enlistServer(
-            {WireFormat::MASTER_SERVICE, WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+            {WireFormat::MASTER_SERVICE, WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
     ServerId id2 = sl->enlistServer(
-            {WireFormat::MASTER_SERVICE, WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+            {WireFormat::MASTER_SERVICE, WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server2");
     EXPECT_TRUE(sl->getWork(&rpc));
     EXPECT_TRUE(sl->getWork(&rpc));
@@ -1616,11 +1616,11 @@ static const uint64_t UNINITIALIZED_VERSION =
 TEST_F(CoordinatorServerListTest, workSuccess) {
     uint64_t initialVersion = sl->version;
 
-    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    ServerId id1 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
     ASSERT_TRUE(sl->getWork(&rpc));
 
-    ServerId id2 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    ServerId id2 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server2");
     ASSERT_TRUE(sl->getWork(&rpc));
 
@@ -1654,7 +1654,7 @@ TEST_F(CoordinatorServerListTest, workSuccess_nonExistentServer) {
 }
 
 TEST_F(CoordinatorServerListTest, workSuccess_multipleInvokes) {
-    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    ServerId id1 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
     ASSERT_TRUE(sl->getWork(&rpc));
 
@@ -1677,7 +1677,7 @@ TEST_F(CoordinatorServerListTest, workSuccess_multipleInvokes) {
 }
 
 TEST_F(CoordinatorServerListTest, workSuccess_updateVersions) {
-    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    ServerId id1 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
     CoordinatorServerList::Entry* e1 = sl->getEntry(id1);
     e1->verifiedVersion = 20;
@@ -1693,7 +1693,7 @@ TEST_F(CoordinatorServerListTest, workSuccess_updateVersions) {
 }
 
 TEST_F(CoordinatorServerListTest, workSuccess_newVersionTooLow) {
-    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    ServerId id1 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
     CoordinatorServerList::Entry* e = sl->getEntry(id1);
     e->verifiedVersion = 20;
@@ -1714,7 +1714,7 @@ TEST_F(CoordinatorServerListTest, workSuccess_newVersionTooLow) {
 }
 
 TEST_F(CoordinatorServerListTest, workFailed) {
-    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    ServerId id1 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
     CoordinatorServerList::Entry* e = sl->getEntry(id1);
     ASSERT_TRUE(sl->getWork(&rpc));
@@ -1737,7 +1737,7 @@ TEST_F(CoordinatorServerListTest, workFailed) {
 
 TEST_F(CoordinatorServerListTest, workFailed_multipleInvokes) {
 
-    ServerId id1 = sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    ServerId id1 = sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
 
     TestLog::Enable _;
@@ -1753,9 +1753,9 @@ TEST_F(CoordinatorServerListTest, workFailed_multipleInvokes) {
 TEST_F(CoordinatorServerListTest, appendServerList) {
     // Generate two updates, then manually stuff them into an RPC
     ProtoBuf::ServerList list1, list2, list;
-    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server1");
-    sl->enlistServer({WireFormat::MEMBERSHIP_SERVICE}, 0, 0,
+    sl->enlistServer({WireFormat::ADMIN_SERVICE}, 0, 0,
             "mock:host=server2");
     list1 = sl->updates.front().incremental;
     list2 = sl->updates.back().incremental;
@@ -1763,11 +1763,11 @@ TEST_F(CoordinatorServerListTest, appendServerList) {
     CoordinatorServerList::UpdateServerListRpc rpc(&context, {}, &list1);
     rpc.appendServerList(&list2);
     EXPECT_EQ("opcode: UPDATE_SERVER_LIST, "
-            "protobuf: server { services: 16 server_id: 1 "
+            "protobuf: server { services: 8 server_id: 1 "
             "service_locator: \"mock:host=server1\" "
             "expected_read_mbytes_per_sec: 0 status: 0 replication_id: 0 } "
             "version_number: 1 type: UPDATE, "
-            "protobuf: server { services: 16 server_id: 2 "
+            "protobuf: server { services: 8 server_id: 2 "
             "service_locator: \"mock:host=server2\" "
             "expected_read_mbytes_per_sec: 0 status: 0 replication_id: 0 } "
             "version_number: 2 type: UPDATE",

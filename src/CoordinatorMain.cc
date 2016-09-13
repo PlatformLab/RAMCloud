@@ -145,7 +145,7 @@ main(int argc, char *argv[])
                                               deadServerTimeout,
                                               false,
                                               neverKill);
-        AdminService adminService(&context);
+        AdminService adminService(&context, NULL, NULL);
         while (true) {
             context.dispatch->poll();
         }

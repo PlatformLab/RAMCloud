@@ -42,7 +42,6 @@ class ServerTest: public ::testing::Test {
     {
         config.services = {WireFormat::MASTER_SERVICE,
                            WireFormat::BACKUP_SERVICE,
-                           WireFormat::MEMBERSHIP_SERVICE,
                            WireFormat::ADMIN_SERVICE};
         config.coordinatorLocator = cluster.coordinatorLocator;
         config.localLocator = "mock:host=server0";
@@ -68,14 +67,11 @@ TEST_F(ServerTest, createAndRegisterServices) {
     server->createAndRegisterServices();
     EXPECT_TRUE(server->master);
     EXPECT_TRUE(server->backup);
-    EXPECT_TRUE(server->membership);
     EXPECT_TRUE(server->adminService);
     EXPECT_EQ(server->master.get(),
         context.services[WireFormat::MASTER_SERVICE]);
     EXPECT_EQ(server->backup.get(),
         context.services[WireFormat::BACKUP_SERVICE]);
-    EXPECT_EQ(server->membership.get(),
-        context.services[WireFormat::MEMBERSHIP_SERVICE]);
     EXPECT_EQ(server->adminService.get(),
         context.services[WireFormat::ADMIN_SERVICE]);
 }
@@ -88,7 +84,7 @@ TEST_F(ServerTest, enlist) {
     EXPECT_EQ(
         "enlistServer: Enlisting server at mock:host=server0 "
         "(server id 1.0) supporting services: MASTER_SERVICE, "
-        "BACKUP_SERVICE, ADMIN_SERVICE, MEMBERSHIP_SERVICE | "
+        "BACKUP_SERVICE, ADMIN_SERVICE | "
         "enlistServer: Backup at id 1.0 has 100 MB/s read",
          TestLog::get());
     ASSERT_TRUE(server->master->serverId.isValid());

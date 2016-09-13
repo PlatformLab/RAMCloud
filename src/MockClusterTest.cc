@@ -67,7 +67,6 @@ TEST_F(MockClusterTest, addServer) {
     EXPECT_EQ(server->config.localLocator, "mock:host=server0");
     EXPECT_FALSE(server->master);
     EXPECT_TRUE(server->backup);
-    EXPECT_FALSE(server->membership);
     EXPECT_FALSE(server->adminService);
     EXPECT_EQ(1u, cluster->servers.size());
     Segment segment;
@@ -107,13 +106,7 @@ TEST_F(MockClusterTest, benchTinyMasterCreate) {
         cluster->addServer(config);
 }
 
-TEST_F(MockClusterTest, benchMembershipCreate) {
-    config.services = {WireFormat::MEMBERSHIP_SERVICE};
-    for (int i = 0; i < its; ++i)
-        cluster->addServer(config);
-}
-
-TEST_F(MockClusterTest, benchPingCreate) {
+TEST_F(MockClusterTest, benchAdminCreate) {
     config.services = {WireFormat::ADMIN_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);
@@ -122,7 +115,6 @@ TEST_F(MockClusterTest, benchPingCreate) {
 TEST_F(MockClusterTest, benchFullCreate) {
     config.services = {WireFormat::MASTER_SERVICE,
                        WireFormat::BACKUP_SERVICE,
-                       WireFormat::MEMBERSHIP_SERVICE,
                        WireFormat::ADMIN_SERVICE};
     for (int i = 0; i < its; ++i)
         cluster->addServer(config);

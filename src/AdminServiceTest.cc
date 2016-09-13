@@ -15,23 +15,26 @@
 
 #include<fstream>
 #include "TestUtil.h"
-#include "BindTransport.h"
 #include "Common.h"
-#include "FailSession.h"
-#include "MasterService.h"
 #include "AdminClient.h"
 #include "AdminService.h"
-#include "RawMetrics.h"
-#include "ServerMetrics.h"
-#include "TransportManager.h"
-#include "ServerList.h"
-#include "CoordinatorClient.h"
-#include "Key.h"
-#include "Tablets.pb.h"
-#include "Tub.h"
-#include "RamCloud.h"
-#include "TimeTrace.h"
+#include "BindTransport.h"
 #include "CacheTrace.h"
+#include "CoordinatorClient.h"
+#include "CoordinatorServerList.h"
+#include "CoordinatorService.h"
+#include "FailSession.h"
+#include "Key.h"
+#include "MasterService.h"
+#include "MockExternalStorage.h"
+#include "RamCloud.h"
+#include "RawMetrics.h"
+#include "ServerList.h"
+#include "ServerMetrics.h"
+#include "Tablets.pb.h"
+#include "TimeTrace.h"
+#include "TransportManager.h"
+#include "Tub.h"
 
 // Note: this file tests both AdminService.cc and AdminClient.cc.
 
@@ -82,26 +85,32 @@ class AdminServiceTest : public ::testing::Test {
   public:
     Context context;
     ServerList serverList;
+    ServerConfig serverConfig;
     BindTransport transport;
     TransportManager::MockRegistrar mockRegistrar;
-    AdminService pingService;
+    AdminService adminService;
     ServerId serverId;
     Tub<RamCloud> ramcloud;
     TestLog::Enable logSilencer;
     Tub<ServerConfig> masterConfig;
     Tub<MasterService> masterService;
+    std::mutex mutex;
+    MockExternalStorage storage;
 
     AdminServiceTest()
         : context()
         , serverList(&context)
+        , serverConfig(ServerConfig::forTesting())
         , transport(&context)
         , mockRegistrar(&context, transport)
-        , pingService(&context)
+        , adminService(&context, &serverList, &serverConfig)
         , serverId(1, 3)
         , ramcloud()
         , logSilencer()
         , masterConfig()
         , masterService()
+        , mutex()
+        , storage(true)
     {
         transport.registerServer(&context, "mock:host=ping");
         serverList.testingAdd({serverId, "mock:host=ping",
@@ -114,9 +123,8 @@ class AdminServiceTest : public ::testing::Test {
     addMasterService() {
         masterConfig = ServerConfig::forTesting();
         masterConfig->services = {WireFormat::MASTER_SERVICE,
-                                  WireFormat::MEMBERSHIP_SERVICE,
                                   WireFormat::ADMIN_SERVICE};
-        masterService.construct(pingService.context, masterConfig.get());
+        masterService.construct(adminService.context, masterConfig.get());
         masterService->setServerId(serverId);
     }
 
@@ -152,11 +160,12 @@ class AdminServiceTest : public ::testing::Test {
         }
     }
 
+    typedef std::unique_lock<std::mutex> Lock;
     DISALLOW_COPY_AND_ASSIGN(AdminServiceTest);
 };
 
 TEST_F(AdminServiceTest, getServerId) {
-    pingService.setServerId(ServerId(3, 5));
+    adminService.setServerId(ServerId(3, 5));
     Transport::SessionRef session =
             context.transportManager->openSession("mock:host=ping");
     ServerId id = AdminClient::getServerId(&context, session);
@@ -281,7 +290,7 @@ TEST_F(AdminServiceTest, serverControl_ObjectServerControl_Basic) {
     AdminServiceTest::constructUnimplementedServerControlRpc(
             &reqBuf, reqHdr, WireFormat::ServerControl::OBJECT, true);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNIMPLEMENTED_REQUEST, respHdr->common.status);
 }
 
@@ -298,7 +307,7 @@ TEST_F(AdminServiceTest, serverControl_ObjectServerControl_NoService) {
     AdminServiceTest::constructUnimplementedServerControlRpc(
             &reqBuf, reqHdr, WireFormat::ServerControl::OBJECT, true);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, respHdr->common.status);
 }
 
@@ -317,7 +326,7 @@ TEST_F(AdminServiceTest, serverControl_ObjectServerControl_BadKey) {
     AdminServiceTest::constructUnimplementedServerControlRpc(
             &reqBuf, reqHdr, WireFormat::ServerControl::OBJECT, false);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr->common.status);
 }
 
@@ -336,19 +345,19 @@ TEST_F(AdminServiceTest, serverControl_ObjectServerControl_NoTablet) {
     AdminServiceTest::constructUnimplementedServerControlRpc(
             &reqBuf, reqHdr, WireFormat::ServerControl::OBJECT, true);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, respHdr->common.status);
 
     context.getMasterService()->tabletManager.addTablet(
             1, 0, ~0UL, TabletManager::NORMAL);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNIMPLEMENTED_REQUEST, respHdr->common.status);
 
     context.getMasterService()->tabletManager.changeState(
             1, 0, ~0UL, TabletManager::NORMAL, TabletManager::RECOVERING);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, respHdr->common.status);
 }
 
@@ -371,7 +380,7 @@ TEST_F(AdminServiceTest, serverControl_IndexServerControl_Basic) {
     AdminServiceTest::constructUnimplementedServerControlRpc(
             &reqBuf, reqHdr, WireFormat::ServerControl::INDEX, true);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNIMPLEMENTED_REQUEST, respHdr->common.status);
 }
 
@@ -388,7 +397,7 @@ TEST_F(AdminServiceTest, serverControl_IndexServerControl_NoService) {
     AdminServiceTest::constructUnimplementedServerControlRpc(
             &reqBuf, reqHdr, WireFormat::ServerControl::INDEX, true);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, respHdr->common.status);
 }
 
@@ -411,7 +420,7 @@ TEST_F(AdminServiceTest, serverControl_IndexServerControl_BadKey) {
     AdminServiceTest::constructUnimplementedServerControlRpc(
             &reqBuf, reqHdr, WireFormat::ServerControl::INDEX, false);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr->common.status);
 }
 
@@ -432,19 +441,19 @@ TEST_F(AdminServiceTest, serverControl_IndexServerControl_NoIndexlet) {
     AdminServiceTest::constructUnimplementedServerControlRpc(
             &reqBuf, reqHdr, WireFormat::ServerControl::INDEX, true);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, respHdr->common.status);
 
     context.getMasterService()->indexletManager.addIndexlet(
             1, 2, 9, "A", 1, "B", 1);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNIMPLEMENTED_REQUEST, respHdr->common.status);
 
     context.getMasterService()->indexletManager.deleteIndexlet(1, 2, "A",
             1, "B", 1);
 
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_INDEXLET, respHdr->common.status);
 }
 
@@ -460,7 +469,7 @@ TEST_F(AdminServiceTest, serverControl_ServerControl) {
     // ServerControl performs no check EXPECT STATUS_UNIMPLEMENTED_REQUEST
     AdminServiceTest::constructUnimplementedServerControlRpc(
             &reqBuf, reqHdr, WireFormat::ServerControl::SERVER_ID, true);
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNIMPLEMENTED_REQUEST, respHdr->common.status);
 }
 
@@ -476,7 +485,7 @@ TEST_F(AdminServiceTest, serverControl_Invalid) {
     // Invalid RPC type EXPECT STATUS_REQUEST_FORMAT_ERROR
     AdminServiceTest::constructUnimplementedServerControlRpc(
             &reqBuf, reqHdr, WireFormat::ServerControl::INVALID, true);
-    pingService.serverControl(reqHdr, respHdr, &rpc);
+    adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_REQUEST_FORMAT_ERROR, respHdr->common.status);
 }
 
@@ -485,19 +494,19 @@ TEST_F(AdminServiceTest, serverControl_DipatchProfilerBasics) {
     uint64_t totalElements = 50000000;
 
     // Testing basics of operation START_DISPATCH_PROFILER.
-    ASSERT_FALSE(pingService.context->dispatch->profilerFlag);
+    ASSERT_FALSE(adminService.context->dispatch->profilerFlag);
     AdminClient::serverControl(&context, serverId,
                               WireFormat::START_DISPATCH_PROFILER,
                               &totalElements, sizeof32(totalElements), &output);
-    ASSERT_TRUE(pingService.context->dispatch->profilerFlag);
+    ASSERT_TRUE(adminService.context->dispatch->profilerFlag);
     ASSERT_EQ(totalElements,
-                pingService.context->dispatch->totalElements);
+                adminService.context->dispatch->totalElements);
 
     // Testing basics of operation STOP_DISPATCH_PROFILER.
     AdminClient::serverControl(&context, serverId,
                               WireFormat::STOP_DISPATCH_PROFILER, " ", 1,
                               &output);
-    ASSERT_FALSE(pingService.context->dispatch->profilerFlag);
+    ASSERT_FALSE(adminService.context->dispatch->profilerFlag);
 
     // Testing basics of operation STOP_DISPATCH_PROFILER.
     AdminClient::serverControl(&context, serverId,
@@ -621,6 +630,87 @@ TEST_F(AdminServiceTest, serverControl_resetMetrics) {
     AdminClient::serverControl(&context, serverId, WireFormat::GET_TIME_TRACE,
             "abc", 3, &output);
     EXPECT_EQ("No time trace events to print", TestUtil::toString(&output));
+}
+
+TEST_F(AdminServiceTest, updateServerList_noServerList) {
+    WireFormat::UpdateServerList::Response response;
+    response.common.status = STATUS_OK;
+    AdminService admin2(&context, NULL, NULL);
+    admin2.updateServerList(NULL, &response, NULL);
+    EXPECT_STREQ("invalid RPC request type",
+            statusToString(response.common.status));
+}
+
+TEST_F(AdminServiceTest, updateServerList_single) {
+    Lock lock(mutex); // Lock used to trick internal calls
+    // Create a temporary coordinator server list (with its own context)
+    // to use as a source for update information.
+    Context context2;
+    context2.externalStorage = &storage;
+    CoordinatorService coordinatorService(&context2, 1000, true);
+    CoordinatorServerList* source(context2.coordinatorServerList);
+    source->haltUpdater();
+    ServerId id1 = source->enlistServer({WireFormat::MASTER_SERVICE,
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=55");
+    ServerId id2 = source->enlistServer({WireFormat::MASTER_SERVICE,
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=56");
+    ServerId id3 = source->enlistServer({WireFormat::MASTER_SERVICE,
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=57");
+    ProtoBuf::ServerList fullList;
+    source->serialize(&fullList, {WireFormat::MASTER_SERVICE,
+            WireFormat::BACKUP_SERVICE});
+
+    CoordinatorServerList::UpdateServerListRpc
+        rpc(&context, serverId, &fullList);
+    rpc.send();
+    rpc.waitAndCheckErrors();
+    EXPECT_STREQ("mock:host=55", serverList.getLocator(id1).c_str());
+    EXPECT_STREQ("mock:host=56", serverList.getLocator(id2).c_str());
+    EXPECT_STREQ("mock:host=57", serverList.getLocator(id3).c_str());
+    const WireFormat::UpdateServerList::Response* respHdr(
+            rpc.getResponseHeader<WireFormat::UpdateServerList>());
+    EXPECT_EQ(3lu, respHdr->currentVersion);
+}
+
+TEST_F(AdminServiceTest, updateServerList_multi) {
+    Lock lock(mutex); // Lock used to trick internal calls
+    // Create a temporary coordinator server list (with its own context)
+    // to use as a source for update information.
+    Context context2;
+    context2.externalStorage = &storage;
+    ProtoBuf::ServerList fullList, update2, update3;
+    CoordinatorService coordinatorService(&context2, 1000, true);
+    CoordinatorServerList* source(context2.coordinatorServerList);
+    source->haltUpdater();
+
+    // Full List v1
+    ServerId id1 = source->enlistServer({WireFormat::MASTER_SERVICE,
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=55");
+    source->serialize(&fullList, {WireFormat::MASTER_SERVICE,
+            WireFormat::BACKUP_SERVICE});
+    // Update v2
+    ServerId id2 = source->enlistServer({WireFormat::MASTER_SERVICE,
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=56");
+    EXPECT_EQ(2U, source->updates.size());
+    update2 = source->updates.back().incremental;
+    // Update v3
+    ServerId id3 = source->enlistServer({WireFormat::MASTER_SERVICE,
+            WireFormat::ADMIN_SERVICE}, 0, 100, "mock:host=57");
+    update3 = source->updates.back().incremental;
+
+
+    CoordinatorServerList::UpdateServerListRpc
+        rpc(&context, serverId, &fullList);
+    rpc.appendServerList(&update2);
+    rpc.appendServerList(&update3);
+    rpc.send();
+    rpc.waitAndCheckErrors();
+    EXPECT_STREQ("mock:host=55", serverList.getLocator(id1).c_str());
+    EXPECT_STREQ("mock:host=56", serverList.getLocator(id2).c_str());
+    EXPECT_STREQ("mock:host=57", serverList.getLocator(id3).c_str());
+    const WireFormat::UpdateServerList::Response* respHdr(
+            rpc.getResponseHeader<WireFormat::UpdateServerList>());
+    EXPECT_EQ(3lu, respHdr->currentVersion);
 }
 
 } // namespace RAMCloud

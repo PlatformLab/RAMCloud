@@ -35,7 +35,9 @@ TEST_F(ClusterMetricsTest, load) {
     Context context;
     MockCluster cluster(&context);
 
-    AdminService adminforCoordinator(&cluster.coordinatorContext);
+    ServerList serverList(&context);
+    AdminService adminforCoordinator(&cluster.coordinatorContext,
+            NULL, NULL);
 
     RamCloud ramcloud(&context, "mock:host=coordinator");
 

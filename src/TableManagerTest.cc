@@ -52,8 +52,7 @@ class TableManagerTest : public ::testing::Test {
         , lock(mutex)
     {
         masterConfig.services = {WireFormat::MASTER_SERVICE,
-                                 WireFormat::ADMIN_SERVICE,
-                                 WireFormat::MEMBERSHIP_SERVICE};
+                                 WireFormat::ADMIN_SERVICE};
         TestLog::reset();
         cluster.externalStorage.log.clear();
     }

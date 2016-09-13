@@ -92,9 +92,6 @@ TEST_F(TimeTraceUtilTest, initQueueLengthMessages_serviceTypes) {
     EXPECT_STREQ("Master queue length is 16",
             TimeTraceUtil::queueLengthMsg(
             WireFormat::ServiceType::MASTER_SERVICE, 16));
-    EXPECT_STREQ("Membership queue length is 16",
-            TimeTraceUtil::queueLengthMsg(
-            WireFormat::ServiceType::MEMBERSHIP_SERVICE, 16));
 }
 TEST_F(TimeTraceUtilTest, initQueueLengthMessages_queueLengths) {
     EXPECT_STREQ("Master queue length is 100",

@@ -38,9 +38,21 @@ namespace RAMCloud {
  *      to have associated a serverList with this context; if not, this service
  *      will not return a valid ServerList version in response to pings.
  *      The new service will be registered in this context.
+ * \param serverList
+ *      ServerList to update in response to updateServerList RPCs. NULL means
+ *      this server will reject updateServerList requests (we're the
+ *      coordinator?).
+ * \param serverConfig
+ *      This server's ServerConfig, which we export to curious parties. NULL
+ *      means we will reject getServerConfig requests..
+ *
  */
-AdminService::AdminService(Context* context)
+AdminService::AdminService(Context* context,
+        ServerList* serverList,
+        const ServerConfig* serverConfig)
     : context(context)
+    , serverList(serverList)
+    , serverConfig(serverConfig)
     , ignoreKill(false)
     , returnUnknownId(false)
 {
@@ -69,6 +81,27 @@ AdminService::getMetrics(const WireFormat::GetMetrics::Request* reqHdr,
 }
 
 /**
+ * Top-level service method to handle the GET_SERVER_CONFIG request.
+ *
+ * \copydetails Service::ping
+ */
+void
+AdminService::getServerConfig(
+    const WireFormat::GetServerConfig::Request* reqHdr,
+    WireFormat::GetServerConfig::Response* respHdr,
+    Rpc* rpc)
+{
+    if (serverConfig == NULL) {
+        respHdr->common.status = STATUS_UNIMPLEMENTED_REQUEST;
+        return;
+    }
+    ProtoBuf::ServerConfig serverConfigBuf;
+    serverConfig->serialize(serverConfigBuf);
+    respHdr->serverConfigLength = ProtoBuf::serializeToResponse(
+        rpc->replyPayload, &serverConfigBuf);
+}
+
+/**
  * Top-level service method to handle the GET_SERVER_ID request.
  *
  * \copydetails Service::ping
@@ -87,6 +120,23 @@ AdminService::getServerId(const WireFormat::GetServerId::Request* reqHdr,
             RAMCLOUD_LOG(NOTICE, "Returning invalid server id");
         }
     }
+}
+
+/**
+ * For debugging and testing this function tells the server to kill itself.
+ * There will be no response to the RPC for this message, and the process
+ * will exit with status code 0.
+ *
+ * This should only be used for debugging and performance testing.
+ */
+void
+AdminService::kill(const WireFormat::Kill::Request* reqHdr,
+                  WireFormat::Kill::Response* respHdr,
+                  Rpc* rpc)
+{
+    LOG(ERROR, "Server remotely told to kill itself.");
+    if (!ignoreKill)
+        exit(0);
 }
 
 /**
@@ -343,20 +393,46 @@ AdminService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
 }
 
 /**
- * For debugging and testing this function tells the server to kill itself.
- * There will be no response to the RPC for this message, and the process
- * will exit with status code 0.
+ * Top-level service method to handle the UPDATE_SERVER_LIST request.
  *
- * This should only be used for debugging and performance testing.
+ * \copydetails Service::ping
  */
 void
-AdminService::kill(const WireFormat::Kill::Request* reqHdr,
-                  WireFormat::Kill::Response* respHdr,
-                  Rpc* rpc)
+AdminService::updateServerList(
+        const WireFormat::UpdateServerList::Request* reqHdr,
+        WireFormat::UpdateServerList::Response* respHdr,
+        Rpc* rpc)
 {
-    LOG(ERROR, "Server remotely told to kill itself.");
-    if (!ignoreKill)
-        exit(0);
+    if (serverList == NULL) {
+        respHdr->common.status = STATUS_UNIMPLEMENTED_REQUEST;
+        return;
+    }
+    uint32_t reqOffset = sizeof32(*reqHdr);
+    uint32_t reqLen = rpc->requestPayload->size();
+
+    // Repeatedly apply the server lists in the RPC while we haven't reached
+    // the end of the RPC.
+    while (reqOffset < reqLen) {
+        ProtoBuf::ServerList list;
+        auto* part = rpc->requestPayload->getOffset<
+                    WireFormat::UpdateServerList::Request::Part>(reqOffset);
+        reqOffset += sizeof32(*part);
+
+        // Bounds check on rpc size.
+        if (part == NULL || reqOffset + part->serverListLength > reqLen) {
+            LOG(WARNING, "A partial UpdateServerList request is detected. "
+                    "Perhaps limit the number of ProtoBufs the Coordinator"
+                    "ServerList can batch into one rpc.");
+            break;
+        }
+
+
+        // Check passed, parse server list and apply.
+        ProtoBuf::parseFromRequest(rpc->requestPayload, reqOffset,
+                                   part->serverListLength, &list);
+        reqOffset += part->serverListLength;
+        respHdr->currentVersion = serverList->applyServerList(list);
+    }
 }
 
 /**
@@ -370,9 +446,17 @@ AdminService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::GetMetrics, AdminService,
                         &AdminService::getMetrics>(rpc);
             break;
+        case WireFormat::GetServerConfig::opcode:
+            callHandler<WireFormat::GetServerConfig, AdminService,
+                &AdminService::getServerConfig>(rpc);
+            break;
         case WireFormat::GetServerId::opcode:
             callHandler<WireFormat::GetServerId, AdminService,
                         &AdminService::getServerId>(rpc);
+            break;
+        case WireFormat::Kill::opcode:
+            callHandler<WireFormat::Kill, AdminService,
+                        &AdminService::kill>(rpc);
             break;
         case WireFormat::Ping::opcode:
             callHandler<WireFormat::Ping, AdminService,
@@ -386,9 +470,9 @@ AdminService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::ServerControl, AdminService,
                         &AdminService::serverControl>(rpc);
             break;
-        case WireFormat::Kill::opcode:
-            callHandler<WireFormat::Kill, AdminService,
-                        &AdminService::kill>(rpc);
+        case WireFormat::UpdateServerList::opcode:
+            callHandler<WireFormat::UpdateServerList, AdminService,
+                &AdminService::updateServerList>(rpc);
             break;
         default:
             throw UnimplementedRequestError(HERE);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2016 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -78,8 +78,8 @@ TEST_F(ServiceMaskTest, toString) {
     EXPECT_EQ("MASTER_SERVICE, BACKUP_SERVICE",
               (ServiceMask{WireFormat::MASTER_SERVICE,
                            WireFormat::BACKUP_SERVICE}.toString()));
-    EXPECT_EQ("MEMBERSHIP_SERVICE",
-              ServiceMask{WireFormat::MEMBERSHIP_SERVICE}.toString());
+    EXPECT_EQ("ADMIN_SERVICE",
+              ServiceMask{WireFormat::ADMIN_SERVICE}.toString());
     EXPECT_EQ("",
               ServiceMask{WireFormat::INVALID_SERVICE}.toString());
 }
