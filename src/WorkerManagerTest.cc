@@ -403,11 +403,11 @@ TEST_F(WorkerManagerTest, poll_postprocessing) {
 // No tests for waitForRpc: this method is only used in tests.
 
 TEST_F(WorkerManagerTest, workerMain_goToSleep) {
-    // Workers were already created when the test initialized.  Initially
-    // the (first) worker should not go to sleep (time appears to
-    // stand still for it, because we stop the TSC clock).
+    // Stop the TSC clock so that the worker will not go to sleep.
     Cycles::mockTscValue = Cycles::rdtsc();
-    Worker* worker = manager->idleThreads[0];
+    Tub<WorkerManager> manager2;
+    manager2.construct(&context, 2);
+    Worker* worker = manager2->idleThreads[0];
     transport.outputLog.clear();
     usleep(20000);
     EXPECT_EQ(Worker::POLLING, worker->state.load());
@@ -425,9 +425,9 @@ TEST_F(WorkerManagerTest, workerMain_goToSleep) {
 
     // Make sure that the worker can be woken up.
     EXPECT_EQ(static_cast<Transport::ServerRpc*>(NULL), worker->rpc);
-    manager->handleRpc(new MockTransport::MockServerRpc(
+    manager2->handleRpc(new MockTransport::MockServerRpc(
             &transport, "0x10000 3 4"));
-    manager.destroy();
+    manager2.destroy();
     EXPECT_EQ("serverReply: 0x10001 4 5", transport.outputLog);
 }
 
