@@ -20,6 +20,7 @@ __thread TimeTrace::Buffer* TimeTrace::threadBuffer = NULL;
 std::vector<TimeTrace::Buffer*> TimeTrace::threadBuffers;
 TimeTrace::TraceLogger* TimeTrace::backgroundLogger = NULL;
 SpinLock TimeTrace::mutex("TimeTrace::mutex");
+Atomic<int> TimeTrace::activeReaders(0);
 
 /**
  * Creates a thread-private TimeTrace::Buffer object for the current thread,
@@ -73,9 +74,6 @@ void
 TimeTrace::printInternal(std::vector<TimeTrace::Buffer*>* buffers, string* s)
 {
     bool printedAnything = false;
-    for (uint32_t i = 0; i < buffers->size(); i++) {
-        buffers->at(i)->activeReaders.add(1);
-    }
 
     // Holds the index of the next event to consider from each trace.
     std::vector<int> current;
@@ -191,10 +189,6 @@ TimeTrace::printInternal(std::vector<TimeTrace::Buffer*>* buffers, string* s)
             RAMCLOUD_LOG(NOTICE, "No time trace events to print");
         }
     }
-
-    for (uint32_t i = 0; i < buffers->size(); i++) {
-        buffers->at(i)->activeReaders.add(-1);
-    }
 }
 
 /**
@@ -204,6 +198,7 @@ void
 TimeTrace::printToLog()
 {
     std::vector<Buffer*> buffers;
+    activeReaders.add(1);
 
     // Make a copy of the list of buffers, so we can do the actual tracing
     // without holding a lock and without fear of the list changing.
@@ -212,6 +207,7 @@ TimeTrace::printToLog()
         buffers = threadBuffers;
     }
     TimeTrace::printInternal(&buffers, NULL);
+    activeReaders.add(-1);
 }
 
 /**
@@ -237,6 +233,11 @@ TimeTrace::printToLogBackground(Dispatch* dispatch)
         }
         delete backgroundLogger;
     }
+
+    // Stop all recording immediately (even before the WorkerTimer starts);
+    // otherwise, new traces might overwrite the information we want to
+    // print.
+    activeReaders.add(1);
     backgroundLogger = new TraceLogger(dispatch);
 }
 
@@ -270,6 +271,7 @@ TimeTrace::TraceLogger::handleTimerEvent()
     }
     TimeTrace::printInternal(&buffers, NULL);
     isFinished = true;
+    TimeTrace::activeReaders.add(-1);
 }
 
 /**
@@ -277,7 +279,6 @@ TimeTrace::TraceLogger::handleTimerEvent()
  */
 TimeTrace::Buffer::Buffer()
     : nextIndex(0)
-    , activeReaders(0)
     , events()
 {
     // Mark all of the events invalid.
@@ -320,7 +321,7 @@ TimeTrace::Buffer::~Buffer()
 void TimeTrace::Buffer::record(uint64_t timestamp, const char* format,
         uint32_t arg0, uint32_t arg1, uint32_t arg2, uint32_t arg3)
 {
-    if (activeReaders > 0) {
+    if (TimeTrace::activeReaders > 0) {
         return;
     }
 

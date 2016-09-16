@@ -46,6 +46,7 @@ class TimeTraceTest : public ::testing::Test {
         Cycles::mockCyclesPerSec = 0;
         delete TimeTrace::backgroundLogger;
         TimeTrace::backgroundLogger = NULL;
+        TimeTrace::activeReaders = 0;
     }
 
   private:
@@ -69,7 +70,6 @@ TEST_F(TimeTraceTest, printInternal_startAtBeginning) {
             "    50.0 ns (+  50.0 ns): point b\n"
             "   125.0 ns (+  75.0 ns): point c",
             buffer.getTrace());
-    EXPECT_EQ(0, buffer.activeReaders);
 }
 TEST_F(TimeTraceTest, printInternal_startAtNextIndexPlus1) {
     buffer.record(100, "point a");
@@ -142,7 +142,6 @@ TEST_F(TimeTraceTest, printInternal_emptyTrace_logVersion) {
     buffer.nextIndex = 0;
     TimeTrace::printInternal(&buffers, NULL);
     EXPECT_EQ("printInternal: No time trace events to print", TestLog::get());
-    EXPECT_EQ(0, buffer.activeReaders);
 }
 
 TEST_F(TimeTraceTest, printToLog) {
@@ -161,6 +160,7 @@ TEST_F(TimeTraceTest, printToLogBackground) {
     TimeTrace::record(100, "point a");
     TimeTrace::printToLogBackground(&dispatch);
     EXPECT_EQ("", TestLog::get());
+    EXPECT_EQ(1, TimeTrace::activeReaders);
     dispatch.poll();
     for (int i = 0; i < 1000; i++) {
         if (TimeTrace::backgroundLogger->isFinished) {
@@ -171,6 +171,7 @@ TEST_F(TimeTraceTest, printToLogBackground) {
     EXPECT_TRUE(TimeTrace::backgroundLogger->isFinished);
     EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a",
             TestLog::get());
+    EXPECT_EQ(0, TimeTrace::activeReaders);
 }
 
 TEST_F(TimeTraceTest, reset) {
@@ -201,10 +202,10 @@ TEST_F(TimeTraceTest, Buffer_record_basics) {
 }
 
 TEST_F(TimeTraceTest, Buffer_record_readersActive) {
-    buffer.activeReaders = 1;
+    TimeTrace::activeReaders = 1;
     buffer.record(100, "point a");
     buffer.record(200, "point b");
-    buffer.activeReaders = 0;
+    TimeTrace::activeReaders = 0;
     buffer.record(350, "point c");
     EXPECT_EQ("     0.0 ns (+   0.0 ns): point c",
             buffer.getTrace());

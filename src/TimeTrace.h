@@ -139,6 +139,11 @@ class TimeTrace {
     // Provides mutual exclusion on threadBuffers and backgroundLogger.
     static SpinLock mutex;
 
+    // Count of number of calls to print* that are currently active;
+    // if nonzero, then it isn't safe to log new entries, since this
+    // could interfere with readers.
+    static Atomic<int> activeReaders;
+
     /**
      * This structure holds one entry in a TimeTrace::Buffer.
      */
@@ -189,11 +194,6 @@ class TimeTrace {
         // Index within events of the slot to use for the next call to the
         // record method.
         int nextIndex;
-
-        // Count of number of calls to printInternal that are currently active
-        // for this buffer; if nonzero, then it isn't safe to log new
-        // entries, since this could interfere with readers.
-        Atomic<int> activeReaders;
 
         // Holds information from the most recent calls to the record method.
         TimeTrace::Event events[BUFFER_SIZE];
