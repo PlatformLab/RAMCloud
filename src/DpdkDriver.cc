@@ -25,6 +25,9 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
+// The pragmas below are no longer needed for the most recent releases of
+// DPDK (as of September 2016); they can be deleted once we're sure no-one
+// needs to use an old release.
 #pragma GCC diagnostic ignored "-Wconversion"
 #include <rte_config.h>
 #include <rte_common.h>
@@ -187,7 +190,7 @@ DpdkDriver::DpdkDriver(Context* context,
     ret = rte_eth_dev_filter_supported(portId,
                                        RTE_ETH_FILTER_ETHERTYPE);
     if (ret < 0) {
-      LOG(WARNING, "ethertype filter is not supported on port %u.", portId);
+      LOG(NOTICE, "ethertype filter is not supported on port %u.", portId);
       hasHardwareFilter = false;
     } else {
       memset(&filter, 0, sizeof(filter));
@@ -312,15 +315,13 @@ DpdkDriver::receivePackets(int maxPackets,
         rte_prefetch0(rte_pktmbuf_mtod(m, void *));
         PacketBuf* buffer = packetBufPool.construct();
 
-        if (hasHardwareFilter) {
-            // Perform packet filtering by software to skip unrelevant
-            //  packets such as ipmi or kernel TCP/IP traffics.
-            // Still using EthPayloadType::FAST for BasicTransport.
+        if (!hasHardwareFilter) {
+            // Perform packet filtering by software to skip irrelevant
+            // packets such as ipmi or kernel TCP/IP traffics.
             char *data = rte_pktmbuf_mtod(m, char *);
             auto& eth_header = *reinterpret_cast<EthernetHeader*>(data);
-            if (eth_header.etherType != HTONS(NetUtil::EthPayloadType::FAST)) {
-                LOG(DEBUG, "unknown ether type: %x\n",
-                    NTOHS(eth_header.etherType));
+            if (eth_header.etherType !=
+                    HTONS(NetUtil::EthPayloadType::RAMCLOUD)) {
                 packetBufPool.destroy(buffer);
                 rte_pktmbuf_free(m);
                 continue;
@@ -397,7 +398,7 @@ DpdkDriver::sendPacket(const Address *addr,
     rte_memcpy(&ethHdr->destAddress,
             static_cast<const MacAddress*>(addr)->address, 6);
     rte_memcpy(&ethHdr->srcAddress, localMac->address, 6);
-    ethHdr->etherType = HTONS(NetUtil::EthPayloadType::FAST);
+    ethHdr->etherType = HTONS(NetUtil::EthPayloadType::RAMCLOUD);
     p += sizeof(*ethHdr);
     rte_memcpy(p, header, headerLen);
     p += headerLen;

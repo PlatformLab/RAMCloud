@@ -20,7 +20,7 @@
 #define RAMCLOUD_NETUTIL_H
 
 /**
- * \file 
+ * \file
  *      This header file contains data structure and function definitions that
  *      could potentially be shared between all of the layer 2 and layer 3
  *      network drivers.  The scope of this file is limited to NetUtil because
@@ -36,7 +36,7 @@ namespace NetUtil {
 enum EthPayloadType {
     IP_V4 = 0x0800, // Standard ethernet type when the payload is an ip packet.
 #ifdef DPDK
-    FAST  = 0x88b5  // FAST+DPDK
+    RAMCLOUD = 0x88b5  // Used by RAMCloud raw-Ethernet drivers.
 #endif
 };
 
@@ -50,7 +50,7 @@ static const int MAC_ADDR_LEN = 6;
 typedef uint8_t MacAddress[MAC_ADDR_LEN];
 
 /**
- * Standard Ethernet Header structure. 
+ * Standard Ethernet Header structure.
  */
 struct EthernetHeader {
     MacAddress destAddress; // Destination MAC address.
