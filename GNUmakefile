@@ -204,6 +204,7 @@ $(error DPDK_SHARED should be yes when DPDK is installed on the system)
 endif
 DPDK_SHARED := yes
 DPDK_LIB_DIR ?= /usr/lib64
+COMFLAGS += -I /usr/include/dpdk
 else
 # Link with the libraries in the DPDK SDK under DPDK_DIR
 ifeq ($(wildcard $(DPDK_DIR)),)
@@ -231,6 +232,7 @@ DPDK_VERTIO := $(shell test -e $(DPDK_LIB_DIR)/librte_pmd_virtio.so \
 DPDK_SHLIBS := -lethdev -lrte_mbuf -lrte_mempool -lrte_ring \
 	-lrte_kvargs -lrte_eal -lrte_pmd_e1000 -lrte_pmd_ixgbe \
 	-lrte_pmd_ring $(DPDK_MALLOC) $(DPDK_VIRTIO) $(DPDK_VERTIO_UIO)
+DPDK_RPATH := -Wl,-rpath,$(abspath $(DPDK_LIB_DIR))
 # -ldl required because librte_eal refers to dlopen()
 LIBS += $(DPDK_SHLIBS) $(DPDK_RPATH)
 else
