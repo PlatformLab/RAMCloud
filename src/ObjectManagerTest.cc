@@ -63,8 +63,6 @@ class ObjectManagerTest : public ::testing::Test,
         , unackedRpcResults()
     {
         masterConfig.localLocator = "mock:host=master";
-//        masterConfig.services = {WireFormat::MASTER_SERVICE,
-//                WireFormat::MEMBERSHIP_SERVICE};
         Server* masterServer = cluster.addServer(masterConfig);
         MasterService* service = masterServer->master.get();
 

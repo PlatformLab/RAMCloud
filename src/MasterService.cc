@@ -1416,8 +1416,13 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
                 WireFormat::MultiOp::Response::RemovePart>();
 
         RejectRules rejectRules = currentReq->rejectRules;
-        currentResp->status = objectManager.removeObject(
-                key, &rejectRules, &currentResp->version);
+        try {
+            currentResp->status = objectManager.removeObject(
+                    key, &rejectRules, &currentResp->version);
+        }
+        catch (RetryException& e) {
+            currentResp->status = STATUS_RETRY;
+        }
     }
 
     // All of the individual removes were done asynchronously. We must sync
