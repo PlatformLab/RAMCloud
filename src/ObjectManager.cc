@@ -1411,9 +1411,6 @@ ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
     if (!log.hasSpaceFor(av.buffer.size()) || !log.append(&av, 1)) {
         throw RetryException(HERE, 1000, 2000,
                 "Log is out of space! Transaction abort-vote wasn't logged.");
-        //TODO(seojin): Possible safety violation. Abort-vote is not written.
-        //              Network-layer retry may cause in-consistency.
-        //              Suspect this is unlikely.
     }
 
     *rpcResultPtr = av.reference.toInteger();
@@ -3339,7 +3336,7 @@ ObjectManager::replace(HashTableBucketLock& lock, Key& key,
  * Helper function used by writeObject() to send requests
  * for inserting index entries (corresponding to the object being written)
  * to the index servers.
- * 
+ *
  * \param object
  *      Object for which index entries are to be inserted.
  */
@@ -3390,7 +3387,7 @@ ObjectManager::requestInsertIndexEntries(Object& object)
  * Helper function used by writeObject() and removeObject() to send requests
  * for removing index entries (corresponding to the object being overwritten
  * or removed) to the index servers.
- * 
+ *
  * \param object
  *      Information about the object for which index entries are to be
  *      deleted.
