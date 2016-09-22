@@ -37,44 +37,46 @@ namespace RAMCloud {
 class ObjectManagerTest : public ::testing::Test,
                           public AbstractLog::ReferenceFreer{
   public:
+
+    TestLog::Enable logEnabler;
+
     Context context;
-    ClusterClock clusterClock;
-    ClientLeaseValidator clientLeaseValidator;
-    ServerId serverId;
-    ServerList serverList;
+    MasterTableMetadata* masterTableMetadata;
+    MockCluster cluster;
     ServerConfig masterConfig;
-    MasterTableMetadata masterTableMetadata;
-    ObjectManager objectManager;
-    UnackedRpcResults unackedRpcResults;
-    TransactionManager transactionManager;
-    TxRecoveryManager txRecoveryManager;
-    TabletManager tabletManager;
+    ObjectManager* objectManager;
+    TabletManager* tabletManager;
+    TransactionManager* transactionManager;
+    TxRecoveryManager* txRecoveryManager;
+    UnackedRpcResults* unackedRpcResults;
 
     ObjectManagerTest()
-        : context()
-        , clusterClock()
-        , clientLeaseValidator(&context, &clusterClock)
-        , serverId(5)
-        , serverList(&context)
-        , masterConfig(ServerConfig::forTesting())
+        : logEnabler()
+        , context()
         , masterTableMetadata()
-        , objectManager(&context,
-                        &serverId,
-                        &masterConfig,
-                        &tabletManager,
-                        &masterTableMetadata,
-                        &unackedRpcResults,
-                        &transactionManager,
-                        &txRecoveryManager)
-        , unackedRpcResults(&context, this, &clientLeaseValidator)
-        , transactionManager(&context,
-                             objectManager.getLog(),
-                             &unackedRpcResults)
-        , txRecoveryManager(&context)
+        , cluster(&context)
+        , masterConfig(ServerConfig::forTesting())
+        , objectManager()
         , tabletManager()
+        , transactionManager()
+        , txRecoveryManager()
+        , unackedRpcResults()
     {
-        objectManager.initOnceEnlisted();
-        tabletManager.addTablet(0, 0, ~0UL, TabletManager::NORMAL);
+        masterConfig.localLocator = "mock:host=master";
+//        masterConfig.services = {WireFormat::MASTER_SERVICE,
+//                WireFormat::MEMBERSHIP_SERVICE};
+        Server* masterServer = cluster.addServer(masterConfig);
+        MasterService* service = masterServer->master.get();
+
+        masterTableMetadata = &service->masterTableMetadata;
+        objectManager = &service->objectManager;
+        tabletManager = &service->tabletManager;
+        transactionManager = &service->transactionManager;
+        txRecoveryManager = &service->txRecoveryManager;
+        unackedRpcResults = &service->unackedRpcResults;
+
+        objectManager->initOnceEnlisted();
+        tabletManager->addTablet(0, 0, ~0UL, TabletManager::NORMAL);
     }
 
     /**
@@ -298,7 +300,7 @@ class ObjectManagerTest : public ::testing::Test,
     }
 
     virtual void freeLogEntry(Log::Reference ref) {
-        objectManager.getLog()->free(ref);
+        objectManager->getLog()->free(ref);
     }
 
     /**
@@ -314,12 +316,12 @@ class ObjectManagerTest : public ::testing::Test,
         Buffer buffer;
         o.assembleForLog(buffer);
         Log::Reference reference;
-        objectManager.log.append(LOG_ENTRY_TYPE_OBJ, buffer, &reference);
+        objectManager->log.append(LOG_ENTRY_TYPE_OBJ, buffer, &reference);
         {
-            ObjectManager::HashTableBucketLock lock(objectManager, key);
-            objectManager.replace(lock, key, reference);
+            ObjectManager::HashTableBucketLock lock(*objectManager, key);
+            objectManager->replace(lock, key, reference);
         }
-        TableStats::increment(&masterTableMetadata,
+        TableStats::increment(masterTableMetadata,
                               key.getTableId(),
                               buffer.size(),
                               1);
@@ -338,12 +340,12 @@ class ObjectManagerTest : public ::testing::Test,
         Buffer buffer;
         t.assembleForLog(buffer);
         Log::Reference reference;
-        objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, &reference);
+        objectManager->log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, &reference);
         {
-            ObjectManager::HashTableBucketLock lock(objectManager, key);
-            objectManager.replace(lock, key, reference);
+            ObjectManager::HashTableBucketLock lock(*objectManager, key);
+            objectManager->replace(lock, key, reference);
         }
-        TableStats::increment(&masterTableMetadata,
+        TableStats::increment(masterTableMetadata,
                               key.getTableId(),
                               buffer.size(),
                               1);
@@ -363,7 +365,7 @@ class ObjectManagerTest : public ::testing::Test,
         PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 1, key, NULL,
                 0, 0, 0, dataBuffer);
         prepOp.assembleForLog(buffer);
-        objectManager.log.append(LOG_ENTRY_TYPE_PREP, buffer, &ref);
+        objectManager->log.append(LOG_ENTRY_TYPE_PREP, buffer, &ref);
         return ref;
     }
 
@@ -377,8 +379,8 @@ class ObjectManagerTest : public ::testing::Test,
         Buffer value;
         Buffer buffer;
         LogEntryType type;
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        bool found = objectManager.lookup(lock, key, type, buffer);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        bool found = objectManager->lookup(lock, key, type, buffer);
         ASSERT_TRUE(found);
         ASSERT_EQ(LOG_ENTRY_TYPE_OBJ, type);
 
@@ -398,7 +400,7 @@ class ObjectManagerTest : public ::testing::Test,
         bool safeVerFound = false;
         int  safeVerScanned = 0;
 
-        for (LogIterator it(objectManager.log); !it.isDone(); it.next()) {
+        for (LogIterator it(objectManager->log); !it.isDone(); it.next()) {
             // Note that more than two safeVersion objects exist
             // in the head segment:
             // 1st safeVersion is allocated when the segment is opened.
@@ -431,7 +433,7 @@ class ObjectManagerTest : public ::testing::Test,
     {
         MasterTableMetadata::Entry* entry;
 
-        entry = masterTableMetadata.find(tableId);
+        entry = masterTableMetadata->find(tableId);
         if (entry != NULL) {
             return format("found=true tableId=%lu byteCount=%lu recordCount=%lu"
                        , tableId
@@ -453,8 +455,8 @@ class ObjectManagerTest : public ::testing::Test,
     {
         Buffer unusedBuffer;
         LogEntryType unusedType;
-        ObjectManager::HashTableBucketLock fakeLock(objectManager, 0);
-        return objectManager.lookup(
+        ObjectManager::HashTableBucketLock fakeLock(*objectManager, 0);
+        return objectManager->lookup(
             fakeLock, key, unusedType, unusedBuffer, NULL, outReference);
     }
 
@@ -468,7 +470,7 @@ class ObjectManagerTest : public ::testing::Test,
     {
         Buffer unusedBuffer;
         Key key(tableId, stringKey, keyLength);
-        return objectManager.readObject(key, &unusedBuffer, 0, 0);
+        return objectManager->readObject(key, &unusedBuffer, 0, 0);
     }
 
     static bool
@@ -486,8 +488,8 @@ TEST_F(ObjectManagerTest, constructor) {
     // the ServerId prior to instantiation), a bug was introduced where OM took
     // a ServerId, but passed the stack temporary by reference to replicaManager
     // and SegmentManager. Ensure this doesn't happen anymore.
-    EXPECT_EQ(ServerId(5), *objectManager.segmentManager.logId);
-    EXPECT_EQ(ServerId(5), *objectManager.replicaManager.masterId);
+    EXPECT_EQ(ServerId(1), *objectManager->segmentManager.logId);
+    EXPECT_EQ(ServerId(1), *objectManager->replicaManager.masterId);
 }
 
 TEST_F(ObjectManagerTest, readHashes) {
@@ -508,7 +510,7 @@ TEST_F(ObjectManagerTest, readHashes) {
                                        valueLength0, &keysAndVal0);
 
     Object obj0(tableId, 0, 0, keysAndVal0);
-    Status writeStatus0 = objectManager.writeObject(obj0, NULL, NULL);
+    Status writeStatus0 = objectManager->writeObject(obj0, NULL, NULL);
     EXPECT_EQ(STATUS_OK, writeStatus0);
 
     KeyInfo keyList1[2];
@@ -525,7 +527,7 @@ TEST_F(ObjectManagerTest, readHashes) {
                                        valueLength1, &keysAndVal1);
 
     Object obj1(tableId, 0, 0, keysAndVal1);
-    Status writeStatus1 = objectManager.writeObject(obj1, NULL, NULL);
+    Status writeStatus1 = objectManager->writeObject(obj1, NULL, NULL);
     EXPECT_EQ(STATUS_OK, writeStatus1);
 
     Buffer pKHashes;
@@ -536,7 +538,7 @@ TEST_F(ObjectManagerTest, readHashes) {
     Buffer responseBuffer;
     uint32_t numHashesResponse;
     uint32_t numObjectsResponse;
-    objectManager.readHashes(tableId, 2, &pKHashes, 0, 1000, &responseBuffer,
+    objectManager->readHashes(tableId, 2, &pKHashes, 0, 1000, &responseBuffer,
             &numHashesResponse, &numObjectsResponse);
 
     EXPECT_EQ(2U, numHashesResponse);
@@ -570,44 +572,44 @@ TEST_F(ObjectManagerTest, readObject) {
 
     // no tablet, no dice
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.readObject(key, &buffer, 0, 0));
+        objectManager->readObject(key, &buffer, 0, 0));
 
     // non-normal tablet, no dice
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.readObject(key, &buffer, 0, 0));
+        objectManager->readObject(key, &buffer, 0, 0));
 
     // (now make the tablet acceptable for handling reads)
-    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
 
     // not found, clearly no dice
     Key key2(1, "2", 1);
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
-        objectManager.readObject(key2, &buffer, 0, 0));
+        objectManager->readObject(key2, &buffer, 0, 0));
 
     // non-object, no dice
     storeTombstone(key2);
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
-        objectManager.readObject(key2, &buffer, 0, 0));
+        objectManager->readObject(key2, &buffer, 0, 0));
 
     // ensure reject rules are applied
     RejectRules rules;
     memset(&rules, 0, sizeof(rules));
     rules.exists = 1;
     EXPECT_EQ(STATUS_OBJECT_EXISTS,
-        objectManager.readObject(key, &buffer, &rules, 0));
+        objectManager->readObject(key, &buffer, &rules, 0));
 
     // let's finally try a case that should work...
     uint64_t version;
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &buffer, 0, &version));
+    EXPECT_EQ(STATUS_OK, objectManager->readObject(key, &buffer, 0, &version));
     EXPECT_EQ(93UL, version);
     EXPECT_EQ(
         "{ tableId: 0 startKeyHash: 0 "
             "endKeyHash: 18446744073709551615 state: 0 reads: 0 writes: 0 }\n"
         "{ tableId: 1 startKeyHash: 0 "
             "endKeyHash: 18446744073709551615 state: 0 reads: 4 writes: 0 }",
-        tabletManager.toString());
+        tabletManager->toString());
 }
 
 static bool
@@ -623,31 +625,31 @@ TEST_F(ObjectManagerTest, removeObject) {
               , verifyMetadata(1));
 
     // no tablet, no dice
-    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager.removeObject(key, 0, 0));
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager->removeObject(key, 0, 0));
     EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
     // non-normal tablet, no dice
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
-    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager.removeObject(key, 0, 0));
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager->removeObject(key, 0, 0));
     EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
     // (now make the tablet acceptable for handling removes)
-    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
 
     // key locked, STATUS_RETRY.
     Log::Reference lockRef = storePreparedOp(key);
-    EXPECT_TRUE(objectManager.lockTable.tryAcquireLock(key, lockRef));
-    EXPECT_EQ(STATUS_RETRY, objectManager.removeObject(key, 0, 0));
+    EXPECT_TRUE(objectManager->lockTable.tryAcquireLock(key, lockRef));
+    EXPECT_EQ(STATUS_RETRY, objectManager->removeObject(key, 0, 0));
     EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
-    EXPECT_TRUE(objectManager.lockTable.releaseLock(key, lockRef));
+    EXPECT_TRUE(objectManager->lockTable.releaseLock(key, lockRef));
 
     // not found, not an error
     Key key2(1, "2", 1);
-    EXPECT_EQ(STATUS_OK, objectManager.removeObject(key2, 0, 0));
+    EXPECT_EQ(STATUS_OK, objectManager->removeObject(key2, 0, 0));
     EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
@@ -655,7 +657,7 @@ TEST_F(ObjectManagerTest, removeObject) {
     storeTombstone(key2);
     EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
               , verifyMetadata(1));
-    EXPECT_EQ(STATUS_OK, objectManager.removeObject(key2, 0, 0));
+    EXPECT_EQ(STATUS_OK, objectManager->removeObject(key2, 0, 0));
     EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
               , verifyMetadata(1));
 
@@ -664,130 +666,132 @@ TEST_F(ObjectManagerTest, removeObject) {
     memset(&rules, 0, sizeof(rules));
     rules.exists = 1;
     EXPECT_EQ(STATUS_OBJECT_EXISTS,
-        objectManager.removeObject(key, &rules, 0));
+        objectManager->removeObject(key, &rules, 0));
     EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
               , verifyMetadata(1));
 
     // let's finally try a case that should work...
     TestLog::Enable _(antiGetEntryFilter);
     HashTable::Candidates c;
-    objectManager.objectMap.lookup(key.getHash(), c);
+    objectManager->objectMap.lookup(key.getHash(), c);
     uint64_t ref = c.getReference();
     uint64_t version;
-    EXPECT_EQ(STATUS_OK, objectManager.removeObject(key, 0, &version));
+    EXPECT_EQ(STATUS_OK, objectManager->removeObject(key, 0, &version));
     EXPECT_EQ("found=true tableId=1 byteCount=96 recordCount=3"
               , verifyMetadata(1));
     EXPECT_EQ(93UL, version);
     EXPECT_EQ(format("free: free on reference %lu", ref), TestLog::get());
     Buffer buffer;
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
-        objectManager.readObject(key, &buffer, 0, 0));
-    EXPECT_EQ(94UL, objectManager.segmentManager.safeVersion);
+        objectManager->readObject(key, &buffer, 0, 0));
+    EXPECT_EQ(94UL, objectManager->segmentManager.safeVersion);
     LogEntryType type;
-    ObjectManager::HashTableBucketLock lock(objectManager, key);
-    EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+    ObjectManager::HashTableBucketLock lock(*objectManager, key);
+    EXPECT_FALSE(objectManager->lookup(lock, key, type, buffer, 0, 0));
 }
 
-TEST_F(ObjectManagerTest, removeObject_returnRemovedObj) {
-    Key key(1, "a", 1);
-    storeObject(key, "hi", 93);
-    EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
-              , verifyMetadata(1));
+TEST_F(ObjectManagerTest, removeObject_indexEntries) {
+    TestLog::Enable _("removeObject", "requestRemoveIndexEntries", NULL);
 
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    uint64_t tableId = 0;
 
-    TestLog::Enable _(antiGetEntryFilter);
-    HashTable::Candidates c;
-    objectManager.objectMap.lookup(key.getHash(), c);
-    uint64_t ref = c.getReference();
-    uint64_t version;
-    Buffer removedObjBuffer;
-    EXPECT_EQ(STATUS_OK,
-              objectManager.removeObject(key, 0, &version, &removedObjBuffer));
+    // Create object with no secondary keys. Removing this object should
+    // not trigger removal of index entries.
 
-    // Check that the remove succeeded and the object doesn't exist.
-    EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2",
-              verifyMetadata(1));
-    EXPECT_EQ(93UL, version);
+    Key keyA(tableId, "keyA0", 5);
+    Buffer objABuffer;
+    Object objA(keyA, "value", 5, 1, 0, objABuffer);
+    objectManager->writeObject(objA, NULL, NULL);
 
-    Buffer buffer;
-    EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
-        objectManager.readObject(key, &buffer, 0, 0));
-    EXPECT_EQ(94UL, objectManager.segmentManager.safeVersion);
-    LogEntryType type;
-    ObjectManager::HashTableBucketLock lock(objectManager, key);
-    EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
-    EXPECT_EQ(format("free: free on reference %lu", ref), TestLog::get());
+    objectManager->removeObject(keyA, NULL, NULL);
+    EXPECT_EQ("", TestLog::get());
 
-    // Check that the buffer returned corresponds to the object removed.
-    Object oldObj(removedObjBuffer);
-    EXPECT_EQ(1U, oldObj.getKeyCount());
-    KeyLength oldKeyLength;
-    const void* oldKey = oldObj.getKey(0, &oldKeyLength);
-    EXPECT_EQ("a", string(reinterpret_cast<const char*>(oldKey), oldKeyLength));
-    uint32_t oldValueLength;
-    const void* oldValue = oldObj.getValue(&oldValueLength);
-    EXPECT_EQ("hi", string(reinterpret_cast<const char*>(oldValue),
-                           oldValueLength));
+    // Create object with two secondary keys. Removing this object should
+    // trigger removal of index entries.
+
+    uint8_t numKeysB = 3;
+    KeyInfo keyListB[3];
+    keyListB[0].keyLength = 5;
+    keyListB[0].key = "keyB0";
+    keyListB[1].keyLength = 5;
+    keyListB[1].key = "keyB1";
+    keyListB[2].keyLength = 5;
+    keyListB[2].key = "keyB2";
+
+    Buffer keysAndValBufferB;
+    Object::appendKeysAndValueToBuffer(tableId, numKeysB, keyListB,
+            "value", 5, &keysAndValBufferB);
+    Object objB(tableId, 1, 0, keysAndValBufferB);
+    Key keyB(tableId, keyListB[0].key, keyListB[0].keyLength);
+    objectManager->writeObject(objB, NULL, NULL);
+
+    objectManager->removeObject(keyB, NULL, NULL);
+    EXPECT_EQ("removeObject: Requesting removal of old index entries | "
+            "requestRemoveIndexEntries: Removing index entry for "
+            "tableId 0, keyIndex 1, key keyB1, "
+            "primaryKeyHash 3695514919239262565 | "
+            "requestRemoveIndexEntries: Removing index entry for "
+            "tableId 0, keyIndex 2, key keyB2, "
+            "primaryKeyHash 3695514919239262565", TestLog::get());
 }
 
 TEST_F(ObjectManagerTest, removeOrphanedObjects) {
-    tabletManager.addTablet(97, 0, ~0UL, TabletManager::NORMAL);
+    tabletManager->addTablet(97, 0, ~0UL, TabletManager::NORMAL);
 
     Key key(97, "1", 1);
     Buffer value;
     Object obj(key, "hi", 2, 0, 0, value);
 
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, NULL, NULL));
-    EXPECT_EQ(32lu, objectManager.log.totalLiveBytes);
+    EXPECT_EQ(STATUS_OK, objectManager->writeObject(obj, NULL, NULL));
+    EXPECT_EQ(32lu, objectManager->log.totalLiveBytes);
 
-    EXPECT_TRUE(tabletManager.getTablet(key, NULL));
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, NULL, NULL));
+    EXPECT_TRUE(tabletManager->getTablet(key, NULL));
+    EXPECT_EQ(STATUS_OK, objectManager->readObject(key, &value, NULL, NULL));
 
-    objectManager.removeOrphanedObjects();
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, NULL, NULL));
+    objectManager->removeOrphanedObjects();
+    EXPECT_EQ(STATUS_OK, objectManager->readObject(key, &value, NULL, NULL));
 
-    tabletManager.deleteTablet(97, 0, ~0UL);
-    EXPECT_FALSE(tabletManager.getTablet(key, NULL));
+    tabletManager->deleteTablet(97, 0, ~0UL);
+    EXPECT_FALSE(tabletManager->getTablet(key, NULL));
 
     value.reset();
 
     {
-        tabletManager.addTablet(98, 0, ~0UL, TabletManager::NORMAL);
+        tabletManager->addTablet(98, 0, ~0UL, TabletManager::NORMAL);
         Key key(98, "1", 1);
         Buffer value;
         Object obj(key, "hi", 2, 0, 0, value);
 
-        EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, NULL, NULL));
-        EXPECT_EQ(64lu, objectManager.log.totalLiveBytes);
+        EXPECT_EQ(STATUS_OK, objectManager->writeObject(obj, NULL, NULL));
+        EXPECT_EQ(64lu, objectManager->log.totalLiveBytes);
     }
     value.reset();
 
     TestLog::Enable _(antiGetEntryFilter);
     HashTable::Candidates c;
-    objectManager.objectMap.lookup(key.getHash(), c);
+    objectManager->objectMap.lookup(key.getHash(), c);
     uint64_t ref = c.getReference();
-    objectManager.removeOrphanedObjects();
+    objectManager->removeOrphanedObjects();
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.readObject(key, &value, NULL, NULL));
+        objectManager->readObject(key, &value, NULL, NULL));
 
-    tabletManager.addTablet(97, 0, ~0UL, TabletManager::NORMAL);
+    tabletManager->addTablet(97, 0, ~0UL, TabletManager::NORMAL);
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
-        objectManager.readObject(key, &value, NULL, NULL));
+        objectManager->readObject(key, &value, NULL, NULL));
 
     EXPECT_EQ(
         format("removeIfOrphanedObject: removing orphaned object at ref %lu | "
                "free: free on reference %lu", ref, ref),
         TestLog::get());
-    EXPECT_EQ(32lu, objectManager.log.totalLiveBytes);
+    EXPECT_EQ(32lu, objectManager->log.totalLiveBytes);
 }
 
 TEST_F(ObjectManagerTest, replaySegment_nextNodeIdMap) {
-    ObjectManager::TombstoneProtector p(&objectManager);
+    ObjectManager::TombstoneProtector p(objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
 
     char keyStr[8];
     uint64_t *bTreeKey = reinterpret_cast<uint64_t*>(keyStr);
@@ -799,32 +803,32 @@ TEST_F(ObjectManagerTest, replaySegment_nextNodeIdMap) {
     it.construct(&seg[0], len, certificate);
     std::unordered_map<uint64_t, uint64_t> nextNodeIdMap;
     nextNodeIdMap[0] = 0;
-    objectManager.replaySegment(&sl, *it, &nextNodeIdMap);
+    objectManager->replaySegment(&sl, *it, &nextNodeIdMap);
     EXPECT_EQ(12346U, nextNodeIdMap[0]);
     EXPECT_EQ("found=true tableId=0 byteCount=45 recordCount=1"
               , verifyMetadata(0));
 }
 
 TEST_F(ObjectManagerTest, replaySegment_tombstoneSynthesis) {
-    ObjectManager::TombstoneProtector p(&objectManager);
+    ObjectManager::TombstoneProtector p(objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
     Tub<SegmentIterator> it;
 
     Key key0(0, "key0", 4);
     SegmentCertificate certificate;
     len = buildRecoverySegment(seg, segLen, key0, 1, "original", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     verifyRecoveryObject(key0, "original");
 
     // New object with higher version, check for tombstone after the first
     // object
     len = buildRecoverySegment(seg, segLen, key0, 2, "new", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     verifyRecoveryObject(key0, "new");
     it.construct(*sl.head);
     while (it->getType() != LOG_ENTRY_TYPE_OBJ)
@@ -842,18 +846,18 @@ TEST_F(ObjectManagerTest, replaySegment_tombstoneSynthesis) {
 }
 
 TEST_F(ObjectManagerTest, replaySegment_tombstoneSegmentId) {
-    ObjectManager::TombstoneProtector p(&objectManager);
+    ObjectManager::TombstoneProtector p(objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
     Tub<SegmentIterator> it;
 
     Key key0(0, "key0", 4);
     SegmentCertificate certificate;
     len = buildRecoverySegment(seg, segLen, key0, 1, "original", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
 
     Buffer dataBuffer;
@@ -861,7 +865,7 @@ TEST_F(ObjectManagerTest, replaySegment_tombstoneSegmentId) {
     ObjectTombstone t1(o1, 8, 0);
     len = buildRecoverySegment(seg, segLen, t1, &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     it.construct(*sl.head);
     while (it->getType() != LOG_ENTRY_TYPE_OBJTOMB)
@@ -881,7 +885,7 @@ TEST_F(ObjectManagerTest, replaySegment_tombstoneSegmentId) {
 }
 
 TEST_F(ObjectManagerTest, replaySegment) {
-    ObjectManager::TombstoneProtector p(&objectManager);
+    ObjectManager::TombstoneProtector p(objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
@@ -891,7 +895,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     Log::Reference logTomb2Ref;
     LogEntryType type;
     bool ret;
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
 
     ////////////////////////////////////////////////////////////////////
     // For Object recovery there are 3 major cases.
@@ -914,13 +918,13 @@ TEST_F(ObjectManagerTest, replaySegment) {
     len = buildRecoverySegment(seg, segLen, key0, 1, "newer guy", &certificate);
     Tub<SegmentIterator> it;
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     verifyRecoveryObject(key0, "newer guy");
     EXPECT_EQ("found=true tableId=0 byteCount=41 recordCount=1"
               , verifyMetadata(0));
     len = buildRecoverySegment(seg, segLen, key0, 0, "older guy", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     verifyRecoveryObject(key0, "newer guy");
     EXPECT_EQ("found=true tableId=0 byteCount=41 recordCount=1"
               , verifyMetadata(0));
@@ -929,13 +933,13 @@ TEST_F(ObjectManagerTest, replaySegment) {
     Key key1(0, "key1", 4);
     len = buildRecoverySegment(seg, segLen, key1, 0, "older guy", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     verifyRecoveryObject(key1, "older guy");
     EXPECT_EQ("found=true tableId=0 byteCount=82 recordCount=2"
               , verifyMetadata(0)); // Object added.
     len = buildRecoverySegment(seg, segLen, key1, 1, "newer guy", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     verifyRecoveryObject(key1, "newer guy");
     EXPECT_EQ("found=true tableId=0 byteCount=159 recordCount=4"
               , verifyMetadata(0));
@@ -948,24 +952,24 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t1(o1, 0, 0);
     buffer.reset();
     t1.assembleForLog(buffer);
-    objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, &logTomb1Ref);
-    objectManager.log.sync();
+    objectManager->log.append(LOG_ENTRY_TYPE_OBJTOMB, buffer, &logTomb1Ref);
+    objectManager->log.sync();
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key2);
-        ret = objectManager.replace(lock, key2, logTomb1Ref);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key2);
+        ret = objectManager->replace(lock, key2, logTomb1Ref);
     }
     EXPECT_FALSE(ret);
     len = buildRecoverySegment(seg, segLen, key2, 1, "equal guy", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     EXPECT_EQ("found=true tableId=0 byteCount=159 recordCount=4"
               , verifyMetadata(0));
     len = buildRecoverySegment(seg, segLen, key2, 0, "older guy", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     EXPECT_TRUE(lookup(key2, &reference));
     EXPECT_EQ(reference, logTomb1Ref);
-    objectManager.removeTombstones();
+    objectManager->removeTombstones();
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, getObjectStatus(0, "key2", 4));
 
     // Case 2b: Lesser tombstone already there; add object, remove tomb.
@@ -977,33 +981,33 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t2(o2, 0, 0);
     buffer.reset();
     t2.assembleForLog(buffer);
-    ret = objectManager.log.append(
+    ret = objectManager->log.append(
         LOG_ENTRY_TYPE_OBJTOMB, buffer, &logTomb2Ref);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(ret);
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key3);
-        ret = objectManager.replace(lock, key3, logTomb2Ref);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key3);
+        ret = objectManager->replace(lock, key3, logTomb2Ref);
     }
     EXPECT_FALSE(ret);
     len = buildRecoverySegment(seg, segLen, key3, 11, "newer guy",
                                &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     EXPECT_EQ("found=true tableId=0 byteCount=200 recordCount=5"
               , verifyMetadata(0));
     verifyRecoveryObject(key3, "newer guy");
     EXPECT_TRUE(lookup(key3, &reference));
     EXPECT_NE(reference, logTomb1Ref);
     EXPECT_NE(reference, logTomb2Ref);
-    objectManager.removeTombstones();
+    objectManager->removeTombstones();
 
     // Case 3: No tombstone, no object. Recovered object always added.
     Key key4(0 , "key4", 4);
     EXPECT_FALSE(lookup(key4, &reference));
     len = buildRecoverySegment(seg, segLen, key4, 0, "only guy", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     EXPECT_EQ("found=true tableId=0 byteCount=240 recordCount=6"
               , verifyMetadata(0));
     verifyRecoveryObject(key4, "only guy");
@@ -1027,7 +1031,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     Key key5(0, "key5", 4);
     len = buildRecoverySegment(seg, segLen, key5, 1, "newer guy", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     EXPECT_EQ("found=true tableId=0 byteCount=281 recordCount=7"
               , verifyMetadata(0));
     dataBuffer.reset();
@@ -1035,7 +1039,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
 
     ObjectTombstone t3(o3, 0, 0);
     len = buildRecoverySegment(seg, segLen, t3, &certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     EXPECT_EQ("found=true tableId=0 byteCount=281 recordCount=7"
               , verifyMetadata(0));
     verifyRecoveryObject(key5, "newer guy");
@@ -1044,7 +1048,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     Key key6(0, "key6", 4);
     len = buildRecoverySegment(seg, segLen, key6, 0, "equal guy", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     EXPECT_EQ("found=true tableId=0 byteCount=322 recordCount=8"
               , verifyMetadata(0));
     verifyRecoveryObject(key6, "equal guy");
@@ -1055,8 +1059,8 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t4(o4, 0, 0);
     len = buildRecoverySegment(seg, segLen, t4, &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
-    objectManager.removeTombstones();
+    objectManager->replaySegment(&sl, *it);
+    objectManager->removeTombstones();
     EXPECT_EQ("found=true tableId=0 byteCount=358 recordCount=9"
               , verifyMetadata(0));
     EXPECT_FALSE(lookup(key6, &reference));
@@ -1065,7 +1069,7 @@ TEST_F(ObjectManagerTest, replaySegment) {
     Key key7(0, "key7", 4);
     len = buildRecoverySegment(seg, segLen, key7, 0, "older guy", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     EXPECT_EQ("found=true tableId=0 byteCount=399 recordCount=10"
               , verifyMetadata(0));
     verifyRecoveryObject(key7, "older guy");
@@ -1075,8 +1079,8 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t5(o5, 0, 0);
     len = buildRecoverySegment(seg, segLen, t5, &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
-    objectManager.removeTombstones();
+    objectManager->replaySegment(&sl, *it);
+    objectManager->removeTombstones();
     EXPECT_EQ("found=true tableId=0 byteCount=471 recordCount=12"
               , verifyMetadata(0));
     EXPECT_FALSE(lookup(key7, &reference));
@@ -1090,11 +1094,11 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t6(o6, 0, 0);
     len = buildRecoverySegment(seg, segLen, t6, &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     buffer.reset();
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key8);
-        ret = objectManager.lookup(lock, key8, type, buffer);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key8);
+        ret = objectManager->lookup(lock, key8, type, buffer);
     }
     EXPECT_EQ("found=true tableId=0 byteCount=507 recordCount=13"
               , verifyMetadata(0));
@@ -1107,12 +1111,12 @@ TEST_F(ObjectManagerTest, replaySegment) {
     t7.header.checksum = t7.computeChecksum();
     len = buildRecoverySegment(seg, segLen, t7, &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     const uint8_t* t6LogPtr = buffer.getStart<uint8_t>();
     buffer.reset();
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key8);
-        ret = objectManager.lookup(lock, key8, type, buffer);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key8);
+        ret = objectManager->lookup(lock, key8, type, buffer);
     }
     EXPECT_EQ("found=true tableId=0 byteCount=507 recordCount=13"
               , verifyMetadata(0));
@@ -1127,11 +1131,11 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t8(o8, 0, 0);
     len = buildRecoverySegment(seg, segLen, t8, &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     buffer.reset();
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key9);
-        ret = objectManager.lookup(lock, key9, type, buffer);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key9);
+        ret = objectManager->lookup(lock, key9, type, buffer);
     }
     EXPECT_EQ("found=true tableId=0 byteCount=543 recordCount=14"
               , verifyMetadata(0));
@@ -1145,11 +1149,11 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t9(o9, 0, 0);
     len = buildRecoverySegment(seg, segLen, t9, &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     buffer.reset();
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key9);
-        ret = objectManager.lookup(lock, key9, type, buffer);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key9);
+        ret = objectManager->lookup(lock, key9, type, buffer);
     }
     EXPECT_EQ("found=true tableId=0 byteCount=579 recordCount=15"
               , verifyMetadata(0));
@@ -1167,11 +1171,11 @@ TEST_F(ObjectManagerTest, replaySegment) {
     ObjectTombstone t10(o10, 0, 0);
     len = buildRecoverySegment(seg, segLen, t10, &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     buffer.reset();
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key10);
-        EXPECT_TRUE(objectManager.lookup(lock, key10, type, buffer));
+        ObjectManager::HashTableBucketLock lock(*objectManager, key10);
+        EXPECT_TRUE(objectManager->lookup(lock, key10, type, buffer));
     }
     EXPECT_EQ("found=true tableId=0 byteCount=616 recordCount=16"
               , verifyMetadata(0));
@@ -1187,12 +1191,12 @@ TEST_F(ObjectManagerTest, replaySegment) {
 }
 
 TEST_F(ObjectManagerTest, replaySafeversion) {
-    ObjectManager::TombstoneProtector p(&objectManager);
+    ObjectManager::TombstoneProtector p(objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
     Buffer buffer;
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
     Log::Reference reference;
     SegmentCertificate certificate;
     Tub<SegmentIterator> it;
@@ -1208,7 +1212,7 @@ TEST_F(ObjectManagerTest, replaySafeversion) {
     //
 
     // reset safeVersion to 1
-    objectManager.segmentManager.safeVersion = 1UL;
+    objectManager->segmentManager.safeVersion = 1UL;
 
     // Build a properly formatted segment containing a single safeVersion.
     ObjectSafeVersion safeVer(10UL);
@@ -1218,7 +1222,7 @@ TEST_F(ObjectManagerTest, replaySafeversion) {
     it.construct(&seg[0], len, certificate);
 
     TestLog::Enable _(replaySegmentFilter);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "SAFEVERSION 10 recovered",
         TestLog::get()));
@@ -1229,7 +1233,7 @@ TEST_F(ObjectManagerTest, replaySafeversion) {
     // two safeVer shoruld be found (SideLog commit() opened a new head).
     EXPECT_EQ(2, verifyCopiedSafeVer(&safeVer));
     // recovered from safeVer
-    EXPECT_EQ(10UL, objectManager.segmentManager.safeVersion);
+    EXPECT_EQ(10UL, objectManager->segmentManager.safeVersion);
 
     //
     // Case 2: Replay  of live object does not affect to safeVersion
@@ -1241,10 +1245,10 @@ TEST_F(ObjectManagerTest, replaySafeversion) {
     len = buildRecoverySegment(seg, segLen, key0, 30,
                                "newer guy", &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
     verifyRecoveryObject(key0, "newer guy");
     // safeVersion unchanged
-    EXPECT_EQ(10UL, objectManager.segmentManager.safeVersion);
+    EXPECT_EQ(10UL, objectManager->segmentManager.safeVersion);
 
     //
     // Case 3: Recovery from ObjectSafeVersion and TombStone :
@@ -1260,21 +1264,21 @@ TEST_F(ObjectManagerTest, replaySafeversion) {
     //                obj, segId, timestamp
     len = buildRecoverySegment(seg, segLen, t1, &certificate);
     it.construct(&seg[0], len, certificate);
-    objectManager.replaySegment(&sl, *it);
-    objectManager.removeTombstones();
+    objectManager->replaySegment(&sl, *it);
+    objectManager->removeTombstones();
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST, getObjectStatus(0, "key0", 4));
 
     // safeVersion recovered to be one bigger than
     //    Tombstone (ver 40) in the head segment
-    EXPECT_EQ(41UL, objectManager.segmentManager.safeVersion);
+    EXPECT_EQ(41UL, objectManager->segmentManager.safeVersion);
 }
 
 TEST_F(ObjectManagerTest, replaySegment_rpcResult) {
-    ObjectManager::TombstoneProtector p(&objectManager);
+    ObjectManager::TombstoneProtector p(objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
     Tub<SegmentIterator> it;
 
     uint64_t expectedLeaseId = 8;
@@ -1282,7 +1286,6 @@ TEST_F(ObjectManagerTest, replaySegment_rpcResult) {
     uint64_t liveRpcId = 10;
     uint64_t deadRpcId = 3;
 
-    UnackedRpcResults *unackedRpcResults = objectManager.unackedRpcResults;
     EXPECT_EQ(unackedRpcResults->clients.end(),
               unackedRpcResults->clients.find(expectedLeaseId));
 
@@ -1294,7 +1297,7 @@ TEST_F(ObjectManagerTest, replaySegment_rpcResult) {
         it.construct(&seg[0], len, certificate);
     }
 
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     EXPECT_NE(unackedRpcResults->clients.end(),
               unackedRpcResults->clients.find(expectedLeaseId));
@@ -1310,7 +1313,7 @@ TEST_F(ObjectManagerTest, replaySegment_rpcResult) {
         it.construct(&seg[0], len, certificate);
     }
 
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     EXPECT_NE(unackedRpcResults->clients.end(),
               unackedRpcResults->clients.find(expectedLeaseId));
@@ -1318,14 +1321,12 @@ TEST_F(ObjectManagerTest, replaySegment_rpcResult) {
 }
 
 TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
-    ObjectManager::TombstoneProtector p(&objectManager);
+    ObjectManager::TombstoneProtector p(objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
     Tub<SegmentIterator> it;
-
-    TransactionManager *transactionManager = objectManager.transactionManager;
 
     EXPECT_EQ(0UL, transactionManager->getOp(1UL, 10UL));
 
@@ -1340,7 +1341,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
     }
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     EXPECT_NE(0UL, transactionManager->getOp(1UL, 10UL));
 
@@ -1357,13 +1358,13 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
         it.construct(&seg[0], len, certificate);
 
         // Pushing version of object >= 1.
-        tabletManager.addTablet(10, 0, ~0UL, TabletManager::NORMAL);
+        tabletManager->addTablet(10, 0, ~0UL, TabletManager::NORMAL);
         Object obj(key, "hello", 6, 0, 0, buf);
-        objectManager.writeObject(obj, NULL, NULL, NULL, NULL, NULL);
-        tabletManager.changeState(10, 0, ~0UL, TabletManager::NORMAL,
+        objectManager->writeObject(obj, NULL, NULL, NULL, NULL, NULL);
+        tabletManager->changeState(10, 0, ~0UL, TabletManager::NORMAL,
                                                TabletManager::RECOVERING);
     }
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     EXPECT_EQ(0UL, transactionManager->getOp(1UL, 11UL));
 
@@ -1379,14 +1380,14 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
     }
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     EXPECT_NE(0UL, transactionManager->getOp(1UL, 11UL));
 
     uint64_t newOpPtr = transactionManager->getOp(1UL, 11UL);
     Buffer preparedOpBuffer;
     Log::Reference resultRef(newOpPtr);
-    objectManager.getLog()->getEntry(resultRef, preparedOpBuffer);
+    objectManager->getLog()->getEntry(resultRef, preparedOpBuffer);
     PreparedOp savedOp(preparedOpBuffer, 0, preparedOpBuffer.size());
 
     EXPECT_EQ(1UL, savedOp.header.clientId);
@@ -1397,14 +1398,12 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
 }
 
 TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
-    ObjectManager::TombstoneProtector p(&objectManager);
+    ObjectManager::TombstoneProtector p(objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
     Tub<SegmentIterator> it;
-
-    TransactionManager *transactionManager = objectManager.transactionManager;
 
     EXPECT_EQ(0UL, transactionManager->getOp(1UL, 10UL));
     EXPECT_FALSE(transactionManager->isOpDeleted(1UL, 10UL));
@@ -1423,7 +1422,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
     }
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     EXPECT_NE(0UL, transactionManager->getOp(1UL, 10UL));
     EXPECT_FALSE(transactionManager->isOpDeleted(1UL, 10UL));
@@ -1440,7 +1439,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         len = buildRecoverySegment(seg, segLen, opTomb, &certificate);
         it.construct(&seg[0], len, certificate);
     }
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     EXPECT_TRUE(transactionManager->isOpDeleted(1UL, 10UL));
 
@@ -1459,7 +1458,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         len = buildRecoverySegment(seg, segLen, opTomb, &certificate);
         it.construct(&seg[0], len, certificate);
     }
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     EXPECT_TRUE(transactionManager->isOpDeleted(1UL, 11UL));
 
@@ -1474,20 +1473,18 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_withTombstone) {
         len = buildRecoverySegment(seg, segLen, op, &certificate);
         it.construct(&seg[0], len, certificate);
     }
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     EXPECT_TRUE(transactionManager->isOpDeleted(1UL, 11UL));
 }
 
 TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_basic) {
-    ObjectManager::TombstoneProtector p(&objectManager);
+    ObjectManager::TombstoneProtector p(objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
     Tub<SegmentIterator> it;
-
-    TxRecoveryManager* txRecoveryManager = objectManager.txRecoveryManager;
 
     EXPECT_EQ(0U, txRecoveryManager->recoveringIds.size());
     EXPECT_EQ(0U, txRecoveryManager->recoveries.size());
@@ -1502,7 +1499,7 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_basic) {
         it.construct(&seg[0], len, certificate);
     }
 
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     EXPECT_EQ(1U, txRecoveryManager->recoveringIds.size());
     EXPECT_EQ(1U, txRecoveryManager->recoveries.size());
@@ -1510,14 +1507,12 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_basic) {
 }
 
 TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
-    ObjectManager::TombstoneProtector p(&objectManager);
+    ObjectManager::TombstoneProtector p(objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
     Tub<SegmentIterator> it;
-
-    TxRecoveryManager* txRecoveryManager = objectManager.txRecoveryManager;
 
     txRecoveryManager->recoveringIds.insert({42, 1});
 
@@ -1534,7 +1529,7 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
         it.construct(&seg[0], len, certificate);
     }
 
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     EXPECT_EQ(1U, txRecoveryManager->recoveringIds.size());
     EXPECT_EQ(0U, txRecoveryManager->recoveries.size());
@@ -1542,14 +1537,12 @@ TEST_F(ObjectManagerTest, replaySegment_TxDecisionRecord_nop) {
 }
 
 TEST_F(ObjectManagerTest, replaySegment_ParticipantList) {
-    ObjectManager::TombstoneProtector p(&objectManager);
+    ObjectManager::TombstoneProtector p(objectManager);
     uint32_t segLen = 8192;
     char seg[segLen];
     uint32_t len; // number of bytes in a recovery segment
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
     Tub<SegmentIterator> it;
-
-    TransactionManager* transactionManager = objectManager.transactionManager;
 
     WireFormat::TxParticipant participants[3];
     // construct participant list.
@@ -1571,7 +1564,7 @@ TEST_F(ObjectManagerTest, replaySegment_ParticipantList) {
         it.construct(&seg[0], len, certificate);
     }
 
-    objectManager.replaySegment(&sl, *it);
+    objectManager->replaySegment(&sl, *it);
 
     {
         TransactionManager::Lock lock(transactionManager->mutex);
@@ -1594,34 +1587,34 @@ TEST_F(ObjectManagerTest, writeObject) {
     Object obj(key, "value", 5, 0, 0, buffer);
 
     // no tablet, no dice.
-    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager->writeObject(obj, 0, 0));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // non-NORMAL tablet state, no dice.
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
-    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager.writeObject(obj, 0, 0));
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager->writeObject(obj, 0, 0));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // key locked, STATUS_RETRY
-    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
     Log::Reference lockRef = storePreparedOp(key);
-    EXPECT_TRUE(objectManager.lockTable.tryAcquireLock(key, lockRef));
-    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+    EXPECT_TRUE(objectManager->lockTable.tryAcquireLock(key, lockRef));
+    EXPECT_EQ(STATUS_RETRY, objectManager->writeObject(obj, 0, 0));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
-    EXPECT_TRUE(objectManager.lockTable.releaseLock(key, lockRef));
+    EXPECT_TRUE(objectManager->lockTable.releaseLock(key, lockRef));
 
     TestLog::Enable _(writeObjectFilter);
 
     // new object (no tombstone needed)
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_OK, objectManager->writeObject(obj, 0, 0));
     EXPECT_EQ("writeObject: object: 33 bytes, version 1", TestLog::get());
     EXPECT_EQ("found=true tableId=1 byteCount=33 recordCount=1"
               , verifyMetadata(1));
 
     // object overwrite (tombstone needed)
     TestLog::reset();
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_OK, objectManager->writeObject(obj, 0, 0));
     EXPECT_EQ("writeObject: object: 33 bytes, version 2 | "
               "writeObject: tombstone: 33 bytes, version 1", TestLog::get());
     EXPECT_EQ("found=true tableId=1 byteCount=99 recordCount=3"
@@ -1629,50 +1622,86 @@ TEST_F(ObjectManagerTest, writeObject) {
 
     // object overwrite (hashtable contains tombstone)
     storeTombstone(key, 0);
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_OK, objectManager->writeObject(obj, 0, 0));
 
     // Verify RetryException  when overwriting with no space
-    uint64_t original = objectManager.getLog()->totalLiveBytes;
-    objectManager.getLog()->totalLiveBytes =
-            objectManager.getLog()->maxLiveBytes;
-    EXPECT_THROW(objectManager.writeObject(obj, 0, 0), RetryException);
-    objectManager.getLog()->totalLiveBytes = original;
+    uint64_t original = objectManager->getLog()->totalLiveBytes;
+    objectManager->getLog()->totalLiveBytes =
+            objectManager->getLog()->maxLiveBytes;
+    EXPECT_THROW(objectManager->writeObject(obj, 0, 0), RetryException);
+    objectManager->getLog()->totalLiveBytes = original;
 }
 
-TEST_F(ObjectManagerTest, writeObject_returnRemovedObj) {
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
-    Key key(1, "a", 1);
+TEST_F(ObjectManagerTest, writeObject_indexEntries) {
+    TestLog::Enable _("requestInsertIndexEntries",
+            "requestRemoveIndexEntries", NULL);
 
-    // New object.
-    Buffer writeBuffer;
-    Object obj1(key, "originalValue", 13, 0, 0, writeBuffer);
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj1, 0, 0));
+    uint64_t tableId = 0;
 
-    // Object overwrite. This is what we're testing in this unit test.
-    writeBuffer.reset();
-    Object obj2(key, "newValue", 8, 0, 0, writeBuffer);
+    // Create object with no secondary keys. Writing this object should
+    // not trigger insertion of index entries.
 
-    TestLog::Enable _(writeObjectFilter);
-    Buffer removedObjBuffer;
-    EXPECT_EQ(STATUS_OK,
-              objectManager.writeObject(obj2, 0, 0, &removedObjBuffer));
+    Key key(tableId, "key0", 4);
+    Buffer objABuffer;
+    Object objA(key, "value", 5, 1, 0, objABuffer);
+    objectManager->writeObject(objA, NULL, NULL);
+    EXPECT_EQ("requestInsertIndexEntries: No index entries to insert; "
+            "returning", TestLog::get());
+    TestLog::reset();
 
-    // Check that the object got overwritten correctly.
-    EXPECT_EQ("writeObject: object: 36 bytes, version 2 | "
-              "writeObject: tombstone: 33 bytes, version 1", TestLog::get());
-    EXPECT_EQ("found=true tableId=1 byteCount=110 recordCount=3",
-              verifyMetadata(1));
+    // Overwrite Object objA with Object objB that has two secondary keys.
+    // This should trigger insertion of new index entries and no removals
+    // of index entries (because objA didn't have any).
 
-    // Check that the buffer returned corresponds to the object overwritten.
-    Object oldObj(removedObjBuffer);
-    EXPECT_EQ(1U, oldObj.getKeyCount());
-    KeyLength oldKeyLength;
-    const void* oldKey = oldObj.getKey(0, &oldKeyLength);
-    EXPECT_EQ("a", string(reinterpret_cast<const char*>(oldKey), oldKeyLength));
-    uint32_t oldValueLength;
-    const void* oldValue = oldObj.getValue(&oldValueLength);
-    EXPECT_EQ("originalValue", string(reinterpret_cast<const char*>(oldValue),
-                                      oldValueLength));
+    uint8_t numKeysB = 3;
+    KeyInfo keyListB[3];
+    keyListB[0].keyLength = 4;
+    keyListB[0].key = "key0";   // Should be the same as key defined earlier.
+    keyListB[1].keyLength = 5;
+    keyListB[1].key = "keyB1";
+    keyListB[2].keyLength = 5;
+    keyListB[2].key = "keyB2";
+
+    Buffer keysAndValBufferB;
+    Object::appendKeysAndValueToBuffer(tableId, numKeysB, keyListB,
+            "value", 5, &keysAndValBufferB);
+    Object objB(tableId, 1, 0, keysAndValBufferB);
+    objectManager->writeObject(objB, NULL, NULL);
+
+    EXPECT_EQ("requestInsertIndexEntries: Inserting index entry for "
+            "tableId 0, keyIndex 1, key keyB1, "
+            "primaryKeyHash 17978285000096800584 | "
+            "requestInsertIndexEntries: Inserting index entry for "
+            "tableId 0, keyIndex 2, key keyB2, "
+            "primaryKeyHash 17978285000096800584", TestLog::get());
+    TestLog::reset();
+
+    // Overwrite Object objB with Object objC that has a single secondary key.
+    // This should trigger insertion of the new index entry and removals
+    // of both old index entries.
+
+    uint8_t numKeysC = 2;
+    KeyInfo keyListC[2];
+    keyListC[0].keyLength = 4;
+    keyListC[0].key = "key0";   // Should be the same as key defined earlier.
+    keyListC[1].keyLength = 5;
+    keyListC[1].key = "keyC1";
+
+    Buffer keysAndValBufferC;
+    Object::appendKeysAndValueToBuffer(tableId, numKeysC, keyListC,
+            "value", 5, &keysAndValBufferC);
+    Object objC(tableId, 1, 0, keysAndValBufferC);
+    objectManager->writeObject(objC, NULL, NULL);
+
+    EXPECT_EQ("requestInsertIndexEntries: Inserting index entry for "
+            "tableId 0, keyIndex 1, key keyC1, "
+            "primaryKeyHash 17978285000096800584 | "
+            "requestRemoveIndexEntries: Removing index entry for "
+            "tableId 0, keyIndex 1, key keyB1, "
+            "primaryKeyHash 17978285000096800584 | "
+            "requestRemoveIndexEntries: Removing index entry for "
+            "tableId 0, keyIndex 2, key keyB2, "
+            "primaryKeyHash 17978285000096800584", TestLog::get());
 }
 
 TEST_F(ObjectManagerTest, prepareOp) {
@@ -1701,14 +1730,14 @@ TEST_F(ObjectManagerTest, prepareOp) {
 
     // no tablet, no dice.
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.prepareOp(op, 0, &newOpPtr, &isCommit,
+        objectManager->prepareOp(op, 0, &newOpPtr, &isCommit,
                                 &rpcResult, &rpcResultPtr));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // non-NORMAL tablet state, no dice.
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-    objectManager.prepareOp(op, 0, &newOpPtr, &isCommit,
+    objectManager->prepareOp(op, 0, &newOpPtr, &isCommit,
                                 &rpcResult, &rpcResultPtr));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
@@ -1716,18 +1745,18 @@ TEST_F(ObjectManagerTest, prepareOp) {
 
     // new object
     // TODO(seojin): Currently we don't support new object transaction.
-    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
     Buffer buffer2;
     Object obj(key, "value", 5, 0, 0, buffer2);
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_OK, objectManager->writeObject(obj, 0, 0));
     EXPECT_EQ("writeObject: object: 33 bytes, version 1", TestLog::get());
     EXPECT_EQ("found=true tableId=1 byteCount=33 recordCount=1"
               , verifyMetadata(1));
 
     // object overwrite (tombstone needed)
     TestLog::reset();
-    EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
+    EXPECT_EQ(STATUS_OK, objectManager->prepareOp(
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
 
@@ -1735,17 +1764,17 @@ TEST_F(ObjectManagerTest, prepareOp) {
               , verifyMetadata(1));
 
     // Check object is locked.
-    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_RETRY, objectManager->writeObject(obj, 0, 0));
 
     // Verify RetryException  when overwriting with no space
     // Abort cannot be written and retryException is fired.
-    uint64_t original = objectManager.getLog()->totalLiveBytes;
-    objectManager.getLog()->totalLiveBytes =
-            objectManager.getLog()->maxLiveBytes;
-    EXPECT_THROW(objectManager.prepareOp(op, 0, 0, &isCommit,
+    uint64_t original = objectManager->getLog()->totalLiveBytes;
+    objectManager->getLog()->totalLiveBytes =
+            objectManager->getLog()->maxLiveBytes;
+    EXPECT_THROW(objectManager->prepareOp(op, 0, 0, &isCommit,
                                          &rpcResult, &rpcResultPtr),
                  RetryException);
-    objectManager.getLog()->totalLiveBytes = original;
+    objectManager->getLog()->totalLiveBytes = original;
 }
 
 TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
@@ -1755,21 +1784,21 @@ TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
 
     // no tablet, no dice.
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.writeTxDecisionRecord(record));
+        objectManager->writeTxDecisionRecord(record));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // non-NORMAL tablet state, no dice.
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.writeTxDecisionRecord(record));
+        objectManager->writeTxDecisionRecord(record));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     TestLog::Enable _("writeTxDecisionRecord");
 
     // new record
-    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
-    EXPECT_EQ(STATUS_OK, objectManager.writeTxDecisionRecord(record));
+    EXPECT_EQ(STATUS_OK, objectManager->writeTxDecisionRecord(record));
     EXPECT_EQ("writeTxDecisionRecord: tansactionDecisionRecord: 96 bytes",
               TestLog::get());
     EXPECT_EQ("found=true tableId=1 byteCount=96 recordCount=1"
@@ -1784,23 +1813,23 @@ TEST_F(ObjectManagerTest, tryGrabTxLock) {
     PreparedOp prepOp(WireFormat::TxPrepare::READ, 1, 1, 1, key, "value",
             5, 0, 0, buffer);
     prepOp.assembleForLog(logBuffer);
-    objectManager.log.append(LOG_ENTRY_TYPE_PREP, logBuffer, &ref);
+    objectManager->log.append(LOG_ENTRY_TYPE_PREP, logBuffer, &ref);
 
     // no tablet, no dice.
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-        objectManager.tryGrabTxLock(prepOp.object, ref));
-    EXPECT_FALSE(objectManager.lockTable.isLockAcquired(key));
+        objectManager->tryGrabTxLock(prepOp.object, ref));
+    EXPECT_FALSE(objectManager->lockTable.isLockAcquired(key));
 
     // non-NORMAL tablet state, can grab txLock.
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
-    EXPECT_EQ(STATUS_OK, objectManager.tryGrabTxLock(prepOp.object, ref));
-    EXPECT_TRUE(objectManager.lockTable.isLockAcquired(key));
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    EXPECT_EQ(STATUS_OK, objectManager->tryGrabTxLock(prepOp.object, ref));
+    EXPECT_TRUE(objectManager->lockTable.isLockAcquired(key));
 
     //Object is locked and status retry is returned.
-    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
     Object objToWrite(key, "diff", 4, 0, 0, buffer);
-    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(objToWrite, 0, 0));
+    EXPECT_EQ(STATUS_RETRY, objectManager->writeObject(objToWrite, 0, 0));
 }
 
 TEST_F(ObjectManagerTest, commitRead) {
@@ -1823,36 +1852,36 @@ TEST_F(ObjectManagerTest, commitRead) {
                         1, 10, 9, &vote, sizeof(vote));
     uint64_t rpcResultPtr;
 
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NORMAL);
 
     // new object
     Object obj(key, "value", 5, 0, 0, buffer2);
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_OK, objectManager->writeObject(obj, 0, 0));
 
-    EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
+    EXPECT_EQ(STATUS_OK, objectManager->prepareOp(
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
     EXPECT_EQ("found=true tableId=1 byteCount=146 recordCount=3"
               , verifyMetadata(1));
 
     // Check object is locked.
-    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_RETRY, objectManager->writeObject(obj, 0, 0));
 
     // Try COMMIT without PreparedOp buffered. This should be no-op.
     Log::Reference newOpRef(newOpPtr);
-    EXPECT_EQ(STATUS_OK, objectManager.commitRead(op, newOpRef));
+    EXPECT_EQ(STATUS_OK, objectManager->commitRead(op, newOpRef));
 
     // Check object is still locked.
-    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_RETRY, objectManager->writeObject(obj, 0, 0));
 
     // COMMIT read operation.
-    objectManager.transactionManager->bufferOp(op.getTransactionId(),
+    objectManager->transactionManager->bufferOp(op.getTransactionId(),
                                                op.header.rpcId,
                                                newOpPtr);
-    EXPECT_EQ(STATUS_OK, objectManager.commitRead(op, newOpRef));
+    EXPECT_EQ(STATUS_OK, objectManager->commitRead(op, newOpRef));
 
     // Check object is unlocked after commitRead.
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_OK, objectManager->writeObject(obj, 0, 0));
 }
 
 TEST_F(ObjectManagerTest, commitRemove) {
@@ -1874,42 +1903,42 @@ TEST_F(ObjectManagerTest, commitRemove) {
                         1, 10, 9, &vote, sizeof(vote));
     uint64_t rpcResultPtr;
 
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NORMAL);
 
     // new object
     Object obj(key, "value", 5, 0, 0, buffer2);
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_OK, objectManager->writeObject(obj, 0, 0));
 
-    EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
+    EXPECT_EQ(STATUS_OK, objectManager->prepareOp(
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
 
     // Check object is locked.
-    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_RETRY, objectManager->writeObject(obj, 0, 0));
 
     // Object exists.
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, 0, 0, true));
+    EXPECT_EQ(STATUS_OK, objectManager->readObject(key, &value, 0, 0, true));
     EXPECT_EQ("value", string(reinterpret_cast<const char*>(
                               value.getRange(0, value.size())),
                               value.size()));
 
     // Try COMMIT without PreparedOp buffered. This should be no-op.
     Log::Reference newOpRef(newOpPtr);
-    EXPECT_EQ(STATUS_OK, objectManager.commitRemove(op, newOpRef));
+    EXPECT_EQ(STATUS_OK, objectManager->commitRemove(op, newOpRef));
 
     // Check object is still locked.
-    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_RETRY, objectManager->writeObject(obj, 0, 0));
 
     // COMMIT remove operation.
-    objectManager.transactionManager->bufferOp(op.getTransactionId(),
+    objectManager->transactionManager->bufferOp(op.getTransactionId(),
                                                op.header.rpcId,
                                                newOpPtr);
-    EXPECT_EQ(STATUS_OK, objectManager.commitRemove(op, newOpRef));
+    EXPECT_EQ(STATUS_OK, objectManager->commitRemove(op, newOpRef));
 
     // Check object is unlocked after commitRead.
     value.reset();
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
-              objectManager.readObject(key, &value, 0, 0, true));
+              objectManager->readObject(key, &value, 0, 0, true));
 }
 
 TEST_F(ObjectManagerTest, commitWrite) {
@@ -1932,42 +1961,42 @@ TEST_F(ObjectManagerTest, commitWrite) {
                         1, 10, 9, &vote, sizeof(vote));
     uint64_t rpcResultPtr;
 
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NORMAL);
 
     // new object
     Object obj(key, "old", 3, 0, 0, buffer2);
-    EXPECT_EQ(STATUS_OK, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_OK, objectManager->writeObject(obj, 0, 0));
 
-    EXPECT_EQ(STATUS_OK, objectManager.prepareOp(
+    EXPECT_EQ(STATUS_OK, objectManager->prepareOp(
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
     EXPECT_TRUE(isCommit);
 
     // Check object is locked.
-    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_RETRY, objectManager->writeObject(obj, 0, 0));
 
     // Try COMMIT without PreparedOp buffered. This should be no-op.
     Log::Reference newOpRef(newOpPtr);
-    EXPECT_EQ(STATUS_OK, objectManager.commitWrite(op, newOpRef));
+    EXPECT_EQ(STATUS_OK, objectManager->commitWrite(op, newOpRef));
 
     // Check object is still locked.
-    EXPECT_EQ(STATUS_RETRY, objectManager.writeObject(obj, 0, 0));
+    EXPECT_EQ(STATUS_RETRY, objectManager->writeObject(obj, 0, 0));
 
     // Object exists.
     value.reset();
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, 0, &ver, true));
+    EXPECT_EQ(STATUS_OK, objectManager->readObject(key, &value, 0, &ver, true));
     EXPECT_EQ(1U, ver);
     EXPECT_EQ("old", string(reinterpret_cast<const char*>(
                             value.getRange(0, value.size())),
                             value.size()));
 
     // COMMIT write operation.
-    objectManager.transactionManager->bufferOp(op.getTransactionId(),
+    objectManager->transactionManager->bufferOp(op.getTransactionId(),
                                                op.header.rpcId,
                                                newOpPtr);
-    EXPECT_EQ(STATUS_OK, objectManager.commitWrite(op, newOpRef));
+    EXPECT_EQ(STATUS_OK, objectManager->commitWrite(op, newOpRef));
     // Check the updated object value.
     value.reset();
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key, &value, 0, &ver, true));
+    EXPECT_EQ(STATUS_OK, objectManager->readObject(key, &value, 0, &ver, true));
     EXPECT_EQ(2U, ver);
     EXPECT_EQ("new", string(reinterpret_cast<const char*>(
                             value.getRange(0, value.size())),
@@ -1976,7 +2005,7 @@ TEST_F(ObjectManagerTest, commitWrite) {
 
 TEST_F(ObjectManagerTest, flushEntriesToLog) {
 
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NORMAL);
 
     Buffer logBuffer;
     uint32_t numEntries = 0;
@@ -1994,7 +2023,7 @@ TEST_F(ObjectManagerTest, flushEntriesToLog) {
     // Case i) new object (no tombstone needed)
     bool tombstoneAdded = false;
     EXPECT_EQ(STATUS_OK,
-              objectManager.prepareForLog(obj1, &logBuffer, NULL,
+              objectManager->prepareForLog(obj1, &logBuffer, NULL,
                                           &tombstoneAdded));
     EXPECT_FALSE(tombstoneAdded);
     if (tombstoneAdded)
@@ -2006,7 +2035,7 @@ TEST_F(ObjectManagerTest, flushEntriesToLog) {
     // Now create a tombstone in logBuffer for that object
     storeObject(key2, "value", 1);
     EXPECT_EQ(STATUS_OK,
-              objectManager.writeTombstone(key2, &logBuffer));
+              objectManager->writeTombstone(key2, &logBuffer));
     numEntries++;
 
     // Case iii) store an object and its tombstone in the log.
@@ -2014,14 +2043,14 @@ TEST_F(ObjectManagerTest, flushEntriesToLog) {
     // with the same key
     storeObject(key3, "value", 1);
     //storeTombstone(key3, 1);
-    objectManager.removeObject(key3, NULL, NULL);
+    objectManager->removeObject(key3, NULL, NULL);
 
     tombstoneAdded = false;
     buffer.reset();
     // newer object has version = 2
     Object obj3(key3, "value", 5, 2, 0, buffer);
     EXPECT_EQ(STATUS_OK,
-              objectManager.prepareForLog(obj3, &logBuffer, NULL,
+              objectManager->prepareForLog(obj3, &logBuffer, NULL,
                                           &tombstoneAdded));
     EXPECT_FALSE(tombstoneAdded);
     if (tombstoneAdded)
@@ -2038,7 +2067,7 @@ TEST_F(ObjectManagerTest, flushEntriesToLog) {
     // newer object has version = 2
     Object obj4(key4, "value", 5, 2, 0, buffer);
     EXPECT_EQ(STATUS_OK,
-              objectManager.prepareForLog(obj4, &logBuffer, NULL,
+              objectManager->prepareForLog(obj4, &logBuffer, NULL,
                                           &tombstoneAdded));
     EXPECT_TRUE(tombstoneAdded);
     if (tombstoneAdded)
@@ -2052,14 +2081,14 @@ TEST_F(ObjectManagerTest, flushEntriesToLog) {
     TestLog::Enable _(antiGetEntryFilter);
 
     // Verify that the flush is rejected when the log's remaining size is small
-    uint64_t original = objectManager.getLog()->totalLiveBytes;
-    objectManager.getLog()->totalLiveBytes =
-            objectManager.getLog()->maxLiveBytes;
-    EXPECT_FALSE(objectManager.flushEntriesToLog(&logBuffer, numEntries));
-    objectManager.getLog()->totalLiveBytes = original;
+    uint64_t original = objectManager->getLog()->totalLiveBytes;
+    objectManager->getLog()->totalLiveBytes =
+            objectManager->getLog()->maxLiveBytes;
+    EXPECT_FALSE(objectManager->flushEntriesToLog(&logBuffer, numEntries));
+    objectManager->getLog()->totalLiveBytes = original;
 
     // flush all the entries in logBuffer to the log atomically
-    EXPECT_TRUE(objectManager.flushEntriesToLog(&logBuffer, numEntries));
+    EXPECT_TRUE(objectManager->flushEntriesToLog(&logBuffer, numEntries));
     EXPECT_EQ(0U, logBuffer.size());
 
     // now check the hashtable and the log for correctness
@@ -2067,19 +2096,19 @@ TEST_F(ObjectManagerTest, flushEntriesToLog) {
     // for key1
     Buffer readBuffer;
     uint64_t version;
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key1, &readBuffer, 0,
+    EXPECT_EQ(STATUS_OK, objectManager->readObject(key1, &readBuffer, 0,
               &version));
     EXPECT_EQ(1U, version);
 
     // for key3
     readBuffer.reset();
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key3, &readBuffer, 0,
+    EXPECT_EQ(STATUS_OK, objectManager->readObject(key3, &readBuffer, 0,
               &version));
     EXPECT_EQ(2U, version);
 
     // for key4
     readBuffer.reset();
-    EXPECT_EQ(STATUS_OK, objectManager.readObject(key4, &readBuffer, 0,
+    EXPECT_EQ(STATUS_OK, objectManager->readObject(key4, &readBuffer, 0,
               &version));
     EXPECT_EQ(2U, version);
 
@@ -2088,10 +2117,10 @@ TEST_F(ObjectManagerTest, flushEntriesToLog) {
     // and relies on the function going out of scope to be destroyed
     readBuffer.reset();
     EXPECT_EQ(STATUS_OBJECT_DOESNT_EXIST,
-        objectManager.readObject(key2, &readBuffer, 0, 0));
+        objectManager->readObject(key2, &readBuffer, 0, 0));
     LogEntryType type;
-    ObjectManager::HashTableBucketLock lock(objectManager, key2);
-    EXPECT_FALSE(objectManager.lookup(lock, key2, type, buffer, 0, 0));
+    ObjectManager::HashTableBucketLock lock(*objectManager, key2);
+    EXPECT_FALSE(objectManager->lookup(lock, key2, type, buffer, 0, 0));
 }
 
 TEST_F(ObjectManagerTest, prepareForLog) {
@@ -2110,25 +2139,25 @@ TEST_F(ObjectManagerTest, writeTombstone) {
 
     // no tablet, no dice
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-              objectManager.writeTombstone(key, &logBuffer));
+              objectManager->writeTombstone(key, &logBuffer));
     EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
     // non-normal tablet, no dice
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
-              objectManager.writeTombstone(key, &logBuffer));
+              objectManager->writeTombstone(key, &logBuffer));
     EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
     // (now make the tablet acceptable for handling removes)
-    tabletManager.changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
 
     // not found, not an error
     Key key2(1, "2", 1);
     EXPECT_EQ(STATUS_OK,
-              objectManager.writeTombstone(key2, &logBuffer));
+              objectManager->writeTombstone(key2, &logBuffer));
     EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
@@ -2137,7 +2166,7 @@ TEST_F(ObjectManagerTest, writeTombstone) {
     EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
               , verifyMetadata(1));
     EXPECT_EQ(STATUS_OK,
-              objectManager.writeTombstone(key2, &logBuffer));
+              objectManager->writeTombstone(key2, &logBuffer));
     EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
               , verifyMetadata(1));
 
@@ -2145,7 +2174,7 @@ TEST_F(ObjectManagerTest, writeTombstone) {
     // the tombstone is only written to the buffer
     TestLog::Enable _(antiGetEntryFilter);
     EXPECT_EQ(STATUS_OK,
-              objectManager.writeTombstone(key, &logBuffer));
+              objectManager->writeTombstone(key, &logBuffer));
     EXPECT_EQ("found=true tableId=1 byteCount=63 recordCount=2"
               , verifyMetadata(1));
 }
@@ -2159,13 +2188,13 @@ TEST_F(ObjectManagerTest, TombstoneRemover_handleTimerEvent_noWorkToDo) {
     storeTombstone(key1);
 
     TestLog::reset();
-    objectManager.tombstoneRemover.currentBucket =
-            objectManager.objectMap.getNumBuckets();
-    objectManager.tombstoneRemover.handleTimerEvent();
+    objectManager->tombstoneRemover.currentBucket =
+            objectManager->objectMap.getNumBuckets();
+    objectManager->tombstoneRemover.handleTimerEvent();
     EXPECT_EQ("handleTimerEvent: Tombstone cleanup complete",
             TestLog::get());
-    ObjectManager::HashTableBucketLock lock(objectManager, key1);
-    EXPECT_TRUE(objectManager.lookup(lock, key1, type, buffer, 0, 0));
+    ObjectManager::HashTableBucketLock lock(*objectManager, key1);
+    EXPECT_TRUE(objectManager->lookup(lock, key1, type, buffer, 0, 0));
 }
 
 TEST_F(ObjectManagerTest, TombstoneRemover_handleTimerEvent_doWork) {
@@ -2180,60 +2209,60 @@ TEST_F(ObjectManagerTest, TombstoneRemover_handleTimerEvent_doWork) {
     storeTombstone(key2);
 
     TestLog::reset();
-    objectManager.tombstoneRemover.currentBucket = 0;
-    objectManager.tombstoneRemover.handleTimerEvent();
-    EXPECT_EQ(100lu, objectManager.tombstoneRemover.currentBucket);
-    EXPECT_TRUE(objectManager.tombstoneRemover.isRunning());
+    objectManager->tombstoneRemover.currentBucket = 0;
+    objectManager->tombstoneRemover.handleTimerEvent();
+    EXPECT_EQ(100lu, objectManager->tombstoneRemover.currentBucket);
+    EXPECT_TRUE(objectManager->tombstoneRemover.isRunning());
     EXPECT_EQ("", TestLog::get());
 
     while (true) {
-        uint64_t oldCurrent = objectManager.tombstoneRemover.currentBucket;
-        objectManager.tombstoneRemover.handleTimerEvent();
+        uint64_t oldCurrent = objectManager->tombstoneRemover.currentBucket;
+        objectManager->tombstoneRemover.handleTimerEvent();
         if (!TestLog::get().empty()) {
             break;
         }
-        EXPECT_LT(oldCurrent, objectManager.tombstoneRemover.currentBucket);
+        EXPECT_LT(oldCurrent, objectManager->tombstoneRemover.currentBucket);
     }
     EXPECT_EQ("handleTimerEvent: Tombstone cleanup complete",
             TestLog::get());
-    EXPECT_EQ(objectManager.objectMap.getNumBuckets(),
-            objectManager.tombstoneRemover.currentBucket);
+    EXPECT_EQ(objectManager->objectMap.getNumBuckets(),
+            objectManager->tombstoneRemover.currentBucket);
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key1);
-        EXPECT_FALSE(objectManager.lookup(lock, key1, type, buffer, 0, 0));
+        ObjectManager::HashTableBucketLock lock(*objectManager, key1);
+        EXPECT_FALSE(objectManager->lookup(lock, key1, type, buffer, 0, 0));
     }
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key2);
-        EXPECT_FALSE(objectManager.lookup(lock, key2, type, buffer, 0, 0));
+        ObjectManager::HashTableBucketLock lock(*objectManager, key2);
+        EXPECT_FALSE(objectManager->lookup(lock, key2, type, buffer, 0, 0));
     }
 }
 
 TEST_F(ObjectManagerTest, TombstoneProtector) {
     TestLog::Enable logEnabler("handleTimerEvent");
     Tub<ObjectManager::TombstoneProtector> protector1, protector2;
-    protector1.construct(&objectManager);
-    protector2.construct(&objectManager);
-    objectManager.tombstoneRemover.currentBucket = 1000;
-    EXPECT_EQ(2, objectManager.tombstoneProtectorCount);
+    protector1.construct(objectManager);
+    protector2.construct(objectManager);
+    objectManager->tombstoneRemover.currentBucket = 1000;
+    EXPECT_EQ(2, objectManager->tombstoneProtectorCount);
 
     protector2.destroy();
-    EXPECT_EQ(1, objectManager.tombstoneProtectorCount);
-    EXPECT_FALSE(objectManager.tombstoneRemover.isRunning());
+    EXPECT_EQ(1, objectManager->tombstoneProtectorCount);
+    EXPECT_FALSE(objectManager->tombstoneRemover.isRunning());
 
     protector1.destroy();
-    EXPECT_EQ(0, objectManager.tombstoneProtectorCount);
-    EXPECT_TRUE(objectManager.tombstoneRemover.isRunning());
-    EXPECT_EQ(0lu, objectManager.tombstoneRemover.currentBucket);
+    EXPECT_EQ(0, objectManager->tombstoneProtectorCount);
+    EXPECT_TRUE(objectManager->tombstoneRemover.isRunning());
+    EXPECT_EQ(0lu, objectManager->tombstoneRemover.currentBucket);
 
     // Constructing a TombstoneProtector should stop the WorkerTimer.
-    protector1.construct(&objectManager);
-    EXPECT_FALSE(objectManager.tombstoneRemover.isRunning());
+    protector1.construct(objectManager);
+    EXPECT_FALSE(objectManager->tombstoneRemover.isRunning());
 
     // Finally, make sure that the Dispath/WorkerTimer machinery actually
     // causes the tombstone remover to run.
     TestLog::reset();
     protector1.destroy();
-    objectManager.context->dispatch->poll();
+    objectManager->context->dispatch->poll();
     TestUtil::waitForLog();
     EXPECT_EQ("handleTimerEvent: Tombstone cleanup complete",
             TestLog::get());
@@ -2245,15 +2274,15 @@ TEST_F(ObjectManagerTest, lookup_object) {
     LogEntryType type;
 
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        EXPECT_FALSE(objectManager->lookup(lock, key, type, buffer, 0, 0));
     }
 
     Log::Reference reference = storeObject(key, "value", 15);
 
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        EXPECT_TRUE(objectManager->lookup(lock, key, type, buffer, 0, 0));
     }
     Object o(buffer);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
@@ -2266,8 +2295,8 @@ TEST_F(ObjectManagerTest, lookup_object) {
 
     uint64_t v;
     Log::Reference r;
-    ObjectManager::HashTableBucketLock lock(objectManager, key);
-    EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, &v, &r));
+    ObjectManager::HashTableBucketLock lock(*objectManager, key);
+    EXPECT_TRUE(objectManager->lookup(lock, key, type, buffer, &v, &r));
     EXPECT_EQ(15U, v);
     EXPECT_EQ(reference, r);
 }
@@ -2280,8 +2309,8 @@ TEST_F(ObjectManagerTest, lookup_tombstone) {
     Log::Reference reference = storeTombstone(key, 15);
 
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        EXPECT_TRUE(objectManager->lookup(lock, key, type, buffer, 0, 0));
     }
     ObjectTombstone t(buffer);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJTOMB, type);
@@ -2291,8 +2320,8 @@ TEST_F(ObjectManagerTest, lookup_tombstone) {
 
     uint64_t v;
     Log::Reference r;
-    ObjectManager::HashTableBucketLock lock(objectManager, key);
-    EXPECT_TRUE(objectManager.lookup(lock, key, type, buffer, &v, &r));
+    ObjectManager::HashTableBucketLock lock(*objectManager, key);
+    EXPECT_TRUE(objectManager->lookup(lock, key, type, buffer, &v, &r));
     EXPECT_EQ(15U, v);
     EXPECT_EQ(reference, r);
 }
@@ -2302,20 +2331,20 @@ TEST_F(ObjectManagerTest, remove) {
     Key key2(2, "2", 2);
 
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_FALSE(objectManager.remove(lock, key));
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        EXPECT_FALSE(objectManager->remove(lock, key));
     }
 
     storeObject(key, "value1", 15);
     storeTombstone(key2, 827);
 
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_TRUE(objectManager.remove(lock, key));
-        EXPECT_FALSE(objectManager.remove(lock, key));
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        EXPECT_TRUE(objectManager->remove(lock, key));
+        EXPECT_FALSE(objectManager->remove(lock, key));
 
-        EXPECT_TRUE(objectManager.remove(lock, key2));
-        EXPECT_FALSE(objectManager.remove(lock, key2));
+        EXPECT_TRUE(objectManager->remove(lock, key2));
+        EXPECT_FALSE(objectManager->remove(lock, key2));
     }
 }
 
@@ -2330,9 +2359,9 @@ TEST_F(ObjectManagerTest, removeIfTombstone_nonTombstone) {
     TestLog::Enable _(removeIfTombstoneFilter);
     Key key(1, "key!", 4);
     Log::Reference reference = storeObject(key, "value!");
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
-    ObjectManager::CleanupParameters params = { &objectManager, 0 };
-    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    ObjectManager::CleanupParameters params = { objectManager, 0 };
+    objectManager->removeIfTombstone(reference.toInteger(), &params);
     EXPECT_EQ("", TestLog::get());
 }
 
@@ -2341,9 +2370,9 @@ TEST_F(ObjectManagerTest, removeIfTombstone_recoveringTablet) {
     TestLog::Enable _(removeIfTombstoneFilter);
     Key key(1, "key!", 4);
     Log::Reference reference = storeTombstone(key);
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
-    ObjectManager::CleanupParameters params = { &objectManager, 0 };
-    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    ObjectManager::CleanupParameters params = { objectManager, 0 };
+    objectManager->removeIfTombstone(reference.toInteger(), &params);
     EXPECT_EQ("", TestLog::get());
 }
 
@@ -2352,9 +2381,9 @@ TEST_F(ObjectManagerTest, removeIfTombstone_nonRecoveringTablet) {
     TestLog::Enable _(removeIfTombstoneFilter);
     Key key(1, "key!", 4);
     Log::Reference reference = storeTombstone(key);
-    tabletManager.addTablet(1, 0, ~0UL, TabletManager::NORMAL);
-    ObjectManager::CleanupParameters params = { &objectManager, 0 };
-    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NORMAL);
+    ObjectManager::CleanupParameters params = { objectManager, 0 };
+    objectManager->removeIfTombstone(reference.toInteger(), &params);
     EXPECT_EQ("removeIfTombstone: discarding", TestLog::get());
 }
 
@@ -2363,8 +2392,8 @@ TEST_F(ObjectManagerTest, removeIfTombstone_noTablet) {
     TestLog::Enable _(removeIfTombstoneFilter);
     Key key(1, "key!", 4);
     Log::Reference reference = storeTombstone(key);
-    ObjectManager::CleanupParameters params = { &objectManager, 0 };
-    objectManager.removeIfTombstone(reference.toInteger(), &params);
+    ObjectManager::CleanupParameters params = { objectManager, 0 };
+    objectManager->removeIfTombstone(reference.toInteger(), &params);
     EXPECT_EQ("removeIfTombstone: discarding", TestLog::get());
 }
 
@@ -2372,13 +2401,13 @@ TEST_F(ObjectManagerTest, removeTombstones) {
     Key key(0, "key!", 4);
     storeTombstone(key);
 
-    objectManager.removeTombstones();
+    objectManager->removeTombstones();
 
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
         LogEntryType type;
         Buffer buffer;
-        EXPECT_FALSE(objectManager.lookup(lock, key, type, buffer, 0, 0));
+        EXPECT_FALSE(objectManager->lookup(lock, key, type, buffer, 0, 0));
     }
 }
 
@@ -2389,52 +2418,52 @@ TEST_F(ObjectManagerTest, rejectOperation) {
     // Fail: object doesn't exist.
     rules = empty;
     rules.doesntExist = 1;
-    EXPECT_EQ(objectManager.rejectOperation(&rules, VERSION_NONEXISTENT),
+    EXPECT_EQ(objectManager->rejectOperation(&rules, VERSION_NONEXISTENT),
               STATUS_OBJECT_DOESNT_EXIST);
 
     // Succeed: object doesn't exist.
     rules = empty;
     rules.exists = rules.versionLeGiven = rules.versionNeGiven = 1;
-    EXPECT_EQ(objectManager.rejectOperation(&rules, VERSION_NONEXISTENT),
+    EXPECT_EQ(objectManager->rejectOperation(&rules, VERSION_NONEXISTENT),
               STATUS_OK);
 
     // Fail: object exists.
     rules = empty;
     rules.exists = 1;
-    EXPECT_EQ(objectManager.rejectOperation(&rules, 2),
+    EXPECT_EQ(objectManager->rejectOperation(&rules, 2),
               STATUS_OBJECT_EXISTS);
 
     // versionLeGiven.
     rules = empty;
     rules.givenVersion = 0x400000001;
     rules.versionLeGiven = 1;
-    EXPECT_EQ(objectManager.rejectOperation(&rules, 0x400000000),
+    EXPECT_EQ(objectManager->rejectOperation(&rules, 0x400000000),
               STATUS_WRONG_VERSION);
-    EXPECT_EQ(objectManager.rejectOperation(&rules, 0x400000001),
+    EXPECT_EQ(objectManager->rejectOperation(&rules, 0x400000001),
               STATUS_WRONG_VERSION);
-    EXPECT_EQ(objectManager.rejectOperation(&rules, 0x400000002),
+    EXPECT_EQ(objectManager->rejectOperation(&rules, 0x400000002),
               STATUS_OK);
 
     // versionNeGiven.
     rules = empty;
     rules.givenVersion = 0x400000001;
     rules.versionNeGiven = 1;
-    EXPECT_EQ(objectManager.rejectOperation(&rules, 0x400000000),
+    EXPECT_EQ(objectManager->rejectOperation(&rules, 0x400000000),
               STATUS_WRONG_VERSION);
-    EXPECT_EQ(objectManager.rejectOperation(&rules, 0x400000001),
+    EXPECT_EQ(objectManager->rejectOperation(&rules, 0x400000001),
               STATUS_OK);
-    EXPECT_EQ(objectManager.rejectOperation(&rules, 0x400000002),
+    EXPECT_EQ(objectManager->rejectOperation(&rules, 0x400000002),
               STATUS_WRONG_VERSION);
 }
 
 TEST_F(ObjectManagerTest, getTable) {
     // Table exists.
     Key key1(0, "0", 1);
-    EXPECT_TRUE(tabletManager.getTablet(key1, 0));
+    EXPECT_TRUE(tabletManager->getTablet(key1, 0));
 
     // Table doesn't exist.
     Key key2(1000, "0", 1);
-    EXPECT_FALSE(tabletManager.getTablet(key2, 0));
+    EXPECT_FALSE(tabletManager->getTablet(key2, 0));
 }
 
 TEST_F(ObjectManagerTest, relocateObject_objectAlive) {
@@ -2442,7 +2471,7 @@ TEST_F(ObjectManagerTest, relocateObject_objectAlive) {
 
     Buffer value;
     Object obj(key, "item0", 5, 0, 0, value);
-    objectManager.writeObject(obj, NULL, NULL);
+    objectManager->writeObject(obj, NULL, NULL);
     EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));
 
@@ -2450,36 +2479,36 @@ TEST_F(ObjectManagerTest, relocateObject_objectAlive) {
     Buffer oldBuffer;
     bool success = false;
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        success = objectManager.lookup(lock, key, oldType, oldBuffer, 0, 0);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        success = objectManager->lookup(lock, key, oldType, oldBuffer, 0, 0);
     }
     EXPECT_TRUE(success);
 
     Log::Reference newReference;
-    success = objectManager.log.append(LOG_ENTRY_TYPE_OBJ,
+    success = objectManager->log.append(LOG_ENTRY_TYPE_OBJ,
                                        oldBuffer,
                                        &newReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
 
     LogEntryType newType;
     Buffer newBuffer;
-    newType = objectManager.log.getEntry(newReference, newBuffer);
+    newType = objectManager->log.getEntry(newReference, newBuffer);
 
     LogEntryType oldType2;
     Buffer oldBuffer2;
     Log::Reference oldReference;
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        success = objectManager.lookup(lock, key, oldType2, oldBuffer2, 0,
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        success = objectManager->lookup(lock, key, oldType2, oldBuffer2, 0,
             &oldReference);
     }
     EXPECT_TRUE(success);
     EXPECT_EQ(oldType, oldType2);
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer,
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_OBJ, oldBuffer,
                            oldReference, relocator);
     EXPECT_TRUE(relocator.didAppend);
     EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
@@ -2489,8 +2518,8 @@ TEST_F(ObjectManagerTest, relocateObject_objectAlive) {
     Buffer newBuffer2;
     Log::Reference newReference2;
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        objectManager.lookup(lock, key, newType2, newBuffer2, 0,
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        objectManager->lookup(lock, key, newType2, newBuffer2, 0,
             &newReference2);
     }
     EXPECT_TRUE(relocator.didAppend);
@@ -2506,7 +2535,7 @@ TEST_F(ObjectManagerTest, relocateObject_objectDeleted) {
 
     Buffer value;
     Object obj(key, "item0", 5, 0, 0, value);
-    objectManager.writeObject(obj, NULL, NULL);
+    objectManager->writeObject(obj, NULL, NULL);
     EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));
 
@@ -2515,18 +2544,18 @@ TEST_F(ObjectManagerTest, relocateObject_objectDeleted) {
     bool success = false;
     Log::Reference reference;
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        success = objectManager.lookup(lock, key, type, buffer, 0, &reference);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        success = objectManager->lookup(lock, key, type, buffer, 0, &reference);
     }
     EXPECT_TRUE(success);
 
-    objectManager.removeObject(key, NULL, NULL);
+    objectManager->removeObject(key, NULL, NULL);
     EXPECT_EQ("found=true tableId=0 byteCount=72 recordCount=2"
               , verifyMetadata(0));
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_OBJ, buffer, reference, relocator);
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_OBJ, buffer, reference, relocator);
     EXPECT_FALSE(relocator.didAppend);
     // Only the object was relocated so the stats should only reflect the
     // contents of the tombstone.
@@ -2539,7 +2568,7 @@ TEST_F(ObjectManagerTest, relocateObject_objectModified) {
 
     Buffer value;
     Object obj(key, "item0", 5, 0, 0, value);
-    objectManager.writeObject(obj, NULL, NULL);
+    objectManager->writeObject(obj, NULL, NULL);
     EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));
 
@@ -2547,22 +2576,22 @@ TEST_F(ObjectManagerTest, relocateObject_objectModified) {
     Buffer buffer;
     Log::Reference reference;
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        objectManager.lookup(lock, key, type, buffer, 0, &reference);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        objectManager->lookup(lock, key, type, buffer, 0, &reference);
     }
 
     value.reset();
 
     Object object(key, "item0-v2", 8, 0, 0, value);
-    objectManager.writeObject(object, NULL, NULL);
+    objectManager->writeObject(object, NULL, NULL);
     EXPECT_EQ("found=true tableId=0 byteCount=111 recordCount=3"
               , verifyMetadata(0));
 
     Log::Reference dummyReference;
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_OBJ, buffer, reference, relocator);
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_OBJ, buffer, reference, relocator);
     EXPECT_FALSE(relocator.didAppend);
     // Only the object was relocated so the stats should only reflect the
     // contents of the tombstone and the new object.
@@ -2571,7 +2600,7 @@ TEST_F(ObjectManagerTest, relocateObject_objectModified) {
 }
 
 TEST_F(ObjectManagerTest, keyPointsAtReference) {
-    SideLog sl(&objectManager.log);
+    SideLog sl(&objectManager->log);
     Tub<SegmentIterator> it;
 
     Key key(0, "1", 1);
@@ -2587,15 +2616,15 @@ TEST_F(ObjectManagerTest, keyPointsAtReference) {
         it->next();
 
     Log::Reference reference = sl.head->getReference(it->getOffset());
-    EXPECT_FALSE(objectManager.keyPointsAtReference(
+    EXPECT_FALSE(objectManager->keyPointsAtReference(
                 key, reference));
 
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        objectManager.replace(lock, key, reference);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        objectManager->replace(lock, key, reference);
     }
 
-    EXPECT_TRUE(objectManager.keyPointsAtReference(
+    EXPECT_TRUE(objectManager->keyPointsAtReference(
                 key, reference));
 }
 
@@ -2610,37 +2639,37 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_relocate) {
     op.assembleForLog(oldBuffer);
 
     Log::Reference oldReference;
-    success = objectManager.log.append(LOG_ENTRY_TYPE_PREP,
+    success = objectManager->log.append(LOG_ENTRY_TYPE_PREP,
                                        oldBuffer,
                                        &oldReference);
-    EXPECT_TRUE(objectManager.lockTable.tryAcquireLock(key, oldReference));
-    objectManager.log.sync();
+    EXPECT_TRUE(objectManager->lockTable.tryAcquireLock(key, oldReference));
+    objectManager->log.sync();
     EXPECT_TRUE(success);
 
-    transactionManager.bufferOp(op.getTransactionId(),
+    transactionManager->bufferOp(op.getTransactionId(),
                                 op.header.rpcId,
                                 oldReference.toInteger());
 
     LogEntryType newType;
     Buffer newBuffer;
-    newType = objectManager.log.getEntry(oldReference, newBuffer);
+    newType = objectManager->log.getEntry(oldReference, newBuffer);
 
     EXPECT_EQ(LOG_ENTRY_TYPE_PREP, newType);
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_PREP, oldBuffer,
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_PREP, oldBuffer,
                            oldReference, relocator);
     EXPECT_TRUE(relocator.didAppend);
 
-    uint64_t newOpPtr = transactionManager.getOp(op.header.clientId,
+    uint64_t newOpPtr = transactionManager->getOp(op.header.clientId,
                                                  op.header.rpcId);
     EXPECT_NE(0UL, newOpPtr);
     EXPECT_NE(oldReference.toInteger(), newOpPtr);
     EXPECT_EQ(relocator.getNewReference().toInteger(), newOpPtr);
     // Make sure that the locks were also relocated by trying to release them.
-    EXPECT_FALSE(objectManager.lockTable.releaseLock(key, oldReference));
-    EXPECT_TRUE(objectManager.lockTable.releaseLock(key,
+    EXPECT_FALSE(objectManager->lockTable.releaseLock(key, oldReference));
+    EXPECT_TRUE(objectManager->lockTable.releaseLock(key,
             relocator.getNewReference()));
 }
 
@@ -2655,32 +2684,32 @@ TEST_F(ObjectManagerTest, relocatePreparedOp_clean) {
     op.assembleForLog(oldBuffer);
 
     Log::Reference oldReference;
-    success = objectManager.log.append(LOG_ENTRY_TYPE_PREP,
+    success = objectManager->log.append(LOG_ENTRY_TYPE_PREP,
                                        oldBuffer,
                                        &oldReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
 
-    transactionManager.bufferOp(op.getTransactionId(),
+    transactionManager->bufferOp(op.getTransactionId(),
                                 op.header.rpcId,
                                 oldReference.toInteger());
 
     LogEntryType newType;
     Buffer newBuffer;
-    newType = objectManager.log.getEntry(oldReference, newBuffer);
+    newType = objectManager->log.getEntry(oldReference, newBuffer);
 
     EXPECT_EQ(LOG_ENTRY_TYPE_PREP, newType);
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
+        objectManager->segmentManager.getHeadSegment(), 1000);
 
-    transactionManager.removeOp(op.header.clientId, op.header.rpcId);
+    transactionManager->removeOp(op.header.clientId, op.header.rpcId);
 
-    objectManager.relocate(LOG_ENTRY_TYPE_PREP, oldBuffer,
+    objectManager->relocate(LOG_ENTRY_TYPE_PREP, oldBuffer,
                            oldReference, relocator);
     EXPECT_FALSE(relocator.didAppend);
 
-    uint64_t newOpPtr = transactionManager.getOp(op.header.clientId,
+    uint64_t newOpPtr = transactionManager->getOp(op.header.clientId,
                                                  op.header.rpcId);
     EXPECT_EQ(0UL, newOpPtr);
     EXPECT_NE(oldReference.toInteger(), newOpPtr);
@@ -2693,7 +2722,7 @@ TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
     uint64_t ackId = 1;
 
     void* result;
-    unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
+    unackedRpcResults->checkDuplicate(clientLease, rpcId, ackId, &result);
     Buffer respBuff;
     RpcResult rpcResult(
             1,
@@ -2707,43 +2736,43 @@ TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
 
     Log::Reference oldRpcResultReference;
     bool success = false;
-    success = objectManager.log.append(
+    success = objectManager->log.append(
         LOG_ENTRY_TYPE_RPCRESULT, rpcResultBuffer, &oldRpcResultReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
 
     uint64_t rpcResultPtr = oldRpcResultReference.toInteger();
-    unackedRpcResults.recordCompletion(leaseId,
+    unackedRpcResults->recordCompletion(leaseId,
                                        rpcId,
                                        reinterpret_cast<void*>(rpcResultPtr),
                                        this);
 
-    unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
+    unackedRpcResults->checkDuplicate(clientLease, rpcId, ackId, &result);
 
     EXPECT_EQ(rpcResultPtr, reinterpret_cast<uint64_t>(result));
 
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
-    oldTypeInLog = objectManager.log.getEntry(oldRpcResultReference,
+    oldTypeInLog = objectManager->log.getEntry(oldRpcResultReference,
                                           oldBufferInLog);
 
     EXPECT_EQ(LOG_ENTRY_TYPE_RPCRESULT, oldTypeInLog);
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
+        objectManager->segmentManager.getHeadSegment(), 1000);
 
-    EXPECT_FALSE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
+    EXPECT_FALSE(unackedRpcResults->isRpcAcked(leaseId, rpcId));
 
-    bool keepRpcResult = !unackedRpcResults.isRpcAcked(
+    bool keepRpcResult = !unackedRpcResults->isRpcAcked(
             rpcResult.getLeaseId(), rpcResult.getRpcId());
     EXPECT_TRUE(keepRpcResult);
-    objectManager.relocate(LOG_ENTRY_TYPE_RPCRESULT,
+    objectManager->relocate(LOG_ENTRY_TYPE_RPCRESULT,
                            oldBufferInLog,
                            oldRpcResultReference,
                            relocator);
     EXPECT_TRUE(relocator.didAppend);
 
-    unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
+    unackedRpcResults->checkDuplicate(clientLease, rpcId, ackId, &result);
 
     EXPECT_NE(rpcResultPtr, reinterpret_cast<uint64_t>(result));
     EXPECT_EQ(relocator.getNewReference().toInteger(),
@@ -2757,7 +2786,7 @@ TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
     uint64_t ackId = 1;
 
     void* result;
-    unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
+    unackedRpcResults->checkDuplicate(clientLease, rpcId, ackId, &result);
     Buffer respBuff;
     RpcResult rpcResult(
             1,
@@ -2771,40 +2800,40 @@ TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
 
     Log::Reference oldRpcResultReference;
     bool success = false;
-    success = objectManager.log.append(
+    success = objectManager->log.append(
         LOG_ENTRY_TYPE_RPCRESULT, rpcResultBuffer, &oldRpcResultReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
 
     uint64_t rpcResultPtr = oldRpcResultReference.toInteger();
-    unackedRpcResults.recordCompletion(leaseId,
+    unackedRpcResults->recordCompletion(leaseId,
                                        rpcId,
                                        reinterpret_cast<void*>(rpcResultPtr),
                                        this);
 
-    unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
+    unackedRpcResults->checkDuplicate(clientLease, rpcId, ackId, &result);
 
     EXPECT_EQ(rpcResultPtr, reinterpret_cast<uint64_t>(result));
 
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
-    oldTypeInLog = objectManager.log.getEntry(oldRpcResultReference,
+    oldTypeInLog = objectManager->log.getEntry(oldRpcResultReference,
                                           oldBufferInLog);
 
     EXPECT_EQ(LOG_ENTRY_TYPE_RPCRESULT, oldTypeInLog);
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
+        objectManager->segmentManager.getHeadSegment(), 1000);
 
-    EXPECT_FALSE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
+    EXPECT_FALSE(unackedRpcResults->isRpcAcked(leaseId, rpcId));
     // Ack the rpc to make it available for cleaning.
-    unackedRpcResults.checkDuplicate(clientLease, rpcId + 1, rpcId, &result);
-    EXPECT_TRUE(unackedRpcResults.isRpcAcked(leaseId, rpcId));
+    unackedRpcResults->checkDuplicate(clientLease, rpcId + 1, rpcId, &result);
+    EXPECT_TRUE(unackedRpcResults->isRpcAcked(leaseId, rpcId));
 
-    bool keepRpcResult = !unackedRpcResults.isRpcAcked(
+    bool keepRpcResult = !unackedRpcResults->isRpcAcked(
             rpcResult.getLeaseId(), rpcResult.getRpcId());
     EXPECT_FALSE(keepRpcResult);
-    objectManager.relocate(LOG_ENTRY_TYPE_RPCRESULT,
+    objectManager->relocate(LOG_ENTRY_TYPE_RPCRESULT,
                            oldBufferInLog,
                            oldRpcResultReference,
                            relocator);
@@ -2829,33 +2858,33 @@ TEST_F(ObjectManagerTest, relocatePreparedOpTombstone_relocate) {
     op.assembleForLog(buffer);
 
     Log::Reference prepReference;
-    success = objectManager.log.append(LOG_ENTRY_TYPE_PREP,
+    success = objectManager->log.append(LOG_ENTRY_TYPE_PREP,
                                        buffer,
                                        &prepReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
 
     PreparedOpTombstone opTomb(op,
-                            objectManager.log.getSegmentId(prepReference));
+                            objectManager->log.getSegmentId(prepReference));
     buffer.reset();
     opTomb.assembleForLog(buffer);
 
     Log::Reference opTombReference;
-    success = objectManager.log.append(
+    success = objectManager->log.append(
         LOG_ENTRY_TYPE_PREPTOMB, buffer, &opTombReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_PREPTOMB, buffer,
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_PREPTOMB, buffer,
                            opTombReference, relocator);
     EXPECT_TRUE(relocator.didAppend);
 
     // Check that tombstoneRelocationCallback() is checking the liveness
     // of the right segment (in log.segmentExists() function call).
     string comparisonString = "segmentExists: " +
-        format("%lu", objectManager.log.getSegmentId(opTombReference));
+        format("%lu", objectManager->log.getSegmentId(opTombReference));
     EXPECT_EQ(comparisonString, TestLog::get());
 }
 
@@ -2871,14 +2900,14 @@ TEST_F(ObjectManagerTest, relocatePreparedOpTombstone_clean) {
     opTomb.assembleForLog(buffer);
 
     Log::Reference opTombReference;
-    success = objectManager.log.append(
+    success = objectManager->log.append(
         LOG_ENTRY_TYPE_PREPTOMB, buffer, &opTombReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_PREPTOMB, buffer,
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_PREPTOMB, buffer,
                            opTombReference, relocator);
     EXPECT_FALSE(relocator.didAppend);
 }
@@ -2889,7 +2918,7 @@ TEST_F(ObjectManagerTest, relocateTombstone_basics) {
 
     Buffer value;
     Object obj(key, "item0", 5, 0, 0, value);
-    objectManager.writeObject(obj, NULL, NULL);
+    objectManager->writeObject(obj, NULL, NULL);
     EXPECT_EQ("found=true tableId=0 byteCount=36 recordCount=1"
               , verifyMetadata(0));
 
@@ -2898,27 +2927,27 @@ TEST_F(ObjectManagerTest, relocateTombstone_basics) {
     Log::Reference reference;
     bool success = false;
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        success = objectManager.lookup(lock, key, type, buffer, 0, &reference);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        success = objectManager->lookup(lock, key, type, buffer, 0, &reference);
     }
     EXPECT_TRUE(success);
     EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
 
     Object object(buffer);
     ObjectTombstone tombstone(object,
-                              objectManager.log.getSegmentId(reference),
+                              objectManager->log.getSegmentId(reference),
                               0);
 
     Buffer tombstoneBuffer;
     tombstone.assembleForLog(tombstoneBuffer);
 
     Log::Reference oldTombstoneReference;
-    success = objectManager.log.append(
+    success = objectManager->log.append(
         LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, &oldTombstoneReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
     // Update metadata manually due to manual log append.
-    TableStats::increment(&masterTableMetadata,
+    TableStats::increment(masterTableMetadata,
                           tombstone.getTableId(),
                           tombstoneBuffer.size(),
                           1);
@@ -2926,12 +2955,12 @@ TEST_F(ObjectManagerTest, relocateTombstone_basics) {
               , verifyMetadata(0));
 
     Log::Reference newTombstoneReference;
-    success = objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB,
+    success = objectManager->log.append(LOG_ENTRY_TYPE_OBJTOMB,
         tombstoneBuffer, &newTombstoneReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
     // Update metadata manually due to manual log append.
-    TableStats::increment(&masterTableMetadata,
+    TableStats::increment(masterTableMetadata,
                           tombstone.getTableId(),
                           tombstoneBuffer.size(),
                           1);
@@ -2940,11 +2969,11 @@ TEST_F(ObjectManagerTest, relocateTombstone_basics) {
 
 
     Buffer oldBufferInLog;
-    objectManager.log.getEntry(oldTombstoneReference, oldBufferInLog);
+    objectManager->log.getEntry(oldTombstoneReference, oldBufferInLog);
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_OBJTOMB,
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_OBJTOMB,
                            oldBufferInLog,
                            oldTombstoneReference,
                            relocator);
@@ -2957,7 +2986,7 @@ TEST_F(ObjectManagerTest, relocateTombstone_basics) {
     // Check that tombstoneRelocationCallback() is checking the liveness
     // of the right segment (in log.segmentExists() function call).
     string comparisonString = "segmentExists: " +
-        format("%lu", objectManager.log.getSegmentId(oldTombstoneReference));
+        format("%lu", objectManager->log.getSegmentId(oldTombstoneReference));
     EXPECT_EQ(comparisonString, TestLog::get());
 }
 
@@ -2975,12 +3004,12 @@ TEST_F(ObjectManagerTest, relocateTombstone_cleanTombstone) {
     tombstone.assembleForLog(tombstoneBuffer);
 
     Log::Reference oldTombstoneReference;
-    bool success = objectManager.log.append(
+    bool success = objectManager->log.append(
         LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer, &oldTombstoneReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
     // Update metadata manually due to manual log append.
-    TableStats::increment(&masterTableMetadata,
+    TableStats::increment(masterTableMetadata,
                           tombstone.getTableId(),
                           tombstoneBuffer.size(),
                           1);
@@ -2988,12 +3017,12 @@ TEST_F(ObjectManagerTest, relocateTombstone_cleanTombstone) {
               , verifyMetadata(0));
 
     Buffer oldBufferInLog;
-    objectManager.log.getEntry(oldTombstoneReference,
+    objectManager->log.getEntry(oldTombstoneReference,
                                           oldBufferInLog);
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_OBJTOMB,
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_OBJTOMB,
                            oldBufferInLog,
                            oldTombstoneReference,
                            relocator);
@@ -3011,31 +3040,31 @@ TEST_F(ObjectManagerTest, tombstoneRelocationCallback_hashTableRefUpdate) {
     Log::Reference tombstoneReference;
     Buffer tombstoneBuffer;
     tombstone.assembleForLog(tombstoneBuffer);
-    objectManager.log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer,
+    objectManager->log.append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer,
             &tombstoneReference);
 
     Buffer oldBufferInLog;
-    objectManager.log.getEntry(tombstoneReference,
+    objectManager->log.getEntry(tombstoneReference,
                                           oldBufferInLog);
 
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        objectManager.replace(lock, key, tombstoneReference);
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        objectManager->replace(lock, key, tombstoneReference);
     }
-    EXPECT_TRUE(objectManager.keyPointsAtReference(
+    EXPECT_TRUE(objectManager->keyPointsAtReference(
                 key, tombstoneReference));
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_OBJTOMB,
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_OBJTOMB,
                            oldBufferInLog,
                            tombstoneReference,
                            relocator);
     EXPECT_TRUE(relocator.didAppend);
     EXPECT_NE(relocator.getNewReference(), tombstoneReference);
-    EXPECT_FALSE(objectManager.keyPointsAtReference(
+    EXPECT_FALSE(objectManager->keyPointsAtReference(
                 key, tombstoneReference));
-    EXPECT_TRUE(objectManager.keyPointsAtReference(
+    EXPECT_TRUE(objectManager->keyPointsAtReference(
                 key, relocator.getNewReference()));
 }
 
@@ -3043,18 +3072,18 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_relocateRecord) {
     TxDecisionRecord record(1, 2, 3, 4, WireFormat::TxDecision::ABORT, 100);
     record.addParticipant(1, 2, 5);
     // Make it look like we still need the record.
-    txRecoveryManager.recoveringIds.insert({3, 4});
+    txRecoveryManager->recoveringIds.insert({3, 4});
 
     Buffer recordBuffer;
     record.assembleForLog(recordBuffer);
 
     Log::Reference oldRecordReference;
-    bool success = objectManager.log.append(
+    bool success = objectManager->log.append(
             LOG_ENTRY_TYPE_TXDECISION, recordBuffer, &oldRecordReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
     // Update metadata manually due to manual log append.
-    TableStats::increment(&masterTableMetadata,
+    TableStats::increment(masterTableMetadata,
                           record.getTableId(),
                           recordBuffer.size(),
                           1);
@@ -3062,11 +3091,11 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_relocateRecord) {
               , verifyMetadata(1));
 
     Buffer oldBufferInLog;
-    objectManager.log.getEntry(oldRecordReference, oldBufferInLog);
+    objectManager->log.getEntry(oldRecordReference, oldBufferInLog);
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_TXDECISION,
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_TXDECISION,
                            oldBufferInLog,
                            oldRecordReference,
                            relocator);
@@ -3083,12 +3112,12 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
     record.assembleForLog(recordBuffer);
 
     Log::Reference oldRecordReference;
-    bool success = objectManager.log.append(
+    bool success = objectManager->log.append(
             LOG_ENTRY_TYPE_TXDECISION, recordBuffer, &oldRecordReference);
-    objectManager.log.sync();
+    objectManager->log.sync();
     EXPECT_TRUE(success);
     // Update metadata manually due to manual log append.
-    TableStats::increment(&masterTableMetadata,
+    TableStats::increment(masterTableMetadata,
                           record.getTableId(),
                           recordBuffer.size(),
                           1);
@@ -3096,12 +3125,12 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
               , verifyMetadata(1));
 
     Buffer oldBufferInLog;
-    objectManager.log.getEntry(oldRecordReference,
+    objectManager->log.getEntry(oldRecordReference,
                                           oldBufferInLog);
 
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_TXDECISION,
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_TXDECISION,
                            oldBufferInLog,
                            oldRecordReference,
                            relocator);
@@ -3111,7 +3140,6 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
 }
 
 TEST_F(ObjectManagerTest, relocateTxParticipantList) {
-    TransactionManager* transactionManager = objectManager.transactionManager;
     TransactionManager::InProgressTransaction* iptx;
 
     WireFormat::TxParticipant participants[3];
@@ -3128,7 +3156,7 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList) {
 
     transactionManager->registerTransaction(participantList,
                                             pListBuffer,
-                                            objectManager.getLog());
+                                            objectManager->getLog());
 
     {
         TransactionManager::Lock lock(transactionManager->mutex);
@@ -3140,14 +3168,14 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList) {
 
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
-    oldTypeInLog = objectManager.log.getEntry(oldPListReference,
+    oldTypeInLog = objectManager->log.getEntry(oldPListReference,
                                               oldBufferInLog);
     EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, oldTypeInLog);
 
     // Try to relocate.
     LogEntryRelocator relocator(
-        objectManager.segmentManager.getHeadSegment(), 1000);
-    objectManager.relocate(LOG_ENTRY_TYPE_TXPLIST,
+        objectManager->segmentManager.getHeadSegment(), 1000);
+    objectManager->relocate(LOG_ENTRY_TYPE_TXPLIST,
                            oldBufferInLog,
                            oldPListReference,
                            relocator);
@@ -3158,14 +3186,14 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList) {
 TEST_F(ObjectManagerTest, replace_noPriorVersion) {
     Key key(1, "1", 1);
 
-    ObjectManager::HashTableBucketLock lock(objectManager, key);
+    ObjectManager::HashTableBucketLock lock(*objectManager, key);
     HashTable::Candidates c;
-    objectManager.objectMap.lookup(key.getHash(), c);
+    objectManager->objectMap.lookup(key.getHash(), c);
     EXPECT_TRUE(c.isDone());
 
     Log::Reference reference(0xdeadbeef);
-    EXPECT_FALSE(objectManager.replace(lock, key, reference));
-    objectManager.objectMap.lookup(key.getHash(), c);
+    EXPECT_FALSE(objectManager->replace(lock, key, reference));
+    objectManager->objectMap.lookup(key.getHash(), c);
     EXPECT_FALSE(c.isDone());
     EXPECT_EQ(reference.toInteger(), c.getReference());
 }
@@ -3175,20 +3203,106 @@ TEST_F(ObjectManagerTest, replace_priorVersion) {
 
     Log::Reference firstRef = storeObject(key, "old", 0);
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_TRUE(objectManager.remove(lock, key));
-        EXPECT_FALSE(objectManager.replace(lock, key, firstRef));
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        EXPECT_TRUE(objectManager->remove(lock, key));
+        EXPECT_FALSE(objectManager->replace(lock, key, firstRef));
     }
     Log::Reference secondRef = storeObject(key, "new", 1);
     {
-        ObjectManager::HashTableBucketLock lock(objectManager, key);
-        EXPECT_TRUE(objectManager.replace(lock, key, secondRef));
+        ObjectManager::HashTableBucketLock lock(*objectManager, key);
+        EXPECT_TRUE(objectManager->replace(lock, key, secondRef));
     }
 
     HashTable::Candidates c;
-    objectManager.objectMap.lookup(key.getHash(), c);
+    objectManager->objectMap.lookup(key.getHash(), c);
     EXPECT_FALSE(c.isDone());
     EXPECT_EQ(secondRef.toInteger(), c.getReference());
+}
+
+TEST_F(ObjectManagerTest, requestInsertIndexEntries_noIndexEntries) {
+    TestLog::Enable _;
+    uint64_t tableId = 1;
+    Key key(tableId, "key0", 4);
+    Buffer objBuffer;
+    Object obj(key, "value", 5, 1, 0, objBuffer);
+    objectManager->requestInsertIndexEntries(obj);
+    EXPECT_EQ("requestInsertIndexEntries: No index entries to insert; "
+            "returning", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, requestInsertIndexEntries_basics) {
+    TestLog::Enable _;
+
+    uint64_t tableId = 1;
+    uint8_t numKeys = 3;
+
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 4;
+    keyList[0].key = "key0";
+    keyList[1].keyLength = 4;
+    keyList[1].key = "key1";
+    keyList[2].keyLength = 4;
+    keyList[2].key = "key2";
+
+    Buffer keysAndValBuffer;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
+                                       "value", 5, &keysAndValBuffer);
+    Object obj(tableId, 1, 0, keysAndValBuffer);
+    Key key(tableId, keyList[0].key, keyList[0].keyLength);
+
+    objectManager->requestInsertIndexEntries(obj);
+    EXPECT_EQ(format("requestInsertIndexEntries: "
+            "Inserting index entry for tableId 1, keyIndex 1, "
+            "key key1, primaryKeyHash %lu | "
+            "requestInsertIndexEntries: "
+            "Inserting index entry for tableId 1, keyIndex 2, "
+            "key key2, primaryKeyHash %lu" ,
+            key.getHash(), key.getHash()),
+            TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, requestRemoveIndexEntries_noIndexEntries) {
+    TestLog::Enable _;
+
+    uint64_t tableId = 1;
+    Key key(tableId, "key0", 4);
+    Buffer tempBuffer;
+    Object obj(key, "value", 5, 0, 0, tempBuffer);
+
+    objectManager->requestRemoveIndexEntries(obj);
+    EXPECT_EQ("requestRemoveIndexEntries: No index entries to remove; "
+            "returning", TestLog::get());
+}
+
+TEST_F(ObjectManagerTest, requestRemoveIndexEntries_basics) {
+    TestLog::Enable _;
+
+    uint64_t tableId = 1;
+    uint8_t numKeys = 3;
+
+    KeyInfo keyList[3];
+    keyList[0].keyLength = 4;
+    keyList[0].key = "key0";
+    keyList[1].keyLength = 4;
+    keyList[1].key = "key1";
+    keyList[2].keyLength = 4;
+    keyList[2].key = "key2";
+
+    Buffer keysAndValBuffer;
+    Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
+            "value", 5, &keysAndValBuffer);
+    Object obj(tableId, 0, 0, keysAndValBuffer);
+    Key key(tableId, keyList[0].key, keyList[0].keyLength);
+    objectManager->requestRemoveIndexEntries(obj);
+
+    EXPECT_EQ(format("requestRemoveIndexEntries: "
+            "Removing index entry for tableId 1, keyIndex 1, "
+            "key key1, primaryKeyHash %lu | "
+            "requestRemoveIndexEntries: "
+            "Removing index entry for tableId 1, keyIndex 2, "
+            "key key2, primaryKeyHash %lu" ,
+            key.getHash(), key.getHash()),
+            TestLog::get());
 }
 
 }  // namespace RAMCloud

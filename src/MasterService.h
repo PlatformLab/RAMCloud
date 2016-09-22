@@ -259,8 +259,6 @@ class MasterService : public Service {
     void removeIndexEntry(const WireFormat::RemoveIndexEntry::Request* reqHdr,
                 WireFormat::RemoveIndexEntry::Response* respHdr,
                 Rpc* rpc);
-    void requestInsertIndexEntries(Object& object);
-    void requestRemoveIndexEntries(Object& object);
     void splitAndMigrateIndexlet(
                 const WireFormat::SplitAndMigrateIndexlet::Request* reqHdr,
                 WireFormat::SplitAndMigrateIndexlet::Response* respHdr,
@@ -387,6 +385,112 @@ class MasterService : public Service {
     };
 
     /*
+     * Used by ObjectManager to notify MasterService that it is safe to
+     * respond to a remove RPC. This is used in situations where the
+     * ObjectManager has fairly expensive clean up to perform,
+     * for which the RPC doesn't need to be delayed.
+     */
+    class ObjectRemove : public ObjectManager::ObjectUpdate {
+      public:
+        // Some of the following parameters have full namespace declaration
+        // to prevent doxygen from reporting (spurious) errors.
+        explicit ObjectRemove(
+                RAMCloud::MasterService* owner,
+                RAMCloud::WireFormat::Remove::Response* respHdr,
+                RAMCloud::Service::Rpc* rpc,
+                RpcResult* rpcResult, uint64_t* rpcResultPtr,
+                UnackedRpcHandle* unackedRpcHandle);
+        void completionCallback(Status status);
+
+      private:
+        /*
+         * The MasterService that controls/uses this object.
+         */
+        MasterService* owner;
+
+        /*
+         * Header for the response that will be returned to the client.
+         */
+        WireFormat::Remove::Response* respHdr;
+
+        /*
+         * Complete information about the remote procedure call.
+         */
+        Rpc* rpc;
+
+        /*
+         * Record used to ensure linearizability.
+         */
+        RpcResult* rpcResult;
+
+        /*
+         * Pointer to the RpcResult in log.
+         */
+        uint64_t* rpcResultPtr;
+
+        /*
+         * Pointer to the master's UnackedRpcResults instance. This keeps track
+         * of data stored to ensure client RPCs are linearizable.
+         */
+        UnackedRpcHandle* unackedRpcHandle;
+
+        DISALLOW_COPY_AND_ASSIGN(ObjectRemove);
+    };
+
+    /*
+     * Used by ObjectManager to notify MasterService that it is safe to
+     * respond to a write RPC. This is used in situations where the
+     * ObjectManager has fairly expensive clean up to perform,
+     * for which the RPC doesn't need to be delayed.
+     */
+    class ObjectWrite : public ObjectManager::ObjectUpdate {
+      public:
+        // Some of the following parameters have full namespace declaration
+        // to prevent doxygen from reporting (spurious) errors.
+        explicit ObjectWrite(
+                RAMCloud::MasterService* owner,
+                RAMCloud::WireFormat::Write::Response* respHdr,
+                RAMCloud::Service::Rpc* rpc,
+                RpcResult* rpcResult, uint64_t* rpcResultPtr,
+                UnackedRpcHandle* unackedRpcHandle);
+        void completionCallback(Status status);
+
+      private:
+        /*
+         * The MasterService that controls/uses this object.
+         */
+        MasterService* owner;
+
+        /*
+         * Header for the response that will be returned to the client.
+         */
+        WireFormat::Write::Response* respHdr;
+
+        /*
+         * Complete information about the remote procedure call.
+         */
+        Rpc* rpc;
+
+        /*
+         * Record used to ensure linearizability.
+         */
+        RpcResult* rpcResult;
+
+        /*
+         * Pointer to the RpcResult in log.
+         */
+        uint64_t* rpcResultPtr;
+
+        /*
+         * Pointer to the master's UnackedRpcResults instance. This keeps track
+         * of data stored to ensure client RPCs are linearizable.
+         */
+        UnackedRpcHandle* unackedRpcHandle;
+
+        DISALLOW_COPY_AND_ASSIGN(ObjectWrite);
+    };
+
+    /*
      * This class monitors incoming migrations to ensure that they
      * eventually complete, and it also maintains a TombstoneProtector
      * as long as any migrations are active.
@@ -493,6 +597,7 @@ class MasterService : public Service {
                 void *cookie);
     friend class RecoverSegmentBenchmark;
     friend class MasterServiceInternal::RecoveryTask;
+    friend class ObjectManager;
 
     DISALLOW_COPY_AND_ASSIGN(MasterService);
 };

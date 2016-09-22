@@ -367,11 +367,11 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
 /**
  * Remove an object previously written to this ObjectManager.
  *
- * Note that just like writeObject(), this operation will not be stably commited
- * to backups until the syncChanges() method is called. This allows many remove
- * operations to be batched (to support, for example, the multiRemove RPC). If
- * this method returns anything other than STATUS_OK, there were no changes made
- * and the caller need not sync.
+ * Note that just like writeObject(), this operation will not be stably
+ * committed to backups until the syncChanges() method is called.
+ * This allows many remove operations to be batched (to support, for example,
+ * the multiRemove RPC). If this method returns anything other than STATUS_OK,
+ * there were no changes made and the caller need not sync.
  *
  * \param key
  *      Key of the object to remove.
@@ -384,9 +384,8 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
  *      Unless rejectRules prevented the operation, this object will have been
  *      deleted. If the rejectRules did prevent removal, the current object's
  *      version is still returned.
- * \param[out] removedObjBuffer
- *      If non-NULL, pointer to the buffer in log for the object being removed
- *      is returned.
+ * \param objectUpdate
+ *      Used to notify MasterService that it is safe to respond to an RPC.
  * \param rpcResult
  *      If non-NULL, this method appends rpcResult to the log atomically with
  *      the other record(s) for the write. The extra record is used to ensure
@@ -399,24 +398,31 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
  */
 Status
 ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
-                uint64_t* outVersion, Buffer* removedObjBuffer,
+                uint64_t* outVersion, ObjectUpdate* objectUpdate,
                 RpcResult* rpcResult, uint64_t* rpcResultPtr)
 {
     HashTableBucketLock lock(*this, key);
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
     TabletManager::Tablet tablet;
-    if (!tabletManager->getTablet(key, &tablet))
+    if (!tabletManager->getTablet(key, &tablet)) {
+        if (objectUpdate)
+            objectUpdate->completionCallback(STATUS_UNKNOWN_TABLET);
         return STATUS_UNKNOWN_TABLET;
+    }
     if (tablet.state != TabletManager::NORMAL) {
         if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
             throw RetryException(HERE, 1000, 2000,
                     "Tablet is currently locked for migration!");
+        if (objectUpdate)
+            objectUpdate->completionCallback(STATUS_UNKNOWN_TABLET);
         return STATUS_UNKNOWN_TABLET;
     }
 
     // If key is locked due to an in-progress transaction, we must wait.
     if (lockTable.isLockAcquired(key)) {
+        if (objectUpdate)
+            objectUpdate->completionCallback(STATUS_RETRY);
         return STATUS_RETRY;
     }
 
@@ -428,6 +434,9 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
         static RejectRules defaultRejectRules;
         if (rejectRules == NULL)
             rejectRules = &defaultRejectRules;
+        if (objectUpdate)
+            objectUpdate->completionCallback(rejectOperation(
+                    rejectRules, VERSION_NONEXISTENT));
         return rejectOperation(rejectRules, VERSION_NONEXISTENT);
     }
 
@@ -438,13 +447,11 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
     // Abort if we're trying to delete the wrong version.
     if (rejectRules != NULL) {
         Status status = rejectOperation(rejectRules, object.getVersion());
-        if (status != STATUS_OK)
+        if (status != STATUS_OK) {
+            if (objectUpdate)
+                objectUpdate->completionCallback(status);
             return status;
-    }
-
-    // Return a pointer to the buffer in log for the object being removed.
-    if (removedObjBuffer != NULL) {
-        removedObjBuffer->append(&buffer);
+        }
     }
 
     ObjectTombstone tombstone(object,
@@ -470,6 +477,8 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
     if (!log.append(appends, (rpcResult ? 2 : 1))) {
         // The log is out of space. Tell the client to retry and hope
         // that the cleaner makes space soon.
+        if (objectUpdate)
+            objectUpdate->completionCallback(STATUS_RETRY);
         return STATUS_RETRY;
     }
 
@@ -482,7 +491,19 @@ ObjectManager::removeObject(Key& key, RejectRules* rejectRules,
                           rpcResult ? 2 : 1);
     segmentManager.raiseSafeVersion(object.getVersion() + 1);
     log.free(reference);
-    remove(lock, key);
+    bool wasRemoved = remove(lock, key);
+
+    // The return corresponding to this callback is after index entry removal.
+    if (objectUpdate)
+        objectUpdate->completionCallback(STATUS_OK);
+
+    // Delete old index entries if any.
+    if (wasRemoved && (object.getKeyCount() > 1)) {
+        RAMCLOUD_LOG(DEBUG, "Requesting removal of old index entries");
+        requestRemoveIndexEntries(object);
+    }
+
+    // The callback corresponding to this return is before index entry removal.
     return STATUS_OK;
 }
 
@@ -1161,9 +1182,8 @@ ObjectManager::syncChanges()
  *      guaranteed to be greater than any previous version of the object. If the
  *      operation failed then the version number returned is the current version
  *      of the object, or VERSION_NONEXISTENT if the object does not exist.
- * \param[out] removedObjBuffer
- *      If non-NULL, pointer to the buffer in log for the object being removed
- *      is returned.
+ * \param objectUpdate
+ *      Used to notify MasterService that it is safe to respond to an RPC.
  * \param rpcResult
  *      If non-NULL, this method appends rpcResult to the log atomically with
  *      the other record(s) for the write. The extra record is used to ensure
@@ -1171,12 +1191,13 @@ ObjectManager::syncChanges()
  * \param[out] rpcResultPtr
  *      If non-NULL, pointer to the RpcResult in log is returned.
  * \return
- *      STATUS_OK if the object was written. Otherwise, for example,
- *      STATUS_UKNOWN_TABLE may be returned.
+ *      Returns STATUS_OK if the object was written.
+ *      Other status values indicate different failures (tablet doesn't exist,
+ *      reject rules applied, etc).
  */
 Status
 ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
-                uint64_t* outVersion, Buffer* removedObjBuffer,
+                uint64_t* outVersion, ObjectUpdate* objectUpdate,
                 RpcResult* rpcResult, uint64_t* rpcResultPtr)
 {
     uint16_t keyLength = 0;
@@ -1189,18 +1210,24 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
     TabletManager::Tablet tablet;
     if (!tabletManager->getTablet(key, &tablet)) {
+        if (objectUpdate)
+            objectUpdate->completionCallback(STATUS_UNKNOWN_TABLET);
         return STATUS_UNKNOWN_TABLET;
     }
     if (tablet.state != TabletManager::NORMAL) {
         if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
             throw RetryException(HERE, 1000, 2000,
                     "Tablet is currently locked for migration!");
+        if (objectUpdate)
+            objectUpdate->completionCallback(STATUS_UNKNOWN_TABLET);
         return STATUS_UNKNOWN_TABLET;
     }
 
     // If key is locked due to an in-progress transaction, we must wait.
     if (lockTable.isLockAcquired(key)) {
         RAMCLOUD_CLOG(NOTICE, "Retrying because of transaction lock");
+        if (objectUpdate)
+            objectUpdate->completionCallback(STATUS_RETRY);
         return STATUS_RETRY;
     }
 
@@ -1208,6 +1235,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     Buffer currentBuffer;
     Log::Reference currentReference;
     uint64_t currentVersion = VERSION_NONEXISTENT;
+    Tub<Object> currentObject;
 
     HashTable::Candidates currentHashTableEntry;
 
@@ -1217,13 +1245,8 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
             CleanupParameters params = { this , &lock };
             removeIfTombstone(currentReference.toInteger(), &params);
         } else {
-            Object currentObject(currentBuffer);
-            currentVersion = currentObject.getVersion();
-            // Return a pointer to the buffer in log for the object being
-            // overwritten.
-            if (removedObjBuffer != NULL) {
-                removedObjBuffer->append(&currentBuffer);
-            }
+            currentObject.construct(currentBuffer);
+            currentVersion = currentObject->getVersion();
         }
     }
 
@@ -1232,6 +1255,8 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         if (status != STATUS_OK) {
             if (outVersion != NULL)
                 *outVersion = currentVersion;
+            if (objectUpdate)
+                objectUpdate->completionCallback(status);
             return status;
         }
     }
@@ -1247,13 +1272,18 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     assert(currentVersion == VERSION_NONEXISTENT ||
            newObject.getVersion() > currentVersion);
 
+    // Insert new index entries, if any, before writing object to the log.
+    requestInsertIndexEntries(newObject);
+
+    // If the object being written replaces a previous version of the object
+    // (i.e., this is an overwrite), then construct a tombstone for the
+    // previous version.
     Tub<ObjectTombstone> tombstone;
     if (currentVersion != VERSION_NONEXISTENT &&
-      currentType == LOG_ENTRY_TYPE_OBJ) {
-        Object object(currentBuffer);
-        tombstone.construct(object,
-                            log.getSegmentId(currentReference),
-                            WallTime::secondsTimestamp());
+            currentType == LOG_ENTRY_TYPE_OBJ) {
+        assert(currentObject);
+        tombstone.construct(*currentObject, log.getSegmentId(currentReference),
+                WallTime::secondsTimestamp());
     }
 
     // Create a vector of appends in case we need to write multiple log entries
@@ -1343,6 +1373,17 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
                               recordCount);
     }
 
+    // The return corresponding to this callback is after index entry removal.
+    if (objectUpdate)
+        objectUpdate->completionCallback(STATUS_OK);
+
+    // If this is a overwrite, delete old index entries if any.
+    if (tombstone && currentObject && currentObject->getKeyCount() > 1) {
+        RAMCLOUD_LOG(DEBUG, "Requesting removal of old index entries");
+        requestRemoveIndexEntries(*currentObject);
+    }
+
+    // The callback corresponding to this return is before index entry removal.
     return STATUS_OK;
 }
 
@@ -3292,6 +3333,109 @@ ObjectManager::replace(HashTableBucketLock& lock, Key& key,
 
     objectMap.insert(key.getHash(), reference.toInteger());
     return false;
+}
+
+/**
+ * Helper function used by writeObject() to send requests
+ * for inserting index entries (corresponding to the object being written)
+ * to the index servers.
+ * 
+ * \param object
+ *      Object for which index entries are to be inserted.
+ */
+void
+ObjectManager::requestInsertIndexEntries(Object& object)
+{
+    KeyCount keyCount = object.getKeyCount();
+    if (keyCount <= 1) {
+        RAMCLOUD_LOG(DEBUG, "No index entries to insert; returning");
+        return;
+    }
+
+    uint64_t tableId = object.getTableId();
+    KeyLength primaryKeyLength;
+    const void* primaryKey = object.getKey(0, &primaryKeyLength);
+    KeyHash primaryKeyHash =
+            Key(tableId, primaryKey, primaryKeyLength).getHash();
+
+    Tub<InsertIndexEntryRpc> rpcs[keyCount-1];
+
+    // Send rpcs to all index servers involved.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        KeyLength keyLength;
+        const void* key = object.getKey(keyIndex, &keyLength);
+
+        if (key != NULL && keyLength > 0) {
+            RAMCLOUD_LOG(DEBUG, "Inserting index entry for tableId %lu, "
+                    "keyIndex %u, key %s, primaryKeyHash %lu",
+                    tableId, keyIndex,
+                    string(reinterpret_cast<const char*>(key),
+                            keyLength).c_str(),
+                    primaryKeyHash);
+
+            rpcs[keyIndex-1].construct(
+                    context, tableId, keyIndex, key, keyLength, primaryKeyHash);
+        }
+    }
+
+    // Wait to receive response to all rpcs.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        if (rpcs[keyIndex-1]) {
+            rpcs[keyIndex-1]->wait();
+        }
+    }
+}
+
+/**
+ * Helper function used by writeObject() and removeObject() to send requests
+ * for removing index entries (corresponding to the object being overwritten
+ * or removed) to the index servers.
+ * 
+ * \param object
+ *      Information about the object for which index entries are to be
+ *      deleted.
+ */
+void
+ObjectManager::requestRemoveIndexEntries(Object& object)
+{
+    KeyCount keyCount = object.getKeyCount();
+    if (keyCount <= 1) {
+        RAMCLOUD_LOG(DEBUG, "No index entries to remove; returning");
+        return;
+    }
+
+    uint64_t tableId = object.getTableId();
+    KeyLength primaryKeyLength;
+    const void* primaryKey = object.getKey(0, &primaryKeyLength);
+    KeyHash primaryKeyHash =
+            Key(tableId, primaryKey, primaryKeyLength).getHash();
+
+    Tub<RemoveIndexEntryRpc> rpcs[keyCount-1];
+
+    // Send rpcs to all index servers involved.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        KeyLength keyLength;
+        const void* key = object.getKey(keyIndex, &keyLength);
+
+        if (key != NULL && keyLength > 0) {
+            RAMCLOUD_LOG(DEBUG, "Removing index entry for tableId %lu, "
+                    "keyIndex %u, key %s, primaryKeyHash %lu",
+                    tableId, keyIndex,
+                    string(reinterpret_cast<const char*>(key),
+                            keyLength).c_str(),
+                    primaryKeyHash);
+
+            rpcs[keyIndex-1].construct(
+                    context, tableId, keyIndex, key, keyLength, primaryKeyHash);
+        }
+    }
+
+    // Wait to receive response to all rpcs.
+    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
+        if (rpcs[keyIndex-1]) {
+            rpcs[keyIndex-1]->wait();
+        }
+    }
 }
 
 } //enamespace RAMCloud

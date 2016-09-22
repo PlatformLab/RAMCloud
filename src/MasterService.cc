@@ -737,9 +737,9 @@ MasterService::incrementObject(Key *key,
                     Key::getHash(reqHdr->tableId, pKey, pKeyLen),
                     reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
                     respHdr, sizeof(*respHdr));
-            *status = objectManager.writeObject(newObject, &updateRejectRules,
-                                                newVersion, NULL,
-                                                &rpcResult, rpcResultPtr);
+            *status = objectManager.writeObject(
+                    newObject, &updateRejectRules,
+                    newVersion, NULL, &rpcResult, rpcResultPtr);
         } else {
             *status = objectManager.writeObject(newObject, &updateRejectRules,
                                                 newVersion);
@@ -1384,12 +1384,6 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
     uint32_t numRequests = reqHdr->count;
     uint32_t reqOffset = sizeof32(*reqHdr);
 
-    // Store info about objects being removed so that we can later
-    // remove index entries corresponding to them.
-    // This is space inefficient as it occupies numRequests times size of
-    // Buffer on stack.
-    Buffer objectBuffers[numRequests];
-
     respHdr->count = numRequests;
 
     // Each iteration extracts one request from request rpc, deletes the
@@ -1423,25 +1417,12 @@ MasterService::multiRemove(const WireFormat::MultiOp::Request* reqHdr,
 
         RejectRules rejectRules = currentReq->rejectRules;
         currentResp->status = objectManager.removeObject(
-                key, &rejectRules, &currentResp->version, &objectBuffers[i]);
+                key, &rejectRules, &currentResp->version);
     }
 
     // All of the individual removes were done asynchronously. We must sync
     // them to backups before returning to the caller.
     objectManager.syncChanges();
-
-    // Respond to the client RPC now. Removing old index entries can be
-    // done asynchronously while maintaining strong consistency.
-    rpc->sendReply();
-    // reqHdr, respHdr, and rpc are off-limits now!
-
-    // Delete old index entries if any.
-    for (uint32_t i = 0; i < numRequests; i++) {
-        if (objectBuffers[i].size() > 0) {
-            Object oldObject(objectBuffers[i]);
-            requestRemoveIndexEntries(oldObject);
-        }
-    }
 }
 
 /**
@@ -1500,16 +1481,11 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
         Object object(currentReq->tableId, 0, 0, *(rpc->requestPayload),
                 reqOffset, currentReq->length);
 
-        // Insert new index entries, if any, before writing object (for strong
-        // consistency).
-        requestInsertIndexEntries(object);
-
         // Write the object.
         RejectRules rejectRules = currentReq->rejectRules;
         try {
             currentResp->status = objectManager.writeObject(
-                    object, &rejectRules, &currentResp->version,
-                    &oldObjectBuffers[i]);
+                    object, &rejectRules, &currentResp->version);
         }
         catch (RetryException& e) {
             currentResp->status = STATUS_RETRY;
@@ -1524,20 +1500,6 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
     // All of the individual writes were done asynchronously. Sync the objects
     // now to propagate them in bulk to backups.
     objectManager.syncChanges();
-
-    // Respond to the client RPC now. Removing old index entries can be
-    // done asynchronously while maintaining strong consistency.
-    rpc->sendReply();
-    // reqHdr, respHdr, and rpc are off-limits now!
-
-    // It is possible that some of the writes overwrote pre-existing values.
-    // So, delete old index entries if any.
-    for (uint32_t i = 0; i < numRequests; i++) {
-        if (oldObjectBuffers[i].size() > 0) {
-            Object oldObject(oldObjectBuffers[i]);
-            requestRemoveIndexEntries(oldObject);
-        }
-    }
 }
 
 /**
@@ -1825,7 +1787,7 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
 {
     assert(reqHdr->rpcId > 0);
     UnackedRpcHandle rh(&unackedRpcResults,
-                        reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
+            reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
     if (rh.isDuplicate()) {
         *respHdr = parseRpcResult<WireFormat::Remove>(rh.resultLoc());
         rpc->sendReply();
@@ -1843,10 +1805,6 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
 
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
 
-    // Buffer for object being removed, so we can remove corresponding
-    // index entries later.
-    Buffer oldBuffer;
-
     RejectRules rejectRules = reqHdr->rejectRules;
     uint64_t rpcResultPtr;
     respHdr->common.status = STATUS_OK;
@@ -1856,38 +1814,13 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
             reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
             respHdr, sizeof(*respHdr));
 
+    ObjectRemove objectRemove(this, respHdr, rpc,
+            &rpcResult, &rpcResultPtr, &rh);
+
     // Remove the object.
-    respHdr->common.status = objectManager.removeObject(
-            key, &rejectRules, &respHdr->version, &oldBuffer,
+    objectManager.removeObject(
+            key, &rejectRules, &respHdr->version, &objectRemove,
             &rpcResult, &rpcResultPtr);
-
-    if (respHdr->common.status == STATUS_OK &&
-        respHdr->version != VERSION_NONEXISTENT) {
-        objectManager.syncChanges();
-        rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is
-                                           // written.
-                                           // Otherwise, RPC state should reset
-                                           // especially for STATUS_RETRY.
-    } else if (respHdr->common.status != STATUS_RETRY &&
-               respHdr->common.status != STATUS_UNKNOWN_TABLET) {
-        // Above status requires a client to retry. We should not write
-        // RpcResult record in log for the two status values.
-
-        // Write RpcResult with failed (by RejectRule) status.
-        objectManager.writeRpcResultOnly(&rpcResult, &rpcResultPtr);
-        rh.recordCompletion(rpcResultPtr);
-    }
-
-    // Respond to the client RPC now. Removing old index entries can be
-    // done asynchronously while maintaining strong consistency.
-    rpc->sendReply();
-    // reqHdr, respHdr, and rpc are off-limits now!
-
-    // Remove index entries corresponding to old object, if any.
-    if (oldBuffer.size() > 0) {
-        Object oldObject(oldBuffer);
-        requestRemoveIndexEntries(oldObject);
-    }
 }
 
 /**
@@ -1917,103 +1850,6 @@ MasterService::removeIndexEntry(
     respHdr->common.status = indexletManager.removeEntry(
             reqHdr->tableId, reqHdr->indexId,
             indexKeyStr, reqHdr->indexKeyLength, reqHdr->primaryKeyHash);
-}
-
-/**
- * Helper function used by write methods in this class to send requests
- * for inserting index entries (corresponding to the object being written)
- * to the index servers.
- * \param object
- *      Object for which index entries are to be inserted.
- */
-void
-MasterService::requestInsertIndexEntries(Object& object)
-{
-    KeyCount keyCount = object.getKeyCount();
-    if (keyCount <= 1)
-        return;
-
-    uint64_t tableId = object.getTableId();
-    KeyLength primaryKeyLength;
-    const void* primaryKey = object.getKey(0, &primaryKeyLength);
-    KeyHash primaryKeyHash =
-            Key(tableId, primaryKey, primaryKeyLength).getHash();
-
-    Tub<InsertIndexEntryRpc> rpcs[keyCount-1];
-
-    // Send rpcs to all index servers involved.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        KeyLength keyLength;
-        const void* key = object.getKey(keyIndex, &keyLength);
-
-        if (key != NULL && keyLength > 0) {
-            RAMCLOUD_LOG(DEBUG, "Inserting index entry for tableId %lu, "
-                    "keyIndex %u, key %s, primaryKeyHash %lu",
-                    tableId, keyIndex,
-                    string(reinterpret_cast<const char*>(key),
-                            keyLength).c_str(),
-                    primaryKeyHash);
-
-            rpcs[keyIndex-1].construct(this->context, tableId, keyIndex,
-                    key, keyLength, primaryKeyHash);
-        }
-    }
-
-    // Wait to receive response to all rpcs.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        if (rpcs[keyIndex-1]) {
-            rpcs[keyIndex-1]->wait();
-        }
-    }
-}
-
-/**
- * Helper function used by remove methods in this class to send requests
- * for removing index entries (corresponding to the object being removed)
- * to the index servers.
- * \param object
- *      Information about the object for which index entries are to be
- *      deleted.
- */
-void
-MasterService::requestRemoveIndexEntries(Object& object)
-{
-    KeyCount keyCount = object.getKeyCount();
-    if (keyCount <= 1)
-        return;
-
-    uint64_t tableId = object.getTableId();
-    KeyLength primaryKeyLength;
-    const void* primaryKey = object.getKey(0, &primaryKeyLength);
-    KeyHash primaryKeyHash =
-            Key(tableId, primaryKey, primaryKeyLength).getHash();
-
-    Tub<RemoveIndexEntryRpc> rpcs[keyCount-1];
-
-    // Send rpcs to all index servers involved.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        KeyLength keyLength;
-        const void* key = object.getKey(keyIndex, &keyLength);
-
-        if (key != NULL && keyLength > 0) {
-            RAMCLOUD_LOG(DEBUG, "Removing index entry for tableId %lu, "
-                    "keyIndex %u, key %s, primaryKeyHash %lu",
-                    tableId, keyIndex,
-                    string(reinterpret_cast<const char*>(key),
-                            keyLength).c_str(),
-                    primaryKeyHash);
-
-            rpcs[keyIndex-1].construct(this->context, tableId, keyIndex,
-                    key, keyLength, primaryKeyHash);
-        }
-    }
-
-    // Wait to receive response to all rpcs.
-    for (KeyCount keyIndex = 1; keyIndex <= keyCount - 1; keyIndex++) {
-        if (rpcs[keyIndex-1]) {
-            rpcs[keyIndex-1]->wait();
-        }
-    }
 }
 
 /**
@@ -3101,17 +2937,9 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // This is a temporary object that has an invalid version and timestamp.
     // An object is created here to make sure the object format does not leak
     // outside the object class. ObjectManager will update the version,
-    // timestamp and the checksum
-    // This is also used to get key information to update indexes as needed.
+    // timestamp and the checksum.
     Object object(reqHdr->tableId, 0, 0, *(rpc->requestPayload),
             sizeof32(*reqHdr));
-
-    // Insert new index entries, if any, before writing object.
-    requestInsertIndexEntries(object);
-
-    // Buffer for object being overwritten, so we can remove corresponding
-    // index entries later.
-    Buffer oldObjectBuffer;
 
     // Write the object.
     RejectRules rejectRules = reqHdr->rejectRules;
@@ -3126,36 +2954,159 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
             respHdr, sizeof(*respHdr));
 
-    // Write the object.
-    respHdr->common.status = objectManager.writeObject(
-            object, &rejectRules, &respHdr->version, &oldObjectBuffer,
-            &rpcResult, &rpcResultPtr);
+    ObjectWrite objectWrite(this, respHdr, rpc,
+            &rpcResult, &rpcResultPtr, &rh);
 
-    if (respHdr->common.status == STATUS_OK) {
-        objectManager.syncChanges();
-        rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is
-                                           // written.
-                                           // Otherwise, RPC state should reset
-                                           // especially for STATUS_RETRY.
-    } else if (respHdr->common.status != STATUS_RETRY &&
-               respHdr->common.status != STATUS_UNKNOWN_TABLET) {
+    // Write the object.
+    objectManager.writeObject(
+            object, &rejectRules, &respHdr->version, &objectWrite,
+            &rpcResult, &rpcResultPtr);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+///// ObjectUpdate code.                                                  /////
+///////////////////////////////////////////////////////////////////////////////
+
+/*
+ * Constructor for ObjectRemove objects.
+ * 
+ * \param owner
+ *      The MasterService that controls/uses this object.
+ * \param respHdr
+ *      Header for the response that will be returned to the client.
+ * \param rpc
+ *      Complete information about the remote procedure call.
+ * \param rpcResult
+ *      Record used to ensure linearizability.
+ * \param rpcResultPtr
+ *      Pointer to the RpcResult in log.
+ * \param unackedRpcHandle
+ *      Pointer to the master's UnackedRpcResults instance.  This keeps track
+ *      of data stored to ensure client RPCs are linearizable.
+ */
+MasterService::ObjectRemove::ObjectRemove(
+                RAMCloud::MasterService* owner,
+                RAMCloud::WireFormat::Remove::Response* respHdr,
+                RAMCloud::Service::Rpc* rpc,
+                RpcResult* rpcResult, uint64_t* rpcResultPtr,
+                UnackedRpcHandle* unackedRpcHandle)
+        : owner(owner)
+        , respHdr(respHdr)
+        , rpc(rpc)
+        , rpcResult(rpcResult)
+        , rpcResultPtr(rpcResultPtr)
+        , unackedRpcHandle(unackedRpcHandle)
+{
+    RAMCLOUD_LOG(DEBUG, "Constructing an object of class ObjectRemove");
+}
+
+/*
+ * This method is invoked by ObjectManger when it has effectively
+ * completed the remove operation (except for expensive cleanup (if any),
+ * like removing old index entries).
+ * This method defines the behavior for MasterService at that point,
+ * which includes writing linearizability records (if needed)
+ * and responding to the RPC.
+ * 
+ * \param status
+ *      Status of the removeObject operation. STATUS_OK if the object was
+ *      removed; other status values indicate different failures.
+ */
+void MasterService::ObjectRemove::completionCallback(Status status) {
+    respHdr->common.status = status;
+
+    if (status == STATUS_OK &&
+        respHdr->version != VERSION_NONEXISTENT) {
+
+        owner->objectManager.syncChanges();
+        // Complete only if RpcResult is written.
+        // Otherwise, RPC state should reset, especially for STATUS_RETRY.
+        unackedRpcHandle->recordCompletion(*rpcResultPtr);
+
+    } else if (status != STATUS_RETRY &&
+               status != STATUS_UNKNOWN_TABLET) {
+
         // Above status requires a client to retry. We should not write
         // RpcResult record in log for the two status values.
 
         // Write RpcResult with failed (by RejectRule) status.
-        objectManager.writeRpcResultOnly(&rpcResult, &rpcResultPtr);
-        rh.recordCompletion(rpcResultPtr);
+        owner->objectManager.writeRpcResultOnly(rpcResult, rpcResultPtr);
+        unackedRpcHandle->recordCompletion(*rpcResultPtr);
     }
 
-    // If this is a overwrite, delete old index entries if any (this can
-    // be done asynchronously after sending a reply).
-    if (oldObjectBuffer.size() > 0) {
-        Object oldObject(oldObjectBuffer);
-        if (oldObject.getKeyCount() > 1) {
-            rpc->sendReply();
-            requestRemoveIndexEntries(oldObject);
-        }
+    RAMCLOUD_LOG(DEBUG, "Sending response to remove RPC");
+    rpc->sendReply();
+}
+
+/*
+ * Constructor for ObjectWrite objects.
+ * 
+ * \param owner
+ *      The MasterService that controls/uses this object.
+ * \param respHdr
+ *      Header for the response that will be returned to the client.
+ * \param rpc
+ *      Complete information about the remote procedure call.
+ * \param rpcResult
+ *      Record used to ensure linearizability.
+ * \param rpcResultPtr
+ *      Pointer to the RpcResult in log.
+ * \param unackedRpcHandle
+ *      Pointer to the master's UnackedRpcResults instance.  This keeps track
+ *      of data stored to ensure client RPCs are linearizable.
+ */
+MasterService::ObjectWrite::ObjectWrite(
+                RAMCloud::MasterService* owner,
+                RAMCloud::WireFormat::Write::Response* respHdr,
+                RAMCloud::Service::Rpc* rpc,
+                RpcResult* rpcResult, uint64_t* rpcResultPtr,
+                UnackedRpcHandle* unackedRpcHandle)
+        : ObjectUpdate()
+        , owner(owner)
+        , respHdr(respHdr)
+        , rpc(rpc)
+        , rpcResult(rpcResult)
+        , rpcResultPtr(rpcResultPtr)
+        , unackedRpcHandle(unackedRpcHandle)
+{
+    RAMCLOUD_LOG(DEBUG, "Constructing an object of class ObjectWrite");
+}
+
+/*
+ * This method is invoked by ObjectManger when it has effectively
+ * completed the write operation (except for expensive cleanup (if any),
+ * like removing old index entries).
+ * This method defines the behavior for MasterService at that point,
+ * which includes writing linearizability records (if needed)
+ * and responding to the RPC.
+ * 
+ * \param status
+ *      Status of the removeObject operation. STATUS_OK if the object was
+ *      written; other status values indicate different failures.
+ */
+void MasterService::ObjectWrite::completionCallback(Status status) {
+    respHdr->common.status = status;
+
+    if (status == STATUS_OK) {
+
+        owner->objectManager.syncChanges();
+        // Complete only if RpcResult is written.
+        // Otherwise, RPC state should reset, especially for STATUS_RETRY.
+        unackedRpcHandle->recordCompletion(*rpcResultPtr);
+
+    } else if (status != STATUS_RETRY &&
+               status != STATUS_UNKNOWN_TABLET) {
+
+        // Above status requires a client to retry. We should not write
+        // RpcResult record in log for the two status values.
+
+        // Write RpcResult with failed (by RejectRule) status.
+        owner->objectManager.writeRpcResultOnly(rpcResult, rpcResultPtr);
+        unackedRpcHandle->recordCompletion(*rpcResultPtr);
     }
+
+    RAMCLOUD_LOG(DEBUG, "Sending response to write RPC");
+    rpc->sendReply();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
