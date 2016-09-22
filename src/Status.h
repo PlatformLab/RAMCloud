@@ -144,9 +144,6 @@ typedef enum Status {
     STATUS_TX_OP_AFTER_COMMIT           = 33,
     STATUS_MAX_VALUE                    = 33,
 
-    //TODO(seojin): figure out why compile fails without this..
-    MULTIOP_UNDERWAY                    = 34,
-
     // Note: if you add a new status value you must make the following
     // additional updates:
     // * Modify STATUS_MAX_VALUE to have a value equal to the largest
