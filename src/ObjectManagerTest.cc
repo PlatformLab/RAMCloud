@@ -1718,7 +1718,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
     participants[2] = TxParticipant(key3.getTableId(), key3.getHash(), 12U);
     // create an object just so that buffer will be populated with the key
     // and the value. This keeps the abstractions intact
-    PreparedOp op(TxPrepare::READ, 1, 10, 10,
+    PreparedOp op(TxPrepare::WRITE, 1, 10, 10,
                   key, "value", 5, 0, 0, buffer);
 
     WireFormat::TxPrepare::Vote vote;
@@ -1742,26 +1742,25 @@ TEST_F(ObjectManagerTest, prepareOp) {
     TestLog::Enable _(writeObjectFilter);
 
     // new object
-    // TODO(seojin): Currently we don't support new object transaction.
     tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
                                           TabletManager::NORMAL);
-    Buffer buffer2;
-    Object obj(key, "value", 5, 0, 0, buffer2);
-    EXPECT_EQ(STATUS_OK, objectManager->writeObject(obj, 0, 0));
-    EXPECT_EQ("writeObject: object: 33 bytes, version 1", TestLog::get());
-    EXPECT_EQ("found=true tableId=1 byteCount=33 recordCount=1"
+    EXPECT_EQ(STATUS_OK, objectManager->prepareOp(
+                       op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
+    EXPECT_TRUE(isCommit);
+    EXPECT_EQ("found=true tableId=1 byteCount=113 recordCount=2"
               , verifyMetadata(1));
 
     // object overwrite (tombstone needed)
     TestLog::reset();
     EXPECT_EQ(STATUS_OK, objectManager->prepareOp(
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
-    EXPECT_TRUE(isCommit);
-
-    EXPECT_EQ("found=true tableId=1 byteCount=146 recordCount=3"
+    EXPECT_FALSE(isCommit);
+    EXPECT_EQ("found=true tableId=1 byteCount=161 recordCount=3"
               , verifyMetadata(1));
 
     // Check object is locked.
+    Buffer buffer2;
+    Object obj(key, "value", 5, 0, 0, buffer2);
     EXPECT_EQ(STATUS_RETRY, objectManager->writeObject(obj, 0, 0));
 
     // Verify RetryException  when overwriting with no space
