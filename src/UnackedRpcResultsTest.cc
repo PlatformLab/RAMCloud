@@ -216,7 +216,6 @@ TEST_F(UnackedRpcResultsTest, recordCompletion) {
     results.recordCompletion(10, 1, reinterpret_cast<void*>(1012), true);
 
     EXPECT_EQ(16UL, results.clients[1]->maxRpcId);
-    //TODO(seojin): modify test after fixing RAM-716.
     EXPECT_EQ(50, results.clients[1]->len);
 
     //Resized Client keeps the original data.

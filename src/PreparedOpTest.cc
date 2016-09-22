@@ -92,8 +92,6 @@ class PreparedOpTest : public ::testing::Test {
 
     Tub<PreparedOp> preparedOpFromRpc;
     Tub<PreparedOp> preparedOpFromBuffer;
-    //TODO(seojin): preparedRead, preparedRemove?
-
 
     PreparedOp* records[2];
 

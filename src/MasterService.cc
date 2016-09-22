@@ -2538,7 +2538,6 @@ MasterService::txRequestAbort(
                                 clientLease,
                                 rpcId,
                                 0 /* No info about AckId */);
-        //TODO(seojin): what is best for the temporary leaseTerm?
         UnackedRpcHandle* rh = &rpcHandles.back();
         if (rh->isDuplicate()) {
             respHdr->vote = parsePrepRpcResult(rh->resultLoc());
@@ -2616,7 +2615,6 @@ MasterService::txHintFailed(
  *      its contents (so, for example, status is already zero).
  * \param[out] rpc
  *      Complete information about the remote procedure call.
- *      TODO(seojin): add more doc.
  */
 void
 MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,

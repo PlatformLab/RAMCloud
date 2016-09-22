@@ -69,7 +69,6 @@ RpcResult::RpcResult(uint64_t tableId,
     else
         respLength = respLen;
 
-    //TODO(seojin): is that needed?
     void* retPtr;
     if (respBuffer.peek(respOffset, &retPtr) >= respLength)
         response = static_cast<char*>(retPtr);
