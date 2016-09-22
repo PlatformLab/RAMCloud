@@ -2725,8 +2725,6 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
             }
             tableId = currentReq->tableId;
             rpcId = currentReq->rpcId;
-            //TODO(seojin): apply default rejectRules?
-            //              or is it provided by client?
             rejectRules = currentReq->rejectRules;
 
             buffer.emplaceAppend<KeyCount>((unsigned char) 1);
@@ -2974,7 +2972,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 
 /*
  * Constructor for ObjectRemove objects.
- * 
+ *
  * \param owner
  *      The MasterService that controls/uses this object.
  * \param respHdr
@@ -3012,7 +3010,7 @@ MasterService::ObjectRemove::ObjectRemove(
  * This method defines the behavior for MasterService at that point,
  * which includes writing linearizability records (if needed)
  * and responding to the RPC.
- * 
+ *
  * \param status
  *      Status of the removeObject operation. STATUS_OK if the object was
  *      removed; other status values indicate different failures.
@@ -3045,7 +3043,7 @@ void MasterService::ObjectRemove::completionCallback(Status status) {
 
 /*
  * Constructor for ObjectWrite objects.
- * 
+ *
  * \param owner
  *      The MasterService that controls/uses this object.
  * \param respHdr
@@ -3084,7 +3082,7 @@ MasterService::ObjectWrite::ObjectWrite(
  * This method defines the behavior for MasterService at that point,
  * which includes writing linearizability records (if needed)
  * and responding to the RPC.
- * 
+ *
  * \param status
  *      Status of the removeObject operation. STATUS_OK if the object was
  *      written; other status values indicate different failures.

@@ -416,7 +416,6 @@ AbstractLog::append(const SpinLock::Guard& lock,
         type == LOG_ENTRY_TYPE_PREP ||
         type == LOG_ENTRY_TYPE_TXPLIST)
         totalLiveBytes += lengthWithMetadata;
-    //TODO(seojin): handle RpcResult and PreparedOp.
 
     PerfStats::threadStats.logBytesAppended += lengthWithMetadata;
 
@@ -504,7 +503,6 @@ AbstractLog::append(const SpinLock::Guard& lock,
         type == LOG_ENTRY_TYPE_PREP ||
         type == LOG_ENTRY_TYPE_TXPLIST)
         totalLiveBytes += lengthWithMetadata;
-    //TODO(seojin): handle RpcResult and PreparedOp.
 
     PerfStats::threadStats.logBytesAppended += lengthWithMetadata;
 
