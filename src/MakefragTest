@@ -70,6 +70,7 @@ TESTS_SRCFILES := \
 		  src/ExternalStorageTest.cc \
 		  src/FailSessionTest.cc \
 		  src/FailureDetectorTest.cc \
+		  src/FileLoggerTest.cc \
 		  src/HashTableTest.cc \
 		  src/HistogramTest.cc \
 		  src/IndexKeyTest.cc \

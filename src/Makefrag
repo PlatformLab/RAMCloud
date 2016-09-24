@@ -76,6 +76,7 @@ SHARED_SRCFILES := \
 		   src/ExternalStorage.cc \
 		   src/FailureDetector.cc \
 		   src/FailSession.cc \
+		   src/FileLogger.cc \
 		   src/HashTable.cc \
 		   src/IndexKey.cc \
 		   src/IndexletManager.cc \
