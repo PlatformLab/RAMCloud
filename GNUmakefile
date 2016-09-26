@@ -216,7 +216,6 @@ endif
 COMFLAGS   += -I$(DPDK_DIR)/$(DPDK_TARGET)/include
 DPDK_LIB_DIR := $(DPDK_DIR)/$(DPDK_TARGET)/lib
 LIBS       += -L$(DPDK_LIB_DIR)
-DPDK_RPATH := -Wl,-rpath,$(abspath $(DPDK_LIB_DIR))
 endif
 
 ifeq ($(DPDK_SHARED),yes)
