@@ -20,14 +20,12 @@
 #define __STDC_LIMIT_MACROS
 #include <errno.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <netdb.h>
+#include <unistd.h>
 
-// The pragmas below are no longer needed for the most recent releases of
-// DPDK (as of September 2016); they can be deleted once we're sure no-one
-// needs to use an old release.
 #pragma GCC diagnostic ignored "-Wconversion"
 #include <rte_config.h>
 #include <rte_common.h>
@@ -97,9 +95,9 @@ DpdkDriver::DpdkDriver(Context* context,
     , bandwidthGbps(10)                   // Default bandwidth = 10 gbs
     , queueEstimator(0)
     , maxTransmitQueueSize(0)
+    , fileLogger(NOTICE, "DPDK: ")
 {
     struct ether_addr mac;
-    struct rte_eth_link link;
     uint8_t numPorts;
     struct rte_eth_conf portConf;
     int ret;
@@ -139,11 +137,24 @@ DpdkDriver::DpdkDriver(Context* context,
         maxTransmitQueueSize = 2*maxPacketSize;
     }
 
-    // initialize the DPDK environment with some default parameters
-    const char *argv[] = {"rc", "-c 1", "-n 1"};
-    int argc = static_cast<int>(sizeof(argv) / sizeof(argv[0]));
+    // Initialize the DPDK environment with some default parameters.
+    // --file-prefix is needed to avoid false lock conflicts if servers
+    // run on different nodes, but with a shared NFS home directory.
+    // This is a bug in DPDK as of 9/2016; if the bug gets fixed, then
+    // the --file-prefix argument can be removed.
+    LOG(NOTICE, "Using DPDK version %s", rte_version());
+    char nameBuffer[1000];
+    if (gethostname(nameBuffer, sizeof(nameBuffer)) != 0) {
+        throw DriverException(HERE, format("gethostname failed: %s",
+                strerror(errno)));
+    }
+    nameBuffer[sizeof(nameBuffer)-1] = 0;   // Needed if name was too long.
+    const char *argv[] = {"rc", "--file-prefix", nameBuffer, "-c", "1",
+            "-n", "1", NULL};
+    int argc = static_cast<int>(sizeof(argv) / sizeof(argv[0])) - 1;
 
     ret = rte_eal_init(argc, const_cast<char**>(argv));
+    rte_openlog_stream(fileLogger.getFile());
 
     // create an memory pool for accommodating packet buffers
     packetPool = rte_mempool_create("mbuf_pool", NB_MBUF,
@@ -206,13 +217,11 @@ DpdkDriver::DpdkDriver(Context* context,
     // and activate the port.
     rte_eth_rx_queue_setup(portId, 0, NDESC, 0, NULL, packetPool);
     rte_eth_tx_queue_setup(portId, 0, NDESC, 0, NULL);
-    rte_eth_dev_start(portId);
-
-    // verify that there is an active link on the port
-    rte_eth_link_get(portId, &link);
-    if (!link.link_status) {
-        throw DriverException(HERE,
-                "Failed to detect a link on the Ethernet port");
+    ret = rte_eth_dev_start(portId);
+    if (ret != 0) {
+        throw DriverException(HERE, format(
+                "Couldn't start port %u, error %d (%s)", portId,
+                ret, strerror(ret)));
     }
 
     // set the MTU that the NIC port should support
@@ -220,8 +229,8 @@ DpdkDriver::DpdkDriver(Context* context,
             static_cast<uint32_t>(sizeof(NetUtil::EthernetHeader))));
     if (ret != 0) {
         throw DriverException(HERE, format(
-                "Failed to set the MTU on the Ethernet port: %s",
-                rte_strerror(rte_errno)));
+                "Failed to set the MTU on Ethernet port  %u: %s",
+                portId, rte_strerror(rte_errno)));
     }
 
     // create an in-memory ring, used as a software loopback in order to handle
@@ -262,6 +271,7 @@ DpdkDriver::~DpdkDriver()
     // All we can do at this point is stop the packet reception
     // by disabling the activated NIC port.
     rte_eth_dev_stop(portId);
+    rte_openlog_stream(NULL);
 }
 
 // See docs in Driver class.
@@ -313,6 +323,13 @@ DpdkDriver::receivePackets(int maxPackets,
     for (uint32_t i = 0; i < totalPkts; i++) {
         struct rte_mbuf* m = mPkts[i];
         rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+        if (m->nb_segs > 1) {
+            RAMCLOUD_CLOG(WARNING,
+                    "Can't handle packet with %u segments; discarding",
+                    m->nb_segs);
+            rte_pktmbuf_free(m);
+            continue;
+        }
         PacketBuf* buffer = packetBufPool.construct();
 
         if (!hasHardwareFilter) {
@@ -330,7 +347,7 @@ DpdkDriver::receivePackets(int maxPackets,
         packetBufsUtilized++;
         buffer->sender.construct(
                 rte_pktmbuf_mtod(m, uint8_t *) + sizeof(struct ether_addr));
-        uint32_t length = rte_pktmbuf_data_len(m) -
+        uint32_t length = rte_pktmbuf_pkt_len(m) -
                 sizeof32(NetUtil::EthernetHeader);
         rte_memcpy(buffer->payload,
                 static_cast<char*>(rte_pktmbuf_mtod(m, void *))
@@ -415,7 +432,11 @@ DpdkDriver::sendPacket(const Address *addr,
             localMac->address, 6)) {
         rte_ring_enqueue(loopbackRing, mbuf);
     } else {
-        rte_eth_tx_burst(portId, 0, &mbuf, 1);
+        uint32_t ret = rte_eth_tx_burst(portId, 0, &mbuf, 1);
+        if (ret != 1) {
+            LOG(WARNING, "rte_eth_tx_burst returned %u; packet may be lost?",
+                    ret);
+        }
     }
     timeTrace("outgoing packet enqueued");
     queueEstimator.packetQueued(totalLength, Cycles::rdtsc());

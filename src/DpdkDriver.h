@@ -22,6 +22,7 @@
 
 #include "Dispatch.h"
 #include "Driver.h"
+#include "FileLogger.h"
 #include "MacAddress.h"
 #include "NetUtil.h"
 #include "ObjectPool.h"
@@ -127,6 +128,9 @@ class DpdkDriver : public Driver
     /// Upper limit on how many bytes should be queued for transmission
     /// at any given time.
     uint32_t maxTransmitQueueSize;
+
+    /// Used to redirect log entries from the DPDK log into the RAMCloud log.
+    FileLogger fileLogger;
 
     DISALLOW_COPY_AND_ASSIGN(DpdkDriver);
 };
