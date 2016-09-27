@@ -3859,8 +3859,10 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
     } else {
         LOG(WARNING, "Failed to recover partition for recovery %lu; "
             "aborting recovery on this recovery master", recoveryId);
-        // TODO(seojin): remove unackedRpcResults entries? Maybe it is okay.
-        // TODO(seojin): remove preparedOps entries? It won't be GCed.
+        // For RpcResult entries, leave log cleaner to clean it. No need to
+        // undo modifications on the metadata of UnackedRpcResults.
+
+        // RAM-861  remove preparedOps entries. It won't be GCed.
 
         // If recovery failed then clean up all objects written by
         // recovery before starting to serve requests again.
