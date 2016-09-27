@@ -21,6 +21,7 @@
 #include "Buffer.h"
 #include "Cycles.h"
 #include "EnumerationIterator.h"
+#include "LeaseCommon.h"
 #include "LogIterator.h"
 #include "LogMetadata.h"
 #include "LogProtector.h"
@@ -3896,9 +3897,8 @@ TEST_F(MasterServiceTest, write_rejectRules) {
     EXPECT_EQ(VERSION_NONEXISTENT, version);
 }
 
-TEST_F(MasterServiceTest, write_linearizable_statusOK) {
+TEST_F(MasterServiceTest, write_linearizable_statusOkAndExceptions) {
     // Duplicate conditional write.
-    ObjectBuffer value;
     uint64_t version;
     TestLog::Enable _;
     ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
@@ -3922,8 +3922,7 @@ TEST_F(MasterServiceTest, write_linearizable_statusOK) {
     EXPECT_EQ(2U, respHdr.version);
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
 
-    //TODO(seojin): test lease timed out.
-    // Lease may expired. Contacts coordinator.
+    // Lease may expired. Contacts coordinator and realize it is not expired.
     reqHdr->lease.leaseExpiration = reqHdr->lease.timestamp - 1;
     service->write(reqHdr, &respHdr, &rpc);
     EXPECT_EQ(2U, respHdr.version);
@@ -3933,6 +3932,12 @@ TEST_F(MasterServiceTest, write_linearizable_statusOK) {
     ramcloud->write(1, "key0", 4, "item2", 5, NULL, NULL, false);
     EXPECT_THROW(service->write(reqHdr, &respHdr, &rpc),
                  StaleRpcException);
+
+    // Lease timed out.
+    reqHdr->lease.leaseId = reqHdr->lease.leaseId + 1;
+    reqHdr->lease.timestamp = 1;
+    reqHdr->lease.leaseExpiration = 0;
+    EXPECT_THROW(service->write(reqHdr, &respHdr, &rpc), ExpiredLeaseException);
 }
 
 TEST_F(MasterServiceTest, write_linearizable_rejectRule) {
