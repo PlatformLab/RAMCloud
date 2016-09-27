@@ -374,8 +374,6 @@ TEST_F(PreparedOpTombstoneTest, assembleForLog) {
 }
 
 TEST_F(PreparedOpTombstoneTest, checkIntegrity) {
-    //TODO(seojin): revisit this and check correctness...
-    //              Not sure about testing on record[0].
     for (uint32_t i = 0; i < arrayLength(records); i++) {
         PreparedOpTombstone& record = *records[i];
         Buffer buffer;
