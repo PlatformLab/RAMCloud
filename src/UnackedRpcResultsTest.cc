@@ -420,8 +420,17 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout_basic) {
 
     EXPECT_EQ(ClusterTime(2U), service->clusterClock.getTime());
 
-    //TODO(seojin): test with mock coordinator which returns
-    //              valid lease and we just update leaseExpiration.
+    // Mock coordinator returns valid lease and we just update leaseExpiration
+    // for the locally expired lease (test ClientLease value: {1, 1, 0}.
+    ClientLease realLease = CoordinatorClient::renewLease(&context, 1);
+    EXPECT_NE(0U, realLease.leaseId);
+    EXPECT_LE(2U, realLease.leaseExpiration);
+    clientLease = {realLease.leaseId, 1, 0};
+    results.checkDuplicate(clientLease, 10, 5, &result);
+    results.recordCompletion(realLease.leaseId, 10, &result);
+    EXPECT_EQ(2U, results.clients.size());
+    results.cleanByTimeout();
+    EXPECT_EQ(2U, results.clients.size());
 }
 
 TEST_F(UnackedRpcResultsTest, cleanByTimeout_cleanerDisabled) {
