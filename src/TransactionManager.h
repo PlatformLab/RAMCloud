@@ -71,6 +71,33 @@ class TransactionManager {
     bool isOpDeleted(uint64_t leaseId, uint64_t rpcId);
     void regrabLocksAfterRecovery(ObjectManager* objectManager);
 
+    /**
+     * This class is used to prevent the garbage collection of a (soon to be)
+     * registered transaction.  Creating a Protector object prevents the removal
+     * the specified transaction registration until the Protector is destroyed.
+     * When multiple instances of a Protector are created to protect a single
+     * transaction registration, removal of the transaction will not resume
+     * until all relevant instances of the Protector have been deleted.
+     *
+     * This is used during transaction prepare phase processing to ensure that
+     * registered transactions are not removed before related prepare operations
+     * can be buffered.
+     */
+    class Protector {
+      PUBLIC:
+        Protector(TransactionManager* transactionManager, TransactionId txId);
+        ~Protector();
+
+      PRIVATE:
+        // TransactionManager that owns the transaction's registration.
+        TransactionManager* transactionManager;
+
+        // Id of the transaction that should be protected.
+        TransactionId txId;
+
+        DISALLOW_COPY_AND_ASSIGN(Protector);
+    };
+
   PRIVATE:
     /**
      * Monitor-style lock. Any operation on internal data structure should
@@ -126,6 +153,12 @@ class TransactionManager {
         /// reached a safe point where we can consider this transaction
         /// no longer in progress.
         bool recovered;
+
+        /// Prevents this transaction from being garbage collected.  Used by the
+        /// TransactionManager::Protector during the transaction prepare phase
+        /// to ensure the transaction is not removed before the prepare request
+        /// is processed.
+        int cleaningDisabled;
 
         /// TxHintFailed RPC to be issued asynchronously if the transaction does
         /// not complete within timeoutCycles

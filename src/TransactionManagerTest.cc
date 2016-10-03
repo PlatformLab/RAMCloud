@@ -523,6 +523,48 @@ TEST_F(TransactionManagerTest, markDeletedAndIsDeleted) {
     EXPECT_FALSE(transactionManager.isOpDeleted(2, 9));
 }
 
+TEST_F(TransactionManagerTest, Protector) {
+    TransactionId txId(42, 21);
+    TransactionId otherTxId(2, 1);
+    TransactionManager::Protector* p2;
+    TransactionManager::InProgressTransaction* iptx = NULL;
+    {
+        TransactionManager::Lock lock(transactionManager.mutex);
+        iptx = transactionManager.getTransaction(txId, lock);
+    }
+
+    EXPECT_TRUE(iptx == NULL);
+    {
+        TransactionManager::Protector p0(&transactionManager, txId);
+        // p0 is live
+        {
+            TransactionManager::Lock lock(transactionManager.mutex);
+            iptx = transactionManager.getTransaction(txId, lock);
+        }
+        EXPECT_TRUE(iptx != NULL);
+        EXPECT_EQ(1, iptx->cleaningDisabled);
+        {
+            TransactionManager::Protector p1(&transactionManager, txId);
+            // p0, p1 is live
+            EXPECT_EQ(2, iptx->cleaningDisabled);
+            p2 = new TransactionManager::Protector(&transactionManager, txId);
+            // p0, p1, p2 is live
+            EXPECT_EQ(3, iptx->cleaningDisabled);
+            {
+                TransactionManager::Protector _(&transactionManager, otherTxId);
+                EXPECT_EQ(3, iptx->cleaningDisabled);
+            }
+        }
+        // p0, p2 is live
+        EXPECT_EQ(2, iptx->cleaningDisabled);
+        delete p2;
+        // p0 is live
+        EXPECT_EQ(1, iptx->cleaningDisabled);
+    }
+    // Nothing is live
+    EXPECT_EQ(0, iptx->cleaningDisabled);
+}
+
 TEST_F(TransactionManagerTest, InProgressTransaction_destructor) {
     TransactionManager::Lock lock(transactionManager.mutex);
 
@@ -748,6 +790,13 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
             transactionManager.cleaner.cleaningQueue.push(txId);
         }
         {
+            TransactionId txId(42, 4);
+            transactionManager.getOrAddTransaction(txId, lock);
+            // Disable cleaning on this on.
+            transactionManager.getTransaction(txId, lock)->cleaningDisabled = 1;
+            transactionManager.cleaner.cleaningQueue.push(txId);
+        }
+        {
             TransactionId txId(43, 1);
             transactionManager.getOrAddTransaction(txId, lock);
             transactionManager.getTransaction(txId, lock)->recovered = true;
@@ -755,16 +804,17 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
         }
     }
 
-    EXPECT_EQ(3U, transactionManager.cleaner.cleaningQueue.size());
-    EXPECT_EQ(5U, transactionManager.transactions.size());
-    TestLog::Enable _("~InProgressTransaction");
+    EXPECT_EQ(4U, transactionManager.cleaner.cleaningQueue.size());
+    EXPECT_EQ(6U, transactionManager.transactions.size());
+    TestLog::Enable _("~InProgressTransaction", "handleTimerEvent", NULL);
 
     transactionManager.cleaner.handleTimerEvent();
 
     EXPECT_EQ(0U, transactionManager.cleaner.cleaningQueue.size());
-    EXPECT_EQ(3U, transactionManager.transactions.size());
+    EXPECT_EQ(4U, transactionManager.transactions.size());
     EXPECT_EQ(
             "~InProgressTransaction: InProgressTransaction <42, 1> destroyed | "
+            "handleTimerEvent: Cleaning disabled for TxId: <42,4> | "
             "~InProgressTransaction: InProgressTransaction <43, 1> destroyed",
             TestLog::get());
     {
@@ -775,6 +825,11 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
     {
         TransactionManager::Lock lock(transactionManager.mutex);
         TransactionId txId(42, 3);
+        EXPECT_TRUE(transactionManager.getTransaction(txId, lock) != NULL);
+    }
+    {
+        TransactionManager::Lock lock(transactionManager.mutex);
+        TransactionId txId(42, 4);
         EXPECT_TRUE(transactionManager.getTransaction(txId, lock) != NULL);
     }
 }

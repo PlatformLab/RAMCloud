@@ -404,6 +404,40 @@ TransactionManager::isOpDeleted(uint64_t leaseId,
 }
 
 /**
+ * Construct to prevent a transaction registration from being removed.
+ *
+ * \param transactionManager
+ *      The transactionManager that shouldn't remove any registered
+ *      transactions while this protector exists.
+ * \param txId
+ *      Id of the transaction whose registration shouldn't be removed.
+ */
+TransactionManager::Protector::Protector(
+        TransactionManager* transactionManager,
+        TransactionId txId)
+    : transactionManager(transactionManager)
+    , txId(txId)
+{
+    Lock lock(transactionManager->mutex);
+    InProgressTransaction* transaction =
+            transactionManager->getOrAddTransaction(txId, lock);
+    ++transaction->cleaningDisabled;
+}
+
+/**
+ * Destruct to allow cleaning to resume.
+ */
+TransactionManager::Protector::~Protector()
+{
+    Lock lock(transactionManager->mutex);
+    InProgressTransaction* transaction =
+            transactionManager->getTransaction(txId, lock);
+    assert(transaction != NULL);
+    assert(transaction->cleaningDisabled > 0);
+    --transaction->cleaningDisabled;
+}
+
+/**
  * InProgressTransaction constructor; should also call registerAndStart to
  * complete the registration of the transaction.
  *
@@ -425,6 +459,7 @@ TransactionManager::InProgressTransaction::InProgressTransaction(
     , txId(txId)
     , participantListLogRef()
     , recovered(false)
+    , cleaningDisabled(0)
     , txHintFailedRpc()
     , timeoutCycles(0)
     , rpcResultsProtector(manager->unackedRpcResults, txId.clientLeaseId)
@@ -588,9 +623,16 @@ TransactionManager::TransactionRegistryCleaner::handleTimerEvent()
         TransactionId txId = cleaningQueue.front();
         cleaningQueue.pop();
         InProgressTransaction* iptx = manager->getTransaction(txId, lock);
-        if (iptx != NULL && iptx->isComplete(lock)) {;
-            manager->transactions.erase(txId);
-            delete iptx;
+        if (iptx != NULL) {
+            if (iptx->cleaningDisabled > 0) {
+                TEST_LOG("Cleaning disabled for TxId: <%lu,%lu>",
+                        iptx->txId.clientLeaseId,
+                        iptx->txId.clientTransactionId);
+                continue;
+            } else if (iptx->isComplete(lock)) {;
+                manager->transactions.erase(txId);
+                delete iptx;
+            }
         }
     }
 }
