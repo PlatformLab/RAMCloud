@@ -83,9 +83,9 @@ class TransactionManagerTest : public ::testing::Test {
 };
 
 /**
- * Used for InProgressTransaction unit tests.
+ * Used for TransactionRecord unit tests.
  */
-class InProgressTransactionTest : public ::testing::Test {
+class TransactionRecordTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
     Context context;
@@ -102,7 +102,7 @@ class InProgressTransactionTest : public ::testing::Test {
     uint64_t tableId3;
     TransactionId txId;
 
-    InProgressTransactionTest()
+    TransactionRecordTest()
         : logEnabler()
         , context()
         , cluster(&context)
@@ -150,7 +150,7 @@ class InProgressTransactionTest : public ::testing::Test {
         tableId2 = ramcloud->createTable("table2");
         tableId3 = ramcloud->createTable("table3");
 
-        // Setup InProgress Transactions
+        // Setup Registered Transactions
         WireFormat::TxParticipant participants[3];
         participants[0] = WireFormat::TxParticipant(1, 2, 10);
         participants[1] = WireFormat::TxParticipant(123, 234, 11);
@@ -167,18 +167,18 @@ class InProgressTransactionTest : public ::testing::Test {
                 service1->objectManager.getLog());
     }
 
-    ~InProgressTransactionTest()
+    ~TransactionRecordTest()
     {
         Cycles::mockTscValue = 0;
         WorkerTimer::disableTimerHandlers = false;
     }
 
-    DISALLOW_COPY_AND_ASSIGN(InProgressTransactionTest);
+    DISALLOW_COPY_AND_ASSIGN(TransactionRecordTest);
 };
 
 TEST_F(TransactionManagerTest, registerTransaction_basic) {
     TransactionId txId(42, 9);
-    TransactionManager::InProgressTransaction *iptx;
+    TransactionManager::TransactionRecord *transaction;
     WireFormat::TxParticipant participants[3];
     // construct participant list.
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
@@ -203,13 +203,13 @@ TEST_F(TransactionManagerTest, registerTransaction_basic) {
 
     {
         TransactionManager::Lock lock(transactionManager.mutex);
-        iptx = transactionManager.getTransaction(txId, lock);
-        EXPECT_TRUE(iptx != NULL);
+        transaction = transactionManager.getTransaction(txId, lock);
+        EXPECT_TRUE(transaction != NULL);
     }
 
     Buffer outBuffer;
-    LogEntryType type = objectManager.log.getEntry(iptx->participantListLogRef,
-                                                   outBuffer);
+    LogEntryType type = objectManager.log.getEntry(
+            transaction->participantListLogRef, outBuffer);
     ParticipantList outputParticipantList(outBuffer);
 
     EXPECT_EQ(LOG_ENTRY_TYPE_TXPLIST, type);
@@ -228,17 +228,17 @@ TEST_F(TransactionManagerTest, registerTransaction_basic) {
     EXPECT_EQ(222U, outputParticipantList.participants[2].keyHash);
     EXPECT_EQ(12U, outputParticipantList.participants[2].rpcId);
 
-    EXPECT_EQ(3 * Cycles::fromMicroseconds(50000), iptx->timeoutCycles);
-    EXPECT_EQ(iptx->timeoutCycles + 100, iptx->triggerTime);
-    EXPECT_TRUE(iptx->isRunning());
+    EXPECT_EQ(3 * Cycles::fromMicroseconds(50000), transaction->timeoutCycles);
+    EXPECT_EQ(transaction->timeoutCycles + 100, transaction->triggerTime);
+    EXPECT_TRUE(transaction->isRunning());
 
-    // Stop iptx before it is allowed to actually run.
-    iptx->stop();
+    // Stop transaction before it is allowed to actually run.
+    transaction->stop();
 }
 
 TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
     TransactionId txId(42, 9);
-    TransactionManager::InProgressTransaction *iptx;
+    TransactionManager::TransactionRecord *transaction;
     WireFormat::TxParticipant participants[3];
     // construct participant list.
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
@@ -253,16 +253,17 @@ TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
     // Pre-insert entry
     {
         TransactionManager::Lock lock(transactionManager.mutex);
-        iptx = transactionManager.getOrAddTransaction(txId, lock);
-        iptx->participantListLogRef = AbstractLog::Reference(100);
-        iptx->timeoutCycles = 200;
-        iptx->start(300);
+        transaction = transactionManager.getOrAddTransaction(txId, lock);
+        transaction->participantListLogRef = AbstractLog::Reference(100);
+        transaction->timeoutCycles = 200;
+        transaction->start(300);
     }
 
-    EXPECT_TRUE(iptx->participantListLogRef == AbstractLog::Reference(100));
-    EXPECT_EQ(200UL, iptx->timeoutCycles);
-    EXPECT_EQ(300UL, iptx->triggerTime);
-    EXPECT_TRUE(iptx->isRunning());
+    EXPECT_TRUE(transaction->participantListLogRef
+                == AbstractLog::Reference(100));
+    EXPECT_EQ(200UL, transaction->timeoutCycles);
+    EXPECT_EQ(300UL, transaction->triggerTime);
+    EXPECT_TRUE(transaction->isRunning());
 
     TestLog::Enable _;
     ParticipantList participantListDuplicate(participants, 1, 42, 9);
@@ -274,19 +275,20 @@ TEST_F(TransactionManagerTest, registerTransaction_duplicate) {
     EXPECT_EQ("registerTransaction: Skipping duplicate call to register "
               "transaction <42, 9>",
               TestLog::get());
-    EXPECT_TRUE(iptx->participantListLogRef == AbstractLog::Reference(100));
-    EXPECT_EQ(200UL, iptx->timeoutCycles);
-    EXPECT_EQ(300UL, iptx->triggerTime);
-    EXPECT_TRUE(iptx->isRunning());
+    EXPECT_TRUE(transaction->participantListLogRef
+                == AbstractLog::Reference(100));
+    EXPECT_EQ(200UL, transaction->timeoutCycles);
+    EXPECT_EQ(300UL, transaction->triggerTime);
+    EXPECT_TRUE(transaction->isRunning());
 
-    // Reset iptx state to avoid unintended behavior during destruction
-    iptx->participantListLogRef = AbstractLog::Reference();
-    iptx->stop();
+    // Reset transaction state to avoid unintended behavior during destruction
+    transaction->participantListLogRef = AbstractLog::Reference();
+    transaction->stop();
 }
 
 TEST_F(TransactionManagerTest, registerTransaction_timerStart) {
     TransactionId txId(42, 9);
-    TransactionManager::InProgressTransaction *iptx;
+    TransactionManager::TransactionRecord *transaction;
     WireFormat::TxParticipant participants[3];
     // construct participant list.
     participants[0] = WireFormat::TxParticipant(1, 2, 10);
@@ -304,11 +306,11 @@ TEST_F(TransactionManagerTest, registerTransaction_timerStart) {
 
     {
         TransactionManager::Lock lock(transactionManager.mutex);
-        iptx = transactionManager.getTransaction(txId, lock);
+        transaction = transactionManager.getTransaction(txId, lock);
     }
 
-    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
-    EXPECT_TRUE(iptx->isRunning());
+    EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
+    EXPECT_TRUE(transaction->isRunning());
 
     Cycles::mockTscValue = 200;
 
@@ -316,11 +318,11 @@ TEST_F(TransactionManagerTest, registerTransaction_timerStart) {
                                            inBuffer,
                                            objectManager.getLog());
 
-    EXPECT_EQ(200 + iptx->timeoutCycles, iptx->triggerTime);
-    EXPECT_TRUE(iptx->isRunning());
+    EXPECT_EQ(200 + transaction->timeoutCycles, transaction->triggerTime);
+    EXPECT_TRUE(transaction->isRunning());
 
     // Fake the existance of an async RPC.
-    iptx->txHintFailedRpc.occupied = true;
+    transaction->txHintFailedRpc.occupied = true;
 
     Cycles::mockTscValue = 300;
 
@@ -328,17 +330,17 @@ TEST_F(TransactionManagerTest, registerTransaction_timerStart) {
                                            inBuffer,
                                            objectManager.getLog());
 
-    EXPECT_EQ(200 + iptx->timeoutCycles, iptx->triggerTime);
-    EXPECT_TRUE(iptx->isRunning());
+    EXPECT_EQ(200 + transaction->timeoutCycles, transaction->triggerTime);
+    EXPECT_TRUE(transaction->isRunning());
 
-    // Reset iptx to avoid unexpected behavior.
-    iptx->stop();
-    iptx->txHintFailedRpc.occupied = false;
+    // Reset transaction to avoid unexpected behavior.
+    transaction->stop();
+    transaction->txHintFailedRpc.occupied = false;
 }
 
 TEST_F(TransactionManagerTest, markTransactionRecovered) {
     TransactionId txId(42, 9);
-    TransactionManager::InProgressTransaction *iptx;
+    TransactionManager::TransactionRecord *transaction;
 
     transactionManager.markTransactionRecovered(txId);
 
@@ -349,19 +351,20 @@ TEST_F(TransactionManagerTest, markTransactionRecovered) {
 
     {
         TransactionManager::Lock lock(transactionManager.mutex);
-        iptx = transactionManager.getOrAddTransaction(txId, lock);
+        transaction = transactionManager.getOrAddTransaction(txId, lock);
     }
 
     {
         TransactionManager::Lock lock(transactionManager.mutex);
-        EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == iptx);
+        EXPECT_TRUE(transactionManager.getTransaction(txId, lock)
+                    == transaction);
     }
 
-    EXPECT_FALSE(iptx->recovered);
+    EXPECT_FALSE(transaction->recovered);
 
     transactionManager.markTransactionRecovered(txId);
 
-    EXPECT_TRUE(iptx->recovered);
+    EXPECT_TRUE(transaction->recovered);
 }
 
 TEST_F(TransactionManagerTest, relocateParticipantList_relocate) {
@@ -381,7 +384,7 @@ TEST_F(TransactionManagerTest, relocateParticipantList_relocate) {
                                            pListBuffer,
                                            objectManager.getLog());
 
-    TransactionManager::InProgressTransaction* transaction;
+    TransactionManager::TransactionRecord* transaction;
     {
         TransactionManager::Lock lock(transactionManager.mutex);
         transaction = transactionManager.getTransaction(txId, lock);
@@ -452,7 +455,7 @@ TEST_F(TransactionManagerTest, relocateParticipantList_clean_duplicate) {
                                            pListBuffer,
                                            objectManager.getLog());
 
-    TransactionManager::InProgressTransaction* transaction;
+    TransactionManager::TransactionRecord* transaction;
     {
         TransactionManager::Lock lock(transactionManager.mutex);
         transaction = transactionManager.getTransaction(txId, lock);
@@ -527,52 +530,51 @@ TEST_F(TransactionManagerTest, Protector) {
     TransactionId txId(42, 21);
     TransactionId otherTxId(2, 1);
     TransactionManager::Protector* p2;
-    TransactionManager::InProgressTransaction* iptx = NULL;
+    TransactionManager::TransactionRecord* transaction = NULL;
     {
         TransactionManager::Lock lock(transactionManager.mutex);
-        iptx = transactionManager.getTransaction(txId, lock);
+        transaction = transactionManager.getTransaction(txId, lock);
     }
 
-    EXPECT_TRUE(iptx == NULL);
+    EXPECT_TRUE(transaction == NULL);
     {
         TransactionManager::Protector p0(&transactionManager, txId);
         // p0 is live
         {
             TransactionManager::Lock lock(transactionManager.mutex);
-            iptx = transactionManager.getTransaction(txId, lock);
+            transaction = transactionManager.getTransaction(txId, lock);
         }
-        EXPECT_TRUE(iptx != NULL);
-        EXPECT_EQ(1, iptx->cleaningDisabled);
+        EXPECT_TRUE(transaction != NULL);
+        EXPECT_EQ(1, transaction->cleaningDisabled);
         {
             TransactionManager::Protector p1(&transactionManager, txId);
             // p0, p1 is live
-            EXPECT_EQ(2, iptx->cleaningDisabled);
+            EXPECT_EQ(2, transaction->cleaningDisabled);
             p2 = new TransactionManager::Protector(&transactionManager, txId);
             // p0, p1, p2 is live
-            EXPECT_EQ(3, iptx->cleaningDisabled);
+            EXPECT_EQ(3, transaction->cleaningDisabled);
             {
                 TransactionManager::Protector _(&transactionManager, otherTxId);
-                EXPECT_EQ(3, iptx->cleaningDisabled);
+                EXPECT_EQ(3, transaction->cleaningDisabled);
             }
         }
         // p0, p2 is live
-        EXPECT_EQ(2, iptx->cleaningDisabled);
+        EXPECT_EQ(2, transaction->cleaningDisabled);
         delete p2;
         // p0 is live
-        EXPECT_EQ(1, iptx->cleaningDisabled);
+        EXPECT_EQ(1, transaction->cleaningDisabled);
     }
     // Nothing is live
-    EXPECT_EQ(0, iptx->cleaningDisabled);
+    EXPECT_EQ(0, transaction->cleaningDisabled);
 }
 
-TEST_F(TransactionManagerTest, InProgressTransaction_destructor) {
+TEST_F(TransactionManagerTest, TransactionRecord_destructor) {
     TransactionManager::Lock lock(transactionManager.mutex);
 
     TestLog::Enable _("free");
     {
-        TransactionManager::InProgressTransaction iptx(&transactionManager,
-                                                       TransactionId(42, 31),
-                                                       lock);
+        TransactionManager::TransactionRecord transaction(
+                &transactionManager, TransactionId(42, 31), lock);
     }
     EXPECT_EQ("", TestLog::get());
 
@@ -581,9 +583,8 @@ TEST_F(TransactionManagerTest, InProgressTransaction_destructor) {
     uint64_t original = transactionManager.log->totalLiveBytes;
     Log::Reference logRef;
     {
-        TransactionManager::InProgressTransaction iptx(&transactionManager,
-                                                       TransactionId(42, 31),
-                                                       lock);
+        TransactionManager::TransactionRecord transaction(
+                &transactionManager, TransactionId(42, 31), lock);
         WireFormat::TxParticipant participants[3];
         // construct participant list.
         participants[0] = WireFormat::TxParticipant(1, 2, 10);
@@ -595,7 +596,7 @@ TEST_F(TransactionManagerTest, InProgressTransaction_destructor) {
         transactionManager.log->append(LOG_ENTRY_TYPE_TXPLIST,
                                        assembledParticipantList,
                                        &logRef);
-        iptx.participantListLogRef = logRef;
+        transaction.participantListLogRef = logRef;
         EXPECT_LT(original, transactionManager.log->totalLiveBytes);
     }
     EXPECT_EQ(original, transactionManager.log->totalLiveBytes);
@@ -603,21 +604,21 @@ TEST_F(TransactionManagerTest, InProgressTransaction_destructor) {
               TestLog::get());
 }
 
-TEST_F(InProgressTransactionTest, handleTimerEvent_basic) {
-    TransactionManager::InProgressTransaction* iptx;
+TEST_F(TransactionRecordTest, handleTimerEvent_basic) {
+    TransactionManager::TransactionRecord* transaction;
 
     {
         TransactionManager::Lock lock(service1->transactionManager.mutex);
-        iptx = service1->transactionManager.getTransaction(txId, lock);
+        transaction = service1->transactionManager.getTransaction(txId, lock);
     }
 
     TestLog::Enable _("handleTimerEvent");
-    EXPECT_FALSE(iptx->txHintFailedRpc);
-    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
-    iptx->handleTimerEvent();
-    iptx->stop();
-    EXPECT_FALSE(iptx->txHintFailedRpc);
-    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    EXPECT_FALSE(transaction->txHintFailedRpc);
+    EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
+    transaction->handleTimerEvent();
+    transaction->stop();
+    EXPECT_FALSE(transaction->txHintFailedRpc);
+    EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
     EXPECT_EQ("handleTimerEvent: TxID <42,9> sending TxHintFailed RPC to owner "
                     "of tableId 1 and keyHash 2. | "
               "handleTimerEvent: TxID <42,9> received ack for TxHintFailed "
@@ -625,67 +626,67 @@ TEST_F(InProgressTransactionTest, handleTimerEvent_basic) {
               TestLog::get());
 }
 
-TEST_F(InProgressTransactionTest, handleTimerEvent_done) {
-    TransactionManager::InProgressTransaction* iptx;
+TEST_F(TransactionRecordTest, handleTimerEvent_done) {
+    TransactionManager::TransactionRecord* transaction;
 
     {
         TransactionManager::Lock lock(service1->transactionManager.mutex);
-        iptx = service1->transactionManager.getTransaction(txId, lock);
+        transaction = service1->transactionManager.getTransaction(txId, lock);
     }
 
-    iptx->recovered = true;
-    iptx->preparedOpCount = 1;
+    transaction->recovered = true;
+    transaction->preparedOpCount = 1;
 
-    TestLog::Enable _("handleTimerEvent", "isComplete");
-    EXPECT_FALSE(iptx->txHintFailedRpc);
-    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
-    iptx->handleTimerEvent();
+    TestLog::Enable _("handleTimerEvent", "inProgress");
+    EXPECT_FALSE(transaction->txHintFailedRpc);
+    EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
+    transaction->handleTimerEvent();
     {
         TransactionManager::Lock lock(service1->transactionManager.mutex);
-        iptx = service1->transactionManager.getTransaction(txId, lock);
+        transaction = service1->transactionManager.getTransaction(txId, lock);
     }
-    EXPECT_FALSE(iptx == NULL);
-    EXPECT_FALSE(iptx->txHintFailedRpc);
-    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    EXPECT_FALSE(transaction == NULL);
+    EXPECT_FALSE(transaction->txHintFailedRpc);
+    EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
     EXPECT_EQ("handleTimerEvent: TxID <42,9> sending TxHintFailed RPC to owner "
                     "of tableId 1 and keyHash 2. | "
               "handleTimerEvent: TxID <42,9> received ack for TxHintFailed "
                     "RPC; will wait for next timeout.",
               TestLog::get());
 
-    iptx->preparedOpCount = 0;
+    transaction->preparedOpCount = 0;
 
     TestLog::reset();
 
-    iptx->handleTimerEvent();
+    transaction->handleTimerEvent();
 
-    EXPECT_EQ("isComplete: TxID <42,9> has completed; "
+    EXPECT_EQ("inProgress: TxID <42,9> has completed; "
               "Recovered with all prepared operations decided.",
               TestLog::get());
     EXPECT_EQ(1U, service1->transactionManager.cleaner.cleaningQueue.size());
     EXPECT_EQ(txId, service1->transactionManager.cleaner.cleaningQueue.front());
 
-    // Stop iptx before it is allowed to actually run.
-    iptx->stop();
+    // Stop transaction before it is allowed to actually run.
+    transaction->stop();
 }
 
-TEST_F(InProgressTransactionTest, handleTimerEvent_error_no_participantList) {
-    TransactionManager::InProgressTransaction* iptx;
+TEST_F(TransactionRecordTest, handleTimerEvent_error_no_participantList) {
+    TransactionManager::TransactionRecord* transaction;
 
     {
         TransactionManager::Lock lock(service1->transactionManager.mutex);
-        iptx = service1->transactionManager.getTransaction(txId, lock);
+        transaction = service1->transactionManager.getTransaction(txId, lock);
     }
 
-    iptx->participantListLogRef = AbstractLog::Reference();
+    transaction->participantListLogRef = AbstractLog::Reference();
 
     TestLog::Enable _("handleTimerEvent");
-    EXPECT_FALSE(iptx->txHintFailedRpc);
-    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
-    iptx->handleTimerEvent();
-    iptx->stop();
-    EXPECT_FALSE(iptx->txHintFailedRpc);
-    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
+    EXPECT_FALSE(transaction->txHintFailedRpc);
+    EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
+    transaction->handleTimerEvent();
+    transaction->stop();
+    EXPECT_FALSE(transaction->txHintFailedRpc);
+    EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
     EXPECT_EQ("handleTimerEvent: Unable to initiate transaction recovery for "
             "TxId (42, 9) because participant list record could not be found; "
             "BUG; transaction timeout timer may have started without first "
@@ -693,67 +694,67 @@ TEST_F(InProgressTransactionTest, handleTimerEvent_error_no_participantList) {
             TestLog::get());
 }
 
-TEST_F(InProgressTransactionTest, handleTimerEvent_waiting) {
-    TransactionManager::InProgressTransaction* iptx;
+TEST_F(TransactionRecordTest, handleTimerEvent_waiting) {
+    TransactionManager::TransactionRecord* transaction;
 
     {
         TransactionManager::Lock lock(service1->transactionManager.mutex);
         TransactionId txId(42, 9);
-        iptx = service1->transactionManager.getTransaction(txId, lock);
+        transaction = service1->transactionManager.getTransaction(txId, lock);
     }
 
-    iptx->stop();
+    transaction->stop();
 
     Buffer pListBuf;
-    service1->transactionManager.log->getEntry(iptx->participantListLogRef,
-                                               pListBuf);
+    service1->transactionManager.log->getEntry(
+            transaction->participantListLogRef, pListBuf);
     ParticipantList participantList(pListBuf);
-    iptx->txHintFailedRpc.construct(iptx->manager->context,
+    transaction->txHintFailedRpc.construct(transaction->manager->context,
                                     participantList.getTableId(),
                                     participantList.getKeyHash(),
-                                    iptx->txId.clientLeaseId,
-                                    iptx->txId.clientTransactionId,
+                                    transaction->txId.clientLeaseId,
+                                    transaction->txId.clientTransactionId,
                                     participantList.getParticipantCount(),
                                     participantList.participants);
-    iptx->txHintFailedRpc->state = RpcWrapper::IN_PROGRESS;
+    transaction->txHintFailedRpc->state = RpcWrapper::IN_PROGRESS;
 
     TestLog::Enable _("handleTimerEvent");
-    EXPECT_TRUE(iptx->txHintFailedRpc);
-    EXPECT_EQ(100 + iptx->timeoutCycles, iptx->triggerTime);
-    iptx->handleTimerEvent();
-    iptx->stop();
-    EXPECT_TRUE(iptx->txHintFailedRpc);
-    EXPECT_EQ(0U, iptx->triggerTime);
+    EXPECT_TRUE(transaction->txHintFailedRpc);
+    EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
+    transaction->handleTimerEvent();
+    transaction->stop();
+    EXPECT_TRUE(transaction->txHintFailedRpc);
+    EXPECT_EQ(0U, transaction->triggerTime);
     EXPECT_EQ("handleTimerEvent: TxID <42,9> waiting for TxHintFailed RPC ack.",
               TestLog::get());
 }
 
-TEST_F(InProgressTransactionTest, isComplete) {
-    TestLog::Enable _("isComplete");
-    TransactionManager::InProgressTransaction* iptx;
+TEST_F(TransactionRecordTest, inProgress) {
+    TestLog::Enable _("inProgress");
+    TransactionManager::TransactionRecord* transaction;
     TransactionManager::Lock lock(service1->transactionManager.mutex);
-    iptx = service1->transactionManager.getTransaction(txId, lock);
+    transaction = service1->transactionManager.getTransaction(txId, lock);
 
-    iptx->preparedOpCount = 1;
+    transaction->preparedOpCount = 1;
 
     TestLog::reset();
-    EXPECT_FALSE(iptx->isComplete(lock));
+    EXPECT_TRUE(transaction->inProgress(lock));
     EXPECT_EQ("", TestLog::get());
 
-    iptx->preparedOpCount = 0;
+    transaction->preparedOpCount = 0;
 
     TestLog::reset();
-    EXPECT_FALSE(iptx->isComplete(lock));
+    EXPECT_TRUE(transaction->inProgress(lock));
     EXPECT_EQ("", TestLog::get());
 
-    iptx->recovered = true;
+    transaction->recovered = true;
 
     TestLog::reset();
-    EXPECT_TRUE(iptx->isComplete(lock));
-    EXPECT_EQ("isComplete: TxID <42,9> has completed; Recovered with all "
+    EXPECT_FALSE(transaction->inProgress(lock));
+    EXPECT_EQ("inProgress: TxID <42,9> has completed; Recovered with all "
             "prepared operations decided.", TestLog::get());
 
-    iptx->recovered = false;
+    transaction->recovered = false;
     {
         UnackedRpcResults::Lock lock(service1->unackedRpcResults.mutex);
         UnackedRpcResults::Client* client =
@@ -763,8 +764,8 @@ TEST_F(InProgressTransactionTest, isComplete) {
     EXPECT_TRUE(service1->unackedRpcResults.isRpcAcked(42, 9));
 
     TestLog::reset();
-    EXPECT_TRUE(iptx->isComplete(lock));
-    EXPECT_EQ("isComplete: TxID <42,9> has completed; Acked by Client.",
+    EXPECT_FALSE(transaction->inProgress(lock));
+    EXPECT_EQ("inProgress: TxID <42,9> has completed; Acked by Client.",
             TestLog::get());
 }
 
@@ -806,16 +807,16 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
 
     EXPECT_EQ(4U, transactionManager.cleaner.cleaningQueue.size());
     EXPECT_EQ(6U, transactionManager.transactions.size());
-    TestLog::Enable _("~InProgressTransaction", "handleTimerEvent", NULL);
+    TestLog::Enable _("~TransactionRecord", "handleTimerEvent", NULL);
 
     transactionManager.cleaner.handleTimerEvent();
 
     EXPECT_EQ(0U, transactionManager.cleaner.cleaningQueue.size());
     EXPECT_EQ(4U, transactionManager.transactions.size());
     EXPECT_EQ(
-            "~InProgressTransaction: InProgressTransaction <42, 1> destroyed | "
+            "~TransactionRecord: TransactionRecord <42, 1> destroyed | "
             "handleTimerEvent: Cleaning disabled for TxId: <42,4> | "
-            "~InProgressTransaction: InProgressTransaction <43, 1> destroyed",
+            "~TransactionRecord: TransactionRecord <43, 1> destroyed",
             TestLog::get());
     {
         TransactionManager::Lock lock(transactionManager.mutex);
@@ -852,7 +853,7 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_queueForCleaning) {
 TEST_F(TransactionManagerTest, PreparedItem_constructor_destructor) {
     TransactionManager::Lock lock(transactionManager.mutex);
     TransactionId txId(42, 1);
-    TransactionManager::InProgressTransaction* transaction =
+    TransactionManager::TransactionRecord* transaction =
             transactionManager.getOrAddTransaction(txId, lock);
 
     EXPECT_EQ(0, transaction->preparedOpCount);
@@ -872,25 +873,25 @@ TEST_F(TransactionManagerTest, getTransaction) {
     TransactionManager::Lock lock(transactionManager.mutex);
     TransactionId txId(42, 1);
     EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == NULL);
-    TransactionManager::InProgressTransaction* iptx =
-            new TransactionManager::InProgressTransaction(&transactionManager,
+    TransactionManager::TransactionRecord* transaction =
+            new TransactionManager::TransactionRecord(&transactionManager,
                                                           txId,
                                                           lock);
-    transactionManager.transactions[txId] = iptx;
-    EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == iptx);
+    transactionManager.transactions[txId] = transaction;
+    EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == transaction);
 }
 
 TEST_F(TransactionManagerTest, getOrAddTransaction) {
     TransactionManager::Lock lock(transactionManager.mutex);
     TransactionId txId(42, 1);
     EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == NULL);
-    TransactionManager::InProgressTransaction* iptx =
+    TransactionManager::TransactionRecord* transaction =
             transactionManager.getOrAddTransaction(txId, lock);
     TransactionManager::TransactionRegistry::iterator it =
             transactionManager.transactions.find(txId);
     EXPECT_TRUE(it != transactionManager.transactions.end());
-    EXPECT_TRUE(it->second = iptx);
-    EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == iptx);
+    EXPECT_TRUE(it->second = transaction);
+    EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == transaction);
 }
 
 } // namespace RAMCloud

@@ -3137,7 +3137,7 @@ TEST_F(ObjectManagerTest, relocateTxDecisionRecord_cleanRecord) {
 }
 
 TEST_F(ObjectManagerTest, relocateTxParticipantList) {
-    TransactionManager::InProgressTransaction* iptx;
+    TransactionManager::TransactionRecord* transaction;
 
     WireFormat::TxParticipant participants[3];
     // construct participant list.
@@ -3157,11 +3157,11 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList) {
 
     {
         TransactionManager::Lock lock(transactionManager->mutex);
-        iptx = transactionManager->getTransaction(txId, lock);
-        EXPECT_TRUE(iptx != NULL);
+        transaction = transactionManager->getTransaction(txId, lock);
+        EXPECT_TRUE(transaction != NULL);
     }
 
-    Log::Reference oldPListReference = iptx->participantListLogRef;
+    Log::Reference oldPListReference = transaction->participantListLogRef;
 
     LogEntryType oldTypeInLog;
     Buffer oldBufferInLog;
@@ -3177,7 +3177,7 @@ TEST_F(ObjectManagerTest, relocateTxParticipantList) {
                            oldPListReference,
                            relocator);
     EXPECT_TRUE(relocator.didAppend);
-    EXPECT_NE(oldPListReference, iptx->participantListLogRef);
+    EXPECT_NE(oldPListReference, transaction->participantListLogRef);
 }
 
 TEST_F(ObjectManagerTest, replace_noPriorVersion) {

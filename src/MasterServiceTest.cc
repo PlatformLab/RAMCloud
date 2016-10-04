@@ -2684,24 +2684,25 @@ TEST_F(MasterServiceTest, txDecision_markRecovered) {
     reqBuffer.appendExternal(&reqHdr, sizeof32(reqHdr));
     reqBuffer.appendExternal(participants, sizeof32(TxParticipant) * 3);
 
-    TransactionManager::InProgressTransaction* iptx;
+    TransactionManager::TransactionRecord* transaction;
     {
         TransactionManager::Lock lock(service->transactionManager.mutex);
         TransactionId txId(1, 10);
-        iptx = service->transactionManager.getOrAddTransaction(txId, lock);
+        transaction = service->transactionManager.getOrAddTransaction(txId,
+                                                                      lock);
     }
 
-    EXPECT_FALSE(iptx->recovered);
+    EXPECT_FALSE(transaction->recovered);
 
     service->txDecision(&reqHdr, &respHdr, &rpc);
 
-    EXPECT_FALSE(iptx->recovered);
+    EXPECT_FALSE(transaction->recovered);
 
     reqHdr.recovered = true;
 
     service->txDecision(&reqHdr, &respHdr, &rpc);
 
-    EXPECT_TRUE(iptx->recovered);
+    EXPECT_TRUE(transaction->recovered);
 }
 
 TEST_F(MasterServiceTest, txDecision_commit) {

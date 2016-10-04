@@ -127,23 +127,23 @@ class TransactionManager {
      * To accomplish this, the TransactionManager will maintain an instance of
      * this object as long as the transaction is not known to have completed.
      */
-    class InProgressTransaction : public WorkerTimer {
+    class TransactionRecord : public WorkerTimer {
         friend class TransactionManager;
       PUBLIC:
-        InProgressTransaction(TransactionManager* manager,
-                              TransactionId txId,
-                              TransactionManager::Lock& lock);
-        ~InProgressTransaction();
+        TransactionRecord(TransactionManager* manager,
+                          TransactionId txId,
+                          TransactionManager::Lock& lock);
+        ~TransactionRecord();
         virtual void handleTimerEvent();
-        bool isComplete(TransactionManager::Lock& lock);
+        bool inProgress(TransactionManager::Lock& lock);
 
         /// Number of prepared but uncommitted ops for this transaction.
         int preparedOpCount;
       PRIVATE:
-        /// The manager that owns this transaction progress record.
+        /// The manager that owns this transaction record.
         TransactionManager* manager;
 
-        /// Id of the transaction that is in progress.
+        /// Id of the transaction that is being processed.
         TransactionId txId;
 
         /// Log Reference to the ParticipantList of this transaction
@@ -173,15 +173,15 @@ class TransactionManager {
         /// longer considered in progress.
         UnackedRpcResults::SingleClientProtector rpcResultsProtector;
 
-        DISALLOW_COPY_AND_ASSIGN(InProgressTransaction);
+        DISALLOW_COPY_AND_ASSIGN(TransactionRecord);
     };
 
     /**
      * Helper class responsible from removing completed transactions from the
      * TransactionManager::TransactionRegistry and deleting the corresponding
-     * InProgressTransaction object.
+     * TransactionRecord object.
      *
-     * Used to avoid having InProgressTransaction delete themselves in their
+     * Used to avoid having TransactionRecord delete themselves in their
      * timer handler which results in deadlock (see WorkerTimer::stopInternal).
      */
     class TransactionRegistryCleaner : public WorkerTimer {
@@ -200,7 +200,7 @@ class TransactionManager {
         /// TransactionManager who's registry is to be cleaned.
         TransactionManager* manager;
 
-        /// Queue of InProgressTransactions that will be cleaned if they
+        /// Queue of TransactionRecords that will be cleaned if they
         /// are considered "complete."
         std::queue<TransactionId, std::deque<TransactionId> > cleaningQueue;
 
@@ -225,7 +225,7 @@ class TransactionManager {
          *      Log reference to PreparedOp in the log.
          */
         PreparedItem(
-                InProgressTransaction* transaction,
+                TransactionRecord* transaction,
                 uint64_t newOpPtr)
             :  transaction(transaction)
             , newOpPtr(newOpPtr)
@@ -244,7 +244,7 @@ class TransactionManager {
         }
 
         /// The transaction to which this prepared op belongs.
-        InProgressTransaction* transaction;
+        TransactionRecord* transaction;
 
         /// Log reference to PreparedOp in the log.
         uint64_t newOpPtr;
@@ -257,12 +257,12 @@ class TransactionManager {
     typedef std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> ItemsMap;
 
     /**
-     * Keeps track of all currently in-progress transactions; this map should
+     * Keeps track of all currently registered transactions; this map should
      * contain a single entry for each transaction currently being processed by
      * this master.
      */
     typedef std::unordered_map<TransactionId,
-                               InProgressTransaction*,
+                               TransactionRecord*,
                                TransactionId::Hasher> TransactionRegistry;
     TransactionRegistry transactions;
 
@@ -271,9 +271,9 @@ class TransactionManager {
      */
     TransactionRegistryCleaner cleaner;
 
-    InProgressTransaction* getTransaction(TransactionId txId,
+    TransactionRecord* getTransaction(TransactionId txId,
                                                     Lock& lock);
-    InProgressTransaction* getOrAddTransaction(TransactionId txId,
+    TransactionRecord* getOrAddTransaction(TransactionId txId,
                                                     Lock& lock);
 
     DISALLOW_COPY_AND_ASSIGN(TransactionManager);
