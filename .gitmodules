@@ -5,3 +5,6 @@
 [submodule "logcabin"]
 	path = logcabin
 	url = https://github.com/logcabin/logcabin.git
+[submodule "Arachne"]
+	path = Arachne
+	url = git@hq6.me:hq6/Arachne
