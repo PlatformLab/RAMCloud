@@ -176,6 +176,13 @@ class TransactionRecordTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(TransactionRecordTest);
 };
 
+TEST_F(TransactionManagerTest, startCleaner) {
+    EXPECT_FALSE(transactionManager.cleaner.isRunning());
+    transactionManager.startCleaner();
+    EXPECT_TRUE(transactionManager.cleaner.isRunning());
+    transactionManager.cleaner.stop();
+}
+
 TEST_F(TransactionManagerTest, registerTransaction_basic) {
     TransactionId txId(42, 9);
     TransactionManager::TransactionRecord *transaction;
@@ -636,10 +643,12 @@ TEST_F(TransactionRecordTest, handleTimerEvent_done) {
 
     transaction->recovered = true;
     transaction->preparedOpCount = 1;
+    service1->transactionManager.cleaner.stop();
 
     TestLog::Enable _("handleTimerEvent", "inProgress");
     EXPECT_FALSE(transaction->txHintFailedRpc);
     EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
+    EXPECT_FALSE(service1->transactionManager.cleaner.isRunning());
     transaction->handleTimerEvent();
     {
         TransactionManager::Lock lock(service1->transactionManager.mutex);
@@ -653,6 +662,7 @@ TEST_F(TransactionRecordTest, handleTimerEvent_done) {
               "handleTimerEvent: TxID <42,9> received ack for TxHintFailed "
                     "RPC; will wait for next timeout.",
               TestLog::get());
+    EXPECT_FALSE(service1->transactionManager.cleaner.isRunning());
 
     transaction->preparedOpCount = 0;
 
@@ -663,11 +673,11 @@ TEST_F(TransactionRecordTest, handleTimerEvent_done) {
     EXPECT_EQ("inProgress: TxID <42,9> has completed; "
               "Recovered with all prepared operations decided.",
               TestLog::get());
-    EXPECT_EQ(1U, service1->transactionManager.cleaner.cleaningQueue.size());
-    EXPECT_EQ(txId, service1->transactionManager.cleaner.cleaningQueue.front());
+    EXPECT_TRUE(service1->transactionManager.cleaner.isRunning());
 
     // Stop transaction before it is allowed to actually run.
     transaction->stop();
+    service1->transactionManager.cleaner.stop();
 }
 
 TEST_F(TransactionRecordTest, handleTimerEvent_error_no_participantList) {
@@ -709,13 +719,14 @@ TEST_F(TransactionRecordTest, handleTimerEvent_waiting) {
     service1->transactionManager.log->getEntry(
             transaction->participantListLogRef, pListBuf);
     ParticipantList participantList(pListBuf);
-    transaction->txHintFailedRpc.construct(transaction->manager->context,
-                                    participantList.getTableId(),
-                                    participantList.getKeyHash(),
-                                    transaction->txId.clientLeaseId,
-                                    transaction->txId.clientTransactionId,
-                                    participantList.getParticipantCount(),
-                                    participantList.participants);
+    transaction->txHintFailedRpc.construct(
+            transaction->transactionManager->context,
+            participantList.getTableId(),
+            participantList.getKeyHash(),
+            transaction->txId.clientLeaseId,
+            transaction->txId.clientTransactionId,
+            participantList.getParticipantCount(),
+            participantList.participants);
     transaction->txHintFailedRpc->state = RpcWrapper::IN_PROGRESS;
 
     TestLog::Enable _("handleTimerEvent");
@@ -776,46 +787,39 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
             TransactionId txId(42, 1);
             transactionManager.getOrAddTransaction(txId, lock);
             transactionManager.getTransaction(txId, lock)->recovered = true;
-            transactionManager.cleaner.cleaningQueue.push(txId);
         }
         {
             TransactionId txId(42, 2);
             transactionManager.getOrAddTransaction(txId, lock);
             transactionManager.getTransaction(txId, lock)->recovered = true;
-            // Don't clean this one.
+            // Disable cleaning on this on.
+            transactionManager.getTransaction(txId, lock)->cleaningDisabled = 1;
         }
         {
             TransactionId txId(42, 3);
             transactionManager.getOrAddTransaction(txId, lock);
             // This one's not complete
-            transactionManager.cleaner.cleaningQueue.push(txId);
-        }
-        {
-            TransactionId txId(42, 4);
-            transactionManager.getOrAddTransaction(txId, lock);
-            // Disable cleaning on this on.
-            transactionManager.getTransaction(txId, lock)->cleaningDisabled = 1;
-            transactionManager.cleaner.cleaningQueue.push(txId);
         }
         {
             TransactionId txId(43, 1);
             transactionManager.getOrAddTransaction(txId, lock);
             transactionManager.getTransaction(txId, lock)->recovered = true;
-            transactionManager.cleaner.cleaningQueue.push(txId);
         }
     }
 
-    EXPECT_EQ(4U, transactionManager.cleaner.cleaningQueue.size());
-    EXPECT_EQ(6U, transactionManager.transactions.size());
+    EXPECT_EQ(5U, transactionManager.transactions.size());
+    EXPECT_EQ(5U, transactionManager.transactionIds.size());
+    EXPECT_FALSE(transactionManager.cleaner.isRunning());
     TestLog::Enable _("~TransactionRecord", "handleTimerEvent", NULL);
 
     transactionManager.cleaner.handleTimerEvent();
 
-    EXPECT_EQ(0U, transactionManager.cleaner.cleaningQueue.size());
-    EXPECT_EQ(4U, transactionManager.transactions.size());
+    EXPECT_EQ(3U, transactionManager.transactions.size());
+    EXPECT_EQ(3U, transactionManager.transactionIds.size());
+    EXPECT_TRUE(transactionManager.cleaner.isRunning());
     EXPECT_EQ(
             "~TransactionRecord: TransactionRecord <42, 1> destroyed | "
-            "handleTimerEvent: Cleaning disabled for TxId: <42,4> | "
+            "handleTimerEvent: Cleaning disabled for TxId: <42, 2> | "
             "~TransactionRecord: TransactionRecord <43, 1> destroyed",
             TestLog::get());
     {
@@ -828,26 +832,8 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
         TransactionId txId(42, 3);
         EXPECT_TRUE(transactionManager.getTransaction(txId, lock) != NULL);
     }
-    {
-        TransactionManager::Lock lock(transactionManager.mutex);
-        TransactionId txId(42, 4);
-        EXPECT_TRUE(transactionManager.getTransaction(txId, lock) != NULL);
-    }
-}
 
-TEST_F(TransactionManagerTest, TransactionRegistryCleaner_queueForCleaning) {
-    TransactionManager::Lock lock(transactionManager.mutex);
-    TransactionId txId(42, 1);
-    transactionManager.getOrAddTransaction(txId, lock);
-
-    EXPECT_FALSE(transactionManager.cleaner.isRunning());
-    EXPECT_EQ(0U, transactionManager.cleaner.cleaningQueue.size());
-
-    transactionManager.cleaner.queueForCleaning(txId, lock);
-
-    EXPECT_TRUE(transactionManager.cleaner.isRunning());
-    EXPECT_EQ(1U, transactionManager.cleaner.cleaningQueue.size());
-    EXPECT_EQ(txId, transactionManager.cleaner.cleaningQueue.front());
+    transactionManager.cleaner.stop();
 }
 
 TEST_F(TransactionManagerTest, PreparedItem_constructor_destructor) {
@@ -892,6 +878,7 @@ TEST_F(TransactionManagerTest, getOrAddTransaction) {
     EXPECT_TRUE(it != transactionManager.transactions.end());
     EXPECT_TRUE(it->second = transaction);
     EXPECT_TRUE(transactionManager.getTransaction(txId, lock) == transaction);
+    EXPECT_TRUE(transactionManager.transactionIds.back() == txId);
 }
 
 } // namespace RAMCloud

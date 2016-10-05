@@ -19,6 +19,7 @@
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "ObjectManager.h"
+#include "Unlock.h"
 
 namespace RAMCloud {
 
@@ -46,6 +47,7 @@ TransactionManager::TransactionManager(Context* context,
     , unackedRpcResults(unackedRpcResults)
     , items()
     , transactions()
+    , transactionIds()
     , cleaner(this)
 {
 }
@@ -68,6 +70,16 @@ TransactionManager::~TransactionManager()
         TransactionRecord* tx = it->second;
         delete tx;
     }
+}
+
+/**
+ * Start the background transaction registry cleaning timer.
+ */
+void
+TransactionManager::startCleaner()
+{
+    Lock lock(mutex);
+    cleaner.start(0);
 }
 
 /**
@@ -127,7 +139,7 @@ TransactionManager::registerTransaction(ParticipantList& participantList,
     // of time we expect to this transaction takes to complete.
     if (transaction->timeoutCycles == 0) {
         transaction->timeoutCycles = participantList.getParticipantCount() *
-                                     Cycles::fromMicroseconds(50000);
+                                     Cycles::fromMicroseconds(BASE_TIMEOUT_US);
     }
 
     // Start the timer to give the client some time before the timeout triggers.
@@ -440,7 +452,7 @@ TransactionManager::Protector::~Protector()
 /**
  * Construct a TransactionRecord.
  *
- * \param manager
+ * \param transactionManager
  *      The TransactionManager that holds this TransactionRecord.
  * \param txId
  *      The id of the transaction to be tracked.
@@ -449,19 +461,20 @@ TransactionManager::Protector::~Protector()
  *      Not actually used by the method.
  */
 TransactionManager::TransactionRecord::TransactionRecord(
-        TransactionManager* manager,
+        TransactionManager* transactionManager,
         TransactionId txId,
         TransactionManager::Lock& lock)
-    : WorkerTimer(manager->context->dispatch)
+    : WorkerTimer(transactionManager->context->dispatch)
     , preparedOpCount(0)
-    , manager(manager)
+    , transactionManager(transactionManager)
     , txId(txId)
     , participantListLogRef()
     , recovered(false)
     , cleaningDisabled(0)
     , txHintFailedRpc()
     , timeoutCycles(0)
-    , rpcResultsProtector(manager->unackedRpcResults, txId.clientLeaseId)
+    , rpcResultsProtector(transactionManager->unackedRpcResults,
+                          txId.clientLeaseId)
 {
 }
 
@@ -472,13 +485,13 @@ TransactionManager::TransactionRecord::TransactionRecord(
  */
 TransactionManager::TransactionRecord::~TransactionRecord()
 {
-    assert(!manager->mutex.try_lock());
+    assert(!transactionManager->mutex.try_lock());
 
     TEST_LOG("TransactionRecord <%lu, %lu> destroyed",
             txId.clientLeaseId, txId.clientTransactionId);
 
     if (participantListLogRef != AbstractLog::Reference()) {
-        manager->log->free(participantListLogRef);
+        transactionManager->log->free(participantListLogRef);
     }
 }
 
@@ -501,14 +514,15 @@ TransactionManager::TransactionRecord::handleTimerEvent()
     // the same server.  Furthermore, the transaction manager lock is held
     // during this call so delaying this method would prevent other transactions
     // from being processed.
-    TransactionManager::Lock lock(manager->mutex);
+    TransactionManager::Lock lock(transactionManager->mutex);
 
     // Transaction is no longer in progress; schedule to clean this object.
     if (!inProgress(lock)) {
         // This code used to call delete on itself directly which could result
         // in deadlock (see WorkerTimer::stopInternal).  The async cleaner was
         // added to avoid this deadlock.
-        manager->cleaner.queueForCleaning(txId, lock);
+        transactionManager->cleaner.start(0);
+        this->start(Cycles::rdtsc() + timeoutCycles);
         return;
     }
     // Else, the transaction did not complete before it timed-out.
@@ -529,7 +543,7 @@ TransactionManager::TransactionRecord::handleTimerEvent()
         }
 
         Buffer pListBuf;
-        manager->log->getEntry(participantListLogRef, pListBuf);
+        transactionManager->log->getEntry(participantListLogRef, pListBuf);
         ParticipantList participantList(pListBuf);
         assert(txId == participantList.getTransactionId());
 
@@ -538,7 +552,7 @@ TransactionManager::TransactionRecord::handleTimerEvent()
                 txId.clientLeaseId, txId.clientTransactionId,
                 participantList.getTableId(), participantList.getKeyHash());
 
-        txHintFailedRpc.construct(manager->context,
+        txHintFailedRpc.construct(transactionManager->context,
                 participantList.getTableId(),
                 participantList.getKeyHash(),
                 txId.clientLeaseId,
@@ -585,7 +599,7 @@ bool
 TransactionManager::TransactionRecord::inProgress(
         TransactionManager::Lock& lock)
 {
-    if (manager->unackedRpcResults->isRpcAcked(txId.clientLeaseId,
+    if (transactionManager->unackedRpcResults->isRpcAcked(txId.clientLeaseId,
                                                txId.clientTransactionId)) {
         // If the client acked, all decisions should have been received.  If
         // not all decision were received, there is a serious bug.
@@ -612,50 +626,40 @@ TransactionManager::TransactionRecord::inProgress(
 }
 
 /**
- * This method is called when there are transactions that need to be cleaned
- * from the TransactionRegistry and deleted.
+ * This method is called periodically in order to garbage collect the unused
+ * TransactionRecords from the TransactionRegistry.
  */
 void
 TransactionManager::TransactionRegistryCleaner::handleTimerEvent()
 {
-    TransactionManager::Lock lock(manager->mutex);
-    while (!cleaningQueue.empty()) {
-        TransactionId txId = cleaningQueue.front();
-        cleaningQueue.pop();
-        TransactionRecord* transaction = manager->getTransaction(txId, lock);
-        if (transaction != NULL) {
-            if (transaction->cleaningDisabled > 0) {
-                TEST_LOG("Cleaning disabled for TxId: <%lu,%lu>",
-                        transaction->txId.clientLeaseId,
-                        transaction->txId.clientTransactionId);
-                continue;
-            } else if (!transaction->inProgress(lock)) {;
-                manager->transactions.erase(txId);
-                delete transaction;
-            }
+    TransactionManager::Lock lock(transactionManager->mutex);
+    this->start(Cycles::rdtsc() +
+                Cycles::fromMicroseconds(BASE_TIMEOUT_US * 100));
+
+    TransactionManager::TransactionRegisteryList::iterator it =
+            transactionManager->transactionIds.begin();
+    while (it != transactionManager->transactionIds.end()) {
+        TransactionId txId = *it;
+        TransactionRecord* transaction =
+                transactionManager->getTransaction(txId, lock);
+        assert(transaction != NULL);
+        if (transaction->cleaningDisabled > 0) {
+            TEST_LOG("Cleaning disabled for TxId: <%lu, %lu>",
+                    transaction->txId.clientLeaseId,
+                    transaction->txId.clientTransactionId);
+            ++it;
+        } else if (!transaction->inProgress(lock)) {;
+            transactionManager->transactions.erase(txId);
+            delete transaction;
+            it = transactionManager->transactionIds.erase(it);
+        } else {
+            ++it;
+        }
+        // Unlock monitor to allow interleaving of other transaction operations.
+        {
+            Unlock<std::mutex> yield(transactionManager->mutex);
         }
     }
-}
-
-/**
- * Request that an TransactionRecord to be eventually deleted and dropped
- * from the TransactionRegistry.  The transaction will only be dropped if the
- * transaction "isComplete" when the cleaner get to it.  Otherwise, the cleaning
- * request will be a noop.
- *
- * \param txId
- *      Id of the TransactionRecord that should be eventually cleaned.
- * \param lock
- *      Used to ensure that caller has acquired TransactionManager::mutex.
- *      Not actually used by the method.
- */
-void
-TransactionManager::TransactionRegistryCleaner::queueForCleaning(
-        TransactionId txId,
-        TransactionManager::Lock& lock)
-{
-    cleaningQueue.push(txId);
-    this->start(0);
 }
 
 /**
@@ -703,6 +707,7 @@ TransactionManager::getOrAddTransaction(TransactionId txId, Lock& lock)
     } else {
         transaction = new TransactionRecord(this, txId, lock);
         transactions[txId] = transaction;
+        transactionIds.emplace_back(txId);
     }
     assert(transaction != NULL);
     return transaction;

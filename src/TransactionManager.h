@@ -51,6 +51,9 @@ class TransactionManager {
                        UnackedRpcResults* unackedRpcResults);
     ~TransactionManager();
 
+    // Setup methods
+    void startCleaner();
+
     // Transaction methods
     Status registerTransaction(ParticipantList& participantList,
                                Buffer& assembledParticipantList,
@@ -117,6 +120,10 @@ class TransactionManager {
     /// kept around to ensure recovery works correctly.
     UnackedRpcResults* unackedRpcResults;
 
+    /// An in-progress transaction will timeout only after a minimum of the
+    /// base timeout.
+    static const uint64_t BASE_TIMEOUT_US = 50000;
+
     /**
      * Represents a transaction that is in the process of being committed on
      * this master.  An instance of this object is used to ensure that:
@@ -130,7 +137,7 @@ class TransactionManager {
     class TransactionRecord : public WorkerTimer {
         friend class TransactionManager;
       PUBLIC:
-        TransactionRecord(TransactionManager* manager,
+        TransactionRecord(TransactionManager* transactionManager,
                           TransactionId txId,
                           TransactionManager::Lock& lock);
         ~TransactionRecord();
@@ -141,7 +148,7 @@ class TransactionManager {
         int preparedOpCount;
       PRIVATE:
         /// The manager that owns this transaction record.
-        TransactionManager* manager;
+        TransactionManager* transactionManager;
 
         /// Id of the transaction that is being processed.
         TransactionId txId;
@@ -187,22 +194,17 @@ class TransactionManager {
     class TransactionRegistryCleaner : public WorkerTimer {
       PUBLIC:
         /// TransactionRegistryCleaner constructor.
-        explicit TransactionRegistryCleaner(TransactionManager* manager)
-            : WorkerTimer(manager->context->dispatch)
-            , manager(manager)
-            , cleaningQueue()
+        explicit TransactionRegistryCleaner(
+                TransactionManager* transactionManager)
+            : WorkerTimer(transactionManager->context->dispatch)
+            , transactionManager(transactionManager)
         {}
 
         virtual void handleTimerEvent();
-        void queueForCleaning(TransactionId txId,
-                              TransactionManager::Lock& lock);
+
       PRIVATE:
         /// TransactionManager who's registry is to be cleaned.
-        TransactionManager* manager;
-
-        /// Queue of TransactionRecords that will be cleaned if they
-        /// are considered "complete."
-        std::queue<TransactionId, std::deque<TransactionId> > cleaningQueue;
+        TransactionManager* transactionManager;
 
         DISALLOW_COPY_AND_ASSIGN(TransactionRegistryCleaner);
     };
@@ -267,14 +269,21 @@ class TransactionManager {
     TransactionRegistry transactions;
 
     /**
+     * Identifiers of the transactions currently in the registry.  Every entry
+     * in the TransactionRegistry must also have a corresponding entry in this
+     * TransactionRegisteryList.  Used to make the TransactionRegistryCleaner
+     * more efficient.
+     */
+    typedef std::list<TransactionId> TransactionRegisteryList;
+    TransactionRegisteryList transactionIds;
+
+    /**
      * Cleans complete transactions from the TransactionRegistry.
      */
     TransactionRegistryCleaner cleaner;
 
-    TransactionRecord* getTransaction(TransactionId txId,
-                                                    Lock& lock);
-    TransactionRecord* getOrAddTransaction(TransactionId txId,
-                                                    Lock& lock);
+    TransactionRecord* getTransaction(TransactionId txId, Lock& lock);
+    TransactionRecord* getOrAddTransaction(TransactionId txId, Lock& lock);
 
     DISALLOW_COPY_AND_ASSIGN(TransactionManager);
 };

@@ -796,6 +796,7 @@ MasterService::initOnceEnlisted()
     objectManager.initOnceEnlisted();
 
     unackedRpcResults.startCleaner();
+    transactionManager.startCleaner();
 
     initCalled = true;
 }
