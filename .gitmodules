@@ -8,3 +8,6 @@
 [submodule "Arachne"]
 	path = Arachne
 	url = git@hq6.me:hq6/Arachne
+[submodule "PerfUtils"]
+	path = PerfUtils
+	url = git@github.com:PlatformLab/PerfUtils.git
