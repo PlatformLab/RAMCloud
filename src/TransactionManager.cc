@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <vector>
+
 #include "TransactionManager.h"
 
 #include "LeaseCommon.h"
@@ -37,14 +39,19 @@ namespace RAMCloud {
  * \param unackedRpcResults
  *      Pointer to the UnackedRpcResults which holds the transaction prepare
  *      votes that need to be kept around to ensure recovery works correctly.
+ * \param tabletManager
+ *      Pointer to the TabletManager which holds information about which keys
+ *      belong on this TransactionManager's master server.
  */
 TransactionManager::TransactionManager(Context* context,
                                        AbstractLog* log,
-                                       UnackedRpcResults* unackedRpcResults)
+                                       UnackedRpcResults* unackedRpcResults,
+                                       TabletManager* tabletManager)
     : mutex()
     , context(context)
     , log(log)
     , unackedRpcResults(unackedRpcResults)
+    , tabletManager(tabletManager)
     , items()
     , transactions()
     , transactionIds()
@@ -599,30 +606,48 @@ bool
 TransactionManager::TransactionRecord::inProgress(
         TransactionManager::Lock& lock)
 {
-    if (transactionManager->unackedRpcResults->isRpcAcked(txId.clientLeaseId,
-                                               txId.clientTransactionId)) {
-        // If the client acked, all decisions should have been received.  If
-        // not all decision were received, there is a serious bug.
-        if (expect_false(preparedOpCount > 0)) {
-            DIE("TxID <%lu,%lu> was acked but not all prepared operations "
-                    "have been decided.",
-                txId.clientLeaseId, txId.clientTransactionId);
+    if (preparedOpCount <= 0) {
+        // Acknowledged with no outstanding operations
+        if (transactionManager->unackedRpcResults->isRpcAcked(
+                txId.clientLeaseId, txId.clientTransactionId)) {
+            TEST_LOG("TxID <%lu,%lu> has completed; Acked by Client.",
+                     txId.clientLeaseId, txId.clientTransactionId);
+            return false;
         }
-        TEST_LOG("TxID <%lu,%lu> has completed; Acked by Client.",
-                txId.clientLeaseId, txId.clientTransactionId);
-        return false;
-    } else if (recovered && preparedOpCount <= 0) {
-        // Note: it's possible to be "recovered" but not have all prepared
-        // operations decided if the recovery manager sent a decision rpc to
-        // this master but did not send a decision of all the operations.  If
-        // this is the case, the transaction is not yet complete.
-        TEST_LOG("TxID <%lu,%lu> has completed; Recovered with all prepared "
-                "operations decided.",
-                txId.clientLeaseId, txId.clientTransactionId);
-        return false;
-    } else {
-        return true;
+        // Recovered with no outstanding operations
+        if (recovered) {
+            TEST_LOG("TxID <%lu,%lu> has completed; Recovered with all prepared"
+                     " operations decided.",
+                     txId.clientLeaseId, txId.clientTransactionId);
+            return false;
+        }
+        // No participant list, must not have been registered.
+        if (participantListLogRef == AbstractLog::Reference()) {
+            TEST_LOG("TxID <%lu,%lu> has no participant list; must not have"
+                     "registered.",
+                     txId.clientLeaseId, txId.clientTransactionId);
+            return false;
+        }
+        // No longer a participant.
+        std::vector< pair<uint64_t, uint64_t> > tableIdsAndKeyHashes;
+        Buffer pListBuf;
+        transactionManager->log->getEntry(participantListLogRef, pListBuf);
+        ParticipantList participantList(pListBuf);
+        uint32_t participantCount = participantList.getParticipantCount();
+        tableIdsAndKeyHashes.reserve(participantCount);
+        for (uint32_t i = 0; i < participantCount; ++i) {
+            uint64_t tableId = participantList.participants[i].tableId;
+            uint64_t keyHash = participantList.participants[i].keyHash;
+            tableIdsAndKeyHashes.emplace_back(tableId, keyHash);
+        }
+        if (!transactionManager->tabletManager->checkAtLeastOneTablet(
+                tableIdsAndKeyHashes)) {
+            TEST_LOG("TxID <%lu,%lu> does not belong to this master.",
+                    txId.clientLeaseId, txId.clientTransactionId);
+            return false;
+        }
     }
+    return true;
 }
 
 /**

@@ -92,7 +92,10 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
     , clusterClock()
     , clientLeaseValidator(context, &clusterClock)
     , unackedRpcResults(context, &objectManager, &clientLeaseValidator)
-    , transactionManager(context, objectManager.getLog(), &unackedRpcResults)
+    , transactionManager(context,
+                         objectManager.getLog(),
+                         &unackedRpcResults,
+                         &tabletManager)
     , disableCount(0)
     , initCalled(false)
     , logEverSynced(false)

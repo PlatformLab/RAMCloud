@@ -80,6 +80,18 @@ TEST_F(TabletManagerTest, checkAndIncrementReadCount) {
             tm.toString());
 }
 
+TEST_F(TabletManagerTest, checkAtLeastOneTablet) {
+    vector< pair<uint64_t, uint64_t> > tableIdsAndKeyHashes = { {1, 5},
+                                                                {2, 5},
+                                                                {2, 15} };
+
+    EXPECT_FALSE(tm.checkAtLeastOneTablet(tableIdsAndKeyHashes));
+
+    tm.addTablet(2, 0, 10, TabletManager::LOCKED_FOR_MIGRATION);
+
+    EXPECT_TRUE(tm.checkAtLeastOneTablet(tableIdsAndKeyHashes));
+}
+
 TEST_F(TabletManagerTest, getTablet_byKey) {
     Key key(5, "hi", 2);
     EXPECT_FALSE(tm.getTablet(key));

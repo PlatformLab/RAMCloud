@@ -33,6 +33,7 @@
 #include "WireFormat.h"
 #include "WorkerTimer.h"
 #include "Unlock.h"
+#include "TabletManager.h"
 
 namespace RAMCloud {
 
@@ -48,7 +49,8 @@ class TransactionManager {
   PUBLIC:
     TransactionManager(Context* context,
                        AbstractLog* log,
-                       UnackedRpcResults* unackedRpcResults);
+                       UnackedRpcResults* unackedRpcResults,
+                       TabletManager* tabletManager);
     ~TransactionManager();
 
     // Setup methods
@@ -119,6 +121,11 @@ class TransactionManager {
     /// UnackedRpcResults holds the transaction prepare votes that need to be
     /// kept around to ensure recovery works correctly.
     UnackedRpcResults* unackedRpcResults;
+
+    /// TabletManager allows the TransactionManager to check whether the master
+    /// owns a particular object.  It uses this information to check whether
+    /// the TransactionManager still owns any part of a particular transaction.
+    TabletManager* tabletManager;
 
     /// An in-progress transaction will timeout only after a minimum of the
     /// base timeout.

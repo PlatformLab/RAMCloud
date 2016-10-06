@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <vector>
+
 #include "TestUtil.h"
 
 #include "AbstractLog.h"
@@ -64,7 +66,8 @@ class TransactionManagerTest : public ::testing::Test {
         , unackedRpcResults(&context, NULL, &clientLeaseValidator)
         , transactionManager(&context,
                              objectManager.getLog(),
-                             &unackedRpcResults)
+                             &unackedRpcResults,
+                             &tabletManager)
         , txRecoveryManager(&context)
         , tabletManager()
     {
@@ -101,6 +104,7 @@ class TransactionRecordTest : public ::testing::Test {
     uint64_t tableId2;
     uint64_t tableId3;
     TransactionId txId;
+    TransactionManager::TransactionRecord* transaction;
 
     TransactionRecordTest()
         : logEnabler()
@@ -117,6 +121,7 @@ class TransactionRecordTest : public ::testing::Test {
         , tableId2(-2)
         , tableId3(-3)
         , txId(42, 9)
+        , transaction(NULL)
     {
         Cycles::mockTscValue = 100;
         WorkerTimer::disableTimerHandlers = true;
@@ -152,9 +157,9 @@ class TransactionRecordTest : public ::testing::Test {
 
         // Setup Registered Transactions
         WireFormat::TxParticipant participants[3];
-        participants[0] = WireFormat::TxParticipant(1, 2, 10);
-        participants[1] = WireFormat::TxParticipant(123, 234, 11);
-        participants[2] = WireFormat::TxParticipant(111, 222, 12);
+        participants[0] = WireFormat::TxParticipant(tableId1, 2, 10);
+        participants[1] = WireFormat::TxParticipant(tableId2, 234, 11);
+        participants[2] = WireFormat::TxParticipant(tableId3, 222, 12);
         ParticipantList participantList(participants, 3, 42, 9);
         Buffer buffer;
         participantList.assembleForLog(buffer);
@@ -165,6 +170,11 @@ class TransactionRecordTest : public ::testing::Test {
                 participantList,
                 buffer,
                 service1->objectManager.getLog());
+        {
+            TransactionManager::Lock lock(service1->transactionManager.mutex);
+            transaction = service1->transactionManager.getTransaction(txId,
+                                                                      lock);
+        }
     }
 
     ~TransactionRecordTest()
@@ -612,13 +622,6 @@ TEST_F(TransactionManagerTest, TransactionRecord_destructor) {
 }
 
 TEST_F(TransactionRecordTest, handleTimerEvent_basic) {
-    TransactionManager::TransactionRecord* transaction;
-
-    {
-        TransactionManager::Lock lock(service1->transactionManager.mutex);
-        transaction = service1->transactionManager.getTransaction(txId, lock);
-    }
-
     TestLog::Enable _("handleTimerEvent");
     EXPECT_FALSE(transaction->txHintFailedRpc);
     EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
@@ -634,13 +637,6 @@ TEST_F(TransactionRecordTest, handleTimerEvent_basic) {
 }
 
 TEST_F(TransactionRecordTest, handleTimerEvent_done) {
-    TransactionManager::TransactionRecord* transaction;
-
-    {
-        TransactionManager::Lock lock(service1->transactionManager.mutex);
-        transaction = service1->transactionManager.getTransaction(txId, lock);
-    }
-
     transaction->recovered = true;
     transaction->preparedOpCount = 1;
     service1->transactionManager.cleaner.stop();
@@ -681,14 +677,8 @@ TEST_F(TransactionRecordTest, handleTimerEvent_done) {
 }
 
 TEST_F(TransactionRecordTest, handleTimerEvent_error_no_participantList) {
-    TransactionManager::TransactionRecord* transaction;
-
-    {
-        TransactionManager::Lock lock(service1->transactionManager.mutex);
-        transaction = service1->transactionManager.getTransaction(txId, lock);
-    }
-
     transaction->participantListLogRef = AbstractLog::Reference();
+    transaction->preparedOpCount = 1;
 
     TestLog::Enable _("handleTimerEvent");
     EXPECT_FALSE(transaction->txHintFailedRpc);
@@ -705,14 +695,6 @@ TEST_F(TransactionRecordTest, handleTimerEvent_error_no_participantList) {
 }
 
 TEST_F(TransactionRecordTest, handleTimerEvent_waiting) {
-    TransactionManager::TransactionRecord* transaction;
-
-    {
-        TransactionManager::Lock lock(service1->transactionManager.mutex);
-        TransactionId txId(42, 9);
-        transaction = service1->transactionManager.getTransaction(txId, lock);
-    }
-
     transaction->stop();
 
     Buffer pListBuf;
@@ -740,32 +722,10 @@ TEST_F(TransactionRecordTest, handleTimerEvent_waiting) {
               TestLog::get());
 }
 
-TEST_F(TransactionRecordTest, inProgress) {
+TEST_F(TransactionRecordTest, inProgress_acked) {
     TestLog::Enable _("inProgress");
-    TransactionManager::TransactionRecord* transaction;
     TransactionManager::Lock lock(service1->transactionManager.mutex);
-    transaction = service1->transactionManager.getTransaction(txId, lock);
 
-    transaction->preparedOpCount = 1;
-
-    TestLog::reset();
-    EXPECT_TRUE(transaction->inProgress(lock));
-    EXPECT_EQ("", TestLog::get());
-
-    transaction->preparedOpCount = 0;
-
-    TestLog::reset();
-    EXPECT_TRUE(transaction->inProgress(lock));
-    EXPECT_EQ("", TestLog::get());
-
-    transaction->recovered = true;
-
-    TestLog::reset();
-    EXPECT_FALSE(transaction->inProgress(lock));
-    EXPECT_EQ("inProgress: TxID <42,9> has completed; Recovered with all "
-            "prepared operations decided.", TestLog::get());
-
-    transaction->recovered = false;
     {
         UnackedRpcResults::Lock lock(service1->unackedRpcResults.mutex);
         UnackedRpcResults::Client* client =
@@ -774,10 +734,60 @@ TEST_F(TransactionRecordTest, inProgress) {
     }
     EXPECT_TRUE(service1->unackedRpcResults.isRpcAcked(42, 9));
 
-    TestLog::reset();
     EXPECT_FALSE(transaction->inProgress(lock));
     EXPECT_EQ("inProgress: TxID <42,9> has completed; Acked by Client.",
-            TestLog::get());
+              TestLog::get());
+}
+
+TEST_F(TransactionRecordTest, inProgress_recovered) {
+    TestLog::Enable _("inProgress");
+    TransactionManager::Lock lock(service1->transactionManager.mutex);
+
+    transaction->recovered = true;
+
+    EXPECT_FALSE(transaction->inProgress(lock));
+    EXPECT_EQ("inProgress: TxID <42,9> has completed; Recovered with all "
+              "prepared operations decided.", TestLog::get());
+}
+
+TEST_F(TransactionRecordTest, inProgress_noParticipantList) {
+    TestLog::Enable _("inProgress");
+    TransactionManager::Lock lock(service1->transactionManager.mutex);
+
+    transaction->participantListLogRef = AbstractLog::Reference();
+
+    EXPECT_FALSE(transaction->inProgress(lock));
+    EXPECT_EQ("inProgress: TxID <42,9> has no participant list; must not have"
+              "registered.", TestLog::get());
+}
+
+TEST_F(TransactionRecordTest, inProgress_noLongerAParticipant) {
+    TestLog::Enable _("inProgress");
+    ramcloud->dropTable("table1");
+
+    TransactionManager::Lock lock(service1->transactionManager.mutex);
+
+    EXPECT_FALSE(transaction->inProgress(lock));
+    EXPECT_EQ("inProgress: TxID <42,9> does not belong to this master.",
+              TestLog::get());
+}
+
+TEST_F(TransactionRecordTest, inProgress_stillInProgress) {
+    TestLog::Enable _("inProgress");
+    TransactionManager::Lock lock(service1->transactionManager.mutex);
+
+    EXPECT_TRUE(transaction->inProgress(lock));
+    EXPECT_EQ("", TestLog::get());
+}
+
+TEST_F(TransactionRecordTest, inProgress_positivePreparedOpCount) {
+    TestLog::Enable _("inProgress");
+    TransactionManager::Lock lock(service1->transactionManager.mutex);
+
+    transaction->preparedOpCount = 1;
+
+    EXPECT_TRUE(transaction->inProgress(lock));
+    EXPECT_EQ("", TestLog::get());
 }
 
 TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
@@ -799,6 +809,7 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
             TransactionId txId(42, 3);
             transactionManager.getOrAddTransaction(txId, lock);
             // This one's not complete
+            transactionManager.getTransaction(txId, lock)->preparedOpCount = 1;
         }
         {
             TransactionId txId(43, 1);
