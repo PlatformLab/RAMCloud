@@ -33,6 +33,7 @@
 #include "WireFormat.h"
 #include "WorkerTimer.h"
 #include "Unlock.h"
+#include "TabletManager.h"
 
 namespace RAMCloud {
 
@@ -48,8 +49,12 @@ class TransactionManager {
   PUBLIC:
     TransactionManager(Context* context,
                        AbstractLog* log,
-                       UnackedRpcResults* unackedRpcResults);
+                       UnackedRpcResults* unackedRpcResults,
+                       TabletManager* tabletManager);
     ~TransactionManager();
+
+    // Setup methods
+    void startCleaner();
 
     // Transaction methods
     Status registerTransaction(ParticipantList& participantList,
@@ -70,6 +75,34 @@ class TransactionManager {
     void markOpDeleted(uint64_t leaseId, uint64_t rpcId);
     bool isOpDeleted(uint64_t leaseId, uint64_t rpcId);
     void regrabLocksAfterRecovery(ObjectManager* objectManager);
+    void removeOrphanedOps();
+
+    /**
+     * This class is used to prevent the garbage collection of a (soon to be)
+     * registered transaction.  Creating a Protector object prevents the removal
+     * the specified transaction registration until the Protector is destroyed.
+     * When multiple instances of a Protector are created to protect a single
+     * transaction registration, removal of the transaction will not resume
+     * until all relevant instances of the Protector have been deleted.
+     *
+     * This is used during transaction prepare phase processing to ensure that
+     * registered transactions are not removed before related prepare operations
+     * can be buffered.
+     */
+    class Protector {
+      PUBLIC:
+        Protector(TransactionManager* transactionManager, TransactionId txId);
+        ~Protector();
+
+      PRIVATE:
+        // TransactionManager that owns the transaction's registration.
+        TransactionManager* transactionManager;
+
+        // Id of the transaction that should be protected.
+        TransactionId txId;
+
+        DISALLOW_COPY_AND_ASSIGN(Protector);
+    };
 
   PRIVATE:
     /**
@@ -90,6 +123,15 @@ class TransactionManager {
     /// kept around to ensure recovery works correctly.
     UnackedRpcResults* unackedRpcResults;
 
+    /// TabletManager allows the TransactionManager to check whether the master
+    /// owns a particular object.  It uses this information to check whether
+    /// the TransactionManager still owns any part of a particular transaction.
+    TabletManager* tabletManager;
+
+    /// An in-progress transaction will timeout only after a minimum of the
+    /// base timeout.
+    static const uint64_t BASE_TIMEOUT_US = 50000;
+
     /**
      * Represents a transaction that is in the process of being committed on
      * this master.  An instance of this object is used to ensure that:
@@ -100,23 +142,23 @@ class TransactionManager {
      * To accomplish this, the TransactionManager will maintain an instance of
      * this object as long as the transaction is not known to have completed.
      */
-    class InProgressTransaction : public WorkerTimer {
+    class TransactionRecord : public WorkerTimer {
         friend class TransactionManager;
       PUBLIC:
-        InProgressTransaction(TransactionManager* manager,
-                              TransactionId txId,
-                              TransactionManager::Lock& lock);
-        ~InProgressTransaction();
+        TransactionRecord(TransactionManager* transactionManager,
+                          TransactionId txId,
+                          TransactionManager::Lock& lock);
+        ~TransactionRecord();
         virtual void handleTimerEvent();
-        bool isComplete(TransactionManager::Lock& lock);
+        bool inProgress(TransactionManager::Lock& lock);
 
         /// Number of prepared but uncommitted ops for this transaction.
         int preparedOpCount;
       PRIVATE:
-        /// The manager that owns this transaction progress record.
-        TransactionManager* manager;
+        /// The manager that owns this transaction record.
+        TransactionManager* transactionManager;
 
-        /// Id of the transaction that is in progress.
+        /// Id of the transaction that is being processed.
         TransactionId txId;
 
         /// Log Reference to the ParticipantList of this transaction
@@ -126,6 +168,12 @@ class TransactionManager {
         /// reached a safe point where we can consider this transaction
         /// no longer in progress.
         bool recovered;
+
+        /// Prevents this transaction from being garbage collected.  Used by the
+        /// TransactionManager::Protector during the transaction prepare phase
+        /// to ensure the transaction is not removed before the prepare request
+        /// is processed.
+        int cleaningDisabled;
 
         /// TxHintFailed RPC to be issued asynchronously if the transaction does
         /// not complete within timeoutCycles
@@ -140,36 +188,31 @@ class TransactionManager {
         /// longer considered in progress.
         UnackedRpcResults::SingleClientProtector rpcResultsProtector;
 
-        DISALLOW_COPY_AND_ASSIGN(InProgressTransaction);
+        DISALLOW_COPY_AND_ASSIGN(TransactionRecord);
     };
 
     /**
      * Helper class responsible from removing completed transactions from the
      * TransactionManager::TransactionRegistry and deleting the corresponding
-     * InProgressTransaction object.
+     * TransactionRecord object.
      *
-     * Used to avoid having InProgressTransaction delete themselves in their
+     * Used to avoid having TransactionRecord delete themselves in their
      * timer handler which results in deadlock (see WorkerTimer::stopInternal).
      */
     class TransactionRegistryCleaner : public WorkerTimer {
       PUBLIC:
         /// TransactionRegistryCleaner constructor.
-        explicit TransactionRegistryCleaner(TransactionManager* manager)
-            : WorkerTimer(manager->context->dispatch)
-            , manager(manager)
-            , cleaningQueue()
+        explicit TransactionRegistryCleaner(
+                TransactionManager* transactionManager)
+            : WorkerTimer(transactionManager->context->dispatch)
+            , transactionManager(transactionManager)
         {}
 
         virtual void handleTimerEvent();
-        void queueForCleaning(TransactionId txId,
-                              TransactionManager::Lock& lock);
+
       PRIVATE:
         /// TransactionManager who's registry is to be cleaned.
-        TransactionManager* manager;
-
-        /// Queue of InProgressTransactions that will be cleaned if they
-        /// are considered "complete."
-        std::queue<TransactionId, std::deque<TransactionId> > cleaningQueue;
+        TransactionManager* transactionManager;
 
         DISALLOW_COPY_AND_ASSIGN(TransactionRegistryCleaner);
     };
@@ -192,7 +235,7 @@ class TransactionManager {
          *      Log reference to PreparedOp in the log.
          */
         PreparedItem(
-                InProgressTransaction* transaction,
+                TransactionRecord* transaction,
                 uint64_t newOpPtr)
             :  transaction(transaction)
             , newOpPtr(newOpPtr)
@@ -211,7 +254,7 @@ class TransactionManager {
         }
 
         /// The transaction to which this prepared op belongs.
-        InProgressTransaction* transaction;
+        TransactionRecord* transaction;
 
         /// Log reference to PreparedOp in the log.
         uint64_t newOpPtr;
@@ -224,24 +267,31 @@ class TransactionManager {
     typedef std::map<std::pair<uint64_t, uint64_t>, PreparedItem*> ItemsMap;
 
     /**
-     * Keeps track of all currently in-progress transactions; this map should
+     * Keeps track of all currently registered transactions; this map should
      * contain a single entry for each transaction currently being processed by
      * this master.
      */
     typedef std::unordered_map<TransactionId,
-                               InProgressTransaction*,
+                               TransactionRecord*,
                                TransactionId::Hasher> TransactionRegistry;
     TransactionRegistry transactions;
+
+    /**
+     * Identifiers of the transactions currently in the registry.  Every entry
+     * in the TransactionRegistry must also have a corresponding entry in this
+     * TransactionRegisteryList.  Used to make the TransactionRegistryCleaner
+     * more efficient.
+     */
+    typedef std::list<TransactionId> TransactionRegisteryList;
+    TransactionRegisteryList transactionIds;
 
     /**
      * Cleans complete transactions from the TransactionRegistry.
      */
     TransactionRegistryCleaner cleaner;
 
-    InProgressTransaction* getTransaction(TransactionId txId,
-                                                    Lock& lock);
-    InProgressTransaction* getOrAddTransaction(TransactionId txId,
-                                                    Lock& lock);
+    TransactionRecord* getTransaction(TransactionId txId, Lock& lock);
+    TransactionRecord* getOrAddTransaction(TransactionId txId, Lock& lock);
 
     DISALLOW_COPY_AND_ASSIGN(TransactionManager);
 };

@@ -92,7 +92,10 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
     , clusterClock()
     , clientLeaseValidator(context, &clusterClock)
     , unackedRpcResults(context, &objectManager, &clientLeaseValidator)
-    , transactionManager(context, objectManager.getLog(), &unackedRpcResults)
+    , transactionManager(context,
+                         objectManager.getLog(),
+                         &unackedRpcResults,
+                         &tabletManager)
     , disableCount(0)
     , initCalled(false)
     , logEverSynced(false)
@@ -329,6 +332,9 @@ MasterService::dropTabletOwnership(
     // Ensure that the ObjectManager never returns objects from this deleted
     // tablet again.
     objectManager.removeOrphanedObjects();
+
+    // Removed unnecessary prepared transaction operations.
+    transactionManager.removeOrphanedOps();
 
     LOG(NOTICE, "Dropped ownership of (or did not own) tablet [0x%lx,0x%lx] "
                 "in tableId %lu",
@@ -796,6 +802,7 @@ MasterService::initOnceEnlisted()
     objectManager.initOnceEnlisted();
 
     unackedRpcResults.startCleaner();
+    transactionManager.startCleaner();
 
     initCalled = true;
 }
@@ -1167,6 +1174,9 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // Ensure that the ObjectManager never returns objects from this deleted
     // tablet again.
     objectManager.removeOrphanedObjects();
+
+    // Removed unnecessary prepared transaction operations.
+    transactionManager.removeOrphanedOps();
 }
 
 /**
@@ -2644,6 +2654,10 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
     TransactionId txId = participantList.getTransactionId();
     Buffer assembledParticpantList;
     participantList.assembleForLog(assembledParticpantList);
+
+    // Ensure the soon to be registered transaction is not garbage collected
+    // before this transaction prepare request is processed.
+    TransactionManager::Protector protectTransaction(&transactionManager, txId);
     // TODO(cstlee): Registering the transaction here may result in transactions
     //               being registered on non-participant servers which may cause
     //               a garbage collected issue (RAM-856).
@@ -3888,6 +3902,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                     (uint16_t)indexlet.first_not_owned_key().length());
         }
         objectManager.removeOrphanedObjects();
+        transactionManager.removeOrphanedOps();
     }
 }
 

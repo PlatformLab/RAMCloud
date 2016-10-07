@@ -13,12 +13,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <vector>
+
 #include "TransactionManager.h"
 
 #include "LeaseCommon.h"
 #include "MasterClient.h"
 #include "MasterService.h"
 #include "ObjectManager.h"
+#include "Unlock.h"
 
 namespace RAMCloud {
 
@@ -36,16 +39,22 @@ namespace RAMCloud {
  * \param unackedRpcResults
  *      Pointer to the UnackedRpcResults which holds the transaction prepare
  *      votes that need to be kept around to ensure recovery works correctly.
+ * \param tabletManager
+ *      Pointer to the TabletManager which holds information about which keys
+ *      belong on this TransactionManager's master server.
  */
 TransactionManager::TransactionManager(Context* context,
                                        AbstractLog* log,
-                                       UnackedRpcResults* unackedRpcResults)
+                                       UnackedRpcResults* unackedRpcResults,
+                                       TabletManager* tabletManager)
     : mutex()
     , context(context)
     , log(log)
     , unackedRpcResults(unackedRpcResults)
+    , tabletManager(tabletManager)
     , items()
     , transactions()
+    , transactionIds()
     , cleaner(this)
 {
 }
@@ -65,9 +74,19 @@ TransactionManager::~TransactionManager()
     }
 
     for (auto it = transactions.begin(); it != transactions.end(); ++it) {
-        InProgressTransaction* tx = it->second;
+        TransactionRecord* tx = it->second;
         delete tx;
     }
+}
+
+/**
+ * Start the background transaction registry cleaning timer.
+ */
+void
+TransactionManager::startCleaner()
+{
+    Lock lock(mutex);
+    cleaner.start(0);
 }
 
 /**
@@ -101,7 +120,7 @@ TransactionManager::registerTransaction(ParticipantList& participantList,
     Lock lock(mutex);
 
     TransactionId txId = participantList.getTransactionId();
-    InProgressTransaction* transaction = getOrAddTransaction(txId, lock);
+    TransactionRecord* transaction = getOrAddTransaction(txId, lock);
 
     if (transaction->participantListLogRef == AbstractLog::Reference()) {
         // Write the ParticipantList into the Log, update the table.
@@ -127,7 +146,7 @@ TransactionManager::registerTransaction(ParticipantList& participantList,
     // of time we expect to this transaction takes to complete.
     if (transaction->timeoutCycles == 0) {
         transaction->timeoutCycles = participantList.getParticipantCount() *
-                                     Cycles::fromMicroseconds(50000);
+                                     Cycles::fromMicroseconds(BASE_TIMEOUT_US);
     }
 
     // Start the timer to give the client some time before the timeout triggers.
@@ -135,7 +154,7 @@ TransactionManager::registerTransaction(ParticipantList& participantList,
     // time since the client is making progress.  However, the timer should not
     // be reset when there is an outstanding txHintFailedRpc since the timer
     // should be scheduled to poll for the result (see the handleTimerEvent
-    // method in InProgressTransaction).
+    // method in TransactionRecord).
     if (!transaction->txHintFailedRpc) {
         transaction->start(Cycles::rdtsc() + transaction->timeoutCycles);
     }
@@ -156,7 +175,7 @@ void
 TransactionManager::markTransactionRecovered(TransactionId txId)
 {
     Lock lock(mutex);
-    InProgressTransaction* transaction = getTransaction(txId, lock);
+    TransactionRecord* transaction = getTransaction(txId, lock);
     if (transaction != NULL) {
         transaction->recovered = true;
     }
@@ -194,7 +213,7 @@ TransactionManager::relocateParticipantList(Buffer& oldBuffer,
 
     ParticipantList participantList(oldBuffer);
     TransactionId txId = participantList.getTransactionId();
-    InProgressTransaction* transaction = getTransaction(txId, lock);
+    TransactionRecord* transaction = getTransaction(txId, lock);
 
     // See if this transaction is still going on and if the participant list
     // is not a duplicate.
@@ -235,7 +254,7 @@ TransactionManager::bufferOp(TransactionId txId,
 
     assert(items.find(std::make_pair(txId.clientLeaseId, rpcId))
             == items.end());
-    InProgressTransaction* transaction = getOrAddTransaction(txId, lock);
+    TransactionRecord* transaction = getOrAddTransaction(txId, lock);
     PreparedItem* item = new PreparedItem(transaction, newOpPtr);
     items[std::make_pair(txId.clientLeaseId, rpcId)] = item;
 }
@@ -404,47 +423,117 @@ TransactionManager::isOpDeleted(uint64_t leaseId,
 }
 
 /**
- * InProgressTransaction constructor; should also call registerAndStart to
- * complete the registration of the transaction.
+ * Scan the TransactionManager data structures and remove any buffered prepared
+ * operations that do not belong to a tablet owned by this master.  Used to
+ * clean up unnecessary prepared operations left after a migration, table drop,
+ * or aborted recovery.
+ */
+void
+TransactionManager::removeOrphanedOps()
+{
+    Lock lock(mutex);
+    std::map<std::pair<uint64_t, uint64_t>, PreparedItem*>::iterator it;
+    it = items.begin();
+    while (it != items.end()) {
+        // Unlock monitor to allow interleaving of other transaction operations.
+        {
+            Unlock<std::mutex> yield(mutex);
+        }
+        PreparedItem *item = it->second;
+        if (item != NULL) {
+            Buffer buffer;
+            Log::Reference ref(item->newOpPtr);
+            log->getEntry(ref, buffer);
+            PreparedOp op(buffer, 0, buffer.size());
+            if (!tabletManager->getTablet(op.object.getTableId(),
+                                          op.object.getPKHash())) {
+                log->free(ref);
+                delete item;
+                it = items.erase(it);
+                continue;
+            }
+        }
+        ++it;
+    }
+}
+
+/**
+ * Construct to prevent a transaction registration from being removed.
  *
- * \param manager
- *      The TransactionManager that holds this InProgressTransaction record.
+ * \param transactionManager
+ *      The transactionManager that shouldn't remove any registered
+ *      transactions while this protector exists.
  * \param txId
- *      The id of this in progress transaction.
+ *      Id of the transaction whose registration shouldn't be removed.
+ */
+TransactionManager::Protector::Protector(
+        TransactionManager* transactionManager,
+        TransactionId txId)
+    : transactionManager(transactionManager)
+    , txId(txId)
+{
+    Lock lock(transactionManager->mutex);
+    TransactionRecord* transaction =
+            transactionManager->getOrAddTransaction(txId, lock);
+    ++transaction->cleaningDisabled;
+}
+
+/**
+ * Destruct to allow cleaning to resume.
+ */
+TransactionManager::Protector::~Protector()
+{
+    Lock lock(transactionManager->mutex);
+    TransactionRecord* transaction =
+            transactionManager->getTransaction(txId, lock);
+    assert(transaction != NULL);
+    assert(transaction->cleaningDisabled > 0);
+    --transaction->cleaningDisabled;
+}
+
+/**
+ * Construct a TransactionRecord.
+ *
+ * \param transactionManager
+ *      The TransactionManager that holds this TransactionRecord.
+ * \param txId
+ *      The id of the transaction to be tracked.
  * \param lock
  *      Used to ensure that caller has acquired TransactionManager::mutex.
  *      Not actually used by the method.
  */
-TransactionManager::InProgressTransaction::InProgressTransaction(
-        TransactionManager* manager,
+TransactionManager::TransactionRecord::TransactionRecord(
+        TransactionManager* transactionManager,
         TransactionId txId,
         TransactionManager::Lock& lock)
-    : WorkerTimer(manager->context->dispatch)
+    : WorkerTimer(transactionManager->context->dispatch)
     , preparedOpCount(0)
-    , manager(manager)
+    , transactionManager(transactionManager)
     , txId(txId)
     , participantListLogRef()
     , recovered(false)
+    , cleaningDisabled(0)
     , txHintFailedRpc()
     , timeoutCycles(0)
-    , rpcResultsProtector(manager->unackedRpcResults, txId.clientLeaseId)
+    , rpcResultsProtector(transactionManager->unackedRpcResults,
+                          txId.clientLeaseId)
 {
 }
 
 /**
- * InProgressTransaction destructor.
+ * TransactionRecord destructor.
  *
  * NOTE: Should always be called with the TransactionManager::mutex acquired.
  */
-TransactionManager::InProgressTransaction::~InProgressTransaction()
+TransactionManager::TransactionRecord::~TransactionRecord()
 {
-    assert(!manager->mutex.try_lock());
+    assert(!transactionManager->mutex.try_lock());
 
-    TEST_LOG("InProgressTransaction <%lu, %lu> destroyed",
+    TEST_LOG("TransactionRecord <%lu, %lu> destroyed",
             txId.clientLeaseId, txId.clientTransactionId);
 
     if (participantListLogRef != AbstractLog::Reference()) {
-        manager->log->free(participantListLogRef);
+        transactionManager->log->free(participantListLogRef);
     }
 }
 
@@ -455,7 +544,7 @@ TransactionManager::InProgressTransaction::~InProgressTransaction()
  * to run in the future if more work needs to be done.
  */
 void
-TransactionManager::InProgressTransaction::handleTimerEvent()
+TransactionManager::TransactionRecord::handleTimerEvent()
 {
     // This timer handler asynchronously notifies the recovery manager that this
     // transaction is taking a long time and may have failed.  This handler may
@@ -467,14 +556,15 @@ TransactionManager::InProgressTransaction::handleTimerEvent()
     // the same server.  Furthermore, the transaction manager lock is held
     // during this call so delaying this method would prevent other transactions
     // from being processed.
-    TransactionManager::Lock lock(manager->mutex);
+    TransactionManager::Lock lock(transactionManager->mutex);
 
     // Transaction is no longer in progress; schedule to clean this object.
-    if (isComplete(lock)) {
+    if (!inProgress(lock)) {
         // This code used to call delete on itself directly which could result
         // in deadlock (see WorkerTimer::stopInternal).  The async cleaner was
         // added to avoid this deadlock.
-        manager->cleaner.queueForCleaning(txId, lock);
+        transactionManager->cleaner.start(0);
+        this->start(Cycles::rdtsc() + timeoutCycles);
         return;
     }
     // Else, the transaction did not complete before it timed-out.
@@ -495,7 +585,7 @@ TransactionManager::InProgressTransaction::handleTimerEvent()
         }
 
         Buffer pListBuf;
-        manager->log->getEntry(participantListLogRef, pListBuf);
+        transactionManager->log->getEntry(participantListLogRef, pListBuf);
         ParticipantList participantList(pListBuf);
         assert(txId == participantList.getTransactionId());
 
@@ -504,7 +594,7 @@ TransactionManager::InProgressTransaction::handleTimerEvent()
                 txId.clientLeaseId, txId.clientTransactionId,
                 participantList.getTableId(), participantList.getKeyHash());
 
-        txHintFailedRpc.construct(manager->context,
+        txHintFailedRpc.construct(transactionManager->context,
                 participantList.getTableId(),
                 participantList.getKeyHash(),
                 txId.clientLeaseId,
@@ -537,87 +627,103 @@ TransactionManager::InProgressTransaction::handleTimerEvent()
 }
 
 /**
- * Used to determine if this InProgressTransaction is no longer needed.
+ * Used to determine if this TransactionRecord is in-progress and thus is
+ * still needed.
  *
  * \param lock
  *      Used to ensure that caller has acquired TransactionManager::mutex.
  *      Not actually used by the method.
  * \return
- *      TRUE if the transaction is considered complete (all preparedOps
- *      addressed and all participants notified).  FALSE otherwise.
+ *      TRUE if the transaction record is considered active and in-use.
+ *      FALSE otherwise.
  */
 bool
-TransactionManager::InProgressTransaction::isComplete(
+TransactionManager::TransactionRecord::inProgress(
         TransactionManager::Lock& lock)
 {
-    if (manager->unackedRpcResults->isRpcAcked(txId.clientLeaseId,
-                                               txId.clientTransactionId)) {
-        // If the client acked, all decisions should have been received.  If
-        // not all decision were received, there is a serious bug.
-        if (expect_false(preparedOpCount > 0)) {
-            DIE("TxID <%lu,%lu> was acked but not all prepared operations "
-                    "have been decided.",
-                txId.clientLeaseId, txId.clientTransactionId);
+    if (preparedOpCount <= 0) {
+        // Acknowledged with no outstanding operations
+        if (transactionManager->unackedRpcResults->isRpcAcked(
+                txId.clientLeaseId, txId.clientTransactionId)) {
+            TEST_LOG("TxID <%lu,%lu> has completed; Acked by Client.",
+                     txId.clientLeaseId, txId.clientTransactionId);
+            return false;
         }
-        TEST_LOG("TxID <%lu,%lu> has completed; Acked by Client.",
-                txId.clientLeaseId, txId.clientTransactionId);
-        return true;
-    } else if (recovered && preparedOpCount <= 0) {
-        // Note: it's possible to be "recovered" but not have all prepared
-        // operations decided if the recovery manager sent a decision rpc to
-        // this master but did not send a decision of all the operations.  If
-        // this is the case, the transaction is not yet complete.
-        TEST_LOG("TxID <%lu,%lu> has completed; Recovered with all prepared "
-                "operations decided.",
-                txId.clientLeaseId, txId.clientTransactionId);
-        return true;
-    } else {
-        return false;
+        // Recovered with no outstanding operations
+        if (recovered) {
+            TEST_LOG("TxID <%lu,%lu> has completed; Recovered with all prepared"
+                     " operations decided.",
+                     txId.clientLeaseId, txId.clientTransactionId);
+            return false;
+        }
+        // No participant list, must not have been registered.
+        if (participantListLogRef == AbstractLog::Reference()) {
+            TEST_LOG("TxID <%lu,%lu> has no participant list; must not have"
+                     "registered.",
+                     txId.clientLeaseId, txId.clientTransactionId);
+            return false;
+        }
+        // No longer a participant.
+        std::vector< pair<uint64_t, uint64_t> > tableIdsAndKeyHashes;
+        Buffer pListBuf;
+        transactionManager->log->getEntry(participantListLogRef, pListBuf);
+        ParticipantList participantList(pListBuf);
+        uint32_t participantCount = participantList.getParticipantCount();
+        tableIdsAndKeyHashes.reserve(participantCount);
+        for (uint32_t i = 0; i < participantCount; ++i) {
+            uint64_t tableId = participantList.participants[i].tableId;
+            uint64_t keyHash = participantList.participants[i].keyHash;
+            tableIdsAndKeyHashes.emplace_back(tableId, keyHash);
+        }
+        if (!transactionManager->tabletManager->checkAtLeastOneTablet(
+                tableIdsAndKeyHashes)) {
+            TEST_LOG("TxID <%lu,%lu> does not belong to this master.",
+                    txId.clientLeaseId, txId.clientTransactionId);
+            return false;
+        }
     }
+    return true;
 }
 
 /**
- * This method is called when there are transactions that need to be cleaned
- * from the TransactionRegistry and deleted.
+ * This method is called periodically in order to garbage collect the unused
+ * TransactionRecords from the TransactionRegistry.
  */
 void
 TransactionManager::TransactionRegistryCleaner::handleTimerEvent()
 {
-    TransactionManager::Lock lock(manager->mutex);
-    while (!cleaningQueue.empty()) {
-        TransactionId txId = cleaningQueue.front();
-        cleaningQueue.pop();
-        InProgressTransaction* iptx = manager->getTransaction(txId, lock);
-        if (iptx != NULL && iptx->isComplete(lock)) {;
-            manager->transactions.erase(txId);
-            delete iptx;
+    TransactionManager::Lock lock(transactionManager->mutex);
+    this->start(Cycles::rdtsc() +
+                Cycles::fromMicroseconds(BASE_TIMEOUT_US * 100));
+
+    TransactionManager::TransactionRegisteryList::iterator it =
+            transactionManager->transactionIds.begin();
+    while (it != transactionManager->transactionIds.end()) {
+        TransactionId txId = *it;
+        TransactionRecord* transaction =
+                transactionManager->getTransaction(txId, lock);
+        assert(transaction != NULL);
+        if (transaction->cleaningDisabled > 0) {
+            TEST_LOG("Cleaning disabled for TxId: <%lu, %lu>",
+                    transaction->txId.clientLeaseId,
+                    transaction->txId.clientTransactionId);
+            ++it;
+        } else if (!transaction->inProgress(lock)) {;
+            transactionManager->transactions.erase(txId);
+            delete transaction;
+            it = transactionManager->transactionIds.erase(it);
+        } else {
+            ++it;
+        }
+        // Unlock monitor to allow interleaving of other transaction operations.
+        {
+            Unlock<std::mutex> yield(transactionManager->mutex);
         }
     }
 }
 
 /**
- * Request that an InProgressTransaction to be eventually deleted and dropped
- * from the TransactionRegistry.  The transaction will only be dropped if the
- * transaction "isComplete" when the cleaner get to it.  Otherwise, the cleaning
- * request will be a noop.
- *
- * \param txId
- *      Id of the InProgressTransaction that should be eventually cleaned.
- * \param lock
- *      Used to ensure that caller has acquired TransactionManager::mutex.
- *      Not actually used by the method.
- */
-void
-TransactionManager::TransactionRegistryCleaner::queueForCleaning(
-        TransactionId txId,
-        TransactionManager::Lock& lock)
-{
-    cleaningQueue.push(txId);
-    this->start(0);
-}
-
-/**
- * Returns a pointer to a InProgressTransaction object if it exists.
+ * Returns a pointer to a TransactionRecord object if it exists.
  *
  * \param txId
  *      Id of the transaction to be returned.
@@ -625,13 +731,12 @@ TransactionManager::TransactionRegistryCleaner::queueForCleaning(
  *      Used to ensure that caller has acquired TransactionManager::mutex.
  *      Not actually used by the method.
  * \return
- *      Pointer to a registered InProgressTransaction if it exists.
- *      NULL otherwise.
+ *      Pointer to a TransactionRecord if it exists.  NULL otherwise.
  */
-TransactionManager::InProgressTransaction*
+TransactionManager::TransactionRecord*
 TransactionManager::getTransaction(TransactionId txId, Lock& lock)
 {
-    InProgressTransaction* transaction = NULL;
+    TransactionRecord* transaction = NULL;
     TransactionRegistry::iterator it = transactions.find(txId);
     if (it != transactions.end()) {
         transaction = it->second;
@@ -640,8 +745,8 @@ TransactionManager::getTransaction(TransactionId txId, Lock& lock)
 }
 
 /**
- * Returns a pointer to a InProgressTransaction object; constructs a new
- * InProgressTransaction if one doesn't already exist.
+ * Returns a pointer to a TransactionRecord object; constructs a new
+ * TransactionRecord if one doesn't already exist.
  *
  * \param txId
  *      Id of the transaction that is (or will be) in the transaction
@@ -650,18 +755,19 @@ TransactionManager::getTransaction(TransactionId txId, Lock& lock)
  *      Used to ensure that caller has acquired TransactionManager::mutex.
  *      Not actually used by the method.
  * \return
- *      Pointer to a registered InProgressTransaction.
+ *      Pointer to a TransactionRecord.
  */
-TransactionManager::InProgressTransaction*
+TransactionManager::TransactionRecord*
 TransactionManager::getOrAddTransaction(TransactionId txId, Lock& lock)
 {
-    InProgressTransaction* transaction = NULL;
+    TransactionRecord* transaction = NULL;
     TransactionRegistry::iterator it = transactions.find(txId);
     if (it != transactions.end()) {
         transaction = it->second;
     } else {
-        transaction = new InProgressTransaction(this, txId, lock);
+        transaction = new TransactionRecord(this, txId, lock);
         transactions[txId] = transaction;
+        transactionIds.emplace_back(txId);
     }
     assert(transaction != NULL);
     return transaction;
