@@ -333,6 +333,9 @@ MasterService::dropTabletOwnership(
     // tablet again.
     objectManager.removeOrphanedObjects();
 
+    // Removed unnecessary prepared transaction operations.
+    transactionManager.removeOrphanedOps();
+
     LOG(NOTICE, "Dropped ownership of (or did not own) tablet [0x%lx,0x%lx] "
                 "in tableId %lu",
                 reqHdr->firstKeyHash, reqHdr->lastKeyHash, reqHdr->tableId);
@@ -1171,6 +1174,9 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // Ensure that the ObjectManager never returns objects from this deleted
     // tablet again.
     objectManager.removeOrphanedObjects();
+
+    // Removed unnecessary prepared transaction operations.
+    transactionManager.removeOrphanedOps();
 }
 
 /**
@@ -3896,6 +3902,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                     (uint16_t)indexlet.first_not_owned_key().length());
         }
         objectManager.removeOrphanedObjects();
+        transactionManager.removeOrphanedOps();
     }
 }
 

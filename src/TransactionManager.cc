@@ -423,6 +423,41 @@ TransactionManager::isOpDeleted(uint64_t leaseId,
 }
 
 /**
+ * Scan the TransactionManager data structures and remove any buffered prepared
+ * operations that do not belong to a tablet owned by this master.  Used to
+ * clean up unnecessary prepared operations left after a migration, table drop,
+ * or aborted recovery.
+ */
+void
+TransactionManager::removeOrphanedOps()
+{
+    Lock lock(mutex);
+    std::map<std::pair<uint64_t, uint64_t>, PreparedItem*>::iterator it;
+    it = items.begin();
+    while (it != items.end()) {
+        // Unlock monitor to allow interleaving of other transaction operations.
+        {
+            Unlock<std::mutex> yield(mutex);
+        }
+        PreparedItem *item = it->second;
+        if (item != NULL) {
+            Buffer buffer;
+            Log::Reference ref(item->newOpPtr);
+            log->getEntry(ref, buffer);
+            PreparedOp op(buffer, 0, buffer.size());
+            if (!tabletManager->getTablet(op.object.getTableId(),
+                                          op.object.getPKHash())) {
+                log->free(ref);
+                delete item;
+                it = items.erase(it);
+                continue;
+            }
+        }
+        ++it;
+    }
+}
+
+/**
  * Construct to prevent a transaction registration from being removed.
  *
  * \param transactionManager

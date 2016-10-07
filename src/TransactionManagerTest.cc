@@ -72,7 +72,6 @@ class TransactionManagerTest : public ::testing::Test {
         , tabletManager()
     {
         context.dispatch = new Dispatch(false);
-        transactionManager.bufferOp(TransactionId(1, 1), 10, 1011);
         WorkerTimer::disableTimerHandlers = true;
     }
 
@@ -516,6 +515,7 @@ TEST_F(TransactionManagerTest, bufferWrite) {
 }
 
 TEST_F(TransactionManagerTest, removeOp) {
+    transactionManager.bufferOp(TransactionId(1, 1), 10, 1011);
     EXPECT_EQ(1011UL,
               transactionManager.items[std::make_pair(1, 10)]->newOpPtr);
     transactionManager.removeOp(1, 10);
@@ -524,6 +524,7 @@ TEST_F(TransactionManagerTest, removeOp) {
 }
 
 TEST_F(TransactionManagerTest, getOp) {
+    transactionManager.bufferOp(TransactionId(1, 1), 10, 1011);
     EXPECT_EQ(1011UL, transactionManager.getOp(1, 10));
     EXPECT_EQ(1011UL, transactionManager.getOp(1, 10));
     transactionManager.removeOp(1, 10);
@@ -541,6 +542,60 @@ TEST_F(TransactionManagerTest, markDeletedAndIsDeleted) {
     transactionManager.bufferOp(TransactionId(2, 1), 9, 1029);
     EXPECT_EQ(1029UL, transactionManager.getOp(2, 9));
     EXPECT_FALSE(transactionManager.isOpDeleted(2, 9));
+}
+
+TEST_F(TransactionManagerTest, removeOrphanedOps) {
+    TransactionId txId(1, 10);
+    // Will be removed
+    {
+        Buffer dataBuffer;
+        Key key(1, "1", 1);
+        uint64_t rpcId = 11;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      txId.clientLeaseId, txId.clientTransactionId, rpcId,
+                      key, "hello", 6, 0, 0, dataBuffer);
+        Buffer buffer;
+        op.assembleForLog(buffer);
+        AbstractLog::Reference ref;
+        transactionManager.log->append(LOG_ENTRY_TYPE_PREP, buffer, &ref);
+        transactionManager.bufferOp(txId, rpcId, ref.toInteger());
+    }
+    // Don't remove, master owns tablet
+    {
+        Buffer dataBuffer;
+        Key key(2, "2", 1);
+        uint64_t rpcId = 12;
+        PreparedOp op(WireFormat::TxPrepare::WRITE,
+                      txId.clientLeaseId, txId.clientTransactionId, rpcId,
+                      key, "hello", 6, 0, 0, dataBuffer);
+        Buffer buffer;
+        op.assembleForLog(buffer);
+        AbstractLog::Reference ref;
+        transactionManager.log->append(LOG_ENTRY_TYPE_PREP, buffer, &ref);
+        transactionManager.bufferOp(txId, rpcId, ref.toInteger());
+        tabletManager.addTablet(2, 0ul, ~0ul, TabletManager::NORMAL);
+    }
+    // Don't remove, op marked deleted
+    {
+        Buffer dataBuffer;
+        Key key(3, "3", 1);
+        uint64_t rpcId = 13;
+        transactionManager.markOpDeleted(txId.clientLeaseId, rpcId);
+    }
+    EXPECT_EQ(3U, transactionManager.items.size());
+
+    transactionManager.removeOrphanedOps();
+
+    EXPECT_EQ(2U, transactionManager.items.size());
+    EXPECT_TRUE(transactionManager.items.end() ==
+                transactionManager.items.find(std::make_pair(txId.clientLeaseId,
+                                                             11)));
+    EXPECT_TRUE(transactionManager.items.end() !=
+                transactionManager.items.find(std::make_pair(txId.clientLeaseId,
+                                                             12)));
+    EXPECT_TRUE(transactionManager.items.end() !=
+                transactionManager.items.find(std::make_pair(txId.clientLeaseId,
+                                                             13)));
 }
 
 TEST_F(TransactionManagerTest, Protector) {
@@ -818,15 +873,15 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
         }
     }
 
-    EXPECT_EQ(5U, transactionManager.transactions.size());
-    EXPECT_EQ(5U, transactionManager.transactionIds.size());
+    EXPECT_EQ(4U, transactionManager.transactions.size());
+    EXPECT_EQ(4U, transactionManager.transactionIds.size());
     EXPECT_FALSE(transactionManager.cleaner.isRunning());
     TestLog::Enable _("~TransactionRecord", "handleTimerEvent", NULL);
 
     transactionManager.cleaner.handleTimerEvent();
 
-    EXPECT_EQ(3U, transactionManager.transactions.size());
-    EXPECT_EQ(3U, transactionManager.transactionIds.size());
+    EXPECT_EQ(2U, transactionManager.transactions.size());
+    EXPECT_EQ(2U, transactionManager.transactionIds.size());
     EXPECT_TRUE(transactionManager.cleaner.isRunning());
     EXPECT_EQ(
             "~TransactionRecord: TransactionRecord <42, 1> destroyed | "

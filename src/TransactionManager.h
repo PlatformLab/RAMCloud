@@ -75,6 +75,7 @@ class TransactionManager {
     void markOpDeleted(uint64_t leaseId, uint64_t rpcId);
     bool isOpDeleted(uint64_t leaseId, uint64_t rpcId);
     void regrabLocksAfterRecovery(ObjectManager* objectManager);
+    void removeOrphanedOps();
 
     /**
      * This class is used to prevent the garbage collection of a (soon to be)
