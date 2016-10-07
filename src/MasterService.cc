@@ -2658,9 +2658,7 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
     // Ensure the soon to be registered transaction is not garbage collected
     // before this transaction prepare request is processed.
     TransactionManager::Protector protectTransaction(&transactionManager, txId);
-    // TODO(cstlee): Registering the transaction here may result in transactions
-    //               being registered on non-participant servers which may cause
-    //               a garbage collected issue (RAM-856).
+
     if (transactionManager.registerTransaction(participantList,
                                                assembledParticpantList,
                                                objectManager.getLog())
