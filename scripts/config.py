@@ -27,7 +27,8 @@ import subprocess
 
 __all__ = ['coordinator_port', 'default_disk1','default_disk2', 'git_branch',
            'git_ref', 'git_diff', 'hosts','obj_dir', 'obj_path',
-           'scripts_path', 'second_backup_port', 'server_port', 'top_path']
+           'local_scripts_path', 'second_backup_port', 'server_port',
+           'top_path']
 
 # git_branch is the name of the current git branch, which is used
 # for purposes such as computing objDir.
@@ -64,11 +65,11 @@ else:
     obj_dir = 'obj.%s' % git_branch
 
 # The full path name of the directory containing this script file.
-scripts_path = os.path.dirname(os.path.abspath(__file__))
+local_scripts_path = os.path.dirname(os.path.abspath(__file__))
 
 # The full pathname of the parent of scriptsPath (the top-level directory
 # of a RAMCloud source tree).
-top_path = os.path.abspath(scripts_path + '/..')
+top_path = os.path.abspath(local_scripts_path + '/..')
 
 # Add /usr/local/lib to LD_LIBARY_PATH it isn't already there (this was
 # needed for CentOS 5.5, but should probably be deleted now).
@@ -104,6 +105,24 @@ default_disk2 = '-f /dev/sda2,/dev/sdb2'
 # List of machines available to use as servers or clients; see
 # common.getHosts() for more information on how to set this variable.
 hosts = None
+
+class NoOpClusterHooks:
+    def __init__(self):
+        pass
+
+    def cluster_enter(self, cluster):
+        self.cluster = cluster
+
+    def cluster_exit(self):
+        pass
+    
+    def get_remote_wd(self):
+        return os.getcwd()
+
+    def get_remote_scripts_path(self):
+        return os.path.join(self.get_remote_wd(), 'scripts')
+
+hooks = NoOpClusterHooks()
 
 # Try to include local overrides.
 try:

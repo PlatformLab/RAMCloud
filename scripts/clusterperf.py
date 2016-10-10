@@ -245,7 +245,8 @@ def default(
     it simply invokes ClusterPerf via cluster.run and prints the result.
     """
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def basic(name, options, cluster_args, client_args):
@@ -254,14 +255,16 @@ def basic(name, options, cluster_args, client_args):
     if cluster_args['timeout'] < 250:
         cluster_args['timeout'] = 250
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def broadcast(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def indexBasic(name, options, cluster_args, client_args):
@@ -273,7 +276,8 @@ def indexBasic(name, options, cluster_args, client_args):
     if options.num_servers == None:
         cluster_args['num_servers'] = len(getHosts())
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def indexRange(name, options, cluster_args, client_args):
@@ -293,7 +297,8 @@ def indexRange(name, options, cluster_args, client_args):
     if options.num_servers == None:
         cluster_args['num_servers'] = len(getHosts())
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def indexMultiple(name, options, cluster_args, client_args):
@@ -320,7 +325,8 @@ def indexMultiple(name, options, cluster_args, client_args):
         client_args['--numIndexes'] = 10
 
     cluster.run(client='%s/ClusterPerf %s %s' %
-               (obj_path, flatten_args(client_args), name), **cluster_args)
+               (config.hooks.get_remote_obj_path(),
+                flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def indexScalability(name, options, cluster_args, client_args):
@@ -343,7 +349,8 @@ def indexScalability(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def indexWriteDist(name, options, cluster_args, client_args):
@@ -362,7 +369,8 @@ def indexWriteDist(name, options, cluster_args, client_args):
         client_args['--numObjects'] = 1000000
 
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
 
     print("# Cumulative distribution of time for a single client to write\n"
           "# %d %d-byte objects to a table with one index and %d\n"
@@ -396,7 +404,8 @@ def indexReadDist(name, options, cluster_args, client_args):
         client_args['--warmup'] = 100
 
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
 
     print("# Cumulative distribution of time for a single client to read\n"
           "# %d %d-byte objects to a table with one index and %d\n"
@@ -416,7 +425,8 @@ def transactionDist(name, options, cluster_args, client_args):
     if options.numTables == None:
         client_args['--numTables'] = 1
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path,  flatten_args(client_args), name),
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name),
             **cluster_args)
     print("# Cumulative distribution of time for a single client to commit a\n"
           "# transactional read-write on a single %d-byte object from a\n"
@@ -446,7 +456,8 @@ def transactionThroughput(name, options, cluster_args, client_args):
     if options.numTables == None:
         client_args['--numTables'] = 1
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     for i in range(1, cluster_args['num_clients'] + 1):
         print(get_client_log(i), end='')
 
@@ -457,7 +468,8 @@ def multiOp(name, options, cluster_args, client_args):
         cluster_args['num_servers'] = len(getHosts())
     client_args['--numTables'] = cluster_args['num_servers'];
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name),
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name),
             **cluster_args)
     print(get_client_log(), end='')
 
@@ -473,7 +485,8 @@ def netBandwidth(name, options, cluster_args, client_args):
     else:
         client_args['--size'] = 1024*1024;
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def readAllToAll(name, options, cluster_args, client_args):
@@ -485,12 +498,14 @@ def readAllToAll(name, options, cluster_args, client_args):
         cluster_args['num_servers'] = len(getHosts())
     client_args['--numTables'] = cluster_args['num_servers'];
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def readDist(name, options, cluster_args, client_args):
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path,  flatten_args(client_args), name),
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name),
             **cluster_args)
     print("# Cumulative distribution of time for a single client to read a\n"
           "# single %d-byte object from a single server.  Each line indicates\n"
@@ -506,7 +521,8 @@ def readDistRandom(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '-t 1000'
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path,  flatten_args(client_args), name),
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name),
             **cluster_args)
     print("# Cumulative distribution of time for a single client to read a\n"
           "# random %d-byte object from a single server.  Each line indicates\n"
@@ -525,7 +541,8 @@ def readLoaded(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 20
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def readRandom(name, options, cluster_args, client_args):
@@ -537,7 +554,8 @@ def readRandom(name, options, cluster_args, client_args):
         cluster_args['num_servers'] = 1
     client_args['--numTables'] = cluster_args['num_servers'];
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 # This method is also used for multiReadThroughput and
@@ -555,7 +573,8 @@ def readThroughput(name, options, cluster_args, client_args):
         print("Need at least 2 machines in this configuration")
         return
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def txCollision(name, options, cluster_args, client_args):
@@ -567,7 +586,8 @@ def txCollision(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 5
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path, flatten_args(client_args), name), **cluster_args)
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def writeDist(name, options, cluster_args, client_args):
@@ -577,7 +597,8 @@ def writeDist(name, options, cluster_args, client_args):
         cluster_args['master_args'] = '-t 2000'
     cluster_args['disjunct'] = True
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path,  flatten_args(client_args), name),
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name),
             **cluster_args)
     print("# Cumulative distribution of time for a single client to write a\n"
           "# single %d-byte object from a single server.  Each line indicates\n"
@@ -597,7 +618,8 @@ def workloadDist(name, options, cluster_args, client_args):
         cluster_args['master_args'] = '-t 2000'
     cluster_args['disjunct'] = True
     cluster.run(client='%s/ClusterPerf %s %s' %
-            (obj_path,  flatten_args(client_args), name),
+            (config.hooks.get_remote_obj_path(),
+             flatten_args(client_args), name),
             **cluster_args)
     print("# Cumulative distribution latencies for operations specified by\n"
           "# the benchmark.\n#\n"

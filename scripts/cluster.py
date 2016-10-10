@@ -22,6 +22,7 @@ by running a collection of servers and clients.
 
 from __future__ import division, print_function
 from common import *
+import config
 import itertools
 import log
 import os
@@ -34,9 +35,10 @@ import time
 from optparse import OptionParser
 
 # Locations of various RAMCloud executables.
-coordinator_binary = '%s/coordinator' % obj_path
-server_binary = '%s/server' % obj_path
-ensure_servers_bin = '%s/ensureServers' % obj_path
+coordinator_binary = '%s/coordinator' % config.hooks.get_remote_obj_path()
+server_binary = '%s/server' % config.hooks.get_remote_obj_path()
+ensure_servers_bin = '%s/ensureServers' % config.hooks.get_remote_obj_path()
+
 # valgrind
 valgrind_command = ''
 
@@ -270,7 +272,7 @@ class Cluster(object):
             # invoke the script that restarts the coordinator if it dies
             restart_command = ('%s/restart_coordinator %s/coordinator.%s.log'
                                ' %s %s logcabin21:61023' %
-                                (scripts_path, self.log_subdir,
+                                (local_scripts_path, self.log_subdir,
                                  self.coordinator_host[0],
                                  obj_path, self.coordinator_locator))
 
@@ -391,7 +393,7 @@ class Cluster(object):
                 to_kill = '1'
                 mhost = file
                 subprocess.Popen(['ssh', mhost.split('_')[0],
-                                  '%s/killserver' % scripts_path,
+                                  '%s/killserver' % config.hooks.get_remote_scripts_path(),
                                   to_kill, os.getcwd(), mhost])
                 f.close()
                 try:
@@ -508,9 +510,11 @@ class Cluster(object):
 
     def __enter__(self):
         self.sandbox.__enter__()
+        config.hooks.cluster_enter(self)
         return self
 
     def __exit__(self, exc_type=None, exc_value=None, exc_tb=None):
+        config.hooks.cluster_exit()
         self.sandbox.__exit__(exc_type, exc_value, exc_tb)
         self.remove_empty_files()
         return False # rethrow exception, if any
