@@ -122,6 +122,9 @@ class NoOpClusterHooks:
     def get_remote_scripts_path(self):
         return os.path.join(self.get_remote_wd(), 'scripts')
 
+    def get_remote_obj_path(self):
+        return os.path.join(self.get_remote_wd(), obj_dir)
+
 hooks = NoOpClusterHooks()
 
 # Try to include local overrides.
