@@ -571,21 +571,29 @@ TxRecoveryManager::RecoveryTask::sendDecisionRpc()
     Transport::SessionRef rpcSession;
     for (; nextParticipantEntry != participants.end(); nextParticipantEntry++) {
         Participant* entry = &(*nextParticipantEntry);
+        Transport::SessionRef session;
 
         if (entry->state == Participant::DECIDE) {
             continue;
         }
 
+        try {
+            session = context->objectFinder->lookup(entry->tableId,
+                                                    entry->keyHash);
+        } catch (TableDoesntExistException& e) {
+            entry->state = Participant::ABORT;
+            LOG(WARNING, "Possible transaction consistency failure; Table %lu "
+                    "could not be found while recovering transaction <%lu,%lu>",
+                    entry->tableId, leaseId, transactionId);
+            continue;
+        }
+
         if (nextRpc == NULL) {
-            rpcSession = context->objectFinder->lookup(entry->tableId,
-                                                       entry->keyHash);
+            rpcSession = session;
             decisionRpcs.emplace_back(context, rpcSession, this);
             nextRpc = &decisionRpcs.back();
         }
 
-        Transport::SessionRef session =
-                context->objectFinder->lookup(entry->tableId,
-                                              entry->keyHash);
         if (session->serviceLocator != rpcSession->serviceLocator
             || !nextRpc->appendOp(nextParticipantEntry)) {
             break;
@@ -725,21 +733,29 @@ TxRecoveryManager::RecoveryTask::sendRequestAbortRpc()
     Transport::SessionRef rpcSession;
     for (; nextParticipantEntry != participants.end(); nextParticipantEntry++) {
         Participant* entry = &(*nextParticipantEntry);
+        Transport::SessionRef session;
 
         if (entry->state == Participant::ABORT) {
             continue;
         }
 
+        try {
+            session = context->objectFinder->lookup(entry->tableId,
+                                                    entry->keyHash);
+        } catch (TableDoesntExistException& e) {
+            entry->state = Participant::ABORT;
+            LOG(WARNING, "Possible transaction consistency failure; Table %lu "
+                    "could not be found while recovering transaction <%lu,%lu>",
+                    entry->tableId, leaseId, transactionId);
+            continue;
+        }
+
         if (nextRpc == NULL) {
-            rpcSession = context->objectFinder->lookup(entry->tableId,
-                                                       entry->keyHash);
+            rpcSession = session;
             requestAbortRpcs.emplace_back(context, rpcSession, this);
             nextRpc = &requestAbortRpcs.back();
         }
 
-        Transport::SessionRef session =
-                context->objectFinder->lookup(entry->tableId,
-                                              entry->keyHash);
         if (session->serviceLocator != rpcSession->serviceLocator
             || !nextRpc->appendOp(nextParticipantEntry)) {
             break;

@@ -465,6 +465,50 @@ TEST_F(TxRecoveryManagerTest, RecoveryTask_performTask_ExpiredLeaseException) {
     EXPECT_EQ("performTask: ExpiredLeaseException caught", TestLog::get());
 }
 
+TEST_F(TxRecoveryManagerTest, RecoveryTask_performTask_TableDoesNotExist) {
+    fillPList();
+    ramcloud->dropTable("table2");
+
+    TestLog::Enable _("sendRequestAbortRpc", "sendDecisionRpc", NULL);
+
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::REQUEST_ABORT, task->state);
+
+    task->performTask();        // RPC 1 Sent, RPC 1 Processed
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::REQUEST_ABORT, task->state);
+    EXPECT_EQ("", TestLog::get());
+    TestLog::reset();
+
+    task->performTask();        // RPC 2 Sent, RPC 2 Processed
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::REQUEST_ABORT, task->state);
+    EXPECT_EQ("sendRequestAbortRpc: Possible transaction consistency failure; "
+              "Table 2 could not be found while recovering transaction <42,1>",
+              TestLog::get());
+    TestLog::reset();
+
+    task->performTask();        // RPC 3 Sent, RPC 3 Processed
+                                // RPC 1 Sent, RPC 1 Processed
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::DECIDE, task->state);
+    EXPECT_EQ("", TestLog::get());
+    TestLog::reset();
+
+    task->performTask();        // RPC 2 Sent, RPC 2 Processed
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::DECIDE, task->state);
+    EXPECT_EQ("sendDecisionRpc: Possible transaction consistency failure; "
+              "Table 2 could not be found while recovering transaction <42,1>",
+              TestLog::get());
+    TestLog::reset();
+
+    task->performTask();        // RPC 3 Sent, RPC 3 Processed
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::DONE, task->state);
+    EXPECT_EQ("", TestLog::get());
+    TestLog::reset();
+
+    task->performTask();
+    EXPECT_EQ(TxRecoveryManager::RecoveryTask::DONE, task->state);
+    EXPECT_EQ("", TestLog::get());
+    TestLog::reset();
+}
+
 TEST_F(TxRecoveryManagerTest, RecoveryTask_performTask_setDecision) {
     task->state = TxRecoveryManager::RecoveryTask::REQUEST_ABORT;
     task->decision = WireFormat::TxDecision::COMMIT;
