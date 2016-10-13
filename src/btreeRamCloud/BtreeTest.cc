@@ -58,7 +58,10 @@ class BtreeTest: public ::testing::Test {
         , serverList(&context)
         , masterConfig(ServerConfig::forTesting())
         , masterTableMetadata()
-        , unackedRpcResults(&context, NULL, &clientLeaseValidator)
+        , unackedRpcResults(&context,
+                            NULL,
+                            &clientLeaseValidator,
+                            &tabletManager)
         , transactionManager(&context, NULL, &unackedRpcResults, &tabletManager)
         , txRecoveryManager(&context)
         , tabletManager()

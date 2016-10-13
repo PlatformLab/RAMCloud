@@ -159,10 +159,13 @@ UnackedRpcHandle::recordCompletion(uint64_t result)
  *      this freer should be used to designate specific log entry as cleanable.
  * \param leaseValidator
  *      Allows this module to determine if a given lease is still valid.
+ * \param tabletManager
+ *      Pointer to the TabletManager which will tell if any tablet is LOADING.
  */
 UnackedRpcResults::UnackedRpcResults(Context* context,
                                      AbstractLog::ReferenceFreer* freer,
-                                     ClientLeaseValidator* leaseValidator)
+                                     ClientLeaseValidator* leaseValidator,
+                                     TabletManager* tabletManager)
     : clients(20)
     , mutex()
     , default_rpclist_size(50)
@@ -171,6 +174,7 @@ UnackedRpcResults::UnackedRpcResults(Context* context,
     , cleaner(this)
     , cleanerDisabled(0)
     , freer(freer)
+    , tabletManager(tabletManager)
 {
 }
 
@@ -590,6 +594,16 @@ UnackedRpcResults::cleanByTimeout()
             clients[victims[i].leaseId]->leaseExpiration =
                                             ClusterTime(lease.leaseExpiration);
         } else {
+            TabletManager::Protector tp(tabletManager);
+            if (tp.loadingTabletExists()) {
+                // Since there is a tablet re-loading (eg. recovery/migration)
+                // happening, we cannot garbage collect expired clients safely.
+                // We need both RpcResult entries and participant list entry
+                // recovered to make a correct GC decision, but with a tablet
+                // currently LOADING, it is possible to have only RpcResult
+                // recovered, not Transaction ParticipantList entry yet.
+                return;
+            }
             clients.erase(victims[i].leaseId);
         }
     }

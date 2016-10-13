@@ -21,6 +21,7 @@
 #include "Common.h"
 #include "ClientLeaseValidator.h"
 #include "SpinLock.h"
+#include "TabletManager.h"
 #include "WorkerTimer.h"
 
 namespace RAMCloud {
@@ -37,7 +38,8 @@ class UnackedRpcResults {
   PUBLIC:
     explicit UnackedRpcResults(Context* context,
                                AbstractLog::ReferenceFreer* freer,
-                               ClientLeaseValidator* leaseValidator);
+                               ClientLeaseValidator* leaseValidator,
+                               TabletManager* tabletManager);
     ~UnackedRpcResults();
     void startCleaner();
     void resetFreer(AbstractLog::ReferenceFreer* freer);
@@ -307,6 +309,15 @@ class UnackedRpcResults {
      * cleanable.
      */
     AbstractLog::ReferenceFreer* freer;
+
+    /**
+     * TabletManager allows the UnackedRpcResults cleaner to check whether
+     * the master owns any tablet with LOADING state.
+     * UnackedRpcResults uses this information while cleaning to prevent from
+     * accidentally garbage collect RpcResults of an expired client before
+     * the corresponding transaction to complete.
+     */
+    TabletManager* tabletManager;
 
     // Helper methods
     Client* getClientRecord(uint64_t clientId, Lock& lock);

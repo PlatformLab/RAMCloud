@@ -50,7 +50,10 @@ class ObjectManagerBenchmark {
         , serverList(&context)
         , tabletManager()
         , masterTableMetadata()
-        , unackedRpcResults(&context, NULL, &clientLeaseValidator)
+        , unackedRpcResults(&context,
+                            NULL,
+                            &clientLeaseValidator,
+                            &tabletManager)
         , transactionManager(&context, NULL, &unackedRpcResults, &tabletManager)
         , txRecoveryManager(&context)
         , serverId(1, 1)

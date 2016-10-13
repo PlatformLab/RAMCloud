@@ -63,7 +63,10 @@ class TransactionManagerTest : public ::testing::Test {
                         &unackedRpcResults,
                         &transactionManager,
                         &txRecoveryManager)
-        , unackedRpcResults(&context, NULL, &clientLeaseValidator)
+        , unackedRpcResults(&context,
+                            NULL,
+                            &clientLeaseValidator,
+                            &tabletManager)
         , transactionManager(&context,
                              objectManager.getLog(),
                              &unackedRpcResults,

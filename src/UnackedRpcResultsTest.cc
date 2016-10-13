@@ -47,6 +47,7 @@ class UnackedRpcResultsTest : public ::testing::Test {
 
     DummyReferenceFreer freer;
     UnackedRpcResults results;
+    TabletManager tabletManager;
 
     UnackedRpcResultsTest()
         : logEnabler()
@@ -59,7 +60,8 @@ class UnackedRpcResultsTest : public ::testing::Test {
         , service()
         , masterServer()
         , freer()
-        , results(&context, &freer, NULL)
+        , results(&context, &freer, NULL, &tabletManager)
+        , tabletManager()
     {
         /////////////////////////////////
         // MasterService Initialization
@@ -482,6 +484,31 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout_client_doNotRemove) {
     }
 
     // Without the KeepClientRecord object, everything should be cleaned.
+    results.cleanByTimeout();
+    EXPECT_EQ(0U, results.clients.size());
+}
+
+TEST_F(UnackedRpcResultsTest, cleanByTimeout_TabletIsLoadingState) {
+    void* result;
+    // Add two more clients; should have total of 3.
+    ClientLease clientLease = {0, 0, 0};
+    clientLease = {2, 1, 0};
+    results.checkDuplicate(clientLease, 10, 5, &result);
+    results.recordCompletion(2, 10, &result);
+    clientLease = {3, 1, 0};
+    results.checkDuplicate(clientLease, 10, 5, &result);
+    results.recordCompletion(3, 10, &result);
+    EXPECT_EQ(3U, results.clients.size());
+
+    service->clusterClock.updateClock(ClusterTime(2));
+
+    // With a LOADING tablet, nothing should be cleaned.
+    tabletManager.addTablet(0, 10, 20, TabletManager::RECOVERING);
+    results.cleanByTimeout();
+    EXPECT_EQ(3U, results.clients.size());
+
+    // After deleting LOADING tablet, everything should be cleaned.
+    tabletManager.deleteTablet(0, 10, 20);
     results.cleanByTimeout();
     EXPECT_EQ(0U, results.clients.size());
 }

@@ -116,6 +116,38 @@ class TabletManager {
         uint64_t writeCount;
     };
 
+    /**
+     * Prevents the state of a tabletManager from being modified, and provides
+     * accessors to some state of TabletManager.
+     *
+     * Any external module outside of TabletManager should grab this Protector
+     * to access state of TabletManager. The checked condition will remain valid
+     * until this Protector is destructed.
+     *
+     * Since this Protector holds the monitor lock of TabletManager, user should
+     * only keep Protector short period, and never call TabletManager's methods
+     * directly.
+     */
+    class Protector {
+      PUBLIC:
+        explicit Protector(TabletManager* tabletManager);
+
+        bool loadingTabletExists();
+        bool getTablet(uint64_t tableId,
+                       uint64_t keyHash,
+                       Tablet* outTablet = NULL);
+
+      PRIVATE:
+        // Keep reference to TabletManager so that its SpinLock can be locked
+        // and its state can be accessed through accessors.
+        TabletManager* tabletManager;
+
+        // Guard for locking the monitor lock of tabletManager.
+        SpinLock::Guard lockGuardForTabletManager;
+
+        DISALLOW_COPY_AND_ASSIGN(Protector);
+    };
+
     TabletManager();
     bool addTablet(uint64_t tableId,
                    uint64_t startKeyHash,
@@ -169,44 +201,12 @@ class TabletManager {
     /// Monitor spinlock used to protect the tabletMap from concurrent access.
     SpinLock lock;
 
-    /// Count of tablets whose status is LOADING. Used to determine if there are
-    /// no ongoing recovery, and prevent from accidentally garbage collect
-    /// expired UnackedRpcResults before corresponding transaction to complete.
-    /// LOADING tablet can be problematic since we need both RpcResult entries
-    /// and participant list entry recovered to make a correct GC decision.
+    /// Count of tablets whose status is LOADING. Used to determine if there is
+    /// any ongoing recovery.
+    /// Main use case is to prevent UnackedRpcResult::cleanByTimeout() from
+    /// accidentally garbage collect the RpcResults of an expired client
+    /// before corresponding transaction to complete.
     int numLoadingTablets;
-
-    /**
-     * Prevents the state of a tabletManager from being modified, and provides
-     * accessors to some state of TabletManager.
-     *
-     * Any external module outside of TabletManager should grab this Protector
-     * to access state of TabletManager. The checked condition will remain valid
-     * until this Protector is destructed.
-     *
-     * Since this Protector holds the monitor lock of TabletManager, user should
-     * only keep Protector short period, and never call TabletManager's methods
-     * directly.
-     */
-    class Protector {
-      PUBLIC:
-        explicit Protector(TabletManager* tabletManager);
-
-        bool loadingTabletExists();
-        bool getTablet(uint64_t tableId,
-                       uint64_t keyHash,
-                       Tablet* outTablet = NULL);
-
-      PRIVATE:
-        // Keep reference to TabletManager so that its SpinLock can be locked
-        // and its state can be accessed through accessors.
-        TabletManager* tabletManager;
-
-        // Guard for locking the monitor lock of tabletManager.
-        SpinLock::Guard lockGuardForTabletManager;
-
-        DISALLOW_COPY_AND_ASSIGN(Protector);
-    };
 
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 };

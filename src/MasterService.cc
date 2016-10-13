@@ -91,7 +91,10 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
     , indexletManager(context, &objectManager)
     , clusterClock()
     , clientLeaseValidator(context, &clusterClock)
-    , unackedRpcResults(context, &objectManager, &clientLeaseValidator)
+    , unackedRpcResults(context,
+                        &objectManager,
+                        &clientLeaseValidator,
+                        &tabletManager)
     , transactionManager(context,
                          objectManager.getLog(),
                          &unackedRpcResults,
