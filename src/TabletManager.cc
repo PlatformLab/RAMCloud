@@ -24,6 +24,7 @@ namespace RAMCloud {
 TabletManager::TabletManager()
     : tabletMap()
     , lock("TabletManager::lock")
+    , numLoadingTablets(0)
 {
 }
 
@@ -60,6 +61,11 @@ TabletManager::addTablet(uint64_t tableId,
 
     tabletMap.insert(std::make_pair(tableId,
                      Tablet(tableId, startKeyHash, endKeyHash, state)));
+
+    if (state == TabletState::RECOVERING) {
+        numLoadingTablets++;
+    }
+
     return true;
 }
 
@@ -271,6 +277,11 @@ TabletManager::deleteTablet(uint64_t tableId,
     }
 
     tabletMap.erase(it);
+
+    if (t->state == TabletState::RECOVERING) {
+        numLoadingTablets--;
+    }
+
     return true;
 }
 
@@ -316,6 +327,10 @@ TabletManager::splitTablet(uint64_t tableId,
         // behavior was to simply zero them, so for the time being we'll
         // stick with that. At the very least it's what Christian expects.
         t->readCount = t->writeCount = 0;
+
+        if (t->state == TabletState::RECOVERING) {
+            numLoadingTablets++;
+        }
     }
 
     return true;
@@ -363,6 +378,14 @@ TabletManager::changeState(uint64_t tableId,
         return false;
 
     t->state = newState;
+
+    assert(oldState != newState);
+    if (newState == TabletState::RECOVERING) {
+        numLoadingTablets++;
+    } else if (oldState == TabletState::RECOVERING) {
+        numLoadingTablets--;
+    }
+
     return true;
 }
 
@@ -542,6 +565,59 @@ TabletManager::lookup(uint64_t tableId, uint64_t keyHash,
     }
 
     return tabletMap.end();
+}
+
+/**
+ * Construct to freeze the state of tabletManager from outside.
+ *
+ * \param tabletManager
+ *      The TabletManager instances that shouldn't be modified.
+ */
+TabletManager::Protector::Protector(TabletManager* tabletManager)
+    : tabletManager(tabletManager),
+      lockGuardForTabletManager(tabletManager->lock)
+{
+}
+
+/**
+ * Tells whether any tablet in this master is in LOADING status.
+ *
+ * @return true if there is a tablet with LOADING status.
+ */
+bool
+TabletManager::Protector::loadingTabletExists()
+{
+    return tabletManager->numLoadingTablets > 0;
+}
+
+/**
+ * Given a tableId and hash value, obtain the data of the tablet associated
+ * with them, if one exists. Note that the data returned is a snapshot. The
+ * TabletManager's data will not be modified until at any time by other threads.
+ *
+ * \param tableId
+ *      The table identifier of the tablet we're looking up.
+ * \param keyHash
+ *      Key hash value whose tablet we're looking up.
+ * \param outTablet
+ *      Optional pointer to a Tablet object that will be filled with the current
+ *      appopriate tablet data, if such a tablet exists. May be NULL if the caller
+ *      only wants to check for existence.
+ * \return
+ *      True if a tablet was found, otherwise false.
+ */
+bool
+TabletManager::Protector::getTablet(uint64_t tableId, uint64_t keyHash,
+                                    Tablet* outTablet)
+{
+    TabletMap::iterator it = tabletManager->lookup(tableId, keyHash,
+                                                   lockGuardForTabletManager);
+    if (it == tabletManager->tabletMap.end())
+        return false;
+
+    if (outTablet != NULL)
+        *outTablet = it->second;
+    return true;
 }
 
 } // namespace

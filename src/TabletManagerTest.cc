@@ -235,6 +235,37 @@ TEST_F(TabletManagerTest, changeState) {
     EXPECT_EQ(TabletManager::NORMAL, tablet.state);
 }
 
+TEST_F(TabletManagerTest, numLoadingTablets) {
+    // 1. increment if addTablet with LOADING state.
+    EXPECT_TRUE(tm.addTablet(0, 10, 20, TabletManager::RECOVERING));
+    EXPECT_EQ(1, tm.numLoadingTablets);
+    EXPECT_TRUE(tm.addTablet(1, 10, 20, TabletManager::NORMAL));
+    EXPECT_EQ(1, tm.numLoadingTablets);
+
+    // 2. Decrement if deleteTablet a tablet with LOADING state.
+    EXPECT_TRUE(tm.deleteTablet(1, 10, 20));
+    EXPECT_EQ(1, tm.numLoadingTablets);
+    EXPECT_TRUE(tm.deleteTablet(0, 10, 20));
+    EXPECT_EQ(0, tm.numLoadingTablets);
+
+    // 3. Increment/decrement according to change of tabletState.
+    EXPECT_TRUE(tm.addTablet(0, 10, 20, TabletManager::RECOVERING));
+    EXPECT_EQ(1, tm.numLoadingTablets);
+    EXPECT_FALSE(tm.changeState(0, 10, 20, TabletManager::NORMAL,
+                                           TabletManager::RECOVERING));
+    EXPECT_EQ(1, tm.numLoadingTablets);
+    EXPECT_TRUE(tm.changeState(0, 10, 20, TabletManager::RECOVERING,
+                                           TabletManager::NORMAL));
+    EXPECT_EQ(0, tm.numLoadingTablets);
+    EXPECT_TRUE(tm.changeState(0, 10, 20, TabletManager::NORMAL,
+                                           TabletManager::RECOVERING));
+    EXPECT_EQ(1, tm.numLoadingTablets);
+
+    // 4. Increment if split a LOADING tablet into two separate tablets.
+    EXPECT_TRUE(tm.splitTablet(0, 11));
+    EXPECT_EQ(2, tm.numLoadingTablets);
+}
+
 TEST_F(TabletManagerTest, getStatistics) {
     {
         ProtoBuf::ServerStatistics stats;
@@ -351,6 +382,11 @@ TEST_F(TabletManagerTest, lookup) {
     EXPECT_EQ("end", toString(tm.lookup(2001, 2200, fakeGuard)));
     EXPECT_EQ("end", toString(tm.lookup(2999, 2200, fakeGuard)));
     EXPECT_EQ("end", toString(tm.lookup(3001, 2200, fakeGuard)));
+}
+
+TEST_F(TabletManagerTest, protector) {
+    TabletManager::Protector p(&tm);
+    EXPECT_FALSE(tm.lock.try_lock());
 }
 
 }  // namespace RAMCloud
