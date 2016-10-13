@@ -365,31 +365,6 @@ TEST_F(UnackedRpcResultsTest, SingleClientProtector) {
     EXPECT_EQ(0, client->doNotRemove);
 }
 
-TEST_F(UnackedRpcResultsTest, Protector) {
-    UnackedRpcResults::Protector* k2;
-    EXPECT_EQ(0, results.cleanerDisabled);
-    {
-        UnackedRpcResults::Protector k0(&results);
-        // k0 is live
-        EXPECT_EQ(1, results.cleanerDisabled);
-        {
-            UnackedRpcResults::Protector k1(&results);
-            // k0, k1 is live
-            EXPECT_EQ(2, results.cleanerDisabled);
-            k2 = new UnackedRpcResults::Protector(&results);
-            // k0, k1, k2 is live
-            EXPECT_EQ(3, results.cleanerDisabled);
-        }
-        // k0, k2 is live
-        EXPECT_EQ(2, results.cleanerDisabled);
-        delete k2;
-        // k0 is live
-        EXPECT_EQ(1, results.cleanerDisabled);
-    }
-    // Nothing is live
-    EXPECT_EQ(0, results.cleanerDisabled);
-}
-
 TEST_F(UnackedRpcResultsTest, cleanByTimeout_basic) {
     void* result;
     ClientLease clientLease = {0, 0, 0};
@@ -433,32 +408,6 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout_basic) {
     EXPECT_EQ(2U, results.clients.size());
     results.cleanByTimeout();
     EXPECT_EQ(2U, results.clients.size());
-}
-
-TEST_F(UnackedRpcResultsTest, cleanByTimeout_cleanerDisabled) {
-    void* result;
-    // Add two more clients; should have total of 3.
-    ClientLease clientLease = {0, 0, 0};
-    clientLease = {2, 1, 0};
-    results.checkDuplicate(clientLease, 10, 5, &result);
-    results.recordCompletion(2, 10, &result);
-    clientLease = {3, 1, 0};
-    results.checkDuplicate(clientLease, 10, 5, &result);
-    results.recordCompletion(3, 10, &result);
-    EXPECT_EQ(3U, results.clients.size());
-
-    service->clusterClock.updateClock(ClusterTime(2));
-
-    {
-        // With cleanerDisabled, nothing should be cleaned.
-        UnackedRpcResults::Protector _(&results);
-        results.cleanByTimeout();
-        EXPECT_EQ(3U, results.clients.size());
-    }
-
-    // With cleaner re-enabled everything should be cleaned.
-    results.cleanByTimeout();
-    EXPECT_EQ(0U, results.clients.size());
 }
 
 TEST_F(UnackedRpcResultsTest, cleanByTimeout_client_doNotRemove) {

@@ -96,33 +96,6 @@ class UnackedRpcResults {
         DISALLOW_COPY_AND_ASSIGN(SingleClientProtector);
     };
 
-    /**
-     * This class is used to prevent RPC Result records from being cleaned from
-     * the referenced UnackedRpcResults module.  Creating a Protector object
-     * prevents cleaning of any RPC Result records until the object is
-     * destroyed.  When multiple instances of this class are created, cleaning
-     * will not resume until all instances have been deleted.
-     *
-     * This class does NOT prevent a client's normal case ACKs from removing
-     * individual RPC results.
-     *
-     * Used during recovery ensure that no results are dropped during recovery
-     * before modules like the TransactionManager have had a chance to create
-     * KeepClientRecords objects for specific clients.
-     */
-    class Protector {
-      PUBLIC:
-        explicit Protector(UnackedRpcResults* unackedRpcResults);
-        ~Protector();
-
-      PRIVATE:
-        // Keep reference to the unackedRpcResults so that it can be accessed
-        // and marked "cleanable" during the destruction of this object.
-        UnackedRpcResults* unackedRpcResults;
-
-        DISALLOW_COPY_AND_ASSIGN(Protector);
-    };
-
   PRIVATE:
     void cleanByTimeout();
     /// Used only for testing.
@@ -295,13 +268,6 @@ class UnackedRpcResults {
     ClientLeaseValidator* leaseValidator;
 
     Cleaner cleaner;
-
-    /**
-     * Allows other modules to disable or enable the cleaner by incrementing or
-     * decrementing this value.  If this value is greater than zero, the cleaner
-     * is disabled.  Otherwise, the cleaner is free to run.
-     */
-    int cleanerDisabled;
 
     /**
      * Pointer to reference freer. During garbage collection by ackId,

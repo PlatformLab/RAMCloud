@@ -172,7 +172,6 @@ UnackedRpcResults::UnackedRpcResults(Context* context,
     , context(context)
     , leaseValidator(leaseValidator)
     , cleaner(this)
-    , cleanerDisabled(0)
     , freer(freer)
     , tabletManager(tabletManager)
 {
@@ -510,32 +509,6 @@ UnackedRpcResults::SingleClientProtector::~SingleClientProtector()
 }
 
 /**
- * Construct to prevent any RPC Result records from being removed.
- *
- * \param unackedRpcResults
- *      The unackedRpcResults instances that shouldn't removed any
- *      client records.
- *
- */
-UnackedRpcResults::Protector::Protector(
-        UnackedRpcResults* unackedRpcResults)
-    : unackedRpcResults(unackedRpcResults)
-{
-    Lock lock(unackedRpcResults->mutex);
-    ++unackedRpcResults->cleanerDisabled;
-}
-
-/**
- * Destruct to allow cleaning to resume.
- */
-UnackedRpcResults::Protector::~Protector()
-{
-    Lock lock(unackedRpcResults->mutex);
-    assert(unackedRpcResults->cleanerDisabled > 0);
-    --unackedRpcResults->cleanerDisabled;
-}
-
-/**
  * Clean up stale clients who haven't communicated long.
  * Should not concurrently run this function in several threads.
  * Serialized by Cleaner inherited from WorkerTimer.
@@ -579,9 +552,6 @@ UnackedRpcResults::cleanByTimeout()
     // And erase entry if the lease is expired.
     for (uint32_t i = 0; i < victims.size(); ++i) {
         Lock lock(mutex);
-        // Do not clean if cleaning is disabled
-        if (cleanerDisabled)
-            continue;
         // Do not clean if this client record is protected
         if (clients[victims[i].leaseId]->doNotRemove)
             continue;
