@@ -881,6 +881,19 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
     EXPECT_FALSE(transactionManager.cleaner.isRunning());
     TestLog::Enable _("~TransactionRecord", "handleTimerEvent", NULL);
 
+    tabletManager.addTablet(42, 0, 1, TabletManager::RECOVERING);
+
+    // Cleaner blocked by recovering tablet
+    transactionManager.cleaner.handleTimerEvent();
+
+    EXPECT_EQ(4U, transactionManager.transactions.size());
+    EXPECT_EQ(4U, transactionManager.transactionIds.size());
+    EXPECT_TRUE(transactionManager.cleaner.isRunning());
+    EXPECT_EQ("", TestLog::get());
+    transactionManager.cleaner.stop();
+    tabletManager.deleteTablet(42, 0, 1);
+
+    // Cleaner will run.
     transactionManager.cleaner.handleTimerEvent();
 
     EXPECT_EQ(2U, transactionManager.transactions.size());

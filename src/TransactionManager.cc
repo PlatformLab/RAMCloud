@@ -692,13 +692,26 @@ TransactionManager::TransactionRecord::inProgress(
 void
 TransactionManager::TransactionRegistryCleaner::handleTimerEvent()
 {
-    TransactionManager::Lock lock(transactionManager->mutex);
-    this->start(Cycles::rdtsc() +
-                Cycles::fromMicroseconds(BASE_TIMEOUT_US * 100));
+    TransactionManager::TransactionRegisteryList::iterator it;
 
-    TransactionManager::TransactionRegisteryList::iterator it =
-            transactionManager->transactionIds.begin();
-    while (it != transactionManager->transactionIds.end()) {
+    {
+        TransactionManager::Lock lock(transactionManager->mutex);
+        this->start(Cycles::rdtsc() +
+                    Cycles::fromMicroseconds(BASE_TIMEOUT_US * 100));
+        it = transactionManager->transactionIds.begin();
+    }
+
+    while (true) {
+        TransactionManager::Lock lock(transactionManager->mutex);
+        TabletManager::Protector protector(transactionManager->tabletManager);
+
+        // There are recoveries or migrations in progress; don't clean.
+        if (protector.loadingTabletExists())
+            break;
+        // Cleaning pass completed.
+        if (it == transactionManager->transactionIds.end())
+            break;
+
         TransactionId txId = *it;
         TransactionRecord* transaction =
                 transactionManager->getTransaction(txId, lock);
@@ -714,10 +727,6 @@ TransactionManager::TransactionRegistryCleaner::handleTimerEvent()
             it = transactionManager->transactionIds.erase(it);
         } else {
             ++it;
-        }
-        // Unlock monitor to allow interleaving of other transaction operations.
-        {
-            Unlock<std::mutex> yield(transactionManager->mutex);
         }
     }
 }
