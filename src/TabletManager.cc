@@ -582,7 +582,8 @@ TabletManager::Protector::Protector(TabletManager* tabletManager)
 /**
  * Tells whether any tablet in this master is in LOADING status.
  *
- * @return true if there is a tablet with LOADING status.
+ * \return
+ *      true if there is a tablet with LOADING status.
  */
 bool
 TabletManager::Protector::loadingTabletExists()
