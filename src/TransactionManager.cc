@@ -13,8 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <vector>
-
 #include "TransactionManager.h"
 
 #include "LeaseCommon.h"
@@ -664,25 +662,50 @@ TransactionManager::TransactionRecord::inProgress(
             return false;
         }
         // No longer a participant.
-        std::vector< pair<uint64_t, uint64_t> > tableIdsAndKeyHashes;
-        Buffer pListBuf;
-        transactionManager->log->getEntry(participantListLogRef, pListBuf);
-        ParticipantList participantList(pListBuf);
-        uint32_t participantCount = participantList.getParticipantCount();
-        tableIdsAndKeyHashes.reserve(participantCount);
-        for (uint32_t i = 0; i < participantCount; ++i) {
-            uint64_t tableId = participantList.participants[i].tableId;
-            uint64_t keyHash = participantList.participants[i].keyHash;
-            tableIdsAndKeyHashes.emplace_back(tableId, keyHash);
-        }
-        if (!transactionManager->tabletManager->checkAtLeastOneTablet(
-                tableIdsAndKeyHashes)) {
+        if (!checkMasterParticipantion(lock)) {
             TEST_LOG("TxID <%lu,%lu> does not belong to this master.",
                     txId.clientLeaseId, txId.clientTransactionId);
             return false;
         }
     }
     return true;
+}
+
+/**
+ * This transaction record lives in a TransactionManager which belongs to a
+ * master service.  Check if the master service is a participant of this
+ * registered transaction.
+ *
+ * \param lock
+ *      Used to ensure that caller has acquired TransactionManager::mutex.
+ *      Not actually used by the method.
+ * \return
+ *      True, if the master is a participant in this registered transaction.
+ *      False, otherwise.
+ */
+bool
+TransactionManager::TransactionRecord::checkMasterParticipantion(
+        TransactionManager::Lock& lock)
+{
+    assert(participantListLogRef != AbstractLog::Reference());
+
+    TabletManager::Protector protector(transactionManager->tabletManager);
+
+    Buffer pListBuf;
+    transactionManager->log->getEntry(participantListLogRef, pListBuf);
+    ParticipantList participantList(pListBuf);
+    uint32_t participantCount = participantList.getParticipantCount();
+
+    for (uint32_t i = 0; i < participantCount; ++i) {
+        uint64_t tableId = participantList.participants[i].tableId;
+        uint64_t keyHash = participantList.participants[i].keyHash;
+        if (protector.getTablet(tableId, keyHash)) {
+            TEST_LOG("Found tablet for tableId: %lu keyHash: %lu",
+                    tableId, keyHash);
+           return true;
+        }
+    }
+    return false;
 }
 
 /**

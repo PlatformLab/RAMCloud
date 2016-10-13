@@ -848,6 +848,25 @@ TEST_F(TransactionRecordTest, inProgress_positivePreparedOpCount) {
     EXPECT_EQ("", TestLog::get());
 }
 
+TEST_F(TransactionRecordTest, inProgress_checkMasterParticipantion) {
+    TestLog::Enable _("checkMasterParticipantion");
+    {
+        TransactionManager::Lock lock(service1->transactionManager.mutex);
+        EXPECT_TRUE(transaction->checkMasterParticipantion(lock));
+        EXPECT_EQ("checkMasterParticipantion: "
+                  "Found tablet for tableId: 1 keyHash: 2", TestLog::get());
+    }
+
+    TestLog::reset();
+    ramcloud->dropTable("table1");
+
+    {
+        TransactionManager::Lock lock(service1->transactionManager.mutex);
+        EXPECT_FALSE(transaction->checkMasterParticipantion(lock));
+        EXPECT_EQ("", TestLog::get());
+    }
+}
+
 TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
     {
         TransactionManager::Lock lock(transactionManager.mutex);

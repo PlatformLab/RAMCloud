@@ -99,34 +99,6 @@ TabletManager::checkAndIncrementReadCount(Key& key) {
 }
 
 /**
- * Given a number of tableId and keyHash pairs, determine whether there exists
- * any tablet that is associated with any of the tableId and keyHash pairs.  The
- * tablet may exist in any state.
- *
- * Used by the TransactionManager.
- *
- * \param tableIdsAndKeyHashes
- *      Vector of table identifiers and key hash pairs for the for the tablets
- *      we're checking.
- * \return
- *      True if at least one tablet of the requested tablets was found,
- *      otherwise false.
- */
-bool
-TabletManager::checkAtLeastOneTablet(
-        vector< pair<uint64_t, uint64_t> >& tableIdsAndKeyHashes)
-{
-    SpinLock::Guard guard(lock);
-    for (size_t i = 0; i < tableIdsAndKeyHashes.size(); ++i) {
-        uint64_t tableId = tableIdsAndKeyHashes.at(i).first;
-        uint64_t keyHash = tableIdsAndKeyHashes.at(i).second;
-        if (lookup(tableId, keyHash, guard) != tabletMap.end())
-            return true;
-    }
-    return false;
-}
-
-/**
  * Given a key, obtain the data of the tablet associated with that key, if one
  * exists. Note that the data returned is a snapshot. The TabletManager's data
  * may be modified at any time by other threads.

@@ -17,7 +17,6 @@
 #define RAMCLOUD_TABLETMANAGER_H
 
 #include <unordered_map>
-#include <utility>
 
 #include "Common.h"
 #include "Object.h"
@@ -154,8 +153,6 @@ class TabletManager {
                    uint64_t endKeyHash,
                    TabletState state);
     bool checkAndIncrementReadCount(Key& key);
-    bool checkAtLeastOneTablet(
-            vector< pair<uint64_t, uint64_t> >& tableIdsAndKeyHashes);
     bool getTablet(Key& key,
                    Tablet* outTablet = NULL);
     bool getTablet(uint64_t tableId,

@@ -20,7 +20,6 @@
 #include <map>
 #include <queue>
 #include <unordered_map>
-#include <utility>
 
 #include "Common.h"
 #include "Log.h"
@@ -187,6 +186,8 @@ class TransactionManager {
         /// or this transaction are kept around until this transaction is no
         /// longer considered in progress.
         UnackedRpcResults::SingleClientProtector rpcResultsProtector;
+
+        bool checkMasterParticipantion(TransactionManager::Lock& lock);
 
         DISALLOW_COPY_AND_ASSIGN(TransactionRecord);
     };
