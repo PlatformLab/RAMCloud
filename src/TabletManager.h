@@ -58,7 +58,7 @@ class TabletManager {
      */
     enum TabletState {
         NORMAL = ProtoBuf::Tablets_Tablet_State_NORMAL,
-        RECOVERING = ProtoBuf::Tablets_Tablet_State_RECOVERING,
+        NOT_READY = ProtoBuf::Tablets_Tablet_State_RECOVERING,
         LOCKED_FOR_MIGRATION =
             ProtoBuf::Tablets_Tablet_State_LOCKED_FOR_MIGRATION,
     };
@@ -78,7 +78,7 @@ class TabletManager {
             : tableId(-1)
             , startKeyHash(-1)
             , endKeyHash(-1)
-            , state(RECOVERING)
+            , state(NOT_READY)
             , readCount(-1)
             , writeCount(-1)
         {
@@ -132,7 +132,7 @@ class TabletManager {
       PUBLIC:
         explicit Protector(TabletManager* tabletManager);
 
-        bool loadingTabletExists();
+        bool notReadyTabletExists();
         bool getTablet(uint64_t tableId,
                        uint64_t keyHash,
                        Tablet* outTablet = NULL);
@@ -201,8 +201,8 @@ class TabletManager {
     /// Monitor spinlock used to protect the tabletMap from concurrent access.
     SpinLock lock;
 
-    /// Count of tablets whose status is LOADING. Used to determine if there is
-    /// any ongoing recovery.
+    /// Count of tablets whose status is NOT_READY. Used to determine if there
+    /// is any ongoing recovery.
     /// Main use case is to prevent UnackedRpcResult::cleanByTimeout() from
     /// accidentally garbage collect the RpcResults of an expired client
     /// before corresponding transaction to complete.

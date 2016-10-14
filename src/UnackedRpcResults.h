@@ -278,7 +278,7 @@ class UnackedRpcResults {
 
     /**
      * TabletManager allows the UnackedRpcResults cleaner to check whether
-     * the master owns any tablet with LOADING state.
+     * the master owns any tablet with NOT_READY state.
      * UnackedRpcResults uses this information while cleaning to prevent from
      * accidentally garbage collect RpcResults of an expired client before
      * the corresponding transaction to complete.

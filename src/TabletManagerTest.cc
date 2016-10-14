@@ -108,7 +108,7 @@ TEST_F(TabletManagerTest, getTablet_byKey) {
 
 TEST_F(TabletManagerTest, getTablet_byHashPoint) {
     EXPECT_FALSE(tm.getTablet(5, 10));
-    tm.addTablet(5, 9, 11, TabletManager::RECOVERING);
+    tm.addTablet(5, 9, 11, TabletManager::NOT_READY);
     EXPECT_FALSE(tm.getTablet(5, 8));
     EXPECT_TRUE(tm.getTablet(5, 9));
     EXPECT_TRUE(tm.getTablet(5, 10));
@@ -120,12 +120,12 @@ TEST_F(TabletManagerTest, getTablet_byHashPoint) {
     EXPECT_EQ(5U, tablet.tableId);
     EXPECT_EQ(9U, tablet.startKeyHash);
     EXPECT_EQ(11U, tablet.endKeyHash);
-    EXPECT_EQ(TabletManager::RECOVERING, tablet.state);
+    EXPECT_EQ(TabletManager::NOT_READY, tablet.state);
 }
 
 TEST_F(TabletManagerTest, getTablet_byHashRange) {
     EXPECT_FALSE(tm.getTablet(5, 9, 11));
-    tm.addTablet(5, 9, 11, TabletManager::RECOVERING);
+    tm.addTablet(5, 9, 11, TabletManager::NOT_READY);
     EXPECT_TRUE(tm.getTablet(5, 9, 11));
     EXPECT_FALSE(tm.getTablet(4, 9, 11));
     EXPECT_FALSE(tm.getTablet(5, 9, 10));
@@ -139,7 +139,7 @@ TEST_F(TabletManagerTest, getTablet_byHashRange) {
     EXPECT_EQ(5U, tablet.tableId);
     EXPECT_EQ(9U, tablet.startKeyHash);
     EXPECT_EQ(11U, tablet.endKeyHash);
-    EXPECT_EQ(TabletManager::RECOVERING, tablet.state);
+    EXPECT_EQ(TabletManager::NOT_READY, tablet.state);
 }
 
 TEST_F(TabletManagerTest, getTablets) {
@@ -149,7 +149,7 @@ TEST_F(TabletManagerTest, getTablets) {
     EXPECT_EQ(0U, tablets.size());
 
     tm.addTablet(5, 9, 11, TabletManager::NORMAL);
-    tm.addTablet(4, 0, 5, TabletManager::RECOVERING);
+    tm.addTablet(4, 0, 5, TabletManager::NOT_READY);
     tm.getTablets(&tablets);
     EXPECT_EQ(2U, tablets.size());
     // Note that the order isn't well-defined. We may need to sort to make this
@@ -157,7 +157,7 @@ TEST_F(TabletManagerTest, getTablets) {
     EXPECT_EQ(4U, tablets[0].tableId);
     EXPECT_EQ(0U, tablets[0].startKeyHash);
     EXPECT_EQ(5U, tablets[0].endKeyHash);
-    EXPECT_EQ(TabletManager::RECOVERING, tablets[0].state);
+    EXPECT_EQ(TabletManager::NOT_READY, tablets[0].state);
     EXPECT_EQ(5U, tablets[1].tableId);
     EXPECT_EQ(9U, tablets[1].startKeyHash);
     EXPECT_EQ(11U, tablets[1].endKeyHash);
@@ -217,51 +217,51 @@ TEST_F(TabletManagerTest, splitTablet) {
 }
 
 TEST_F(TabletManagerTest, changeState) {
-    EXPECT_TRUE(tm.addTablet(0, 10, 20, TabletManager::RECOVERING));
+    EXPECT_TRUE(tm.addTablet(0, 10, 20, TabletManager::NOT_READY));
 
     EXPECT_FALSE(tm.changeState(0, 10, 20, TabletManager::NORMAL,
-                                           TabletManager::RECOVERING));
-    EXPECT_FALSE(tm.changeState(0, 9, 20, TabletManager::RECOVERING,
+                                           TabletManager::NOT_READY));
+    EXPECT_FALSE(tm.changeState(0, 9, 20, TabletManager::NOT_READY,
                                           TabletManager::NORMAL));
-    EXPECT_FALSE(tm.changeState(0, 10, 19, TabletManager::RECOVERING,
+    EXPECT_FALSE(tm.changeState(0, 10, 19, TabletManager::NOT_READY,
                                            TabletManager::NORMAL));
 
     TabletManager::Tablet tablet;
     EXPECT_TRUE(tm.getTablet(0, 10, &tablet));
-    EXPECT_EQ(TabletManager::RECOVERING, tablet.state);
-    EXPECT_TRUE(tm.changeState(0, 10, 20, TabletManager::RECOVERING,
+    EXPECT_EQ(TabletManager::NOT_READY, tablet.state);
+    EXPECT_TRUE(tm.changeState(0, 10, 20, TabletManager::NOT_READY,
                                           TabletManager::NORMAL));
     EXPECT_TRUE(tm.getTablet(0, 10, &tablet));
     EXPECT_EQ(TabletManager::NORMAL, tablet.state);
 }
 
 TEST_F(TabletManagerTest, numLoadingTablets) {
-    // 1. increment if addTablet with LOADING state.
-    EXPECT_TRUE(tm.addTablet(0, 10, 20, TabletManager::RECOVERING));
+    // 1. increment if addTablet with NOT_READY state.
+    EXPECT_TRUE(tm.addTablet(0, 10, 20, TabletManager::NOT_READY));
     EXPECT_EQ(1, tm.numLoadingTablets);
     EXPECT_TRUE(tm.addTablet(1, 10, 20, TabletManager::NORMAL));
     EXPECT_EQ(1, tm.numLoadingTablets);
 
-    // 2. Decrement if deleteTablet a tablet with LOADING state.
+    // 2. Decrement if deleteTablet a tablet with NOT_READY state.
     EXPECT_TRUE(tm.deleteTablet(1, 10, 20));
     EXPECT_EQ(1, tm.numLoadingTablets);
     EXPECT_TRUE(tm.deleteTablet(0, 10, 20));
     EXPECT_EQ(0, tm.numLoadingTablets);
 
     // 3. Increment/decrement according to change of tabletState.
-    EXPECT_TRUE(tm.addTablet(0, 10, 20, TabletManager::RECOVERING));
+    EXPECT_TRUE(tm.addTablet(0, 10, 20, TabletManager::NOT_READY));
     EXPECT_EQ(1, tm.numLoadingTablets);
     EXPECT_FALSE(tm.changeState(0, 10, 20, TabletManager::NORMAL,
-                                           TabletManager::RECOVERING));
+                                           TabletManager::NOT_READY));
     EXPECT_EQ(1, tm.numLoadingTablets);
-    EXPECT_TRUE(tm.changeState(0, 10, 20, TabletManager::RECOVERING,
+    EXPECT_TRUE(tm.changeState(0, 10, 20, TabletManager::NOT_READY,
                                            TabletManager::NORMAL));
     EXPECT_EQ(0, tm.numLoadingTablets);
     EXPECT_TRUE(tm.changeState(0, 10, 20, TabletManager::NORMAL,
-                                           TabletManager::RECOVERING));
+                                           TabletManager::NOT_READY));
     EXPECT_EQ(1, tm.numLoadingTablets);
 
-    // 4. Increment if split a LOADING tablet into two separate tablets.
+    // 4. Increment if split a NOT_READY tablet into two separate tablets.
     EXPECT_TRUE(tm.splitTablet(0, 11));
     EXPECT_EQ(2, tm.numLoadingTablets);
 }
@@ -318,7 +318,7 @@ TEST_F(TabletManagerTest, toString) {
     tm.addTablet(0, 1, 2, TabletManager::NORMAL);
     EXPECT_EQ("{ tableId: 0 startKeyHash: 1 "
         "endKeyHash: 2 state: 0 reads: 0 writes: 0 }", tm.toString());
-    tm.addTablet(9, 8, 7, TabletManager::RECOVERING);
+    tm.addTablet(9, 8, 7, TabletManager::NOT_READY);
     EXPECT_EQ(
         "{ tableId: 0 startKeyHash: 1 "
             "endKeyHash: 2 state: 0 reads: 0 writes: 0 }\n"

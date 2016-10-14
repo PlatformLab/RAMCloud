@@ -451,12 +451,12 @@ TEST_F(UnackedRpcResultsTest, cleanByTimeout_TabletIsLoadingState) {
 
     service->clusterClock.updateClock(ClusterTime(2));
 
-    // With a LOADING tablet, nothing should be cleaned.
-    tabletManager.addTablet(0, 10, 20, TabletManager::RECOVERING);
+    // With a NOT_READY tablet, nothing should be cleaned.
+    tabletManager.addTablet(0, 10, 20, TabletManager::NOT_READY);
     results.cleanByTimeout();
     EXPECT_EQ(3U, results.clients.size());
 
-    // After deleting LOADING tablet, everything should be cleaned.
+    // After deleting NOT_READY tablet, everything should be cleaned.
     tabletManager.deleteTablet(0, 10, 20);
     results.cleanByTimeout();
     EXPECT_EQ(0U, results.clients.size());

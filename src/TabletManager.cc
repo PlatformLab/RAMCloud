@@ -62,7 +62,7 @@ TabletManager::addTablet(uint64_t tableId,
     tabletMap.insert(std::make_pair(tableId,
                      Tablet(tableId, startKeyHash, endKeyHash, state)));
 
-    if (state == TabletState::RECOVERING) {
+    if (state == TabletState::NOT_READY) {
         numLoadingTablets++;
     }
 
@@ -278,7 +278,7 @@ TabletManager::deleteTablet(uint64_t tableId,
 
     tabletMap.erase(it);
 
-    if (t->state == TabletState::RECOVERING) {
+    if (t->state == TabletState::NOT_READY) {
         numLoadingTablets--;
     }
 
@@ -328,7 +328,7 @@ TabletManager::splitTablet(uint64_t tableId,
         // stick with that. At the very least it's what Christian expects.
         t->readCount = t->writeCount = 0;
 
-        if (t->state == TabletState::RECOVERING) {
+        if (t->state == TabletState::NOT_READY) {
             numLoadingTablets++;
         }
     }
@@ -339,7 +339,7 @@ TabletManager::splitTablet(uint64_t tableId,
 /**
  * Transition the state field associated with a given tablet from a specific
  * old state to a given new state. This is typically used when recovery has
- * completed and a tablet is changed from the RECOVERING to NORMAL state.
+ * completed and a tablet is changed from the NOT_READY to NORMAL state.
  *
  * \param tableId
  *      Table identifier corresponding to the tablet to update.
@@ -380,9 +380,9 @@ TabletManager::changeState(uint64_t tableId,
     t->state = newState;
 
     assert(oldState != newState);
-    if (newState == TabletState::RECOVERING) {
+    if (newState == TabletState::NOT_READY) {
         numLoadingTablets++;
-    } else if (oldState == TabletState::RECOVERING) {
+    } else if (oldState == TabletState::NOT_READY) {
         numLoadingTablets--;
     }
 
@@ -580,13 +580,13 @@ TabletManager::Protector::Protector(TabletManager* tabletManager)
 }
 
 /**
- * Tells whether any tablet in this master is in LOADING status.
+ * Tells whether any tablet in this master is in NOT_READY status.
  *
  * \return
- *      true if there is a tablet with LOADING status.
+ *      true if there is a tablet with NOT_READY status.
  */
 bool
-TabletManager::Protector::loadingTabletExists()
+TabletManager::Protector::notReadyTabletExists()
 {
     return tabletManager->numLoadingTablets > 0;
 }

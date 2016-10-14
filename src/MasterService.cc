@@ -1566,7 +1566,7 @@ MasterService::prepForIndexletMigration(
     }
 
     tabletManager.changeState(reqHdr->backingTableId, 0UL, ~0UL,
-            TabletManager::NORMAL, TabletManager::RECOVERING);
+            TabletManager::NORMAL, TabletManager::NOT_READY);
     migrationMonitor.migrationStarting(reqHdr->backingTableId, 0UL, ~0UL);
 }
 
@@ -1590,7 +1590,7 @@ MasterService::prepForMigration(
     // Try to add the tablet. If it fails, there's some overlapping tablet.
     bool added = tabletManager.addTablet(reqHdr->tableId,
             reqHdr->firstKeyHash, reqHdr->lastKeyHash,
-            TabletManager::RECOVERING);
+            TabletManager::NOT_READY);
     if (added) {
         LOG(NOTICE, "Ready to receive tablet [0x%lx,0x%lx] in tableId %lu from "
                 "\"??\"", reqHdr->firstKeyHash, reqHdr->lastKeyHash,
@@ -1750,9 +1750,9 @@ MasterService::receiveMigrationData(
         return;
     }
 
-    if (tablet.state != TabletManager::RECOVERING) {
+    if (tablet.state != TabletManager::NOT_READY) {
         LOG(WARNING, "migration data received for tablet not in the "
-                "RECOVERING state (state = %d)!",
+                "NOT_READY state (state = %d)!",
                 static_cast<int>(tablet.state));
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
@@ -2258,14 +2258,14 @@ MasterService::takeTabletOwnership(
             }
         }
 
-        // It's possible we already have the tablet in the RECOVERING state.
+        // It's possible we already have the tablet in the NOT_READY state.
         // Try to update it to the NORMAL state to take ownership.
         bool changed = tabletManager.changeState(
                 reqHdr->tableId, reqHdr->firstKeyHash, reqHdr->lastKeyHash,
-                TabletManager::RECOVERING, TabletManager::NORMAL);
+                TabletManager::NOT_READY, TabletManager::NORMAL);
         if (changed) {
             LOG(NOTICE, "Took ownership of existing tablet [0x%lx,0x%lx] in "
-                    "tableId %lu in RECOVERING state", reqHdr->firstKeyHash,
+                    "tableId %lu in NOT_READY state", reqHdr->firstKeyHash,
                     reqHdr->lastKeyHash, reqHdr->tableId);
         } else {
             LOG(WARNING, "Could not take ownership of tablet [0x%lx,0x%lx] in "
@@ -2323,7 +2323,7 @@ MasterService::takeIndexletOwnership(
     // as a part of coordSplitAndMigrateIndexlet() call. It does nothing
     // useful if not.
     tabletManager.changeState(reqHdr->backingTableId, 0UL, ~0UL,
-            TabletManager::RECOVERING, TabletManager::NORMAL);
+            TabletManager::NOT_READY, TabletManager::NORMAL);
 }
 
 /**
@@ -3731,7 +3731,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
              recoveryPartition.tablet()) {
         bool added = tabletManager.addTablet(newTablet.table_id(),
                 newTablet.start_key_hash(), newTablet.end_key_hash(),
-                TabletManager::RECOVERING);
+                TabletManager::NOT_READY);
         if (!added) {
             throw Exception(HERE, format("Cannot recover tablet that overlaps "
                     "an already existing one (tablet to recover: %lu "
@@ -3841,7 +3841,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             bool changed = tabletManager.changeState(
                     tablet.table_id(),
                     tablet.start_key_hash(), tablet.end_key_hash(),
-                    TabletManager::RECOVERING, TabletManager::NORMAL);
+                    TabletManager::NOT_READY, TabletManager::NORMAL);
             if (!changed) {
                 throw FatalError(HERE, format("Could not change recovering "
                         "tablet's state to NORMAL (%lu range [%lu,%lu])",

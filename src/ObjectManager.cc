@@ -580,12 +580,12 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it)
  * will keep track of tombstones during replay and remove any older objects
  * encountered to maintain delete consistency.
  *
- * Objects being replayed should belong to existing tablets in the RECOVERING
+ * Objects being replayed should belong to existing tablets in the NOT_READY
  * state. ObjectManager uses the state of the tablets to determine when it is
  * safe to prune tombstones created during replaySegment calls. In particular,
- * tombstones referring to unknown tablets or to tablets not in the RECOVERING
+ * tombstones referring to unknown tablets or to tablets not in the NOT_READY
  * state will be pruned. The caller should ensure that when replaying objects
- * for a particular tablet, the tablet already exists in the RECOVERING state
+ * for a particular tablet, the tablet already exists in the NOT_READY state
  * before the first invocation of replaySegment() and that the state is changed
  * (or the tablet is dropped) after the last call.
  *
@@ -2870,13 +2870,13 @@ ObjectManager::removeIfTombstone(uint64_t maybeTomb, void *cookie)
         // following criteria:
         //  1) Tablet is not assigned to us (not in TabletManager, so we don't
         //     care about it).
-        //  2) Tablet is not in the RECOVERING state (replaySegment won't be
+        //  2) Tablet is not in the NOT_READY state (replaySegment won't be
         //     called for objects in that tablet anymore).
         bool discard = false;
 
         TabletManager::Tablet tablet;
         if (!objectManager->tabletManager->getTablet(key, &tablet) ||
-          tablet.state != TabletManager::RECOVERING) {
+          tablet.state != TabletManager::NOT_READY) {
             discard = true;
         }
 

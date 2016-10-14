@@ -355,7 +355,7 @@ TEST_F(AdminServiceTest, serverControl_ObjectServerControl_NoTablet) {
     EXPECT_EQ(STATUS_UNIMPLEMENTED_REQUEST, respHdr->common.status);
 
     context.getMasterService()->tabletManager.changeState(
-            1, 0, ~0UL, TabletManager::NORMAL, TabletManager::RECOVERING);
+            1, 0, ~0UL, TabletManager::NORMAL, TabletManager::NOT_READY);
 
     adminService.serverControl(reqHdr, respHdr, &rpc);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, respHdr->common.status);

@@ -1778,7 +1778,7 @@ TEST_F(MasterServiceTest, prepForMigration) {
     EXPECT_EQ(5U, tablet.tableId);
     EXPECT_EQ(1000U, tablet.startKeyHash);
     EXPECT_EQ(2000U, tablet.endKeyHash);
-    EXPECT_EQ(TabletManager::RECOVERING, tablet.state);
+    EXPECT_EQ(TabletManager::NOT_READY, tablet.state);
     EXPECT_EQ("prepForMigration: Ready to receive tablet [0x3e8,0x7d0] "
             "in tableId 5 from \"??\"", TestLog::get());
     EXPECT_FALSE(service->masterTableMetadata.find(5) == NULL);
@@ -1976,7 +1976,7 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
             InternalError);
     EXPECT_EQ("receiveMigrationData: Receiving 0 bytes of migration data for "
             "tablet [0x0,??] in tableId 1 | receiveMigrationData: migration "
-            "data received for tablet not in the RECOVERING state (state = 0)!",
+            "data received for tablet not in the NOT_READY state (state = 0)!",
             TestLog::get());
 
     Key key(5, "wee!", 4);
@@ -1997,7 +1997,7 @@ TEST_F(MasterServiceTest, receiveMigrationData) {
     Status status = service->objectManager.readObject(key, &logBuffer, 0, 0);
     EXPECT_NE(STATUS_OK, status);
     // Need to mark the tablet as NORMAL before we can read from it.
-    service->tabletManager.changeState(5, 1, -1UL, TabletManager::RECOVERING,
+    service->tabletManager.changeState(5, 1, -1UL, TabletManager::NOT_READY,
             TabletManager::NORMAL);
     status = service->objectManager.readObject(key, &logBuffer, 0, 0);
     EXPECT_EQ(STATUS_OK, status);
@@ -2054,7 +2054,7 @@ TEST_F(MasterServiceTest, receiveMigrationData_indexletData) {
     // Need to mark the tablet as NORMAL before we can read from it.
     service->tabletManager.changeState(
             newBackingTableId, 0UL, ~0UL,
-            TabletManager::RECOVERING, TabletManager::NORMAL);
+            TabletManager::NOT_READY, TabletManager::NORMAL);
     status = service->objectManager.readObject(key, &bufferFromLog, 0, 0);
     EXPECT_EQ(STATUS_OK, status);
     EXPECT_EQ("watch out for the migrant object",
@@ -2633,13 +2633,13 @@ TEST_F(MasterServiceTest, takeTabletOwnership_migratingTablet) {
     TestLog::Enable _("takeTabletOwnership");
 
     // Fake up a tablet in migration.
-    service->tabletManager.addTablet(2, 0, 5, TabletManager::RECOVERING);
+    service->tabletManager.addTablet(2, 0, 5, TabletManager::NOT_READY);
 
     MasterClient::takeTabletOwnership(&context, masterServer->serverId,
             2, 0, 5);
 
     EXPECT_EQ("takeTabletOwnership: Took ownership of existing tablet "
-            "[0x0,0x5] in tableId 2 in RECOVERING state", TestLog::get());
+            "[0x0,0x5] in tableId 2 in NOT_READY state", TestLog::get());
     EXPECT_TRUE(service->masterTableMetadata.find(2) == NULL);
 }
 
@@ -4090,7 +4090,7 @@ TEST_F(MasterServiceTest, MigrationMonitor_migrationRunsTooLong) {
 
 TEST_F(MasterServiceTest, MigrationMonitor_longRunningMigration) {
     Cycles::mockTscValue = 1000;
-    service->tabletManager.addTablet(2, 100, 200, TabletManager::RECOVERING);
+    service->tabletManager.addTablet(2, 100, 200, TabletManager::NOT_READY);
     service->migrationMonitor.migrationStarting(2, 100, 200);
 
     // First invocation of handleTimerEvent: time limit not yet exceeded.
@@ -4114,7 +4114,7 @@ TEST_F(MasterServiceTest, MigrationMonitor_longRunningMigration) {
             "is hung\?", TestLog::get());
 
     // Third invocation of handleTimerEvent: migration completed.
-    service->tabletManager.changeState(2, 100, 200, TabletManager::RECOVERING,
+    service->tabletManager.changeState(2, 100, 200, TabletManager::NOT_READY,
             TabletManager::NORMAL);
     service->migrationMonitor.stop();
     service->migrationMonitor.handleTimerEvent();

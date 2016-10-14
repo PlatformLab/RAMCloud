@@ -347,7 +347,7 @@ TransactionManager::updateOpPtr(uint64_t leaseId,
 /**
  * Acquire transaction locks in objectManager for each entries
  * in items. This should be called after replaying all segments
- * and before changing tablet status from RECOVERING to NORMAL.
+ * and before changing tablet status from NOT_READY to NORMAL.
  *
  * \param objectManager
  *      The pointer to objectManager which holds transaction LockTable.

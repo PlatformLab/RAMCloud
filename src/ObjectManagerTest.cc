@@ -573,12 +573,12 @@ TEST_F(ObjectManagerTest, readObject) {
         objectManager->readObject(key, &buffer, 0, 0));
 
     // non-normal tablet, no dice
-    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NOT_READY);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
         objectManager->readObject(key, &buffer, 0, 0));
 
     // (now make the tablet acceptable for handling reads)
-    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::NOT_READY,
                                           TabletManager::NORMAL);
 
     // not found, clearly no dice
@@ -628,13 +628,13 @@ TEST_F(ObjectManagerTest, removeObject) {
               , verifyMetadata(1));
 
     // non-normal tablet, no dice
-    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NOT_READY);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager->removeObject(key, 0, 0));
     EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
     // (now make the tablet acceptable for handling removes)
-    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::NOT_READY,
                                           TabletManager::NORMAL);
 
     // key locked, STATUS_RETRY.
@@ -1360,7 +1360,7 @@ TEST_F(ObjectManagerTest, replaySegment_preparedOp_basics) {
         Object obj(key, "hello", 6, 0, 0, buf);
         objectManager->writeObject(obj, NULL, NULL, NULL, NULL, NULL);
         tabletManager->changeState(10, 0, ~0UL, TabletManager::NORMAL,
-                                               TabletManager::RECOVERING);
+                                               TabletManager::NOT_READY);
     }
     objectManager->replaySegment(&sl, *it);
 
@@ -1589,12 +1589,12 @@ TEST_F(ObjectManagerTest, writeObject) {
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // non-NORMAL tablet state, no dice.
-    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NOT_READY);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET, objectManager->writeObject(obj, 0, 0));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // key locked, STATUS_RETRY
-    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::NOT_READY,
                                           TabletManager::NORMAL);
     Log::Reference lockRef = storePreparedOp(key);
     EXPECT_TRUE(objectManager->lockTable.tryAcquireLock(key, lockRef));
@@ -1733,7 +1733,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // non-NORMAL tablet state, no dice.
-    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NOT_READY);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
     objectManager->prepareOp(op, 0, &newOpPtr, &isCommit,
                                 &rpcResult, &rpcResultPtr));
@@ -1742,7 +1742,7 @@ TEST_F(ObjectManagerTest, prepareOp) {
     TestLog::Enable _(writeObjectFilter);
 
     // new object
-    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::NOT_READY,
                                           TabletManager::NORMAL);
     EXPECT_EQ(STATUS_OK, objectManager->prepareOp(
                        op, 0, &newOpPtr, &isCommit, &rpcResult, &rpcResultPtr));
@@ -1785,7 +1785,7 @@ TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
 
     // non-NORMAL tablet state, no dice.
-    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NOT_READY);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
         objectManager->writeTxDecisionRecord(record));
     EXPECT_EQ("found=false tableId=1", verifyMetadata(1));
@@ -1793,7 +1793,7 @@ TEST_F(ObjectManagerTest, writeTxDecisionRecord) {
     TestLog::Enable _("writeTxDecisionRecord");
 
     // new record
-    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::NOT_READY,
                                           TabletManager::NORMAL);
     EXPECT_EQ(STATUS_OK, objectManager->writeTxDecisionRecord(record));
     EXPECT_EQ("writeTxDecisionRecord: tansactionDecisionRecord: 96 bytes",
@@ -1818,12 +1818,12 @@ TEST_F(ObjectManagerTest, tryGrabTxLock) {
     EXPECT_FALSE(objectManager->lockTable.isLockAcquired(key));
 
     // non-NORMAL tablet state, can grab txLock.
-    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NOT_READY);
     EXPECT_EQ(STATUS_OK, objectManager->tryGrabTxLock(prepOp.object, ref));
     EXPECT_TRUE(objectManager->lockTable.isLockAcquired(key));
 
     //Object is locked and status retry is returned.
-    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::NOT_READY,
                                           TabletManager::NORMAL);
     Object objToWrite(key, "diff", 4, 0, 0, buffer);
     EXPECT_EQ(STATUS_RETRY, objectManager->writeObject(objToWrite, 0, 0));
@@ -2141,14 +2141,14 @@ TEST_F(ObjectManagerTest, writeTombstone) {
               , verifyMetadata(1));
 
     // non-normal tablet, no dice
-    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NOT_READY);
     EXPECT_EQ(STATUS_UNKNOWN_TABLET,
               objectManager->writeTombstone(key, &logBuffer));
     EXPECT_EQ("found=true tableId=1 byteCount=30 recordCount=1"
               , verifyMetadata(1));
 
     // (now make the tablet acceptable for handling removes)
-    tabletManager->changeState(1, 0, ~0UL, TabletManager::RECOVERING,
+    tabletManager->changeState(1, 0, ~0UL, TabletManager::NOT_READY,
                                           TabletManager::NORMAL);
 
     // not found, not an error
@@ -2356,25 +2356,25 @@ TEST_F(ObjectManagerTest, removeIfTombstone_nonTombstone) {
     TestLog::Enable _(removeIfTombstoneFilter);
     Key key(1, "key!", 4);
     Log::Reference reference = storeObject(key, "value!");
-    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NOT_READY);
     ObjectManager::CleanupParameters params = { objectManager, 0 };
     objectManager->removeIfTombstone(reference.toInteger(), &params);
     EXPECT_EQ("", TestLog::get());
 }
 
 TEST_F(ObjectManagerTest, removeIfTombstone_recoveringTablet) {
-    // 2. calling on a tombstone with a RECOVERING tablet does nothing
+    // 2. calling on a tombstone with a NOT_READY tablet does nothing
     TestLog::Enable _(removeIfTombstoneFilter);
     Key key(1, "key!", 4);
     Log::Reference reference = storeTombstone(key);
-    tabletManager->addTablet(1, 0, ~0UL, TabletManager::RECOVERING);
+    tabletManager->addTablet(1, 0, ~0UL, TabletManager::NOT_READY);
     ObjectManager::CleanupParameters params = { objectManager, 0 };
     objectManager->removeIfTombstone(reference.toInteger(), &params);
     EXPECT_EQ("", TestLog::get());
 }
 
 TEST_F(ObjectManagerTest, removeIfTombstone_nonRecoveringTablet) {
-    // 3. calling on a tombstone with a non-RECOVERING tablet discards
+    // 3. calling on a tombstone with a non-NOT_READY tablet discards
     TestLog::Enable _(removeIfTombstoneFilter);
     Key key(1, "key!", 4);
     Log::Reference reference = storeTombstone(key);

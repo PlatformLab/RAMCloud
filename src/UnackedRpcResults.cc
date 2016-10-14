@@ -160,7 +160,7 @@ UnackedRpcHandle::recordCompletion(uint64_t result)
  * \param leaseValidator
  *      Allows this module to determine if a given lease is still valid.
  * \param tabletManager
- *      Pointer to the TabletManager which will tell if any tablet is LOADING.
+ *      Pointer to the TabletManager which will tell if any tablet is NOT_READY.
  */
 UnackedRpcResults::UnackedRpcResults(Context* context,
                                      AbstractLog::ReferenceFreer* freer,
@@ -565,12 +565,12 @@ UnackedRpcResults::cleanByTimeout()
                                             ClusterTime(lease.leaseExpiration);
         } else {
             TabletManager::Protector tp(tabletManager);
-            if (tp.loadingTabletExists()) {
-                // Since there is a tablet re-loading (eg. recovery/migration)
-                // happening, we cannot garbage collect expired clients safely.
-                // We need both RpcResult entries and participant list entry
+            if (tp.notReadyTabletExists()) {
+                // Since there is a NOT_READY tablet (eg. recovery/migration),
+                // we cannot garbage collect expired clients safely.
+                // Both RpcResult entries and participant list entry need to be
                 // recovered to make a correct GC decision, but with a tablet
-                // currently LOADING, it is possible to have only RpcResult
+                // currently NOT_READY, it is possible to have only RpcResult
                 // recovered, not Transaction ParticipantList entry yet.
                 return;
             }
