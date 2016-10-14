@@ -47,20 +47,19 @@ namespace RAMCloud {
 class TabletManager {
   PUBLIC:
     /**
-     * Each tablet is in one particular state at any point in time. This is a
-     * duplicate of the Protocol Buffer-defined enum, which has heinously long
-     * names and is annoying to use in code that shouldn't care about (or even
-     * know about) protocol buffers.
-     *
-     * Please keep this consistent with the Protocol Buffer (Tablets.proto).
-     * The simplest way to do that is to add enums to the protocol buffer first
-     * and then add entries here that are assigned to the new protobuf enum.
+     * Each tablet is in one particular state at any point in time. This state
+     * is used only within each master's TabletManager. We never send or receive
+     * the value of this enum directly to/from another master or coordinator.
+     * This is different from Tablet.status which is used within coordinator and
+     * attached external storage.
      */
     enum TabletState {
-        NORMAL = ProtoBuf::Tablets_Tablet_State_NORMAL,
-        NOT_READY = ProtoBuf::Tablets_Tablet_State_RECOVERING,
-        LOCKED_FOR_MIGRATION =
-            ProtoBuf::Tablets_Tablet_State_LOCKED_FOR_MIGRATION,
+        /// The tablet is available.
+        NORMAL = 0,
+        /// The tablet is being re-constructed yet. (eg. migration and recovery)
+        NOT_READY = 1,
+        /// Migration of tablet is requested. Cannot take new writes.
+        LOCKED_FOR_MIGRATION = 2,
     };
 
     /**
