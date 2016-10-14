@@ -729,7 +729,7 @@ TransactionManager::TransactionRegistryCleaner::handleTimerEvent()
         TabletManager::Protector protector(transactionManager->tabletManager);
 
         // There are recoveries or migrations in progress; don't clean.
-        if (protector.loadingTabletExists())
+        if (protector.notReadyTabletExists())
             break;
         // Cleaning pass completed.
         if (it == transactionManager->transactionIds.end())

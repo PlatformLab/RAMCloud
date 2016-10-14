@@ -900,7 +900,7 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
     EXPECT_FALSE(transactionManager.cleaner.isRunning());
     TestLog::Enable _("~TransactionRecord", "handleTimerEvent", NULL);
 
-    tabletManager.addTablet(42, 0, 1, TabletManager::RECOVERING);
+    tabletManager.addTablet(42, 0, 1, TabletManager::NOT_READY);
 
     // Cleaner blocked by recovering tablet
     transactionManager.cleaner.handleTimerEvent();
