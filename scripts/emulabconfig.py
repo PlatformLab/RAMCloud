@@ -4,6 +4,12 @@ This module defines an Emulab specific cluster hooks and exposes configuration i
 such as location of RAMCloud binaries and list of hosts. EMULAB_HOST environment must be 
 exported to point to node-0 in the Cloudlab experiment where the caller has passwordless
 ssh access. Check https://www.cloudlab.us/ssh-keys.php if you didn't export keys already
+
+Sample localconfig.py 
+from emulabconfig import *
+hooks = EmulabClusterHooks();
+hosts = getHosts()
+
 """
 
 import subprocess
@@ -60,11 +66,12 @@ def ssh(server, cmd, checked=True):
 
 def pdsh(cmd, checked=True):
     """ Runs command on remote hosts using pdsh on remote hosts"""
+    log("Running parallely on all hosts")
     if checked:
-        return subprocess.check_call('pdsh -w^/tmp/emulab-hosts "%s"' % cmd,
+        return subprocess.check_call('pdsh -w^./.emulab-hosts "%s"' % cmd,
                                      shell=True, stdout=sys.stdout)
     else:
-        return subprocess.call('pdsh -w^/tmp/emulab-hosts "%s"' %cmd,
+        return subprocess.call('pdsh -w^./.emulab-hosts "%s"' %cmd,
                                shell=True, stdout=sys.stdout)
 
 def captureSh(command, **kwargs):
@@ -106,15 +113,21 @@ class EmulabClusterHooks:
         self.parallel = self.cmd_exists("pdsh")
         if not self.parallel:
             log("NOTICE: Remote commands could be faster if you install and configure pdsh")
+            self.remote_func = self.serial
         else:
-            with open("/tmp/emulab-hosts",'w') as f:
+            with open("./.emulab-hosts",'w') as f:
                 for host in self.hosts:
                     f.write(host[0]+'\n')
+            self.remote_func = pdsh
 
-        
     def cmd_exists(self, cmd):
         return subprocess.call("type " + cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
     
+    def serial(self, cmd, checked=True):
+        for host in self.hosts:
+            log("Running on %s" % host[0])
+            ssh(host[0], cmd, checked=checked)
+
     def get_remote_wd(self):
         if self.remotewd is None:
             self.remotewd = os.path.join(captureSh('ssh %s pwd' % self.hosts[0][0]),
@@ -127,101 +140,64 @@ class EmulabClusterHooks:
     def get_remote_obj_path(self):
         return os.path.join(self.get_remote_wd(), obj_dir)
 
-    def send_code(self, server, parallel=False):
-        log("Sending code to %s" % server)
-        if parallel:
-            for host in self.hosts:
-                self.send_code(host[0])
-            return
-        subprocess.check_call("rsync -ave ssh --exclude 'logs/*' " +
+    def send_code(self):
+        for host in self.hosts:
+            log("Sending code to %s" % host[0])
+            subprocess.check_call("rsync -ave ssh --exclude 'logs/*' " +
                               "--exclude 'docs/*' " +
-                              "./ %s:%s/ > /dev/null" % (server,
+                              "./ %s:%s/ > /dev/null" % (host[0],
                                                          self.get_remote_wd()),
                               shell=True, stdout=sys.stdout)
     
-    def compile_code(self, server, clean=False, parallel=False):
-        log("Compiling code on %s" % server)
+    def compile_code(self, clean=False):
+        log("Compiling code")
         clean_cmd = ''
         if clean:
             clean_cmd = 'make clean;'
-        if parallel:
-            pdsh('(cd %s; (%s make -j 8)  > ' % (self.get_remote_wd(), clean_cmd) +
+        self.remote_func('(cd %s; (%s make -j12 DPDK=yes DPDK_DIR=/local/RAMCloud/deps/dpdk-16.07)  > ' % (self.get_remote_wd(), clean_cmd) +
                          '%s/build.log)' % self.get_remote_wd())
-        else:
-            ssh(server,
-                '(cd %s; (%s make -j 8)  > ' % (self.get_remote_wd(), clean_cmd) +
-                 '%s/build.log)' % self.get_remote_wd())
 
-    def kill_procs(self, server, parallel=False):
-        log("Killing existing RAMCloud processes on %s" % server)
-        if self.parallel:
-            pdsh('sudo pkill -f RAMCloud')
-        else:
-            ssh(server, 'sudo pkill -f RAMCloud')
+    def kill_procs(self):
+        log("Killing existing processes")
+        self.remote_func('sudo pkill -f RAMCloud')
 
-    def create_log_dir(self, server, parallel=False):
-        log("Creating %s on %s" % (self.cluster.log_subdir, server))
-        if parallel:
-             pdsh(
-                '(cd %s; ' % self.get_remote_wd() +
-                'mkdir -p $(dirname %s)/shm; ' % self.cluster.log_subdir +
-                'mkdir -p %s; ' % self.cluster.log_subdir +
-                'rm logs/latest; ' +
-                'ln -sf $(basename %s) logs/latest)' % self.cluster.log_subdir)
+    def create_log_dir(self):
+        log("creating log directories")
+        self.remote_func(
+            '(cd %s; ' % self.get_remote_wd() +
+            'mkdir -p $(dirname %s)/shm; ' % self.cluster.log_subdir +
+            'mkdir -p %s; ' % self.cluster.log_subdir +
+            'rm logs/latest; ' +
+            'ln -sf $(basename %s) logs/latest)' % self.cluster.log_subdir)
 
-        else:
-            ssh(server,
-                '(cd %s; ' % self.get_remote_wd() +
-                'mkdir -p $(dirname %s)/shm; ' % self.cluster.log_subdir +
-                'mkdir -p %s; ' % self.cluster.log_subdir +
-                'rm logs/latest; ' +
-                'ln -sf $(basename %s) logs/latest)' % self.cluster.log_subdir)
-
-    def fix_disk_permissions(self, server, parallel=False):
-        log("Fixing disk permissions on %s" % server)
+    def fix_disk_permissions(self):
+        log("Fixing disk permissions")
         disks = default_disk2.split(' ')[1].split(',')
         cmds = ['sudo chmod 777 %s' % disk for disk in disks]
-        if parallel:
-            pdsh('(%s)' % ';'.join(cmds))
-        else:
-            ssh(server, '(%s)' % ';'.join(cmds))
+        self.remote_func('(%s)' % ';'.join(cmds))
 
     def cluster_enter(self, cluster):
         self.cluster = cluster
         log('== Connecting to Emulab via %s ==' % self.hosts[0][0])
-        if self.parallel:
-            self.kill_procs('all', parallel=self.parallel)
-            self.send_code('all', parallel=self.parallel)
-            self.compile_code('all', parallel=self.parallel)
-            self.create_log_dir('all', parallel=self.parallel)
-            self.fix_disk_permissions('all', parallel=self.parallel)
-        else:
-            for host in self.hosts:
-                hostName = host[0]
-                log('-- Preparing host ' + hostName)
-                self.kill_procs(hostName)
-                self.send_code(hostName)
-                self.compile_code(hostName)
-                self.create_log_dir(hostName)
-                self.fix_disk_permissions(hostName)
+        #self.kill_procs()
+        self.send_code()
+        self.compile_code()
+        self.create_log_dir()
+        self.fix_disk_permissions()
         log('== Emulab Cluster Configured ==')
         log("If you are running clusterperf, it might take a while!")
 
-    def collect_logs(self, server, parallel=False):
-        log('Collecting logs from host ' + server)
-        if parallel:
-            for host in self.hosts:
-                self.collect_logs(host[0])
-        subprocess.check_call("rsync -ave ssh " +
-                              "%s:%s/logs/ logs/> /dev/null" % (server,
-                                                         self.get_remote_wd()),
-                              shell=True, stdout=sys.stdout)
+    def collect_logs(self):
+        log("Collecting logs")
+        for host in self.hosts:
+            subprocess.check_call("rsync -ave ssh " +
+                                  "%s:%s/logs/ logs/> /dev/null" % (host[0],
+                                                                    self.get_remote_wd()),
+                                                                    shell=True, stdout=sys.stdout)
 
     def cluster_exit(self):
         log('== Emulab Cluster Tearing Down ==')
-        for host in self.hosts:
-            hostName = host[0]
-            self.collect_logs(hostName)
+        self.collect_logs()
         log('== Emulab Cluster Torn Down ==')
         pass
 
