@@ -546,7 +546,7 @@ def run(
                                    # additional arguments will be prepended
                                    # with configuration information such as
                                    # -C.
-        num_clients=1,             # Number of client processes to run.
+        num_clients=0,             # Number of client processes to run.
                                    # They will all run on separate
                                    # machines, if possible, but if there
                                    # aren't enough available machines then
@@ -579,14 +579,16 @@ def run(
         coordinator_host=None
         ):
     """
-    Start a coordinator and servers, as indicated by the arguments.
-    Then start one or more client processes and wait for them to complete.
+    Start a coordinator and servers, as indicated by the arguments.  If a
+    client is specified, then start one or more client processes and wait for
+    them to complete. Otherwise leave the cluster running.  
     @return: string indicating the path to the log files for this run.
     """
 #    client_hosts = [('rc52', '192.168.1.152', 52)]
-    if not client:
-        raise Exception('You must specify a client binary to run '
-                        '(try obj.master/client)')
+
+    if client:
+        if num_clients == 0:
+            num_clients = 1
 
     if verbose:
         print('num_servers=(%d), available hosts=(%d) defined in config.py'
@@ -657,13 +659,17 @@ def run(
         if disjunct:
             cluster.hosts = cluster.hosts[num_servers:]
 
-        if debug:
-            print('Servers started; pausing for debug setup.')
-            raw_input('Type <Enter> to continue: ')
         if masters_started > 0 or backups_started > 0:
             cluster.ensure_servers()
             if verbose:
                 print('All servers running')
+
+        if not client:
+            print('Servers started.')
+            raw_input('Type <Enter> to shutdown servers: ')
+        elif debug:
+            print('Servers started; pausing for debug setup.')
+            raw_input('Type <Enter> to continue: ')
 
         if client:
             # Note: even if it's OK to share hosts between clients and servers,
