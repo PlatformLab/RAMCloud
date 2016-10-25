@@ -3,24 +3,28 @@
 # Utility script that automates the process of fetching a stable dpdk release,
 # configuring its compilation options, and building the dpdk libraries.
 
-DPDK_VER="1.8.0"
+DPDK_VER="16.07"
 
 if [ ! -d ./deps ]; then mkdir deps; fi
 
 if [ ! -d ./deps/dpdk-${DPDK_VER} ];
 then
 	cd deps;
-	wget http://dpdk.org/browse/dpdk/snapshot/dpdk-${DPDK_VER}.tar.gz
+	wget --no-clobber http://dpdk.org/browse/dpdk/snapshot/dpdk-${DPDK_VER}.tar.gz
 	tar zxvf dpdk-${DPDK_VER}.tar.gz
 	cd ..
-	ln -s deps/dpdk-${DPDK_VER} dpdk
 fi
-
-# Configure the build process to produce a unified object archive file.
-sed -i s/CONFIG_RTE_BUILD_COMBINE_LIBS=n/CONFIG_RTE_BUILD_COMBINE_LIBS=y/ dpdk/config/common_linuxapp
-sed -i s/CONFIG_RTE_BUILD_SHARED_LIB=n/CONFIG_RTE_BUILD_SHARED_LIB=y/ dpdk/config/common_linuxapp
+ln -sfn deps/dpdk-${DPDK_VER} dpdk
 
 # Build the libraries, assuming an x86_64 linux target, and a gcc-based
 # toolchain. Compile position-indepedent code, which will be linked by
-# RAMCloud code.
-cd dpdk && CPU_FLAGS="-fPIC" make install T=x86_64-native-linuxapp-gcc
+# RAMCloud code, and produce a unified object archive file.
+TARGET=x86_64-native-linuxapp-gcc
+NUM_JOBS=`grep -c '^processor' /proc/cpuinfo`
+if [ "$NUM_JOBS" -gt 2 ]; then
+    let NUM_JOBS=NUM_JOBS-2
+fi
+
+cd dpdk && make config T=$TARGET O=$TARGET
+cd $TARGET && make CONFIG_RTE_BUILD_SHARED_LIB=y \
+        CONFIG_RTE_BUILD_COMBINE_LIBS=y EXTRA_CFLAGS="-fPIC" -j$NUM_JOBS

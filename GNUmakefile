@@ -188,7 +188,7 @@ ifeq ($(DPDK),yes)
 # (the parent of the "x86_64-native-linuxapp-gcc" directory). Or, leave
 # this variable undefined if DPDK is installed in the standard system
 # locations.
-# DPDK_DIR ?= deps/dpdk-16.07
+# DPDK_DIR ?= dpdk
 
 # Change the definition below if you compiled DPDK without shared libraries.
 # Note: this configuration is not well tested and may not work.
@@ -233,7 +233,7 @@ DPDK_SHLIBS := -lethdev -lrte_mbuf -lrte_mempool -lrte_ring \
 	-lrte_pmd_ring $(DPDK_MALLOC) $(DPDK_VIRTIO) $(DPDK_VERTIO_UIO)
 DPDK_RPATH := -Wl,-rpath,$(abspath $(DPDK_LIB_DIR))
 # -ldl required because librte_eal refers to dlopen()
-LIBS += $(DPDK_SHLIBS) $(DPDK_RPATH)
+LIBS += $(DPDK_SHLIBS) $(DPDK_RPATH) -ldl
 else
 # Link with static libraries
 # DPDK must have been compiled with CONFIG_RTE_BUILD_COMBINE_LIBS=y and -fPIC
