@@ -227,7 +227,7 @@ class Dispatch {
      * other non-dispatch thread has a Lock object and the dispatch thread is
      * in an idle state waiting for the Lock to be destroyed.  Although Locks
      * are intended primarily for use in non-dispatch threads, they can also be
-     * used in the dispatch hread (e.g., if you can't tell which thread will
+     * used in the dispatch thread (e.g., if you can't tell which thread will
      * run a particular piece of code). Locks may not be used recursively: a
      * single thread can only create a single Lock object at a time.
      */
