@@ -260,12 +260,7 @@ TransportManager::initialize(const char* localServiceLocator)
 void
 TransportManager::flushSession(const string& serviceLocator)
 {
-    // If we're running on a server (i.e., multithreaded) must exclude
-    // other threads.
-    Tub<std::lock_guard<SpinLock>> lock;
-    if (isServer) {
-        lock.construct(mutex);
-    }
+    std::lock_guard<SpinLock> lock(mutex);
 
     TEST_LOG("flushing session for %s", serviceLocator.c_str());
     auto it = sessionCache.find(serviceLocator);
@@ -297,12 +292,7 @@ TransportManager::flushSession(const string& serviceLocator)
 Transport::SessionRef
 TransportManager::getSession(const string& serviceLocator)
 {
-    // If we're running on a server (i.e., multithreaded) must exclude
-    // other threads.
-    Tub<std::lock_guard<SpinLock>> lock;
-    if (isServer) {
-        lock.construct(mutex);
-    }
+    std::lock_guard<SpinLock> lock(mutex);
 
     // First check to see if we have already opened a session for the
     // locator; this should almost always be true.
@@ -348,12 +338,7 @@ TransportManager::getListeningLocatorsString()
 Transport::SessionRef
 TransportManager::openSession(const string& serviceLocator)
 {
-    // If we're running on a server (i.e., multithreaded) must exclude
-    // other threads.
-    Tub<std::lock_guard<SpinLock>> lock;
-    if (isServer) {
-        lock.construct(mutex);
-    }
+    std::lock_guard<SpinLock> lock(mutex);
     return openSessionInternal(serviceLocator);
 }
 
