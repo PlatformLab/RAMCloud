@@ -422,6 +422,7 @@ INSTALL_INCLUDES := \
     src/Object.h \
     src/ObjectBuffer.h \
     src/ObjectRpcWrapper.h \
+    src/OptionParser.h \
     src/PerfStats.h \
     src/RamCloud.h \
     src/RpcLevel.h \

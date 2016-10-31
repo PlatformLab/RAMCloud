@@ -73,16 +73,11 @@ namespace {
  *
  * \param context
  *      Overall information about the RAMCloud server or client.
- * \param localServiceLocator
- *      "devport" option specifies the physical port to use on the NIC,
- *      If the port is not specified, then by default the driver will
- *      use the first one. "mac" option specifies the MAC address. If
- *      the MAC address is specified to be all zeroes, then the default
- *      device MAC will be used.
+ * \param port
+ *      Selects which physical port to use for communication.
  */
 
-DpdkDriver::DpdkDriver(Context* context,
-                       const ServiceLocator* localServiceLocator)
+DpdkDriver::DpdkDriver(Context* context, int port)
     : context(context)
     , packetBufPool()
     , packetBufsUtilized(0)
@@ -92,7 +87,7 @@ DpdkDriver::DpdkDriver(Context* context,
     , packetPool(NULL)
     , loopbackRing(NULL)
     , hasHardwareFilter(true) // Cleared if not applicable at NIC initialization
-    , bandwidthGbps(10)                   // Default bandwidth = 10 gbs
+    , bandwidthMbps(10000)                // Default bandwidth = 10 gbs
     , queueEstimator(0)
     , maxTransmitQueueSize(0)
     , fileLogger(NOTICE, "DPDK: ")
@@ -102,40 +97,7 @@ DpdkDriver::DpdkDriver(Context* context,
     struct rte_eth_conf portConf;
     int ret;
 
-    // parse the locator string, if specified, and obtain the values
-    // for various parameters.
-    if (localServiceLocator != NULL) {
-        locatorString = localServiceLocator->getOriginalString();
-        try {
-            localMac.construct(
-                    localServiceLocator->getOption<const char*>("mac"));
-        } catch (ServiceLocator::NoSuchKeyException& e) {
-        }
-        try {
-            string localPort = localServiceLocator->getOption("devport");
-            bool error;
-            portId = downCast<uint8_t>(StringUtil::stringToInt(
-                    localPort.c_str(), &error));
-            if (error) {
-                throw DriverException(HERE, format(
-                        "Bad devport option in service locator: %s",
-                        locatorString.c_str()));
-            }
-        } catch (ServiceLocator::NoSuchKeyException& e) {
-        }
-        try {
-            bandwidthGbps = localServiceLocator->getOption<int>("gbs");
-        } catch (ServiceLocator::NoSuchKeyException& e) {}
-    }
-    queueEstimator.setBandwidth(1000*bandwidthGbps);
-    maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthGbps)
-            * MAX_DRAIN_TIME / 8.0);
-    uint32_t maxPacketSize = getMaxPacketSize();
-    if (maxTransmitQueueSize < 2*maxPacketSize) {
-        // Make sure that we advertise enough space in the transmit queue to
-        // prepare the next packet while the current one is transmitting.
-        maxTransmitQueueSize = 2*maxPacketSize;
-    }
+    portId = downCast<uint8_t>(port);
 
     // Initialize the DPDK environment with some default parameters.
     // --file-prefix is needed to avoid false lock conflicts if servers
@@ -153,8 +115,8 @@ DpdkDriver::DpdkDriver(Context* context,
             "-n", "1", NULL};
     int argc = static_cast<int>(sizeof(argv) / sizeof(argv[0])) - 1;
 
-    ret = rte_eal_init(argc, const_cast<char**>(argv));
     rte_openlog_stream(fileLogger.getFile());
+    ret = rte_eal_init(argc, const_cast<char**>(argv));
 
     // create an memory pool for accommodating packet buffers
     packetPool = rte_mempool_create("mbuf_pool", NB_MBUF,
@@ -182,12 +144,10 @@ DpdkDriver::DpdkDriver(Context* context,
     // if the locator string specified an all-zeroes MAC address,
     // use the default one by reading it from the NIC via DPDK.
     // Fix-up the locator string to reflect the real MAC address.
-    if (!localMac || localMac->isNull()) {
-        rte_eth_macaddr_get(portId, &mac);
-        localMac.construct(mac.addr_bytes);
-        locatorString = format("basic+dpdk:mac=%s,devport=%d",
-                localMac->toString().c_str(), portId);
-    }
+    rte_eth_macaddr_get(portId, &mac);
+    localMac.construct(mac.addr_bytes);
+    locatorString = format("basic+dpdk:mac=%s",
+            localMac->toString().c_str());
 
     // configure some default NIC port parameters
     memset(&portConf, 0, sizeof(portConf));
@@ -224,6 +184,29 @@ DpdkDriver::DpdkDriver(Context* context,
                 ret, strerror(ret)));
     }
 
+    // Retrieve the link speed and compute information based on it.
+    struct rte_eth_link link;
+    rte_eth_link_get_nowait(portId, &link);
+    if (!link.link_status) {
+        throw DriverException(HERE, format(
+                "Failed to detect a link on Ethernet port %u", portId));
+    }
+    if (link.link_speed != ETH_SPEED_NUM_NONE) {
+        bandwidthMbps = link.link_speed;
+    } else {
+        LOG(WARNING, "Can't retrieve network bandwidth from DPDK; "
+                "using default of %d Mbps", bandwidthMbps);
+    }
+    queueEstimator.setBandwidth(bandwidthMbps);
+    maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthMbps)
+            * MAX_DRAIN_TIME / 8000.0);
+    uint32_t maxPacketSize = getMaxPacketSize();
+    if (maxTransmitQueueSize < 2*maxPacketSize) {
+        // Make sure that we advertise enough space in the transmit queue to
+        // prepare the next packet while the current one is transmitting.
+        maxTransmitQueueSize = 2*maxPacketSize;
+    }
+
     // set the MTU that the NIC port should support
     ret = rte_eth_dev_set_mtu(portId, static_cast<uint16_t>(MAX_PAYLOAD_SIZE +
             static_cast<uint32_t>(sizeof(NetUtil::EthernetHeader))));
@@ -243,9 +226,9 @@ DpdkDriver::DpdkDriver(Context* context,
                 rte_strerror(rte_errno)));
     }
 
-    LOG(NOTICE, "DpdkDriver locator: %s, bandwidth: %d Gbits/sec, "
+    LOG(NOTICE, "DpdkDriver locator: %s, bandwidth: %d Mbits/sec, "
             "maxTransmitQueueSize: %u bytes",
-            locatorString.c_str(), bandwidthGbps, maxTransmitQueueSize);
+            locatorString.c_str(), bandwidthMbps, maxTransmitQueueSize);
 
     // DPDK during initialization (rte_eal_init()) pins the running thread
     // to a single processor. This becomes a problem as the master worker
@@ -442,11 +425,18 @@ DpdkDriver::sendPacket(const Address *addr,
     queueEstimator.packetQueued(totalLength, Cycles::rdtsc());
 }
 
+// See docs in Driver class.
 string
 DpdkDriver::getServiceLocator()
 {
-    LOG(NOTICE, "Locator string: %s ", locatorString.c_str());
     return locatorString;
+}
+
+// See docs in Driver class.
+int
+DpdkDriver::getBandwidth()
+{
+    return bandwidthMbps;
 }
 
 } // namespace RAMCloud

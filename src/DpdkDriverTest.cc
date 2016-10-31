@@ -32,17 +32,7 @@ class DpdkDriverTest : public ::testing::Test {
     DISALLOW_COPY_AND_ASSIGN(DpdkDriverTest);
 };
 
-TEST_F(DpdkDriverTest, constructor_badLocator) {
-    ServiceLocator locator("fast+dpdk:devport=foo");
-    string message("no exception");
-    try {
-        DpdkDriver driver(&context, &locator);
-    }
-    catch (DriverException& e) {
-        message = e.message;
-    }
-    EXPECT_EQ("Bad devport option in service locator: fast+dpdk:devport=foo",
-            message);
-}
+// Currently don't know of anything that can be effectively tested
+// with unit tests.
 
 }  // namespace RAMCloud

@@ -36,8 +36,6 @@ try
     int count;
     uint32_t objectDataSize;
 
-    Context context(true);
-
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
         ("clientIndex",
@@ -58,22 +56,18 @@ try
          "Number of bytes to insert per object during insert phase.");
 
     OptionParser optionParser(clientOptions, argc, argv);
-    context.transportManager->setSessionTimeout(
-        optionParser.options.getSessionTimeout());
+    RamCloud client(&optionParser.options);
 
     string coordinatorLocator =
             optionParser.options.getExternalStorageLocator();
     if (coordinatorLocator.size() == 0) {
         coordinatorLocator = optionParser.options.getCoordinatorLocator();
     }
-    LOG(NOTICE, "client: Connecting to %s", coordinatorLocator.c_str());
-    RamCloud client(&context, coordinatorLocator.c_str(),
-            optionParser.options.getClusterName().c_str());
 
     client.createTable("mainTable");
     uint64_t table = client.getTableId("mainTable");
     Transport::SessionRef mainTableSession =
-        context.objectFinder->lookup(table, "0", 1);
+        client.clientContext->objectFinder->lookup(table, "0", 1);
 
     // Create a single value on all masters so that they each have a valid
     // log digest created.  When we choose to crash them we don't want the
@@ -89,7 +83,7 @@ try
         client.createTable(name);
         uint64_t table = client.getTableId(name);
         Transport::SessionRef session =
-                context.objectFinder->lookup(table, "0", 1);
+                client.clientContext->objectFinder->lookup(table, "0", 1);
         // Round-robin table allocation: create tables until we find we've
         // created an extra table on the server with mainTable.
         if (session->serviceLocator ==
@@ -110,15 +104,16 @@ try
     }
 
     Transport::SessionRef session =
-        context.objectFinder->lookup(lastBackupTable, "0", 1);
+        client.clientContext->objectFinder->lookup(lastBackupTable, "0", 1);
     LOG(NOTICE, "Killing %s", session->serviceLocator.c_str());
 
     CycleCounter<> backupRecoveryCycles;
     KillRpc killOp(&client, lastBackupTable, "0", 1);
 
     // Ensure recovery of the master portion completed.
-    context.objectFinder->waitForTabletDown(lastBackupTable);
-    context.objectFinder->waitForAllTabletsNormal(lastBackupTable);
+    client.clientContext->objectFinder->waitForTabletDown(lastBackupTable);
+    client.clientContext->objectFinder->waitForAllTabletsNormal(
+            lastBackupTable);
 
     // Wait for backup recovery to finish.
     // The way this is detected is a bit weird since it isn't usually

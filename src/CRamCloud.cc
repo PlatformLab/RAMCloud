@@ -31,6 +31,9 @@ using namespace RAMCloud;
  */
 struct rc_client {
     RamCloud* client;
+    CommandLineOptions options;
+    rc_client() : client(NULL), options() {}
+    DISALLOW_COPY_AND_ASSIGN(rc_client);
 };
 
 /**
@@ -72,8 +75,10 @@ Status rc_connect(const char* locator, const char* clusterName,
         struct rc_client** newClient)
 {
     struct rc_client* client = new rc_client;
+    client->options.coordinatorLocator = locator;
+    client->options.clusterName = clusterName;
     try {
-        client->client = new RamCloud(locator, clusterName);
+        client->client = new RamCloud(&client->options);
     } catch (CouldntConnectException& e) {
         delete client;
         *newClient = NULL;

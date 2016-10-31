@@ -26,6 +26,7 @@ namespace RAMCloud {
 class AbstractServerList;
 class BackupService;
 class CacheTrace;
+class CommandLineOptions;
 class CoordinatorServerList;
 class CoordinatorService;
 class CoordinatorSession;
@@ -66,7 +67,8 @@ class TransportManager;
  */
 class Context {
   PUBLIC:
-    explicit Context(bool hasDedicatedDispatchThread = false);
+    explicit Context(bool hasDedicatedDispatchThread = false,
+            CommandLineOptions* options = NULL);
     ~Context();
 
     // Rationale:
@@ -91,6 +93,11 @@ class Context {
     CacheTrace* cacheTrace;
     ObjectFinder* objectFinder; // On Client and Master, this locator tells
                                 // which master is the owner of an object.
+
+    // Holds command-line options, or NULL if no options are available.
+    // Memory for this is managed by whoever created this object; we can
+    // assume this is static.
+    CommandLineOptions* options;
 
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.

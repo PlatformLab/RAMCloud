@@ -186,6 +186,7 @@ BasicTransport::deleteServerRpc(ServerRpc* serverRpc)
 /**
  * Parse option values in a service locator to determine how many bytes
  * of data must be sent to cover the round-trip latency of a connection.
+ * The result is rounded up to the next multiple of the packet size.
  *
  * \param locator
  *      Service locator that may contain "gbs" and "rttMicros" options.
@@ -196,7 +197,7 @@ BasicTransport::deleteServerRpc(ServerRpc* serverRpc)
 uint32_t
 BasicTransport::getRoundTripBytes(const ServiceLocator* locator)
 {
-    uint32_t gBitsPerSec = 32;
+    uint32_t gBitsPerSec = 0;
     uint32_t roundTripMicros = 7;
 
     if (locator  != NULL) {
@@ -223,6 +224,12 @@ BasicTransport::getRoundTripBytes(const ServiceLocator* locator)
                         "(expected positive integer); ignoring option",
                         locator->getOption("rttMicros").c_str());
             }
+        }
+    }
+    if (gBitsPerSec == 0) {
+        gBitsPerSec = driver->getBandwidth() / 1000;
+        if (gBitsPerSec == 0) {
+            gBitsPerSec = 10;
         }
     }
 

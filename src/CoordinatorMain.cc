@@ -54,7 +54,6 @@ main(int argc, char *argv[])
     uint32_t maxCores;
     bool reset;
     bool neverKill;
-    Context context(true);
     try {
         OptionsDescription coordinatorOptions("Coordinator");
         coordinatorOptions.add_options()
@@ -97,12 +96,12 @@ main(int argc, char *argv[])
         LOG(NOTICE, "Command line: %s", args.c_str());
         LOG(NOTICE, "Coordinator process id: %u", getpid());
 
+        Context context(true, &optionParser.options);
+
         context.workerManager = new WorkerManager(&context, maxCores-1);
 
         pinAllMemory();
         localLocator = optionParser.options.getCoordinatorLocator();
-        context.transportManager->setSessionTimeout(
-                optionParser.options.getSessionTimeout());
         context.transportManager->initialize(localLocator.c_str());
         localLocator = context.transportManager->
                                 getListeningLocatorsString();

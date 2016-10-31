@@ -160,9 +160,6 @@ try
     uint32_t tableCount;
     uint32_t tableSkip;
 
-    // need external context to set log levels with OptionParser
-    Context context(true);
-
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
         ("clientIndex",
@@ -204,16 +201,7 @@ try
          "The number of writes per key during insert phase.");
 
     OptionParser optionParser(clientOptions, argc, argv);
-    context.transportManager->setSessionTimeout(
-        optionParser.options.getSessionTimeout());
-
-    string coordinatorLocator =
-            optionParser.options.getExternalStorageLocator();
-    if (coordinatorLocator.size() == 0) {
-        coordinatorLocator = optionParser.options.getCoordinatorLocator();
-    }
-    RamCloud client(&context, coordinatorLocator.c_str(),
-            optionParser.options.getClusterName().c_str());
+    RamCloud client(&optionParser.options);
 
     if (removeCount > count)
         DIE("cannot remove more objects than I create!");
@@ -343,7 +331,7 @@ try
     // dump the tablet map
     for (uint32_t t = 0; t < tableCount; t++) {
         Transport::SessionRef session =
-            context.objectFinder->lookup(tables[t], "0", 1);
+            client.clientContext->objectFinder->lookup(tables[t], "0", 1);
         LOG(NOTICE, "%s has table %lu",
             session->serviceLocator.c_str(), tables[t]);
     }
@@ -367,7 +355,7 @@ try
     // Wait for recovery to complete
     for (uint32_t t = 0; t < tableCount; t++) {
         uint64_t tableId = tables[t];
-        context.objectFinder->waitForAllTabletsNormal(tableId);
+        client.clientContext->objectFinder->waitForAllTabletsNormal(tableId);
     }
     LOG(NOTICE, "all tablets now normal");
     client.serverControlAll(WireFormat::LOG_TIME_TRACE);
@@ -384,7 +372,8 @@ try
                 stopTime = Cycles::rdtsc();
         } catch (...) {
         }
-        auto session = context.objectFinder->lookup(tables[t], "0", 1);
+        auto session = client.clientContext->objectFinder->lookup(
+                tables[t], "0", 1);
         if (nb.size() == objectDataSize) {
             LOG(NOTICE, "recovered value read from %s has length %u",
                 session->serviceLocator.c_str(), nb.size());

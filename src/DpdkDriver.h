@@ -55,11 +55,11 @@ class DpdkDriver : public Driver
   public:
     static const uint32_t MAX_PAYLOAD_SIZE = 1400;
 
-    explicit DpdkDriver(Context* context,
-                        const ServiceLocator* localServiceLocator = NULL);
+    explicit DpdkDriver(Context* context, int port = 0);
     virtual ~DpdkDriver();
     void close();
     virtual uint32_t getMaxPacketSize();
+    virtual int getBandwidth();
     virtual int getTransmitQueueSpace(uint64_t currentTime);
     virtual void receivePackets(int maxPackets,
             std::vector<Received>* receivedPackets);
@@ -85,10 +85,6 @@ class DpdkDriver : public Driver
 
     /// Tracks number of outstanding allocated payloads.  For detecting leaks.
     int packetBufsUtilized;
-
-    /// Counts the number of packet buffers freed during destructors;
-    /// used primarily for testing.
-    static int packetBufsFreed;
 
     /// The original ServiceLocator string. May be empty if the constructor
     /// argument was NULL. May also differ if dynamic ports are used.
@@ -119,8 +115,8 @@ class DpdkDriver : public Driver
         uint16_t length;    // host order, length of payload
     } __attribute__((packed));
 
-    // Effective network bandwidth, in Gbits/second.
-    int bandwidthGbps;
+    // Effective network bandwidth, in Mbits/second.
+    int bandwidthMbps;
 
     /// Used to estimate # bytes outstanding in the NIC's transmit queue.
     QueueEstimator queueEstimator;

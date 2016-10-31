@@ -217,6 +217,15 @@ class Driver {
     virtual uint32_t getMaxPacketSize() = 0;
 
     /**
+     * Returns the bandwidth of the network in Mbits/second. If the
+     * driver cannot determine the network bandwidth, then it returns 0. 
+     */
+    virtual int getBandwidth()
+    {
+        return 0;
+    }
+
+    /**
      * This method provides a hint to transports about how many bytes
      * they should send. The driver will operate most efficiently if
      * transports don't send more bytes than indicated by the return value.

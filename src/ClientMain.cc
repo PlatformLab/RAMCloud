@@ -237,9 +237,6 @@ try
     // interleave properly.
     setvbuf(stdout, NULL, _IOLBF, 1024);
 
-    // need external context to set log levels with OptionParser
-    Context context(false);
-
     OptionsDescription clientOptions("Client");
     clientOptions.add_options()
 
@@ -287,18 +284,7 @@ try
          "make sure index is recovered properly");
 
     OptionParser optionParser(clientOptions, argc, argv);
-    context.transportManager->setSessionTimeout(
-            optionParser.options.getSessionTimeout());
-
-    LOG(NOTICE, "client: Connecting to %s",
-        optionParser.options.getCoordinatorLocator().c_str());
-
-    string locator = optionParser.options.getExternalStorageLocator();
-    if (locator.size() == 0) {
-        locator = optionParser.options.getCoordinatorLocator();
-    }
-    RamCloud client(&context, locator.c_str(),
-            optionParser.options.getClusterName().c_str());
+    RamCloud client(&optionParser.options);
 
     if (exercise) {
         while (1) {

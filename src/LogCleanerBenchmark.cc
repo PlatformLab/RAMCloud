@@ -1649,8 +1649,6 @@ int
 main(int argc, char *argv[])
 try
 {
-    Context context(true);
-
     Options options(argc, argv);
     bool verifyObjects = false;
 
@@ -1730,14 +1728,6 @@ try
          "the naive implementation can take a while to complete.");
 
     OptionParser optionParser(benchOptions, argc, argv);
-
-    // We should probably figure out some way of having this be implicitly set
-    // if the argument is provided to OptionParser. Right now every main()
-    // method has to do this separately (and if they don't, the argument just
-    // silently has no effect). It gets even more confusing if there are
-    // multiple contexts per process.
-    context.transportManager->setSessionTimeout(
-        optionParser.options.getSessionTimeout());
 
     if (options.utilization < 1 || options.utilization > 100) {
         fprintf(stderr, "ERROR: Utilization must be between 1 and 100, "
@@ -1823,14 +1813,7 @@ try
     signal(SIGALRM, timedOut);
     alarm(options.abortTimeout);
 
-    string coordinatorLocator =
-            optionParser.options.getExternalStorageLocator();
-    if (coordinatorLocator.size() == 0) {
-        coordinatorLocator = optionParser.options.getCoordinatorLocator();
-    }
-    fprintf(stderr, "Connecting to %s\n", coordinatorLocator.c_str());
-    RamCloud ramcloud(&context, coordinatorLocator.c_str(),
-            optionParser.options.getClusterName().c_str());
+    RamCloud ramcloud(&optionParser.options);
 
     // Get server parameters...
     // Perhaps this (and creating the distribution?) should be pushed into
@@ -1842,7 +1825,8 @@ try
     // the following code to use the ServerControlRpc and eliminate the use
     // of the synchronous lookupTablet.
     string locator =
-        context.objectFinder->lookupTablet(tableId, 0)->serviceLocator;
+        ramcloud.clientContext->objectFinder->lookupTablet(tableId, 0)
+                ->serviceLocator;
 
     ProtoBuf::ServerConfig serverConfig;
     ramcloud.getServerConfig(locator.c_str(), serverConfig);

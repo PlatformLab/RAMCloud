@@ -195,6 +195,11 @@ OptionParser::setup(int argc, char* argv[])
              "How long transports should wait (ms) before declaring that a "
              "client connection for each rpc session is dead."
              "0 means use transport-specific default.")
+            ("dpdkPort",
+             ProgramOptions::value<int>(&options.dpdkPort)->
+                default_value(0),
+             "Selects the Ethernet port that the DPDK driver should use, "
+             "or -1 if DPDK should not be enabled.")
             ("portTimeout",
              ProgramOptions::value<int32_t>(&options.portTimeout)->
                 default_value(-1), // Overriding to the initial value.

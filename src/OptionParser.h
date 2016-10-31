@@ -18,7 +18,6 @@
 
 #include <boost/program_options.hpp>
 
-#include "Common.h"
 #include "Transport.h"
 
 namespace RAMCloud {
@@ -29,6 +28,100 @@ namespace ProgramOptions {
 }
 /// See boost::program_options::options_description, just a type synonym.
 typedef ProgramOptions::options_description OptionsDescription;
+
+/// Holds values for generic RAMCloud options.
+class CommandLineOptions {
+  public:
+    CommandLineOptions()
+        : coordinatorLocator()
+        , localLocator()
+        , externalStorageLocator()
+        , pcapFilePath()
+        , sessionTimeout(0)
+        , portTimeout(0)
+        , clusterName()
+        , dpdkPort(0)
+    {
+    }
+
+    /// Returns the local locator the application should listen on, if any.
+    const string& getLocalLocator() const
+    {
+        return localLocator;
+    }
+
+    /**
+     * Returns the locator the application should contact the coordinator
+     * at, if any.
+     */
+    const string& getCoordinatorLocator() const
+    {
+        return coordinatorLocator;
+    }
+
+    /**
+     * Returns information about how to connect to an external storage
+     * server that holds coordinator configuration information.
+     */
+    const string& getExternalStorageLocator() const
+    {
+        return externalStorageLocator;
+    }
+
+    /**
+     * Returns a name identifying the RAMCloud cluster to connect with.
+     * Allows multiple clusters to coexist without interference.
+     */
+    const string& getClusterName() const
+    {
+        return clusterName;
+    }
+
+    /**
+     * Returns the locator the application should contact the coordinator
+     * at, if any.
+     */
+    const string& getPcapFilePath() const
+    {
+        return pcapFilePath;
+    }
+
+    /**
+     * Returns the time (in ms) after which transports should assume that
+     * a connection has failed.  0 means use a transport-specific default.
+     */
+    uint32_t getSessionTimeout() const
+    {
+        return sessionTimeout;
+    }
+
+    /**
+     * Returns the time (in ms) after which transports should assume that
+     * the client for the lisning port is dead.
+     */
+    int32_t getPortTimeout() const
+    {
+        return portTimeout;
+    }
+
+    /**
+     * Returns the integer id of the device port to use with the
+     * DPDK network driver.
+     */
+    int getDpdkPort() const
+    {
+        return dpdkPort;
+    }
+
+    string coordinatorLocator;      ///< See getCoordinatorLocator().
+    string localLocator;            ///< See getLocalLocator().
+    string externalStorageLocator;  ///< See getExternalStorageLocator().
+    string pcapFilePath;            ///< Packet log file, "" to disable.
+    uint32_t sessionTimeout;        ///< See getSessionTimeout().
+    int32_t  portTimeout;           ///< See getSessionTimeout().
+    string clusterName;             ///< See getClusterName().
+    int dpdkPort;                   ///< See getDpdkPort().
+};
 
 /**
  * Parses command line options for RAMCloud applications.  It also allows
@@ -61,94 +154,8 @@ class OptionParser {
     void usage() const;
     void usageAndExit() const;
 
-    /// Holds values for generic RAMCloud options.  See #options.
-    class Options {
-      public:
-        Options()
-            : coordinatorLocator()
-            , localLocator()
-            , externalStorageLocator()
-            , pcapFilePath()
-            , sessionTimeout(0)
-            , portTimeout(0)
-            , clusterName()
-        {
-        }
-
-        /// Returns the local locator the application should listen on, if any.
-        const string& getLocalLocator() const
-        {
-            return localLocator;
-        }
-
-        /**
-         * Returns the locator the application should contact the coordinator
-         * at, if any.
-         */
-        const string& getCoordinatorLocator() const
-        {
-            return coordinatorLocator;
-        }
-
-        /**
-         * Returns information about how to connect to an external storage
-         * server that holds coordinator configuration information.
-         */
-        const string& getExternalStorageLocator() const
-        {
-            return externalStorageLocator;
-        }
-
-        /**
-         * Returns a name identifying the RAMCloud cluster to connect with.
-         * Allows multiple clusters to coexist without interference.
-         */
-        const string& getClusterName() const
-        {
-            return clusterName;
-        }
-
-        /**
-         * Returns the locator the application should contact the coordinator
-         * at, if any.
-         */
-        const string& getPcapFilePath() const
-        {
-            return pcapFilePath;
-        }
-
-        /**
-         * Returns the time (in ms) after which transports should assume that
-         * a connection has failed.  0 means use a transport-specific default.
-         */
-        uint32_t getSessionTimeout() const
-        {
-            return sessionTimeout;
-        }
-
-        /**
-         * Returns the time (in ms) after which transports should assume that
-         * the client for the lisning port is dead.
-         */
-        int32_t getPortTimeout() const
-        {
-            return portTimeout;
-        }
-
-      private:
-        string coordinatorLocator;      ///< See getCoordinatorLocator().
-        string localLocator;            ///< See getLocalLocator().
-        string externalStorageLocator;  ///< See getExternalStorageLocator().
-        string pcapFilePath;            ///< Packet log file, "" to disable.
-        uint32_t sessionTimeout;        ///< See getSessionTimeout().
-        int32_t  portTimeout;           ///< See getSessionTimeout().
-        string clusterName;             ///< See getClusterName().
-
-        friend class OptionParser;
-    };
-
     /// Values for options common to all RAMCloud applications.
-    Options options;
+    CommandLineOptions options;
 
   private:
     void setup(int argc, char* argv[]);

@@ -64,8 +64,14 @@ class MockContextMember {
  * function of RAMCloud daemons.
  * \param hasDedicatedDispatchThread
  *      Argument passed on to Dispatch's constructor.
+ * \param options
+ *      Holds the value of options provided by the user on the command line;
+ *      may be NULL to indicate that no options are available. The caller
+ *      must ensure that the lifetime of the options covers the lifetime
+ *      of this Context.
  */
-Context::Context(bool hasDedicatedDispatchThread)
+Context::Context(bool hasDedicatedDispatchThread,
+        CommandLineOptions* options)
     : mockContextMember1(NULL)
     , dispatch(NULL)
     , mockContextMember2(NULL)
@@ -76,6 +82,7 @@ Context::Context(bool hasDedicatedDispatchThread)
     , coordinatorSession(NULL)
     , cacheTrace(NULL)
     , objectFinder(NULL)
+    , options(options)
     , workerManager(NULL)
     , externalStorage(NULL)
     , serverList(NULL)

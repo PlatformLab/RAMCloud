@@ -21,6 +21,7 @@
 #include "LinearizableObjectRpcWrapper.h"
 #include "ObjectBuffer.h"
 #include "ObjectRpcWrapper.h"
+#include "OptionParser.h"
 #include "ServerMetrics.h"
 
 #include "LogMetrics.pb.h"
@@ -159,9 +160,11 @@ class RamCloud {
             uint64_t* version = NULL, bool async = false);
 
     void poll();
+    explicit RamCloud(CommandLineOptions* options);
+    explicit RamCloud(Context* context);
     explicit RamCloud(const char* serviceLocator,
             const char* clusterName = "main");
-    RamCloud(Context* context, const char* serviceLocator,
+    explicit RamCloud(Context* context, const char* serviceLocator,
             const char* clusterName = "main");
     virtual ~RamCloud();
 

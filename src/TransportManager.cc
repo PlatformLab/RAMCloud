@@ -16,6 +16,7 @@
 
 #include "BasicTransport.h"
 #include "CycleCounter.h"
+#include "OptionParser.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
 #include "TransportManager.h"
@@ -97,18 +98,35 @@ static struct InfRcTransportFactory : public TransportFactory {
 #endif
 
 #ifdef DPDK
-static struct BasicDpdkTransportFactory : public TransportFactory {
+struct BasicDpdkTransportFactory : public TransportFactory {
     BasicDpdkTransportFactory()
-        : TransportFactory("basic+dpdk", "basic+dpdk") {}
+        : TransportFactory("basic+dpdk", "basic+dpdk"), driver(NULL)  {}
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
+        if (driver == NULL) {
+            LOG(WARNING, "Tried to use basic+dpdk transport, but DPDK is "
+                    "not enabled (did you specify the --dpdkPort "
+                    "command-line option?)");
+            throw TransportException(HERE, "DPDK is not enabled");
+        }
         return new BasicTransport(context, localServiceLocator,
-                new DpdkDriver(context, localServiceLocator),
-                generateRandom());
+                driver, generateRandom());
     }
-} basicDpdkTransportFactory;
+    void setDpdkDriver(DpdkDriver* driver) {
+        this->driver = driver;
+    }
+    DpdkDriver* driver;
+    DISALLOW_COPY_AND_ASSIGN(BasicDpdkTransportFactory);
+};
+static BasicDpdkTransportFactory basicDpdkTransportFactory;
 #endif
 
+/**
+ * TransportManager constructor.
+ * 
+ * \param context
+ *      Shared state about various RAMCloud modules.
+ */
 TransportManager::TransportManager(Context* context)
     : context(context)
     , isServer(false)
@@ -133,8 +151,18 @@ TransportManager::TransportManager(Context* context)
 #endif
 #ifdef DPDK
     transportFactories.push_back(&basicDpdkTransportFactory);
+    if (context->options != NULL) {
+        int dpdkPort = context->options->getDpdkPort();
+        if (dpdkPort >= 0) {
+            basicDpdkTransportFactory.setDpdkDriver(
+                    new DpdkDriver(context, dpdkPort));
+        }
+    }
 #endif
     transports.resize(transportFactories.size(), NULL);
+    if (context->options != NULL) {
+        sessionTimeoutMs = context->options->getSessionTimeout();
+    }
 }
 
 TransportManager::~TransportManager()

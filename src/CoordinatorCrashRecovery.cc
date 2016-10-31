@@ -32,6 +32,7 @@ namespace po = boost::program_options;
 #include "ServerId.h"
 #include "AbstractServerList.h"
 #include "Util.h"
+#include "OptionParser.h"
 
 using namespace RAMCloud;
 
@@ -46,7 +47,8 @@ enum OPERATIONS {
     NUM_OPS = 6,                        // Number of different operations
 };
 
-static char coordinatorServiceLocator[50];
+// Holds various command-line options.
+CommandLineOptions options;
 
 // Total number of clients that will be participating in this test.
 static int numClients;
@@ -285,8 +287,7 @@ checkBuffer(Buffer* buffer, uint32_t expectedLength, uint64_t tableId,
 void
 crashCoord(int id)
 {
-    Context context2(false);
-    RamCloud r2(&context2, coordinatorServiceLocator);
+    RamCloud r2(&options);
     RamCloud *cluster = &r2;
 
     const char *crashPoints[] = {"create_1", "create_2", "create_3",
@@ -929,8 +930,7 @@ checkConsistency(RamCloud *cluster, struct localState *state)
 void
 coordTestFunction(int id)
 {
-    Context context1(false);
-    RamCloud r1(&context1, coordinatorServiceLocator);
+    RamCloud r1(&options);
     RamCloud *cluster = &r1;
 
     std::thread crashThread(crashCoord, 1);
@@ -1079,7 +1079,7 @@ try
     desc.add_options()
         ("clientIndex", po::value<int>(&clientIndex)->default_value(0),
                 "Index of this client (first client is 0)")
-        ("coordinator,C", po::value<string>(&coordinatorLocator),
+        ("coordinator,C", po::value<string>(&options.coordinatorLocator),
                 "Service locator for the cluster coordinator (required)")
         ("logFile", po::value<string>(&logFile),
                 "Redirect all output to this file")
@@ -1115,13 +1115,10 @@ try
         std::cout << desc << '\n';
         exit(0);
     }
-    if (coordinatorLocator.empty()) {
+    if (options.coordinatorLocator.empty()) {
         RAMCLOUD_LOG(ERROR, "missing required option --coordinator");
         exit(1);
     }
-
-    snprintf(coordinatorServiceLocator, sizeof(coordinatorServiceLocator),
-             "%s", coordinatorLocator.c_str());
 
     foreach (TestInfo& info, tests) {
         info.func();

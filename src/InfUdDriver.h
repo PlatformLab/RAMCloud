@@ -47,6 +47,7 @@ class InfUdDriver : public Driver {
     virtual ~InfUdDriver();
     virtual void dumpStats() { infiniband->dumpStats(); }
     virtual uint32_t getMaxPacketSize();
+    virtual int getBandwidth();
     virtual int getTransmitQueueSpace(uint64_t currentTime);
     virtual void receivePackets(int maxPackets,
             std::vector<Received>* receivedPackets);

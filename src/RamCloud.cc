@@ -44,30 +44,56 @@ static RejectRules defaultRejectRules;
 /**
  * Construct a RamCloud for a particular cluster.
  *
- * \param locator
- *      Describes how to locate the coordinator. It can have either of
- *      two forms. The preferred form is a locator for external storage
- *      that contains the cluster configuration information (such as a
- *      string starting with "zk:", which will be passed to the ZooStorage
- *      constructor). With this form, sessions can automatically be
- *      redirected to a new coordinator if the current one crashes.
- *      Typically the value for this argument will be the same as the
- *      value of the "-x" command-line option given to the coordinator
- *      when it started. The second form is deprecated, but is retained
- *      for testing. In this form, the location is specified as a RAMCloud
- *      service locator for a specific coordinator. With this form it is
- *      not possible to roll over to a different coordinator if a given
- *      one fails; we will have to wait for the specified coordinator to
- *      restart.
- * \param clusterName
- *      Name of the current cluster. Used to allow independent operation
- *      of several clusters sharing many of the same resources. This is
- *      typically the same as the value of the "--clusterName" command-line
- *      option given to the coordinator when it started.
+ * \param options
+ *      A collection of configuration options, typically specified by
+ *      the user on the command line. Caller must ensure that these
+ *      options have a lifetime that covers the lifetime of this
+ *      RamCloud object.
  *
  * \exception CouldntConnectException
  *      Couldn't connect to the server.
  */
+RamCloud::RamCloud(CommandLineOptions* options)
+    : coordinatorLocator()
+    , realClientContext(new Context(false, options))
+    , clientContext(realClientContext)
+    , clientLeaseAgent(new ClientLeaseAgent(this))
+    , rpcTracker(new RpcTracker())
+    , transactionManager(new ClientTransactionManager())
+{
+    coordinatorLocator = options->getExternalStorageLocator();
+    if (coordinatorLocator.size() == 0) {
+        coordinatorLocator = options->getCoordinatorLocator();
+    }
+    clientContext->coordinatorSession->setLocation(coordinatorLocator.c_str(),
+            options->getClusterName().c_str());
+    LOG(NOTICE, "Connecting to %s", coordinatorLocator.c_str());
+}
+
+/**
+ * An alternate constructor that inherits an already created context. This is
+ * useful for testing and for client programs that mess with the context
+ * (which should be discouraged).
+ */
+RamCloud::RamCloud(Context* context)
+    : coordinatorLocator()
+    , realClientContext(NULL)
+    , clientContext(context)
+    , clientLeaseAgent(new ClientLeaseAgent(this))
+    , rpcTracker(new RpcTracker())
+    , transactionManager(new ClientTransactionManager())
+{
+    coordinatorLocator = context->options->getExternalStorageLocator();
+    if (coordinatorLocator.size() == 0) {
+        coordinatorLocator = context->options->getCoordinatorLocator();
+    }
+    LOG(NOTICE, "Connecting to %s", coordinatorLocator.c_str());
+    clientContext->coordinatorSession->setLocation(coordinatorLocator.c_str(),
+            context->options->getClusterName().c_str());
+}
+
+// Old-style constructors (no CommandLineOptions); mostly for unit tests
+// (may also help with backwards compatibility?). Deprecated!
 RamCloud::RamCloud(const char* locator, const char* clusterName)
     : coordinatorLocator(locator)
     , realClientContext(new Context(false))
@@ -78,12 +104,6 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
-
-/**
- * An alternate constructor that inherits an already created context. This is
- * useful for testing and for client programs that mess with the context
- * (which should be discouraged).
- */
 RamCloud::RamCloud(Context* context, const char* locator,
         const char* clusterName)
     : coordinatorLocator(locator)

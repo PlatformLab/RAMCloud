@@ -552,6 +552,13 @@ InfUdDriver::getServiceLocator()
     return locatorString;
 }
 
+// See docs in Driver class.
+int
+InfUdDriver::getBandwidth()
+{
+    return bandwidthGbps*1000;
+}
+
 
 /**
  * Fill up the HCA's queue of pending receive buffers.

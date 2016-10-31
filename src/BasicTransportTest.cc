@@ -155,7 +155,7 @@ TEST_F(BasicTransportTest, sanityCheck) {
 }
 
 TEST_F(BasicTransportTest, constructor) {
-    EXPECT_EQ(28854u, transport.roundTripBytes);
+    EXPECT_EQ(9618u, transport.roundTripBytes);
 }
 
 TEST_F(BasicTransportTest, deleteClientRpc) {
@@ -189,20 +189,20 @@ TEST_F(BasicTransportTest, getRoundTripBytes_basics) {
 TEST_F(BasicTransportTest, getRoundTripBytes_noGbsOption) {
     transport.maxDataPerPacket = 100;
     ServiceLocator locator("mock:rttMicros=4");
-    EXPECT_EQ(16000u, transport.getRoundTripBytes(&locator));
+    EXPECT_EQ(5000u, transport.getRoundTripBytes(&locator));
 }
 TEST_F(BasicTransportTest, getRoundTripBytes_bogusGbsOption) {
     transport.maxDataPerPacket = 100;
     ServiceLocator locator("mock:gbs=xyz,rttMicros=4");
     TestLog::reset();
-    EXPECT_EQ(16000u, transport.getRoundTripBytes(&locator));
+    EXPECT_EQ(5000u, transport.getRoundTripBytes(&locator));
     EXPECT_EQ("getRoundTripBytes: Bad BasicTransport gbs option value 'xyz' "
             "(expected positive integer); ignoring option",
             TestLog::get());
 
     ServiceLocator locator2("mock:gbs=99foo,rttMicros=4");
     TestLog::reset();
-    EXPECT_EQ(16000u, transport.getRoundTripBytes(&locator2));
+    EXPECT_EQ(5000u, transport.getRoundTripBytes(&locator2));
     EXPECT_EQ("getRoundTripBytes: Bad BasicTransport gbs option value '99foo' "
             "(expected positive integer); ignoring option",
             TestLog::get());
@@ -320,7 +320,7 @@ TEST_F(BasicTransportTest, tryToTransmitData_fifoOrderingForLongRequests) {
     driver->transmitQueueSpace = 10;
     uint32_t result = transport.tryToTransmitData();
     EXPECT_EQ("DATA FROM_CLIENT, rpcId 666.2, totalLength 15000, "
-            "offset 0 bbbbbbbbbb",
+            "offset 0, NEED_GRANT bbbbbbbbbb",
             driver->outputLog);
     EXPECT_EQ(1u, result);
     EXPECT_EQ(0u, clientRpc1->transmitOffset);
@@ -366,7 +366,7 @@ TEST_F(BasicTransportTest, tryToTransmitData_fifoForLongResponses) {
     driver->transmitQueueSpace = 10;
     uint32_t result = transport.tryToTransmitData();
     EXPECT_EQ("DATA FROM_SERVER, rpcId 100.201, totalLength 15000, "
-            "offset 0 bbbbbbbbbb",
+            "offset 0, NEED_GRANT bbbbbbbbbb",
             driver->outputLog);
     EXPECT_EQ(1u, result);
     EXPECT_EQ(0u, serverRpc1->transmitOffset);
@@ -1023,7 +1023,7 @@ TEST_F(BasicTransportTest, handlePacket_resendFromClient_unknownRpcId) {
     handlePacket("mock:client=1",
             BasicTransport::ResendHeader(BasicTransport::RpcId(10, 11),
             10, 5, BasicTransport::FROM_CLIENT));
-    EXPECT_EQ("RESEND FROM_SERVER, rpcId 10.11, offset 0, length 28854, "
+    EXPECT_EQ("RESEND FROM_SERVER, rpcId 10.11, offset 0, length 9618, "
             "RESTART", driver->outputLog);
 }
 TEST_F(BasicTransportTest,

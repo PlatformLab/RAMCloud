@@ -6242,7 +6242,8 @@ try
 {
     // Parse command-line options.
     vector<string> testNames;
-    string coordinatorLocator, logFile;
+    CommandLineOptions options;
+    string logFile;
     string logLevel("NOTICE");
     po::options_description desc(
             "Usage: ClusterPerf [options] testName testName ...\n\n"
@@ -6253,7 +6254,7 @@ try
     desc.add_options()
         ("clientIndex", po::value<int>(&clientIndex)->default_value(0),
                 "Index of this client (first client is 0)")
-        ("coordinator,C", po::value<string>(&coordinatorLocator),
+        ("coordinator,C", po::value<string>(&options.coordinatorLocator),
                 "Service locator for the cluster coordinator (required)")
         ("count,c", po::value<int>(&count)->default_value(100000),
                 "Number of times to invoke operation for test")
@@ -6312,14 +6313,13 @@ try
         std::cout << desc << '\n';
         exit(0);
     }
-    if (coordinatorLocator.empty()) {
+    if (options.coordinatorLocator.empty()) {
         RAMCLOUD_LOG(ERROR, "missing required option --coordinator");
         exit(1);
     }
 
-    Context realContext;
-    context = &realContext;
-    RamCloud r(&realContext, coordinatorLocator.c_str());
+    RamCloud r(&options);
+    context = r.clientContext;
     cluster = &r;
     cluster->createTable("data");
     dataTable = cluster->getTableId("data");

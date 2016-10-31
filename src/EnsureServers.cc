@@ -54,8 +54,6 @@ int
 main(int argc, char *argv[])
 try
 {
-    // need external context to set log levels with OptionParser
-    Context context(true);
 
     OptionsDescription clientOptions("EnsureServers");
     int numMasters = -1;
@@ -74,29 +72,21 @@ try
              "seconds.");
 
     OptionParser optionParser(clientOptions, argc, argv);
+    RamCloud ramcloud(&optionParser.options);
 
     if (numMasters == -1 && numBackups == -1) {
         fprintf(stderr, "Error: Specify one or both of options -m and -b\n");
         exit(1);
     }
 
-    string coordinatorLocator =
-            optionParser.options.getExternalStorageLocator();
-    if (coordinatorLocator.size() == 0) {
-        coordinatorLocator = optionParser.options.getCoordinatorLocator();
-    }
-    LOG(NOTICE, "client: Connecting to %s", coordinatorLocator.c_str());
-
     uint64_t quitTime = Cycles::rdtsc() + Cycles::fromNanoseconds(
         1000000000UL * timeout);
     int actualMasters = -1;
     int actualBackups = -1;
     int actualServers = -1;
-    RamCloud ramcloud(&context, coordinatorLocator.c_str(),
-            optionParser.options.getClusterName().c_str());
     do {
         ProtoBuf::ServerList serverList;
-        CoordinatorClient::getServerList(&context, &serverList);
+        CoordinatorClient::getServerList(ramcloud.clientContext, &serverList);
         actualServers = serverList.server_size();
         countServices(serverList, actualMasters, actualBackups);
         LOG(DEBUG, "found %d masters, %d backups (in %d servers)",
