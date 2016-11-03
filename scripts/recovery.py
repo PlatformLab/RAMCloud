@@ -131,7 +131,7 @@ def recover(num_servers,
     @return: A recoverymetrics stats struct (see recoverymetrics.parseRecovery).
     """
     server_binary = '%s/server' % obj_path
-    client_binary = '%s/recovery' % obj_path
+    client_binary = '%s/apps/recovery' % obj_path
     ensure_servers_bin = '%s/ensureServers' % obj_path
 
     args = {}

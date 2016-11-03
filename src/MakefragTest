@@ -249,15 +249,6 @@ $(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(OBJDIR)/gtest.a
 # they are included here to make sure they continue to build.
 test: $(OBJDIR)/test \
       $(OBJDIR)/zooTest \
-      $(OBJDIR)/CleanerCompactionBenchmark \
-      $(OBJDIR)/ClusterPerf \
-      $(OBJDIR)/CoordinatorCrashRecovery \
-      $(OBJDIR)/Echo \
-      $(OBJDIR)/HashTableBenchmark \
-      $(OBJDIR)/ObjectManagerBenchmark \
-      $(OBJDIR)/Perf \
-      $(OBJDIR)/RecoverSegmentBenchmark \
-      $(OBJDIR)/MigrateTabletBenchmark \
       $(OBJDIR)/libramcloudtest.so \
       testInstall
 	$(OBJDIR)/test
@@ -266,8 +257,6 @@ test: $(OBJDIR)/test \
 # from a single file.  Specify a test pattern name in the FILTER variable.
 filterTest: $(OBJDIR)/test
 	$(OBJDIR)/test --gtest_filter='$(FILTER)'
-
-all: $(OBJDIR)/Perf $(OBJDIR)/ClusterPerf $(OBJDIR)/CoordinatorCrashRecovery
 
 ftest: $(OBJDIR)/test
 	scripts/forking_test_runner.py
@@ -284,42 +273,6 @@ testInstall: install
 	g++ --std=c++11 -g -DNDEBUG -Iinstall/include -I. src/TestClient.cc \
             -o $(OBJDIR)/TestClient -Linstall/bin -lramcloud \
             -Wl,-rpath=install/bin $(TEST_INSTALL_FLAGS)
-
-$(OBJDIR)/HashTableBenchmark: $(OBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/Echo: $(OBJDIR)/Echo.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/RecoverSegmentBenchmark: $(OBJDIR)/RecoverSegmentBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/MigrateTabletBenchmark: $(OBJDIR)/MigrateTabletBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/Perf: $(OBJDIR)/Perf.o $(OBJDIR)/PerfHelper.o $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/CleanerCompactionBenchmark: $(OBJDIR)/CleanerCompactionBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/ClusterPerf: $(OBJDIR)/ClusterPerf.o $(OBJDIR)/libramcloud.a
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/CoordinatorCrashRecovery: $(OBJDIR)/CoordinatorCrashRecovery.o $(OBJDIR)/libramcloud.a
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/ObjectManagerBenchmark: $(OBJDIR)/ObjectManagerBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 TESTS_ONLY_OBJFILES := $(TESTS_SRCFILES)
 TESTS_ONLY_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(TESTS_ONLY_OBJFILES))
@@ -340,5 +293,5 @@ $(OBJDIR)/libramcloudtest.so: $(TESTS_ONLY_OBJFILES)
 tests-clean:
 
 .PHONY: test-smack zooTest
-test-smack: client $(OBJDIR)/server
+test-smack: apps $(OBJDIR)/server
 	scripts/smack

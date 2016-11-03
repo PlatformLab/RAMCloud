@@ -260,6 +260,13 @@ timevalToMicroseconds(struct timeval* tv)
 #define DEBUG_BUILD true
 #endif
 
+/*
+ * The following macro is used for labeling variables that are normally only
+ * used in debug builds so that code will build with DEBUG=no instead of
+ * failing to compile with an unused variable warning.
+ */
+#define _unused(x) ((void)(x))
+
 /**
  * The following variables are used for convenience of debugging and
  * experimentation, while minimizing the need to recompile across runs.

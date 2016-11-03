@@ -326,6 +326,8 @@ include src/MakefragClient
 include src/MakefragServer
 include src/MakefragCoordinator
 include src/MakefragTest
+include apps/MakefragApp
+include nanobenchmarks/MakefragNano
 include src/misc/Makefrag
 include bindings/python/Makefrag
 
@@ -339,7 +341,7 @@ clean: tests-clean docs-clean tags-clean install-clean java-clean
 	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
 
 check:
-	$(LINT) $$(./pragmas.py -f CPPLINT:5 $$(find $(TOP)/src '(' -name '*.cc' -or -name '*.h' -or -name '*.c' ')' -not -path '$(TOP)/src/btree/*' -not -path '$(TOP)/src/btreeRamCloud/*'))
+	$(LINT) $$(./pragmas.py -f CPPLINT:5 $$(find $(TOP)/src $(TOP)/apps $(TOP)/nanobenchmarks '(' -name '*.cc' -or -name '*.h' -or -name '*.c' ')' -not -path '$(TOP)/src/btree/*' -not -path '$(TOP)/src/btreeRamCloud/*'))
 
 # This magic automatically generates makefile dependencies
 # for header files included from C source files we compile,
@@ -386,9 +388,9 @@ java-clean:
 	bindings/java/gradlew --project-dir bindings/java clean
 
 INSTALL_BINS := \
-    $(OBJDIR)/client \
+    $(APPOBJDIR)/client \
     $(OBJDIR)/coordinator \
-    $(OBJDIR)/ensureServers \
+    $(APPOBJDIR)/ensureServers \
     $(OBJDIR)/libramcloud.so \
     $(OBJDIR)/server \
     $(NULL)

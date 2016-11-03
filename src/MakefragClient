@@ -147,37 +147,4 @@ $(OBJDIR)/libramcloud.so: $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(LDFLAGS) -shared -lpthread -o $@ $^ -Wl,--no-undefined,-soname,libramcloud.so $(LIBS)
 
-$(OBJDIR)/recovery: $(OBJDIR)/RecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
-
-$(OBJDIR)/backuprecovery: $(OBJDIR)/BackupRecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
-
-$(OBJDIR)/client: $(OBJDIR)/ClientMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
-
-$(OBJDIR)/ensureServers: $(OBJDIR)/EnsureServers.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
-
-$(OBJDIR)/LogCleanerBenchmark: $(OBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/Histogram.pb.o $(OBJDIR)/OptionParser.o $(OBJDIR)/LogEntryTypes.o $(OBJDIR)/LogMetrics.pb.o $(OBJDIR)/ServerConfig.pb.o $(OBJDIR)/libramcloud.a
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/migrateTablet: $(OBJDIR)/MigrateTabletMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
-
-.PHONY: client client-lib client-lib-static client-lib-shared recovery ensureServers
-
-client-lib-static: $(OBJDIR)/libramcloud.a
-client-lib-shared: $(OBJDIR)/libramcloud.so
-client-lib: client-lib-static client-lib-shared
-
-client: $(OBJDIR)/client $(OBJDIR)/ensureServers $(OBJDIR)/libramcloud.a $(OBJDIR)/libramcloud.so $(OBJDIR)/LogCleanerBenchmark
-recovery: $(OBJDIR)/recovery $(OBJDIR)/backuprecovery client
-
-all: client recovery
+all: $(OBJDIR)/libramcloud.so $(OBJDIR)/libramcloud.a

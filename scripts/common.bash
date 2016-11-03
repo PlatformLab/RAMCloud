@@ -17,6 +17,7 @@ function atexit {
 
 OBJSUFFIX=$(git symbolic-ref -q HEAD | sed -e s,refs/heads/,.,)
 OBJDIR=obj$OBJSUFFIX
+APPOBJDIR=$OBJDIR/apps
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$OBJDIR:/lib:/usr/lib:/usr/local/lib
 export PYTHONPATH=bindings/python
 

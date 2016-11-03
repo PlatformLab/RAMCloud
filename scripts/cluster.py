@@ -37,7 +37,7 @@ from optparse import OptionParser
 # Locations of various RAMCloud executables.
 coordinator_binary = '%s/coordinator' % config.hooks.get_remote_obj_path()
 server_binary = '%s/server' % config.hooks.get_remote_obj_path()
-ensure_servers_bin = '%s/ensureServers' % config.hooks.get_remote_obj_path()
+ensure_servers_bin = '%s/apps/ensureServers' % config.hooks.get_remote_obj_path()
 
 # valgrind
 valgrind_command = ''

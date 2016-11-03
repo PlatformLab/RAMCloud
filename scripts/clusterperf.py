@@ -244,7 +244,7 @@ def default(
     This function is used as the invocation function for most tests;
     it simply invokes ClusterPerf via cluster.run and prints the result.
     """
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -254,7 +254,7 @@ def basic(name, options, cluster_args, client_args):
         cluster_args['master_args'] = '-t 4000'
     if cluster_args['timeout'] < 250:
         cluster_args['timeout'] = 250
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -262,7 +262,7 @@ def basic(name, options, cluster_args, client_args):
 def broadcast(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -275,7 +275,7 @@ def indexBasic(name, options, cluster_args, client_args):
     # Ensure at least 5 hosts for optimal performance
     if options.num_servers == None:
         cluster_args['num_servers'] = len(getHosts())
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -296,7 +296,7 @@ def indexRange(name, options, cluster_args, client_args):
     # Ensure at least 5 hosts for optimal performance
     if options.num_servers == None:
         cluster_args['num_servers'] = len(getHosts())
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -324,7 +324,7 @@ def indexMultiple(name, options, cluster_args, client_args):
     else:
         client_args['--numIndexes'] = 10
 
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
                (config.hooks.get_remote_obj_path(),
                 flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -348,7 +348,7 @@ def indexScalability(name, options, cluster_args, client_args):
         cluster_args['num_servers'] = len(getHosts())
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -368,7 +368,7 @@ def indexWriteDist(name, options, cluster_args, client_args):
     if '--numObjects' not in client_args:
         client_args['--numObjects'] = 1000000
 
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
 
@@ -403,7 +403,7 @@ def indexReadDist(name, options, cluster_args, client_args):
     if '--warmup' not in client_args:
         client_args['--warmup'] = 100
 
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
 
@@ -424,7 +424,7 @@ def transactionDist(name, options, cluster_args, client_args):
         cluster_args['master_args'] = '-t 2000'
     if options.numTables == None:
         client_args['--numTables'] = 1
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name),
             **cluster_args)
@@ -455,7 +455,7 @@ def transactionThroughput(name, options, cluster_args, client_args):
         return
     if options.numTables == None:
         client_args['--numTables'] = 1
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     for i in range(1, cluster_args['num_clients'] + 1):
@@ -467,7 +467,7 @@ def multiOp(name, options, cluster_args, client_args):
     if options.num_servers == None:
         cluster_args['num_servers'] = len(getHosts())
     client_args['--numTables'] = cluster_args['num_servers'];
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name),
             **cluster_args)
@@ -484,7 +484,7 @@ def netBandwidth(name, options, cluster_args, client_args):
         client_args['--size'] = options.size
     else:
         client_args['--size'] = 1024*1024;
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -497,13 +497,13 @@ def readAllToAll(name, options, cluster_args, client_args):
     if options.num_servers == None:
         cluster_args['num_servers'] = len(getHosts())
     client_args['--numTables'] = cluster_args['num_servers'];
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
 
 def readDist(name, options, cluster_args, client_args):
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name),
             **cluster_args)
@@ -520,7 +520,7 @@ def readDist(name, options, cluster_args, client_args):
 def readDistRandom(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '-t 1000'
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name),
             **cluster_args)
@@ -540,7 +540,7 @@ def readDistRandom(name, options, cluster_args, client_args):
 def readLoaded(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 20
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -553,7 +553,7 @@ def readRandom(name, options, cluster_args, client_args):
     if options.num_servers == None:
         cluster_args['num_servers'] = 1
     client_args['--numTables'] = cluster_args['num_servers'];
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -572,7 +572,7 @@ def readThroughput(name, options, cluster_args, client_args):
                 % name)
         print("Need at least 2 machines in this configuration")
         return
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -585,7 +585,7 @@ def txCollision(name, options, cluster_args, client_args):
     #client_args['--numTables'] = cluster_args['num_servers'];
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 5
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name), **cluster_args)
     print(get_client_log(), end='')
@@ -596,7 +596,7 @@ def writeDist(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '-t 2000'
     cluster_args['disjunct'] = True
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name),
             **cluster_args)
@@ -617,7 +617,7 @@ def workloadDist(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '-t 2000'
     cluster_args['disjunct'] = True
-    cluster.run(client='%s/ClusterPerf %s %s' %
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
             (config.hooks.get_remote_obj_path(),
              flatten_args(client_args), name),
             **cluster_args)

@@ -1,0 +1,46 @@
+APPOBJDIR = $(OBJDIR)/apps
+
+$(APPOBJDIR)/%.o: $(TOP)/apps/%.cc $(AUTO_GEN_HEADERS)
+	@mkdir -p $(@D)
+	$(call run-cxx,$@,$<, -fPIC)
+
+$(APPOBJDIR)/backuprecovery: $(APPOBJDIR)/BackupRecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
+
+$(APPOBJDIR)/client: $(APPOBJDIR)/ClientMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
+
+$(APPOBJDIR)/ClusterPerf: $(APPOBJDIR)/ClusterPerf.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+$(APPOBJDIR)/CoordinatorCrashRecovery: $(APPOBJDIR)/CoordinatorCrashRecovery.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+$(APPOBJDIR)/ensureServers: $(APPOBJDIR)/EnsureServers.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
+
+$(APPOBJDIR)/migrateTablet: $(APPOBJDIR)/MigrateTabletMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
+
+$(APPOBJDIR)/recovery: $(APPOBJDIR)/RecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+	@mkdir -p $(@D)
+	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
+
+.PHONY: apps
+
+apps: $(APPOBJDIR)/backuprecovery \
+      $(APPOBJDIR)/client \
+      $(APPOBJDIR)/ClusterPerf \
+      $(APPOBJDIR)/CoordinatorCrashRecovery \
+      $(APPOBJDIR)/ensureServers \
+      $(APPOBJDIR)/migrateTablet \
+      $(APPOBJDIR)/recovery \
+      $(NULL)
+
+all: apps

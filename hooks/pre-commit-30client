@@ -19,7 +19,7 @@ sleep .1
 $OBJDIR/server -M -L $masterLocator -C $coordinatorLocator > /dev/null 2>&1 &
 sleep .1
 
-$OBJDIR/client -C $coordinatorLocator > /dev/null 2>&1
+$APPOBJDIR/client -C $coordinatorLocator > /dev/null 2>&1
 retval=$?
 
 exit $retval

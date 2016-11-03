@@ -83,6 +83,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         uint64_t reference(reinterpret_cast<uint64_t>(&values[i]));
 
         bool success = false;
+        _unused(success);
         ht.lookup(key.getHash(), c);
         while (!c.isDone()) {
             TestObject* candidateObject =
@@ -120,6 +121,7 @@ hashTableBenchmark(uint64_t nkeys, uint64_t nlines)
         Key key(0, &i, sizeof(i));
         uint64_t reference = 0;
         bool success = false;
+        _unused(success);
 
         ht.lookup(key.getHash(), c);
         while (!c.isDone()) {
