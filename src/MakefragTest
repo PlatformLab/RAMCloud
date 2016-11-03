@@ -317,23 +317,7 @@ $(OBJDIR)/CoordinatorCrashRecovery: $(OBJDIR)/CoordinatorCrashRecovery.o $(OBJDI
 	@mkdir -p $(@D)
 	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(OBJDIR)/TransportBench: $(OBJDIR)/TransportBench.o $(OBJDIR)/RawMetrics.o $(OBJDIR)/libramcloud.a
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(TESTS_LIB)
-
-$(OBJDIR)/BackupStorageBenchmark: $(OBJDIR)/BackupStorageBenchmark.o $(SHARED_OBJFILES) $(BACKUP_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/HintServerCrashed: $(OBJDIR)/HintServerCrashed.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
 $(OBJDIR)/ObjectManagerBenchmark: $(OBJDIR)/ObjectManagerBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-$(OBJDIR)/StringKeys: $(OBJDIR)/StringKeys.o $(SHARED_OBJFILES) $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
 
