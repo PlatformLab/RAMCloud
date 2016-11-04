@@ -574,6 +574,11 @@ UnackedRpcResults::cleanByTimeout()
                 // recovered, not Transaction ParticipantList entry yet.
                 return;
             }
+            // After preventing the start of tablet migration or recovery,
+            // check SingleClientProtector once more before deletion.
+            if (clients[victims[i].leaseId]->doNotRemove)
+                continue;
+
             clients.erase(victims[i].leaseId);
         }
     }
