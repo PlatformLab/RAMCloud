@@ -31,6 +31,7 @@
 #include "ShortMacros.h"
 #include "TransportManager.h"
 #include "WorkerTimer.h"
+#include "Arachne.h"
 
 using namespace RAMCloud;
 
@@ -92,7 +93,7 @@ class StatsLogger : WorkerTimer {
 };
 
 int
-main(int argc, char *argv[])
+realMain(int argc, char *argv[])
 {
     signal(SIGTERM, Perf::terminationHandler);
     Logger::installCrashBacktraceHandlers();
@@ -360,4 +361,11 @@ main(int argc, char *argv[])
         Logger::get().sync();
         return 1;
     }
+}
+int
+main(int argc, char *argv[]) {
+    Arachne::numCores = 1;
+    Arachne::threadInit();
+    Arachne::createThread(realMain, argc, argv);
+    Arachne::waitForTermination();
 }
