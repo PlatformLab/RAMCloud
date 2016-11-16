@@ -51,6 +51,7 @@ class UnsyncedRpcTracker {
                          WireFormat::LogPosition syncPoint);
     void pingMasterByTimeout();
 
+  PRIVATE:
     /**
      * Holds info about an RPC whose effect is not made durable yet, which is
      * necessary to retry the RPC when a master crashes and loose the effects.
