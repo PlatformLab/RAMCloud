@@ -181,6 +181,7 @@ TESTS_SRCFILES := \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/UnackedRpcResultsTest.cc \
+		  src/UnsyncedRpcTracker.cc \
 		  src/UpdateReplicationEpochTaskTest.cc \
 		  src/UtilTest.cc \
 		  src/VarLenArrayTest.cc \

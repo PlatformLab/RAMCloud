@@ -111,6 +111,7 @@ CLIENT_SRCFILES := \
 		   src/Transport.cc \
 		   src/TransportManager.cc \
 		   src/UdpDriver.cc \
+		   src/UnsyncedRpcTracker.cc \
 		   src/Util.cc \
 		   src/WireFormat.cc \
 		   src/WorkerManager.cc \

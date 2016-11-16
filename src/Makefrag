@@ -166,6 +166,7 @@ SHARED_SRCFILES := \
 		   src/TxRecoveryManager.cc \
 		   src/UdpDriver.cc \
 		   src/UnackedRpcResults.cc \
+		   src/UnsyncedRpcTracker.cc \
 		   src/Util.cc \
 		   src/WallTime.cc \
 		   src/WireFormat.cc \

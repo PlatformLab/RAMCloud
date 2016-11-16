@@ -166,6 +166,24 @@ struct ClientLease {
                                 /// provided by the coordinator.
 } __attribute__((packed));
 
+struct LogPosition {
+    uint64_t segmentId;
+    uint64_t offset;
+    friend bool operator< (const LogPosition& lhs, const LogPosition& rhs) {
+        return lhs.segmentId < rhs.segmentId ||
+        (lhs.segmentId == rhs.segmentId && lhs.offset < rhs.offset);
+    }
+    friend bool operator> (const LogPosition& lhs, const LogPosition& rhs) {
+        return rhs < lhs;
+    }
+    friend bool operator<=(const LogPosition& lhs, const LogPosition& rhs) {
+        return !(lhs > rhs);
+    }
+    friend bool operator>=(const LogPosition& lhs, const LogPosition& rhs) {
+        return !(lhs < rhs);
+    }
+} __attribute__((packed));
+
 /**
  * Each RPC request starts with this structure.
  */

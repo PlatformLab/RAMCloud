@@ -50,6 +50,7 @@ ObjectRpcWrapper::ObjectRpcWrapper(Context* context, uint64_t tableId,
     , context(context)
     , tableId(tableId)
     , keyHash(Key::getHash(tableId, key, keyLength))
+    , rawRequest(NULL)
 {
 }
 
@@ -79,6 +80,7 @@ ObjectRpcWrapper::ObjectRpcWrapper(Context* context, uint64_t tableId,
     , context(context)
     , tableId(tableId)
     , keyHash(keyHash)
+    , rawRequest(NULL)
 {
 }
 
