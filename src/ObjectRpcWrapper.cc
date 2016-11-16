@@ -125,6 +125,7 @@ ObjectRpcWrapper::send()
         if (session) {
             state = IN_PROGRESS;
             session->sendRequest(&request, response, this);
+            session->lastUseTime = Cycles::rdtsc();
         } else {
             retry(0, 0);
         }

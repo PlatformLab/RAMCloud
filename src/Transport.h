@@ -20,6 +20,7 @@
 #include <string>
 #include <boost/intrusive_ptr.hpp>
 
+#include "Atomic.h"
 #include "BoostIntrusive.h"
 #include "Buffer.h"
 #include "CodeLocation.h"
@@ -171,6 +172,7 @@ class Transport {
         explicit Session(const string& serviceLocator)
             : refCount(0)
             , serviceLocator(serviceLocator)
+            , lastUseTime(0)
         {}
 
         virtual ~Session() {
@@ -242,6 +244,10 @@ class Transport {
       public:
         /// The service locator this Session is connected to.
         const string serviceLocator;
+
+        /// Timestamp when is the most recent RPC request to the destination.
+        /// All override of RpcWrapper's send() method should update this value.
+        Atomic<uint64_t> lastUseTime;
 
       PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(Session);

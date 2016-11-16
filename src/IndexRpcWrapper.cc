@@ -118,6 +118,7 @@ IndexRpcWrapper::send()
     if (session) {
         state = IN_PROGRESS;
         session->sendRequest(&request, response, this);
+        session->lastUseTime = Cycles::rdtsc();
     } else if (indexDoesntExist) {
         handleIndexDoesntExist();
         state = FINISHED;
