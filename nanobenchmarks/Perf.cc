@@ -1119,7 +1119,7 @@ double queueEstimator()
     int count = 1000000;
     QueueEstimator estimator(8000);
     uint64_t start = Cycles::rdtsc();
-    uint32_t total = 0;
+    static uint32_t total = 0;
     for (int i = 0; i < count; i++) {
         estimator.setQueueSize(1000, 100000+i);
         total += estimator.getQueueSize(200000);
