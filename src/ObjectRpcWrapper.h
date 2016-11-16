@@ -59,7 +59,7 @@ class ObjectRpcWrapper : public RpcWrapper {
 
     /// For non-durable RPCs, request buffer is linking this memory.
     /// We keep this pointer to register this request to UnsyncedRpcTracker.
-    /// For regular durable RPCs, it may be null.
+    /// For regular durable RPCs, its value is null.
     void* rawRequest;
 
     DISALLOW_COPY_AND_ASSIGN(ObjectRpcWrapper);
