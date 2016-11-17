@@ -26,6 +26,7 @@
 #include "TableManager.h"
 #include "TransportManager.h"
 #include "WorkerManager.h"
+#include "Arachne.h"
 
 /**
  * \file
@@ -46,7 +47,7 @@ using namespace RAMCloud;
  *      nonzero means an error occurred.
  */
 int
-main(int argc, char *argv[])
+realMain(int argc, char *argv[])
 {
     Logger::installCrashBacktraceHandlers();
     string localLocator("???");
@@ -160,4 +161,11 @@ main(int argc, char *argv[])
         Logger::get().sync();
         return 1;
     }
+}
+int
+main(int argc, char *argv[]) {
+    Arachne::numCores = 2;
+    Arachne::threadInit();
+    Arachne::createThread(realMain, argc, argv);
+    Arachne::waitForTermination();
 }

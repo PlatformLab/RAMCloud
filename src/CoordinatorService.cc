@@ -25,6 +25,7 @@
 #include "ShortMacros.h"
 #include "ServerId.h"
 #include "ServiceMask.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 bool CoordinatorService::forceSynchronousInit = false;
@@ -75,7 +76,7 @@ CoordinatorService::CoordinatorService(Context* context,
     if (forceSynchronousInit) {
         init(this, unitTesting);
     } else {
-        std::thread(init, this, unitTesting).detach();
+        Arachne::createThread(init, this, unitTesting);
     }
 }
 
