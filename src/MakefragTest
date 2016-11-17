@@ -134,6 +134,7 @@ TESTS_SRCFILES := \
 		  src/ReplicaManagerTest.cc \
 		  src/ReplicatedSegmentTest.cc \
 		  src/RpcLevelTest.cc \
+		  src/RpcRequestPoolTest.cc \
 		  src/RpcResultTest.cc \
 		  src/RpcTrackerTest.cc \
 		  src/RpcWrapperTest.cc \
@@ -181,7 +182,6 @@ TESTS_SRCFILES := \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/UnackedRpcResultsTest.cc \
-		  src/UnsyncedRpcTracker.cc \
 		  src/UpdateReplicationEpochTaskTest.cc \
 		  src/UtilTest.cc \
 		  src/VarLenArrayTest.cc \

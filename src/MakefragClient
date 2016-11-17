@@ -86,6 +86,7 @@ CLIENT_SRCFILES := \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
 		   src/RpcLevel.cc \
+		   src/RpcRequestPool.cc \
 		   src/RpcTracker.cc \
 		   src/RpcWrapper.cc \
 		   src/SegletAllocator.cc \
