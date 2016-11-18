@@ -166,6 +166,9 @@ int
 main(int argc, char *argv[]) {
     Arachne::numCores = 2;
     Arachne::threadInit();
-    Arachne::createThread(realMain, argc, argv);
+    // Invoke realMain outside of Arachne for now so we can defer handling of
+    // the fact that the dispatch thread does not yield or terminate until we
+    // are ready to do that experiment.
+    realMain(argc, argv);
     Arachne::waitForTermination();
 }
