@@ -694,46 +694,6 @@ TEST_F(TransactionRecordTest, handleTimerEvent_basic) {
               TestLog::get());
 }
 
-TEST_F(TransactionRecordTest, handleTimerEvent_done) {
-    transaction->recovered = true;
-    transaction->preparedOpCount = 1;
-    service1->transactionManager.cleaner.stop();
-
-    TestLog::Enable _("handleTimerEvent", "inProgress");
-    EXPECT_FALSE(transaction->txHintFailedRpc);
-    EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
-    EXPECT_FALSE(service1->transactionManager.cleaner.isRunning());
-    transaction->handleTimerEvent();
-    {
-        TransactionManager::Lock lock(service1->transactionManager.mutex);
-        transaction = service1->transactionManager.getTransaction(txId, lock);
-    }
-    EXPECT_FALSE(transaction == NULL);
-    EXPECT_FALSE(transaction->txHintFailedRpc);
-    EXPECT_EQ(100 + transaction->timeoutCycles, transaction->triggerTime);
-    EXPECT_EQ("handleTimerEvent: TxID <42,9> sending TxHintFailed RPC to owner "
-                    "of tableId 1 and keyHash 2. | "
-              "handleTimerEvent: TxID <42,9> received ack for TxHintFailed "
-                    "RPC; will wait for next timeout.",
-              TestLog::get());
-    EXPECT_FALSE(service1->transactionManager.cleaner.isRunning());
-
-    transaction->preparedOpCount = 0;
-
-    TestLog::reset();
-
-    transaction->handleTimerEvent();
-
-    EXPECT_EQ("inProgress: TxID <42,9> has completed; "
-              "Recovered with all prepared operations decided.",
-              TestLog::get());
-    EXPECT_TRUE(service1->transactionManager.cleaner.isRunning());
-
-    // Stop transaction before it is allowed to actually run.
-    transaction->stop();
-    service1->transactionManager.cleaner.stop();
-}
-
 TEST_F(TransactionRecordTest, handleTimerEvent_error_no_participantList) {
     transaction->participantListLogRef = AbstractLog::Reference();
     transaction->preparedOpCount = 1;
@@ -783,6 +743,8 @@ TEST_F(TransactionRecordTest, handleTimerEvent_waiting) {
 TEST_F(TransactionRecordTest, inProgress_acked) {
     TestLog::Enable _("inProgress");
     TransactionManager::Lock lock(service1->transactionManager.mutex);
+    TabletManager::Protector protector(
+            service1->transactionManager.tabletManager);
 
     {
         UnackedRpcResults::Lock lock(service1->unackedRpcResults.mutex);
@@ -792,7 +754,7 @@ TEST_F(TransactionRecordTest, inProgress_acked) {
     }
     EXPECT_TRUE(service1->unackedRpcResults.isRpcAcked(42, 9));
 
-    EXPECT_FALSE(transaction->inProgress(lock));
+    EXPECT_FALSE(transaction->inProgress(lock, protector));
     EXPECT_EQ("inProgress: TxID <42,9> has completed; Acked by Client.",
               TestLog::get());
 }
@@ -800,10 +762,12 @@ TEST_F(TransactionRecordTest, inProgress_acked) {
 TEST_F(TransactionRecordTest, inProgress_recovered) {
     TestLog::Enable _("inProgress");
     TransactionManager::Lock lock(service1->transactionManager.mutex);
+    TabletManager::Protector protector(
+            service1->transactionManager.tabletManager);
 
     transaction->recovered = true;
 
-    EXPECT_FALSE(transaction->inProgress(lock));
+    EXPECT_FALSE(transaction->inProgress(lock, protector));
     EXPECT_EQ("inProgress: TxID <42,9> has completed; Recovered with all "
               "prepared operations decided.", TestLog::get());
 }
@@ -811,10 +775,12 @@ TEST_F(TransactionRecordTest, inProgress_recovered) {
 TEST_F(TransactionRecordTest, inProgress_noParticipantList) {
     TestLog::Enable _("inProgress");
     TransactionManager::Lock lock(service1->transactionManager.mutex);
+    TabletManager::Protector protector(
+            service1->transactionManager.tabletManager);
 
     transaction->participantListLogRef = AbstractLog::Reference();
 
-    EXPECT_FALSE(transaction->inProgress(lock));
+    EXPECT_FALSE(transaction->inProgress(lock, protector));
     EXPECT_EQ("inProgress: TxID <42,9> has no participant list; must not have"
               "registered.", TestLog::get());
 }
@@ -824,8 +790,10 @@ TEST_F(TransactionRecordTest, inProgress_noLongerAParticipant) {
     ramcloud->dropTable("table1");
 
     TransactionManager::Lock lock(service1->transactionManager.mutex);
+    TabletManager::Protector protector(
+            service1->transactionManager.tabletManager);
 
-    EXPECT_FALSE(transaction->inProgress(lock));
+    EXPECT_FALSE(transaction->inProgress(lock, protector));
     EXPECT_EQ("inProgress: TxID <42,9> does not belong to this master.",
               TestLog::get());
 }
@@ -833,18 +801,22 @@ TEST_F(TransactionRecordTest, inProgress_noLongerAParticipant) {
 TEST_F(TransactionRecordTest, inProgress_stillInProgress) {
     TestLog::Enable _("inProgress");
     TransactionManager::Lock lock(service1->transactionManager.mutex);
+    TabletManager::Protector protector(
+            service1->transactionManager.tabletManager);
 
-    EXPECT_TRUE(transaction->inProgress(lock));
+    EXPECT_TRUE(transaction->inProgress(lock, protector));
     EXPECT_EQ("", TestLog::get());
 }
 
 TEST_F(TransactionRecordTest, inProgress_positivePreparedOpCount) {
     TestLog::Enable _("inProgress");
     TransactionManager::Lock lock(service1->transactionManager.mutex);
+    TabletManager::Protector protector(
+            service1->transactionManager.tabletManager);
 
     transaction->preparedOpCount = 1;
 
-    EXPECT_TRUE(transaction->inProgress(lock));
+    EXPECT_TRUE(transaction->inProgress(lock, protector));
     EXPECT_EQ("", TestLog::get());
 }
 
@@ -852,7 +824,9 @@ TEST_F(TransactionRecordTest, inProgress_checkMasterParticipantion) {
     TestLog::Enable _("checkMasterParticipantion");
     {
         TransactionManager::Lock lock(service1->transactionManager.mutex);
-        EXPECT_TRUE(transaction->checkMasterParticipantion(lock));
+        TabletManager::Protector protector(
+                service1->transactionManager.tabletManager);
+        EXPECT_TRUE(transaction->checkMasterParticipantion(lock, protector));
         EXPECT_EQ("checkMasterParticipantion: "
                   "Found tablet for tableId: 1 keyHash: 2", TestLog::get());
     }
@@ -862,7 +836,9 @@ TEST_F(TransactionRecordTest, inProgress_checkMasterParticipantion) {
 
     {
         TransactionManager::Lock lock(service1->transactionManager.mutex);
-        EXPECT_FALSE(transaction->checkMasterParticipantion(lock));
+        TabletManager::Protector protector(
+                service1->transactionManager.tabletManager);
+        EXPECT_FALSE(transaction->checkMasterParticipantion(lock, protector));
         EXPECT_EQ("", TestLog::get());
     }
 }
@@ -874,6 +850,7 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
             TransactionId txId(42, 1);
             transactionManager.getOrAddTransaction(txId, lock);
             transactionManager.getTransaction(txId, lock)->recovered = true;
+            transactionManager.cleaner.stop();
         }
         {
             TransactionId txId(42, 2);
@@ -881,17 +858,20 @@ TEST_F(TransactionManagerTest, TransactionRegistryCleaner_handleTimerEvent) {
             transactionManager.getTransaction(txId, lock)->recovered = true;
             // Disable cleaning on this on.
             transactionManager.getTransaction(txId, lock)->cleaningDisabled = 1;
+            transactionManager.cleaner.stop();
         }
         {
             TransactionId txId(42, 3);
             transactionManager.getOrAddTransaction(txId, lock);
             // This one's not complete
             transactionManager.getTransaction(txId, lock)->preparedOpCount = 1;
+            transactionManager.cleaner.stop();
         }
         {
             TransactionId txId(43, 1);
             transactionManager.getOrAddTransaction(txId, lock);
             transactionManager.getTransaction(txId, lock)->recovered = true;
+            transactionManager.cleaner.stop();
         }
     }
 

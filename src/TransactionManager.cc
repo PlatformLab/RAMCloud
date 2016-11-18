@@ -556,17 +556,6 @@ TransactionManager::TransactionRecord::handleTimerEvent()
     // from being processed.
     TransactionManager::Lock lock(transactionManager->mutex);
 
-    // Transaction is no longer in progress; schedule to clean this object.
-    if (!inProgress(lock)) {
-        // This code used to call delete on itself directly which could result
-        // in deadlock (see WorkerTimer::stopInternal).  The async cleaner was
-        // added to avoid this deadlock.
-        transactionManager->cleaner.start(0);
-        this->start(Cycles::rdtsc() + timeoutCycles);
-        return;
-    }
-    // Else, the transaction did not complete before it timed-out.
-
     // Construct and send the txHintFailedRpc if it has not been done.
     if (!txHintFailedRpc) {
         if (participantListLogRef == AbstractLog::Reference()) {
@@ -629,7 +618,10 @@ TransactionManager::TransactionRecord::handleTimerEvent()
  * still needed.
  *
  * \param lock
- *      Used to ensure that caller has acquired TransactionManager::mutex.
+ *      Used to ensure that caller has acquired the TransactionManager::mutex.
+ *      Not actually used by the method.
+ * \param protector
+ *      Used to ensure that caller has acquired the TabletManager::Protector.
  *      Not actually used by the method.
  * \return
  *      TRUE if the transaction record is considered active and in-use.
@@ -637,7 +629,8 @@ TransactionManager::TransactionRecord::handleTimerEvent()
  */
 bool
 TransactionManager::TransactionRecord::inProgress(
-        TransactionManager::Lock& lock)
+        TransactionManager::Lock& lock,
+        TabletManager::Protector& protector)
 {
     if (preparedOpCount <= 0) {
         // Acknowledged with no outstanding operations
@@ -662,7 +655,7 @@ TransactionManager::TransactionRecord::inProgress(
             return false;
         }
         // No longer a participant.
-        if (!checkMasterParticipantion(lock)) {
+        if (!checkMasterParticipantion(lock, protector)) {
             TEST_LOG("TxID <%lu,%lu> does not belong to this master.",
                     txId.clientLeaseId, txId.clientTransactionId);
             return false;
@@ -677,7 +670,10 @@ TransactionManager::TransactionRecord::inProgress(
  * registered transaction.
  *
  * \param lock
- *      Used to ensure that caller has acquired TransactionManager::mutex.
+ *      Used to ensure that caller has acquired the TransactionManager::mutex.
+ *      Not actually used by the method.
+ * \param protector
+ *      Used to ensure that caller has acquired the TabletManager::Protector.
  *      Not actually used by the method.
  * \return
  *      True, if the master is a participant in this registered transaction.
@@ -685,11 +681,10 @@ TransactionManager::TransactionRecord::inProgress(
  */
 bool
 TransactionManager::TransactionRecord::checkMasterParticipantion(
-        TransactionManager::Lock& lock)
+        TransactionManager::Lock& lock,
+        TabletManager::Protector& protector)
 {
     assert(participantListLogRef != AbstractLog::Reference());
-
-    TabletManager::Protector protector(transactionManager->tabletManager);
 
     Buffer pListBuf;
     transactionManager->log->getEntry(participantListLogRef, pListBuf);
@@ -719,8 +714,6 @@ TransactionManager::TransactionRegistryCleaner::handleTimerEvent()
 
     {
         TransactionManager::Lock lock(transactionManager->mutex);
-        this->start(Cycles::rdtsc() +
-                    Cycles::fromMicroseconds(BASE_TIMEOUT_US * 100));
         it = transactionManager->transactionIds.begin();
     }
 
@@ -744,12 +737,20 @@ TransactionManager::TransactionRegistryCleaner::handleTimerEvent()
                     transaction->txId.clientLeaseId,
                     transaction->txId.clientTransactionId);
             ++it;
-        } else if (!transaction->inProgress(lock)) {;
+        } else if (!transaction->inProgress(lock, protector)) {;
             transactionManager->transactions.erase(txId);
             delete transaction;
             it = transactionManager->transactionIds.erase(it);
         } else {
             ++it;
+        }
+    }
+
+    {
+        TransactionManager::Lock lock(transactionManager->mutex);
+        // Keep cleaning if there are still incomplete transactions.
+        if (transactionManager->transactionIds.size() > 0) {
+            transactionManager->cleaner.start(0);
         }
     }
 }
@@ -800,6 +801,9 @@ TransactionManager::getOrAddTransaction(TransactionId txId, Lock& lock)
         transaction = new TransactionRecord(this, txId, lock);
         transactions[txId] = transaction;
         transactionIds.emplace_back(txId);
+        if (!cleaner.isRunning()) {
+            cleaner.start(0);
+        }
     }
     assert(transaction != NULL);
     return transaction;

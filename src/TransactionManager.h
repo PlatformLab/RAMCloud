@@ -149,7 +149,6 @@ class TransactionManager {
                           TransactionManager::Lock& lock);
         ~TransactionRecord();
         virtual void handleTimerEvent();
-        bool inProgress(TransactionManager::Lock& lock);
 
         /// Number of prepared but uncommitted ops for this transaction.
         int preparedOpCount;
@@ -187,7 +186,10 @@ class TransactionManager {
         /// longer considered in progress.
         UnackedRpcResults::SingleClientProtector rpcResultsProtector;
 
-        bool checkMasterParticipantion(TransactionManager::Lock& lock);
+        bool inProgress(TransactionManager::Lock& lock,
+                        TabletManager::Protector& protector);
+        bool checkMasterParticipantion(TransactionManager::Lock& lock,
+                                       TabletManager::Protector& protector);
 
         DISALLOW_COPY_AND_ASSIGN(TransactionRecord);
     };
