@@ -47,7 +47,7 @@ class UnsyncedRpcTracker {
                           WireFormat::LogPosition logPos,
                           std::function<void()> callback);
     void flushSession(Transport::Session* sessionPtr);
-    void UpdateSyncPoint(Transport::Session* session,
+    void updateSyncPoint(Transport::Session* session,
                          WireFormat::LogPosition syncPoint);
     void pingMasterByTimeout();
 

@@ -184,6 +184,13 @@ struct LogPosition {
     }
 } __attribute__((packed));
 
+enum Asynchrony {
+    ASYNC,  // RPC will be responded before sync()
+    SYNC,   // RPC will be responded after sync()
+    RETRY   // Request is a retry from client buffer. Master should process
+            // this request during lockedForClientRetries phase.
+};
+
 /**
  * Each RPC request starts with this structure.
  */
@@ -1951,7 +1958,7 @@ struct Write {
                                       // keysAndValue blob in bytes.These
                                       // follow immediately after this header
         RejectRules rejectRules;
-        uint8_t async;
+        Asynchrony asyncType;
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

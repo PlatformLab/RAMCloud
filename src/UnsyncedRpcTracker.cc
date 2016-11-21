@@ -121,7 +121,7 @@ UnsyncedRpcTracker::flushSession(Transport::Session* sessionPtr)
  *      Master's log location up to which all log is replicated to backups.
  */
 void
-UnsyncedRpcTracker::UpdateSyncPoint(Transport::Session* sessionPtr,
+UnsyncedRpcTracker::updateSyncPoint(Transport::Session* sessionPtr,
                                     WireFormat::LogPosition syncPoint)
 {
     Lock lock(mutex);
