@@ -36,7 +36,9 @@ class MultiReadObject;
 class MultiRemoveObject;
 class MultiWriteObject;
 class ObjectFinder;
+class RpcRequestPool;
 class RpcTracker;
+class UnsyncedRpcTracker;
 
 /**
  * This structure describes a key (primary or secondary) and its length.
@@ -198,6 +200,8 @@ class RamCloud {
     ClientLeaseAgent *clientLeaseAgent;
     RpcTracker *rpcTracker;
     ClientTransactionManager *transactionManager;
+    RpcRequestPool *rpcRequestPool;
+    UnsyncedRpcTracker *unsyncedRpcTracker;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);

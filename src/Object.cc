@@ -430,6 +430,36 @@ Object::appendKeysAndValueToBuffer(
 }
 
 /**
+ * This is primarily used by the write RPC when the objects have just a single
+ * key.
+ *
+ * \param key
+ *      Primary key for this object
+ * \param value
+ *      Pointer to a single contiguous piece of memory that comprises this
+ *      object's value.
+ * \param valueLength
+ *      Length of the value portion in bytes.
+ * \param dest
+ *      Pointer to memory where the Keys and Value to be appended.
+ */
+void
+Object::appendKeysAndValueToMemory(
+        Key& key, const void* value, uint32_t valueLength, char* dest)
+{
+    uint32_t primaryKeyInfoLength =
+            KEY_INFO_LENGTH(1) + key.getStringKeyLength();
+
+    KeyCount keyCount = 1;
+    KeyLength keyLength = static_cast<KeyLength>(key.getStringKeyLength());
+    const void *keyString = key.getStringKey();
+    memcpy(dest, &keyCount, sizeof(KeyCount));
+    memcpy(dest + sizeof(KeyCount), &keyLength, sizeof(KeyLength));
+    memcpy(dest + KEY_INFO_LENGTH(1), keyString, keyLength);
+    memcpy(dest + primaryKeyInfoLength, value, valueLength);
+}
+
+/**
  * Change the tableId for the object, and correspondingly, recompute
  * the checksum.
  *

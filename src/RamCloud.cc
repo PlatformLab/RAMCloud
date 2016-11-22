@@ -31,9 +31,11 @@
 #include "Object.h"
 #include "ObjectFinder.h"
 #include "ProtoBuf.h"
+#include "RpcRequestPool.h"
 #include "RpcTracker.h"
 #include "ShortMacros.h"
 #include "TimeTrace.h"
+#include "UnsyncedRpcTracker.h"
 
 namespace RAMCloud {
 
@@ -60,6 +62,8 @@ RamCloud::RamCloud(CommandLineOptions* options)
     , clientLeaseAgent(new ClientLeaseAgent(this))
     , rpcTracker(new RpcTracker())
     , transactionManager(new ClientTransactionManager())
+    , rpcRequestPool(new RpcRequestPool())
+    , unsyncedRpcTracker(new UnsyncedRpcTracker(clientContext))
 {
     coordinatorLocator = options->getExternalStorageLocator();
     if (coordinatorLocator.size() == 0) {
@@ -82,6 +86,8 @@ RamCloud::RamCloud(Context* context)
     , clientLeaseAgent(new ClientLeaseAgent(this))
     , rpcTracker(new RpcTracker())
     , transactionManager(new ClientTransactionManager())
+    , rpcRequestPool(new RpcRequestPool())
+    , unsyncedRpcTracker(new UnsyncedRpcTracker(clientContext))
 {
     coordinatorLocator = context->options->getExternalStorageLocator();
     if (coordinatorLocator.size() == 0) {
@@ -101,6 +107,8 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , clientLeaseAgent(new ClientLeaseAgent(this))
     , rpcTracker(new RpcTracker())
     , transactionManager(new ClientTransactionManager())
+    , rpcRequestPool(new RpcRequestPool())
+    , unsyncedRpcTracker(new UnsyncedRpcTracker(clientContext))
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
@@ -112,6 +120,8 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , clientLeaseAgent(new ClientLeaseAgent(this))
     , rpcTracker(new RpcTracker())
     , transactionManager(new ClientTransactionManager())
+    , rpcRequestPool(new RpcRequestPool())
+    , unsyncedRpcTracker(new UnsyncedRpcTracker(clientContext))
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
@@ -128,6 +138,9 @@ RamCloud::~RamCloud()
     delete realClientContext;
 
     delete transactionManager;
+
+    delete rpcRequestPool;
+    delete unsyncedRpcTracker;
 }
 
 /**
@@ -2899,10 +2912,6 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
     : LinearizableObjectRpcWrapper(ramcloud, true, tableId, key,
             keyLength, sizeof(WireFormat::Write::Response))
 {
-    WireFormat::Write::Request* reqHdr(allocHeader<WireFormat::Write>());
-    reqHdr->tableId = tableId;
-
-    uint32_t totalLength = 0;
     uint16_t currentKeyLength = 0;
     if (keyLength)
         currentKeyLength = keyLength;
@@ -2911,14 +2920,33 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
                                static_cast<const char *>(key)));
 
     Key primaryKey(tableId, key, currentKeyLength);
-    Object::appendKeysAndValueToBuffer(primaryKey, buf, length,
-                                       &request, false, &totalLength);
+    uint32_t primaryKeyInfoLength =
+            KEY_INFO_LENGTH(1) + primaryKey.getStringKeyLength();
+    uint32_t keyValueLength = primaryKeyInfoLength + length;
 
+    uint32_t size = sizeof32(WireFormat::Write::Request) + keyValueLength;
+
+    rawRequest = ramcloud->rpcRequestPool->alloc(size);
+    WireFormat::Write::Request* reqHdr =
+            reinterpret_cast<WireFormat::Write::Request*>(rawRequest);
+
+    char* keysAndValues = reinterpret_cast<char*>(rawRequest) +
+                                sizeof(WireFormat::Write::Request);
+
+    memset(reqHdr, 0, sizeof(*reqHdr));
+    reqHdr->common.opcode = WireFormat::Write::opcode;
+    reqHdr->common.service = WireFormat::Write::service;
+    reqHdr->tableId = tableId;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    reqHdr->async = async;
-    reqHdr->length = totalLength;
+    reqHdr->asyncType = async ? WireFormat::Asynchrony::ASYNC :
+                                WireFormat::Asynchrony::SYNC;
+    reqHdr->length = keyValueLength;
+
+    Object::appendKeysAndValueToMemory(primaryKey, buf, length, keysAndValues);
 
     fillLinearizabilityHeader<WireFormat::Write::Request>(reqHdr);
+
+    request.appendExternal(rawRequest, size);
 
     send();
 }
@@ -2970,7 +2998,8 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
     Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
                     buf, length, &request, &totalLength);
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    reqHdr->async = async;
+    reqHdr->asyncType = async ? WireFormat::Asynchrony::ASYNC :
+                                WireFormat::Asynchrony::SYNC;
     reqHdr->length = totalLength;
 
     fillLinearizabilityHeader<WireFormat::Write::Request>(reqHdr);
@@ -2998,6 +3027,16 @@ WriteRpc::wait(uint64_t* version)
 
     if (respHdr->common.status != STATUS_OK)
         ClientException::throwException(HERE, respHdr->common.status);
+
+    // TODO(seojin): Remove this after changing multi-key write constructor.
+    if (rawRequest) {
+        WireFormat::Write::Request* reqHdr =
+                reinterpret_cast<WireFormat::Write::Request*>(rawRequest);
+        if (reqHdr->asyncType == WireFormat::Asynchrony::ASYNC) {
+            ramcloud->unsyncedRpcTracker->registerUnsynced(session, rawRequest,
+                    tableId, keyHash, respHdr->version, respHdr->objPos, NULL);
+        }
+    }
 }
 
 }  // namespace RAMCloud

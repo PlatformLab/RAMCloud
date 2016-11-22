@@ -1963,6 +1963,7 @@ struct Write {
     struct Response {
         ResponseCommon common;
         uint64_t version;
+        LogPosition objPos;
     } __attribute__((packed));
 };
 

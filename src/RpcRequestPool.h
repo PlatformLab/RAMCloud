@@ -35,14 +35,14 @@ class RpcRequestPool {
   PUBLIC:
     explicit RpcRequestPool();
     ~RpcRequestPool();
-    void* alloc(int size);
+    void* alloc(uint32_t size);
     void free(void* ptr);
 
   PRIVATE:
     /**
      * The number of bytes per memory slab used for an RPC request.
      */
-    static const int32_t BYTES_PER_REQUEST = 8192;
+    static const uint32_t BYTES_PER_REQUEST = 8192;
 
     /**
      * The number of memory slabs allocatable.
@@ -52,7 +52,7 @@ class RpcRequestPool {
     /**
      * The number of bytes of total memory used by this allocator.
      */
-    static const int32_t BYTES_TOTAL = 8192 * SLABS_TOTAL;
+    static const uint32_t BYTES_TOTAL = 8192 * SLABS_TOTAL;
 
     /**
      * Pointer to the entire memory pool.

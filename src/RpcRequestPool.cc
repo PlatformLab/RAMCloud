@@ -22,9 +22,9 @@
 namespace RAMCloud {
 
 /// Definitions for constants.
-const int32_t RpcRequestPool::BYTES_PER_REQUEST;
+const uint32_t RpcRequestPool::BYTES_PER_REQUEST;
 const int32_t RpcRequestPool::SLABS_TOTAL;
-const int32_t RpcRequestPool::BYTES_TOTAL;
+const uint32_t RpcRequestPool::BYTES_TOTAL;
 
 /**
  * Default constructor.
@@ -68,7 +68,7 @@ RpcRequestPool::~RpcRequestPool()
  * \return pointer to allocated memory for RPC request.
  */
 void*
-RpcRequestPool::alloc(int size)
+RpcRequestPool::alloc(uint32_t size)
 {
     assert(ThreadId::get() == ownerThreadId);
     if (size > BYTES_PER_REQUEST) {

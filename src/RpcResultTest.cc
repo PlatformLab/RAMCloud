@@ -26,7 +26,7 @@ class RpcResultTest : public ::testing::Test {
   public:
     RpcResultTest()
         : stringKey(),
-          response({{Status::STATUS_OK}, 123UL}),
+          response({{Status::STATUS_OK}, 123UL, {10UL, 55UL}}),
           buffer(),
           buffer2(),
           rpcResultFromResponse(),
@@ -89,7 +89,7 @@ TEST_F(RpcResultTest, constructor_fromResponse) {
     EXPECT_EQ(1UL, record.header.leaseId);
     EXPECT_EQ(10UL, record.header.rpcId);
     EXPECT_EQ(9UL, record.header.ackId);
-    EXPECT_EQ(2733041852, record.header.checksum);
+    EXPECT_EQ(704813717U, record.header.checksum);
 
     EXPECT_TRUE(record.response);
 
@@ -108,7 +108,7 @@ TEST_F(RpcResultTest, constructor_fromBuffer) {
     EXPECT_EQ(1UL, record.header.leaseId);
     EXPECT_EQ(10UL, record.header.rpcId);
     EXPECT_EQ(9UL, record.header.ackId);
-    EXPECT_EQ(2733041852, record.header.checksum);
+    EXPECT_EQ(704813717U, record.header.checksum);
 
     EXPECT_FALSE(record.response);
     EXPECT_TRUE(record.respBuffer);
@@ -142,7 +142,7 @@ TEST_F(RpcResultTest, assembleForLog) {
         EXPECT_EQ(1UL, header->leaseId);
         EXPECT_EQ(10UL, header->rpcId);
         EXPECT_EQ(9UL, header->ackId);
-        EXPECT_EQ(2733041852, header->checksum);
+        EXPECT_EQ(704813717U, header->checksum);
 
         const void* respRaw = buffer.getRange(sizeof(*header),
                     sizeof(WireFormat::Write::Response));
@@ -174,7 +174,7 @@ TEST_F(RpcResultTest, assembleForLog_contigMemory) {
         EXPECT_EQ(1UL, header->leaseId);
         EXPECT_EQ(10UL, header->rpcId);
         EXPECT_EQ(9UL, header->ackId);
-        EXPECT_EQ(2733041852, header->checksum);
+        EXPECT_EQ(704813717U, header->checksum);
 
         const void* respRaw = target + sizeof(*header);
         const WireFormat::Write::Response* resp =
@@ -273,7 +273,7 @@ TEST_F(RpcResultTest, checkIntegrity) {
 
 TEST_F(RpcResultTest, getSerializedLength) {
     for (uint32_t i = 0; i < arrayLength(records); i++)
-        EXPECT_EQ(56U, records[i]->getSerializedLength());
+        EXPECT_EQ(72U, records[i]->getSerializedLength());
 }
 
 } // namespace RAMCloud

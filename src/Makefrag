@@ -131,6 +131,7 @@ SHARED_SRCFILES := \
 		   src/ReplicatedSegment.cc \
 		   src/RpcLevel.cc \
 		   src/RpcWrapper.cc \
+		   src/RpcRequestPool.cc \
 		   src/RpcResult.cc \
 		   src/RpcTracker.cc \
 		   src/Seglet.cc \

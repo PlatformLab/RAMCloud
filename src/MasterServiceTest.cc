@@ -1348,8 +1348,8 @@ TEST_F(MasterServiceTest, migrateTablet_movingData) {
             "in tableId 1 to server 3.0 at mock:host=master2 | "
             "migrateTablet: Sending last migration segment | "
             "migrateTablet: Migration succeeded for tablet "
-            "[0x0,0xffffffffffffffff] in tableId 1; sent 1 objects and "
-            "0 tombstones to server 3.0 at mock:host=master2, 92 bytes in total"
+            "[0x0,0xffffffffffffffff] in tableId 1; sent 1 objects and 0 "
+            "tombstones to server 3.0 at mock:host=master2, 108 bytes in total"
             " | deleteKeyHashRange: tableId 1 range [0x0,0xffffffffffffffff]"
             , TestLog::get());
 
@@ -3916,8 +3916,8 @@ TEST_F(MasterServiceTest, write_basics) {
     ramcloud->write(1, "key0", 4, "item0", 5, NULL, &version);
     EXPECT_EQ(1U, version);
     EXPECT_EQ("writeObject: object: 36 bytes, version 1 | "
-            "writeObject: rpcResult: 56 bytes | "
-            "sync: syncing segment 1 to offset 176 | "
+            "writeObject: rpcResult: 72 bytes | "
+            "sync: syncing segment 1 to offset 192 | "
             "schedule: scheduled | "
             "performWrite: Sending write to backup 1.0 | "
             "schedule: scheduled | "
