@@ -57,8 +57,6 @@ namespace RAMCloud {
 class ObjectManager : public LogEntryHandlers,
                       public AbstractLog::ReferenceFreer {
   public:
-    // forward declaration
-    class ObjectUpdate;
 
     ObjectManager(Context* context, ServerId* serverId,
                 const ServerConfig* config,
@@ -80,7 +78,7 @@ class ObjectManager : public LogEntryHandlers,
                 RejectRules* rejectRules, uint64_t* outVersion,
                 bool valueOnly = false);
     Status removeObject(Key& key, RejectRules* rejectRules,
-                uint64_t* outVersion, ObjectUpdate* objectUpdate = NULL,
+                uint64_t* outVersion, Buffer* removedObjBuffer = NULL,
                 RpcResult* rpcResult = NULL, uint64_t* rpcResultPtr = NULL);
     void removeOrphanedObjects();
     void replaySegment(SideLog* sideLog, SegmentIterator& it,
@@ -88,7 +86,7 @@ class ObjectManager : public LogEntryHandlers,
     void replaySegment(SideLog* sideLog, SegmentIterator& it);
     void syncChanges();
     Status writeObject(Object& newObject, RejectRules* rejectRules,
-                uint64_t* outVersion, ObjectUpdate* objectUpdate = NULL,
+                uint64_t* outVersion, Buffer* removedObjBuffer = NULL,
                 RpcResult* rpcResult = NULL, uint64_t* rpcResultPtr = NULL);
     bool keyPointsAtReference(Key& k, AbstractLog::Reference oldReference);
     void writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr);
@@ -102,9 +100,9 @@ class ObjectManager : public LogEntryHandlers,
     Status writeTxDecisionRecord(TxDecisionRecord& record);
     Status commitRead(PreparedOp& op, Log::Reference& refToPreparedOp);
     Status commitRemove(PreparedOp& op, Log::Reference& refToPreparedOp,
-                Buffer* removedObjBuffer = NULL);
+                        Buffer* removedObjBuffer = NULL);
     Status commitWrite(PreparedOp& op, Log::Reference& refToPreparedOp,
-                Buffer* removedObjBuffer = NULL);
+                        Buffer* removedObjBuffer = NULL);
 
     /**
      * The following three methods are used when multiple log entries
@@ -154,28 +152,6 @@ class ObjectManager : public LogEntryHandlers,
         ObjectManager* objectManager;
 
         DISALLOW_COPY_AND_ASSIGN(TombstoneProtector);
-    };
-
-    /* Used by ObjectManager to notify MasterService that it is safe to
-     * respond to an RPC. This is used in situations where the ObjectManager
-     * has fairly expensive clean up to perform, for which the RPC doesn't
-     * need to be delayed.
-     */
-    class ObjectUpdate {
-      public:
-        virtual ~ObjectUpdate() {}
-
-        /*
-         * This method will be invoked by ObjectManger when an operation
-         * is effectively completed so the RPC (corresponding to this operation)
-         * can be returned.
-         * For example, removeObject() invokes the callback after it has removed
-         * the object from the master's log and hash table, but before deleting
-         * the index entries corresponding to it.
-         * This method should be overriden by subclasses of
-         * ObjectUpdate to define appropriate behavior for a given operation.
-         */
-        virtual void completionCallback(Status status) = 0;
     };
 
   PRIVATE:
@@ -326,8 +302,6 @@ class ObjectManager : public LogEntryHandlers,
     void relocateTxDecisionRecord(
             Buffer& oldBuffer, LogEntryRelocator& relocator);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
-    void requestInsertIndexEntries(Object& object);
-    void requestRemoveIndexEntries(Object& object);
 
     /**
      * Shared RAMCloud information.
