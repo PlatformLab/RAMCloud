@@ -131,6 +131,7 @@ TEST_F(WorkerTimerTest, sanityCheck) {
     Cycles::mockTscValue = 10001;
     dispatch.poll();
     waitForWorkerProgress();
+    TestUtil::waitForLog();
     EXPECT_EQ("handleTimerEvent: WorkerTimer xyzzy invoked", TestLog::get());
 }
 
@@ -185,6 +186,11 @@ TEST_F(WorkerTimerTest, start_dontStartOnceDestructorInvoked) {
     timer->restartTime = 1000;
     dispatch.poll();
     waitForWorkerProgress();
+    // Wait until the TestLog becomes non-empty, sicne the above line does not
+    // guarantee that the TestLog will have already been written, the worker
+    // making progress is a necessary but not sufficient condition for the
+    // thread to have reached the TestLog line.
+    TestUtil::waitForLog(NULL);
     EXPECT_TRUE(TestUtil::matchesPosixRegex("restarted", TestLog::get()));
 
     // Now, make sure it doesn't restart itself if the destructor
@@ -333,6 +339,7 @@ TEST_F(WorkerTimerTest, Manager_handleTimerEvent) {
     Cycles::mockTscValue = 20000;
     dispatch.poll();
     waitForWorkerProgress();
+    TestUtil::waitForLog(NULL);
     EXPECT_EQ("handleTimerEvent: WorkerTimer xyzzy invoked", TestLog::get());
 }
 
@@ -462,6 +469,7 @@ TEST_F(WorkerTimerTest, workerThreadMain_exit) {
     waitForWorkerProgress();               // Thread startup.
     timer1.destroy();
     waitForWorkerProgress();
+    TestUtil::waitForLog(NULL);
     EXPECT_EQ("workerThreadMain: exiting", TestLog::get());
 }
 
@@ -472,6 +480,7 @@ TEST_F(WorkerTimerTest, workerThreadMain_invokeHandler) {
     Cycles::mockTscValue = 2000;
     dispatch.poll();
     waitForWorkerProgress();
+    TestUtil::waitForLog(NULL);
     EXPECT_EQ("handleTimerEvent: WorkerTimer t1 invoked", TestLog::get());
 }
 
