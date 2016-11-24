@@ -22,6 +22,7 @@
 #include "AbstractServerList.h"
 #include "CoordinatorService.h"
 #include "Tub.h"
+#include "Arachne.h"
 
 namespace {
 
@@ -166,12 +167,28 @@ main(int argc, char *argv[])
     };
     listeners.Append(new GTestSetupListener());
 
+    struct Environment : public ::testing::Environment {
+        virtual ~Environment() {}
+        virtual void SetUp() {
+            Arachne::numCores = 1;
+            Arachne::threadInit();
+            Arachne::testInit();
+        }
+        // Override this to define how to tear down the environment.
+        virtual void TearDown() {
+            Arachne::shutDown();
+            Arachne::waitForTermination();
+            Arachne::testDestroy();
+        }
+    };
+
     if (!progress) {
         // replace default output printer with quiet one
         auto defaultPrinter = listeners.Release(
-                                listeners.default_result_printer());
+                listeners.default_result_printer());
         listeners.Append(new QuietUnitTestResultPrinter(defaultPrinter));
     }
+    ::testing::AddGlobalTestEnvironment(new Environment);
 
     return RUN_ALL_TESTS();
 }

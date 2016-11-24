@@ -23,7 +23,7 @@
 #include "WorkerTimer.h"
 
 namespace RAMCloud {
-std::mutex WorkerTimer::mutex;
+Arachne::SpinLock WorkerTimer::mutex;
 WorkerTimer::ManagerList WorkerTimer::managers;
 int WorkerTimer::workerThreadProgressCount = 0;
 int WorkerTimer::stopWarningMs = 0;
@@ -146,10 +146,11 @@ void WorkerTimer::stopInternal(Lock& lock)
     // message if the handler doesn't complete for a long time.
     while (handlerRunning) {
         TEST_LOG("waiting for handler");
-        std::chrono::milliseconds timeout(
-                stopWarningMs ? stopWarningMs : 10000);
-        if (handlerFinished.wait_until(lock, std::chrono::system_clock::now()
-                + timeout) == std::cv_status::timeout) {
+        uint64_t timeout = stopWarningMs ? stopWarningMs : 10000;
+        handlerFinished.waitFor(lock, timeout * 1000 * 1000);
+        // If the CV timed out, that would imply that the handler is still
+        // running after wakeup, and we should warn.
+        if (handlerRunning) {
             LOG(WARNING, "WorkerTimer stalled waiting for handler to "
                     "complete; perhaps destructor was invoked from handler?");
         }
@@ -209,7 +210,7 @@ WorkerTimer::Manager::Manager(Dispatch* dispatch, Lock& lock)
     , links()
 {
     managers.push_back(*this);
-    workerThread.construct(workerThreadMain, this);
+    workerThread = Arachne::createThread(workerThreadMain, this);
 }
 
 /**
@@ -223,14 +224,13 @@ WorkerTimer::Manager::~Manager()
     // Shut down the worker thread. All we need to do is wake it up:
     // it will see that there are no more managers and then exit.
     timerCount = -1;
-    waitingForWork.notify_one();
+    waitingForWork.notifyOne();
     {
         // Must release lock while waiting for thread to exit; otherwise
         // it can't run.
-        Unlock<std::mutex> unlock(mutex);
-        workerThread->join();
+        Unlock<Arachne::SpinLock> unlock(mutex);
+        Arachne::join(workerThread);
     }
-    workerThread.destroy();
 }
 
 /**
@@ -251,7 +251,7 @@ WorkerTimer::Manager::handleTimerEvent()
     // be safe because Dispatch::Timer::start now uses a mutex rather than
     // the dispatch lock.
     Lock lock(mutex);
-    waitingForWork.notify_one();
+    waitingForWork.notifyOne();
 }
 
 /**
@@ -338,15 +338,15 @@ void WorkerTimer::Manager::checkTimers(Lock& lock)
         // WorkerTimer::handleTimerEvent might hang on the lock for a long
         // time, effectively blocking the dispatch thread.
         {
-            Unlock<std::mutex> unlock(mutex);
+            Unlock<Arachne::SpinLock> unlock(mutex);
             LogProtector::Guard logGuard(logProtectorActivity);
             ready->handleTimerEvent();
         }
         ready->handlerRunning = false;
-        ready->handlerFinished.notify_one();
+        ready->handlerFinished.notifyOne();
     }
     checkTimerCount--;
-    checkTimersDone.notify_all();
+    checkTimersDone.notifyAll();
 }
 
 /**

@@ -16,7 +16,6 @@
 #ifndef RAMCLOUD_WORKERTIMER_H
 #define RAMCLOUD_WORKERTIMER_H
 
-#include <condition_variable>
 #include <thread>
 
 #include <set>
@@ -24,6 +23,7 @@
 #include "BoostIntrusive.h"
 #include "Dispatch.h"
 #include "LogProtector.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 
@@ -55,7 +55,7 @@ class WorkerTimer {
 
   PRIVATE:
     class Manager;
-    typedef std::unique_lock<std::mutex> Lock;
+    typedef std::unique_lock<Arachne::SpinLock> Lock;
     void stopInternal(Lock& lock);
 
     /// Manager that controls this timer.
@@ -79,7 +79,7 @@ class WorkerTimer {
     /// and handlerFinished gets notified whenever handlerRunning is set
     /// to false.
     bool handlerRunning;
-    std::condition_variable handlerFinished;
+    Arachne::ConditionVariable handlerFinished;
 
     /// We don't want anyone (such as the handler) to restart the timer
     /// once the destructor has been invoked. This boolean indicates
@@ -117,10 +117,10 @@ class WorkerTimer {
 
         /// WorkerTimers associated with this Manager will execute in this
         /// thread.
-        Tub<std::thread> workerThread;
+        Arachne::ThreadId workerThread;
 
         /// workerThread waits on this when it has nothing to do.
-        std::condition_variable waitingForWork;
+        Arachne::ConditionVariable waitingForWork;
 
         /// Number of instances of checkTimer currently running for
         /// this Manager.
@@ -128,7 +128,7 @@ class WorkerTimer {
 
         /// Signaled whenever checkTimers completes for this Manager;
         /// used by WorkerTimer::sync.
-        std::condition_variable checkTimersDone;
+        Arachne::ConditionVariable checkTimersDone;
 
         /// Encapsulates a WorkerTimer pointer so that it can be kept in sorted
         /// order based on their triggerTime.
@@ -203,7 +203,7 @@ class WorkerTimer {
     /// Monitor-style lock: acquired by all externally visible methods,
     /// assumed by all internal methods to be held, used for all condition
     /// variables.
-    static std::mutex mutex;
+    static Arachne::SpinLock mutex;
 
     /// Holds all managers currently in existence.
     INTRUSIVE_LIST_TYPEDEF(Manager, links) ManagerList;
