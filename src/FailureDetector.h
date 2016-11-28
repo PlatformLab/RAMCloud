@@ -26,6 +26,7 @@
 #include "ServerList.h"
 #include "ServerTracker.h"
 #include "Tub.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 
@@ -84,7 +85,7 @@ class FailureDetector {
     static const int MAX_FAILED_PROBES = 5;
 
     /// Failure detector thread
-    Tub<std::thread>     thread;
+    Arachne::ThreadId    thread;
 
     /// Set by halt() to ask the failure detector thread to exit.
     bool threadShouldExit;

@@ -67,24 +67,21 @@ FailureDetector::~FailureDetector()
 void
 FailureDetector::start()
 {
-    thread.construct(detectorThreadEntry, this, context);
+    thread = Arachne::createThread(detectorThreadEntry, this, context);
 }
 
 /**
  * Halt the failure detector thread.
  *
  * This method stops the failure detector thread. Once the function returns
- * the thread will have terminated and cleaned up after itself.
+ * the thread is guaranteed to terminate the next it runs.
  */
 void
 FailureDetector::halt()
 {
-    if (thread) {
+    if (thread != Arachne::NullThread) {
         threadShouldExit = true;
         Fence::sfence();
-        thread->join();
-        threadShouldExit = false;
-        thread.destroy();
     }
 }
 
@@ -109,13 +106,7 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
     // know about us, resulting in extraneous warnings about verifying
     // cluster membership. The initial wait time used below is a fairly
     // random guess.
-    struct timespec interval;
-    interval.tv_sec = 1;
-    interval.tv_nsec = 0;
-    nanosleep(&interval, NULL);
-
-    interval.tv_sec = 0;
-    interval.tv_nsec = PROBE_INTERVAL_USECS*1000;
+    Arachne::sleep(1E9);
 
     while (1) {
         // Check if we have been requested to exit.
@@ -133,7 +124,7 @@ FailureDetector::detectorThreadEntry(FailureDetector* detector,
         detector->pingRandomServer();
 
         // Sleep for the specified interval
-        nanosleep(&interval, NULL);
+        Arachne::sleep(PROBE_INTERVAL_USECS*1000);
     }
 }
 
