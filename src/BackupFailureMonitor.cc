@@ -16,14 +16,13 @@
 #include "BackupFailureMonitor.h"
 #include "ReplicaManager.h"
 #include "ShortMacros.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 
 /**
  * Create an instance that will listen for changes to #serverList and
- * inform #replicaManager of backup failures.  After construction failures
- * won't be dispatched until after start() is called, which starts a
- * thread to monitor for failures.  The thread is cleaned up on destruction.
+ * inform #replicaManager of backup failures.
  *
  * \param context
  *      Overall information about the RAMCloud server.
@@ -36,9 +35,7 @@ BackupFailureMonitor::BackupFailureMonitor(Context* context,
                                            ReplicaManager* replicaManager)
     : replicaManager(replicaManager)
     , running(false)
-    , changesOrExit()
     , mutex()
-    , thread()
     , tracker(context, this)
 {
     // #tracker may call trackerChangesEnqueued() but all notifications will
@@ -66,19 +63,18 @@ BackupFailureMonitor::~BackupFailureMonitor()
 void
 BackupFailureMonitor::main()
 try {
-    ServerDetails server;
-    ServerChangeEvent event;
     while (running) {
+        ServerDetails server;
+        ServerChangeEvent event;
         {
             Lock lock(mutex);
+            if (!running)
+                return;
             // If the replicaManager isn't working and there aren't any
             // cluster membership notifications, then go to sleep.
-            while ((!replicaManager || replicaManager->isIdle()) &&
-                   !tracker.hasChanges()) {
-                if (!running)
-                    return;
-                changesOrExit.wait(lock);
-            }
+            if ((!replicaManager || replicaManager->isIdle()) &&
+                    !tracker.hasChanges())
+                return;
         }
 
         while (true) {
@@ -95,10 +91,11 @@ try {
             if (event != SERVER_CRASHED)
                 continue;
             LOG(DEBUG,
-                "Notifying replica manager of failure of serverId %s",
-                id.toString().c_str());
+                    "Notifying replica manager of failure of serverId %s",
+                    id.toString().c_str());
             if (replicaManager)
                 replicaManager->handleBackupFailure(id);
+            Arachne::yield();
         }
         if (replicaManager)
             replicaManager->proceed();
@@ -122,7 +119,7 @@ BackupFailureMonitor::start()
     if (running)
         return;
     running = true;
-    thread.construct(&BackupFailureMonitor::main, this);
+    Arachne::createThread(&BackupFailureMonitor::main, this);
 }
 
 /**
@@ -136,10 +133,6 @@ BackupFailureMonitor::halt()
     if (!running)
         return;
     running = false;
-    changesOrExit.notify_one();
-    lock.unlock();
-    thread->join();
-    thread.destroy();
 }
 
 /**
@@ -172,13 +165,17 @@ BackupFailureMonitor::serverIsUp(ServerId serverId)
 }
 
 /**
- * Accepts notifications from the ServerList (via #tracker) and wakes up
- * the main loop to process changes if it sleeping.
+ * Accepts notifications from the ServerList (via #tracker) and spawns a thread
+ * to process changes.
  */
 void
 BackupFailureMonitor::trackerChangesEnqueued()
 {
-    changesOrExit.notify_one();
+    /**
+     * Dispatches changes to #replicaManager for it to take
+     * corrective actions when the ServerList changes. 
+     */
+    Arachne::createThread(&BackupFailureMonitor::main, this);
 }
 
 } // namespace RAMCloud

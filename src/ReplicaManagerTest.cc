@@ -344,6 +344,7 @@ TEST_F(ReplicaManagerTest, endToEndBackupRecovery) {
     failureMonitor.start();
     serverList.testingCrashed(backup1Id);
     serverList.testingRemove(backup1Id);
+    failureMonitor.trackerChangesEnqueued();
 
     // Wait for backup recovery to finish.
     while (!mgr->isIdle());

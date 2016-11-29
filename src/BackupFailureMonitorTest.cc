@@ -69,31 +69,26 @@ TEST_F(BackupFailureMonitorTest, startAndHalt) {
     {
         BackupFailureMonitor::Lock lock(monitor.mutex);
         EXPECT_TRUE(monitor.running);
-        EXPECT_TRUE(monitor.thread);
     }
     monitor.start(); // check dup start call
     {
         BackupFailureMonitor::Lock lock(monitor.mutex);
         EXPECT_TRUE(monitor.running);
-        EXPECT_TRUE(monitor.thread);
     }
     monitor.halt(); // check halt
     {
         BackupFailureMonitor::Lock lock(monitor.mutex);
         EXPECT_FALSE(monitor.running);
-        EXPECT_FALSE(monitor.thread);
     }
     monitor.halt(); // check dup halt call
     {
         BackupFailureMonitor::Lock lock(monitor.mutex);
         EXPECT_FALSE(monitor.running);
-        EXPECT_FALSE(monitor.thread);
     }
     monitor.start(); // check restart after halt
     {
         BackupFailureMonitor::Lock lock(monitor.mutex);
         EXPECT_TRUE(monitor.running);
-        EXPECT_TRUE(monitor.thread);
     }
 }
 
