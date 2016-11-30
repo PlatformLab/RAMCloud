@@ -17,6 +17,7 @@
 #include "UnsyncedRpcTracker.h"
 #include "Memory.h"
 #include "Transport.h"
+#include "RamCloud.h"
 
 namespace RAMCloud {
 
@@ -24,14 +25,16 @@ class UnsyncedRpcTrackerTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
     Context context;
-    UnsyncedRpcTracker tracker;
+    RamCloud ramcloud;
+    UnsyncedRpcTracker* tracker;
     Transport::SessionRef session;
     void* request;
 
     UnsyncedRpcTrackerTest()
         : logEnabler()
         , context()
-        , tracker(&context)
+        , ramcloud(&context, "mock:host=coordinator")
+        , tracker(ramcloud.unsyncedRpcTracker)
         , session(new Transport::Session("Test"))
         , request(Memory::xmalloc(HERE, 1000))
     {
@@ -39,7 +42,6 @@ class UnsyncedRpcTrackerTest : public ::testing::Test {
 
     ~UnsyncedRpcTrackerTest()
     {
-        free(request);
     }
 
     DISALLOW_COPY_AND_ASSIGN(UnsyncedRpcTrackerTest);
@@ -48,11 +50,11 @@ class UnsyncedRpcTrackerTest : public ::testing::Test {
 TEST_F(UnsyncedRpcTrackerTest, registerUnsynced) {
     WireFormat::LogPosition logPos = {2, 10};
     auto callback = []() {};
-    tracker.registerUnsynced(session, request, 1, 2, 3, logPos, callback);
+    tracker->registerUnsynced(session, request, 1, 2, 3, logPos, callback);
 
-    EXPECT_EQ(1U, tracker.masters.size());
+    EXPECT_EQ(1U, tracker->masters.size());
     EXPECT_EQ(2, session->refCount);
-    auto master = tracker.masters[session.get()];
+    auto master = tracker->masters[session.get()];
     EXPECT_EQ(session.get(), master->session.get());
     EXPECT_EQ(1U, master->rpcs.size());
     auto unsynced = &master->rpcs.front();
@@ -62,6 +64,7 @@ TEST_F(UnsyncedRpcTrackerTest, registerUnsynced) {
     EXPECT_EQ(3UL, unsynced->objVersion);
     EXPECT_EQ(2UL, unsynced->logPosition.segmentId);
     EXPECT_EQ(10UL, unsynced->logPosition.offset);
+    free(request);
 }
 
 TEST_F(UnsyncedRpcTrackerTest, flushSession) {
@@ -74,19 +77,19 @@ TEST_F(UnsyncedRpcTrackerTest, UpdateSyncPoint) {
     auto callback = [&callbackInvoked]() {
         callbackInvoked = true;
     };
-    tracker.registerUnsynced(session, request, 1, 2, 3, logPos, callback);
+    tracker->registerUnsynced(session, request, 1, 2, 3, logPos, callback);
 
-    auto master = tracker.masters[session.get()];
+    auto master = tracker->masters[session.get()];
     EXPECT_EQ(1U, master->rpcs.size());
 
     // Normal case: GC and callback is invoked.
     WireFormat::LogPosition syncPos = {3, 1};
-    tracker.updateSyncPoint(session.get(), syncPos);
+    tracker->updateSyncPoint(session.get(), syncPos);
     EXPECT_TRUE(master->rpcs.empty());
     EXPECT_TRUE(callbackInvoked);
 
     // No matching session / master.
-    tracker.updateSyncPoint(NULL, syncPos);
+    tracker->updateSyncPoint(NULL, syncPos);
     EXPECT_TRUE(master->rpcs.empty());
 }
 

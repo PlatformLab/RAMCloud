@@ -37,7 +37,7 @@ namespace RAMCloud {
  */
 class UnsyncedRpcTracker {
   PUBLIC:
-    explicit UnsyncedRpcTracker(Context* context);
+    explicit UnsyncedRpcTracker(RamCloud* ramcloud);
     ~UnsyncedRpcTracker();
     void registerUnsynced(Transport::SessionRef session,
                           void* rpcRequest,
@@ -185,7 +185,7 @@ class UnsyncedRpcTracker {
     std::mutex mutex;
     typedef std::lock_guard<std::mutex> Lock;
 
-    Context* context;
+    RamCloud* ramcloud;
 
     DISALLOW_COPY_AND_ASSIGN(UnsyncedRpcTracker);
 };

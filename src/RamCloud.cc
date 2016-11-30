@@ -63,7 +63,7 @@ RamCloud::RamCloud(CommandLineOptions* options)
     , rpcTracker(new RpcTracker())
     , transactionManager(new ClientTransactionManager())
     , rpcRequestPool(new RpcRequestPool())
-    , unsyncedRpcTracker(new UnsyncedRpcTracker(clientContext))
+    , unsyncedRpcTracker(new UnsyncedRpcTracker(this))
 {
     coordinatorLocator = options->getExternalStorageLocator();
     if (coordinatorLocator.size() == 0) {
@@ -87,7 +87,7 @@ RamCloud::RamCloud(Context* context)
     , rpcTracker(new RpcTracker())
     , transactionManager(new ClientTransactionManager())
     , rpcRequestPool(new RpcRequestPool())
-    , unsyncedRpcTracker(new UnsyncedRpcTracker(clientContext))
+    , unsyncedRpcTracker(new UnsyncedRpcTracker(this))
 {
     coordinatorLocator = context->options->getExternalStorageLocator();
     if (coordinatorLocator.size() == 0) {
@@ -108,7 +108,7 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , rpcTracker(new RpcTracker())
     , transactionManager(new ClientTransactionManager())
     , rpcRequestPool(new RpcRequestPool())
-    , unsyncedRpcTracker(new UnsyncedRpcTracker(clientContext))
+    , unsyncedRpcTracker(new UnsyncedRpcTracker(this))
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
@@ -121,7 +121,7 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , rpcTracker(new RpcTracker())
     , transactionManager(new ClientTransactionManager())
     , rpcRequestPool(new RpcRequestPool())
-    , unsyncedRpcTracker(new UnsyncedRpcTracker(clientContext))
+    , unsyncedRpcTracker(new UnsyncedRpcTracker(this))
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }

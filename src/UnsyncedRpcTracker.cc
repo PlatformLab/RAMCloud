@@ -15,20 +15,21 @@
 
 #include "UnsyncedRpcTracker.h"
 #include "ObjectRpcWrapper.h"
+#include "RamCloud.h"
+#include "RpcRequestPool.h"
 
 namespace RAMCloud {
 
 /**
  * Default constructor
  *
- * \param context
- *      Overall information about the RAMCloud server and provides access to
- *      the dispatcher and masterService.
+ * \param ramcloud
+ *      Overall information about the calling client.
  */
-UnsyncedRpcTracker::UnsyncedRpcTracker(Context* context)
+UnsyncedRpcTracker::UnsyncedRpcTracker(RamCloud* ramcloud)
     : masters()
     , mutex()
-    , context(context)
+    , ramcloud(ramcloud)
 {
 }
 
@@ -106,8 +107,16 @@ UnsyncedRpcTracker::flushSession(Transport::Session* sessionPtr)
         uint64_t keyHash = master->rpcs.front().keyHash;
         void* request = master->rpcs.front().request;
         // TODO(seojin): fire in parallel?
-        RetryUnsyncedRpc retryRpc(context, tableId, keyHash, request);
+        RetryUnsyncedRpc retryRpc(ramcloud->clientContext,
+                                  tableId, keyHash, request);
         retryRpc.wait();
+
+        // TODO(seojin): package them in a single function or destructor?
+        // Problem: not sure the destructor will be called on std::stack::pop().
+        UnsyncedRpc& rpc = master->rpcs.front();
+        rpc.callback();
+        ramcloud->rpcRequestPool->free(rpc.request);
+        master->rpcs.pop();
     }
 }
 
@@ -134,10 +143,12 @@ UnsyncedRpcTracker::updateSyncPoint(Transport::Session* sessionPtr,
     }
 
     while (!master->rpcs.empty()) {
-        if (master->rpcs.front().logPosition > syncPoint) {
+        UnsyncedRpc& rpc = master->rpcs.front();
+        if (rpc.logPosition > syncPoint) {
             break;
         }
-        master->rpcs.front().callback();
+        rpc.callback();
+        ramcloud->rpcRequestPool->free(rpc.request);
         master->rpcs.pop();
     }
 }
