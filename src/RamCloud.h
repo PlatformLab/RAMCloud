@@ -1039,7 +1039,7 @@ class WriteRpc : public LinearizableObjectRpcWrapper {
             uint8_t numKeys, KeyInfo *keyInfo,
             const void* buf, uint32_t length,
             const RejectRules* rejectRules = NULL, bool async = false);
-    ~WriteRpc() {}
+    ~WriteRpc();
     void wait(uint64_t* version = NULL);
 
   PRIVATE:

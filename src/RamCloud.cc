@@ -3008,6 +3008,16 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 }
 
 /**
+ * Default destructor.
+ */
+WriteRpc::~WriteRpc()
+{
+    if (rawRequest) {
+        ramcloud->rpcRequestPool->free(rawRequest);
+    }
+}
+
+/**
  * Wait for a write RPC to complete, and return the same results as
  * #RamCloud::write.
  *
@@ -3034,7 +3044,8 @@ WriteRpc::wait(uint64_t* version)
                 reinterpret_cast<WireFormat::Write::Request*>(rawRequest);
         if (reqHdr->asyncType == WireFormat::Asynchrony::ASYNC) {
             ramcloud->unsyncedRpcTracker->registerUnsynced(session, rawRequest,
-                    tableId, keyHash, respHdr->version, respHdr->objPos, NULL);
+                    tableId, keyHash, respHdr->version, respHdr->objPos, []{});
+            rawRequest = 0;
         }
     }
 }
