@@ -213,6 +213,8 @@ def run_test(
         client_args['--targetOps'] = options.targetOps
     if options.txSpan != None:
         client_args['--txSpan'] = options.txSpan
+    if options.asyncReplication != None:
+        client_args['--asyncReplication'] = options.asyncReplication
     if options.numIndexlet != None:
         client_args['--numIndexlet'] = options.numIndexlet
     if options.numIndexes != None:
@@ -756,6 +758,8 @@ if __name__ == '__main__':
             'will try to achieve')
     parser.add_option('--txSpan', type=int,
                     help='Number servers a transaction should span.')
+    parser.add_option('--asyncReplication',
+                    help='Send update RPCs that do not wait for replications.')
     parser.add_option('-i', '--numIndexlet', type=int,
             help='Number of indexlets for measuring index scalability ')
     parser.add_option('-k', '--numIndexes', type=int,

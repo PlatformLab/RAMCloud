@@ -123,6 +123,11 @@ static int targetOps;
 // the server span of a transaction.
 static int txSpan;
 
+// Value of the "--asyncReplication" command-line option: used by some tests
+// Indicates object modification RPCs will be returned before replication to
+// backups.
+static bool asyncReplication;
+
 // Identifier for table that is used for test-specific data.
 uint64_t dataTable = -1;
 
@@ -449,7 +454,8 @@ class WorkloadGenerator {
                 } else {
                     // Do write
                     Util::genRandomString(value, recordSizeB);
-                    cluster->write(dataTable, key, keyLen, value, recordSizeB);
+                    cluster->write(dataTable, key, keyLen, value, recordSizeB,
+                                   NULL, NULL, asyncReplication);
                     writeCount++;
                 }
                 opCount++;
@@ -703,12 +709,14 @@ timeIndexWrite(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
             Cycles::sleep(100);
 
         start = Cycles::rdtsc();
-        cluster->write(tableId, numKeys, keyList, buf, length);
+        cluster->write(tableId, numKeys, keyList, buf, length,
+                       NULL, NULL, asyncReplication);
         if (!warmup)
             writeTimes.at(i) = Cycles::toSeconds(Cycles::rdtsc() - start);
 
         start = Cycles::rdtsc();
-        cluster->write(tableId, numKeys, keyList, buf, length);
+        cluster->write(tableId, numKeys, keyList, buf, length,
+                       NULL, NULL, asyncReplication);
         if (!warmup)
             overWriteTimes.at(i) = Cycles::toSeconds(Cycles::rdtsc() - start);
 
@@ -721,7 +729,8 @@ timeIndexWrite(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
     }
 
     // Final write to facilitate lookup afterwards
-    cluster->write(tableId, numKeys, keyList, buf, length);
+    cluster->write(tableId, numKeys, keyList, buf, length,
+                   NULL, NULL, asyncReplication);
 }
 
 /**
@@ -1125,7 +1134,8 @@ writeObject(uint64_t tableId, const void* key, uint16_t keyLength,
     uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(timeLimit);
 
     // Write the value once just to warm up all the caches everywhere.
-    cluster->write(tableId, key, keyLength, value, length);
+    cluster->write(tableId, key, keyLength, value, length,
+                   NULL, NULL, asyncReplication);
 
     for (int i = 0; i < count; i++) {
         uint64_t start = Cycles::rdtsc();
@@ -1134,7 +1144,8 @@ writeObject(uint64_t tableId, const void* key, uint16_t keyLength,
             times.resize(i);
             break;
         }
-        cluster->write(tableId, key, keyLength, value, length);
+        cluster->write(tableId, key, keyLength, value, length,
+                       NULL, NULL, asyncReplication);
         uint64_t interval = Cycles::rdtsc() - start;
         total += interval;
         times.at(i) = interval;
@@ -1190,7 +1201,8 @@ writeRandomObjects(uint64_t tableId, uint32_t numObjects, uint16_t keyLength,
             times.resize(i);
             break;
         }
-        cluster->write(tableId, key, keyLength, value, valueLength);
+        cluster->write(tableId, key, keyLength, value, valueLength,
+                       NULL, NULL, asyncReplication);
         uint64_t interval = Cycles::rdtsc() - start;
         total += interval;
         times.at(i) = interval;
@@ -5158,7 +5170,7 @@ readDistWorkload()
 /**
  *  This method implements almost all of the functionality for both
  * readInterference and writeInterference.
- * 
+ *
  * \param read
  *      True means measure read times; false means measure write times.
  * */
@@ -5871,7 +5883,8 @@ writeDistRandom()
         Util::genRandomString(value, objectSize);
         // Do the benchmark
         uint64_t start = Cycles::rdtsc();
-        cluster->write(dataTable, key, keyLength, value, objectSize);
+        cluster->write(dataTable, key, keyLength, value, objectSize,
+                       NULL, NULL, asyncReplication);
         uint64_t now = Cycles::rdtsc();
         ticks.at(i) = now - start;
         if (now >= stop) {
@@ -6083,7 +6096,7 @@ writeThroughput()
                             keyLength, key);
                     Util::genRandomString(value, objectSize);
                     cluster->write(dataTable, key, keyLength, value, objectSize,
-                            NULL, NULL, false);
+                            NULL, NULL, asyncReplication);
                     ++objectsWritten;
                 } while (Cycles::rdtsc() < checkTime);
             } else if (strcmp(command, "done") == 0) {
@@ -6290,7 +6303,10 @@ try
         ("numIndexlet", po::value<int>(&numIndexlet)->default_value(1),
                 "number of Indexlets")
         ("numIndexes", po::value<int>(&numIndexes)->default_value(1),
-                "number of secondary keys per object");
+                "number of secondary keys per object")
+        ("asyncReplication",
+                po::value<bool>(&asyncReplication)->default_value(false),
+                "Send update RPCs that doesn't wait for replications.");
     po::positional_options_description desc2;
     desc2.add("testName", -1);
     po::variables_map vm;
