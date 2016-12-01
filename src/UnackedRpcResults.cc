@@ -84,21 +84,15 @@ UnackedRpcHandle::operator=(const UnackedRpcHandle& origin)
 }
 
 /**
- * Default destructor. If the RPC request was not duplicate, it either reset
- * the entry in UnackedRpcResults (if some client exception is thrown before
- * recordCompletion call) or change RPC status from in progress to completed.
+ * Default destructor. If the RPC request was not duplicate and some client
+ * exception is thrown before recordCompletion call, it resets the entry in
+ * UnackedRpcResults.
  */
 UnackedRpcHandle::~UnackedRpcHandle()
 {
-    if (!isDuplicate()) {
-        if (isInProgress()) {
-            // Remove the record of this RPC in UnackedRpcResults
-            rpcResults->resetRecord(clientId, rpcId);
-        } else {
-            // Record the saved RpcResult pointer.
-            rpcResults->recordCompletion(clientId, rpcId,
-                                         reinterpret_cast<void*>(resultPtr));
-        }
+    if (!isDuplicate() && isInProgress()) {
+        // Remove the record of this RPC in UnackedRpcResults
+        rpcResults->resetRecord(clientId, rpcId);
     }
 }
 
@@ -137,8 +131,7 @@ UnackedRpcHandle::resultLoc()
 }
 
 /**
- * Save a log location of RPC result to update UnackedRpcResults later in
- * destructor.
+ * Save a log location of RPC result and update UnackedRpcResults.
  *
  * \param   result log location of RPC result.
  */
@@ -146,6 +139,9 @@ void
 UnackedRpcHandle::recordCompletion(uint64_t result)
 {
     resultPtr = result;
+    // Record the saved RpcResult pointer.
+    rpcResults->recordCompletion(clientId, rpcId,
+                                 reinterpret_cast<void*>(resultPtr));
 }
 
 /**
