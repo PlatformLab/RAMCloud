@@ -21,6 +21,7 @@
 #include "PerfStats.h"
 #include "ServerConfig.h"
 #include "ShortMacros.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 
@@ -74,12 +75,15 @@ AbstractLog::AbstractLog(LogEntryHandlers* entryHandlers,
  *      are also returned here.
  * \param numAppends
  *      Number of entries in the appends array.
+ * \param[out] appendedPos
+ *      If non-NULL, position of last byte appended to log is returned.
  * \return
  *      True if the append succeeded, false if there was insufficient space
  *      to complete the operation.
  */
 bool
-AbstractLog::append(AppendVector* appends, uint32_t numAppends)
+AbstractLog::append(AppendVector* appends, uint32_t numAppends,
+                    WireFormat::LogPosition* appendedPos)
 {
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
     SpinLock::Guard lock(appendLock);
@@ -110,6 +114,12 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends)
             throw FatalError(HERE, "Guaranteed append managed to fail");
     }
     assert(head == headBefore);
+
+    if (appendedPos) {
+        appendedPos->segmentId = head->id;
+        appendedPos->offset = head->getAppendedLength();
+        appendedPos->syncedOffset = head->syncedLength;
+    }
 
     return true;
 }

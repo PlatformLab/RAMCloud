@@ -168,20 +168,27 @@ struct ClientLease {
 
 struct LogPosition {
     uint64_t segmentId;
-    uint64_t offset;
-    friend bool operator< (const LogPosition& lhs, const LogPosition& rhs) {
-        return lhs.segmentId < rhs.segmentId ||
-        (lhs.segmentId == rhs.segmentId && lhs.offset < rhs.offset);
+    uint32_t offset;
+    uint32_t syncedOffset;
+
+    bool isSynced(const LogPosition& syncPos) {
+        return segmentId < syncPos.segmentId ||
+            (segmentId == syncPos.segmentId && offset <= syncPos.syncedOffset);
     }
-    friend bool operator> (const LogPosition& lhs, const LogPosition& rhs) {
-        return rhs < lhs;
-    }
-    friend bool operator<=(const LogPosition& lhs, const LogPosition& rhs) {
-        return !(lhs > rhs);
-    }
-    friend bool operator>=(const LogPosition& lhs, const LogPosition& rhs) {
-        return !(lhs < rhs);
-    }
+
+//    friend bool operator< (const LogPosition& lhs, const LogPosition& rhs) {
+//        return lhs.segmentId < rhs.segmentId ||
+//        (lhs.segmentId == rhs.segmentId && lhs.offset < rhs.offset);
+//    }
+//    friend bool operator> (const LogPosition& lhs, const LogPosition& rhs) {
+//        return rhs < lhs;
+//    }
+//    friend bool operator<=(const LogPosition& lhs, const LogPosition& rhs) {
+//        return !(lhs > rhs);
+//    }
+//    friend bool operator>=(const LogPosition& lhs, const LogPosition& rhs) {
+//        return !(lhs < rhs);
+//    }
 } __attribute__((packed));
 
 enum Asynchrony {

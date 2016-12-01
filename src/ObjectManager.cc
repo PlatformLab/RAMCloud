@@ -1170,6 +1170,8 @@ ObjectManager::syncChanges()
  *      linearizability.
  * \param[out] rpcResultPtr
  *      If non-NULL, pointer to the RpcResult in log is returned.
+ * \param[out] objPos
+ *      If non-NULL, position of last byte written to log is returned.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_UKNOWN_TABLE may be returned.
@@ -1177,7 +1179,8 @@ ObjectManager::syncChanges()
 Status
 ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer,
-                RpcResult* rpcResult, uint64_t* rpcResultPtr)
+                RpcResult* rpcResult, uint64_t* rpcResultPtr,
+                WireFormat::LogPosition* objPos)
 {
     uint16_t keyLength = 0;
     const void *keyString = newObject.getKey(0, &keyLength);
@@ -1290,7 +1293,9 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         appends[rpcResultIndex].type = LOG_ENTRY_TYPE_RPCRESULT;
     }
 
-    if (!log.append(appends, (tombstone ? 2 : 1) + (rpcResult ? 1 : 0))) {
+    if (!log.append(appends,
+                    (tombstone ? 2 : 1) + (rpcResult ? 1 : 0),
+                    objPos)) {
         // The log is out of space. Tell the client to retry and hope
         // that the cleaner makes space soon.
         throw RetryException(HERE, 1000, 2000, "Must wait for cleaner");

@@ -48,7 +48,7 @@ class UnsyncedRpcTrackerTest : public ::testing::Test {
 };
 
 TEST_F(UnsyncedRpcTrackerTest, registerUnsynced) {
-    WireFormat::LogPosition logPos = {2, 10};
+    WireFormat::LogPosition logPos = {2, 10, 5};
     auto callback = []() {};
     tracker->registerUnsynced(session, request, 1, 2, 3, logPos, callback);
 
@@ -72,7 +72,7 @@ TEST_F(UnsyncedRpcTrackerTest, flushSession) {
 }
 
 TEST_F(UnsyncedRpcTrackerTest, UpdateSyncPoint) {
-    WireFormat::LogPosition logPos = {2, 10};
+    WireFormat::LogPosition logPos = {2, 10, 5};
     bool callbackInvoked = false;
     auto callback = [&callbackInvoked]() {
         callbackInvoked = true;
@@ -83,7 +83,7 @@ TEST_F(UnsyncedRpcTrackerTest, UpdateSyncPoint) {
     EXPECT_EQ(1U, master->rpcs.size());
 
     // Normal case: GC and callback is invoked.
-    WireFormat::LogPosition syncPos = {3, 1};
+    WireFormat::LogPosition syncPos = {3, 1, 1};
     tracker->updateSyncPoint(session.get(), syncPos);
     EXPECT_TRUE(master->rpcs.empty());
     EXPECT_TRUE(callbackInvoked);

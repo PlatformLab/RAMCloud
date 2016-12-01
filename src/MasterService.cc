@@ -3201,10 +3201,13 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // Write the object.
     respHdr->common.status = objectManager.writeObject(
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
-            &rpcResult, &rpcResultPtr);
+            &rpcResult, &rpcResultPtr, &respHdr->objPos);
 
+    bool asyncReplication = reqHdr->asyncType == WireFormat::Asynchrony::ASYNC;
     if (respHdr->common.status == STATUS_OK) {
-        objectManager.syncChanges();
+        if (!asyncReplication) {
+            objectManager.syncChanges();
+        }
         rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is
                                            // written.
                                            // Otherwise, RPC state should reset
@@ -3219,12 +3222,22 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         rh.recordCompletion(rpcResultPtr);
     }
 
+
+    // Respond to the client RPC now. Removing old index entries can be
+    // done asynchronously while maintaining strong consistency.
+    rpc->sendReply();
+    // reqHdr, respHdr, and rpc are off-limits now!
+
+    // TODO(seojin): remove this to dedicated replication thread.
+    if (asyncReplication) {
+        objectManager.syncChanges();
+    }
+
     // If this is a overwrite, delete old index entries if any (this can
     // be done asynchronously after sending a reply).
     if (oldObjectBuffer.size() > 0) {
         Object oldObject(oldObjectBuffer);
         if (oldObject.getKeyCount() > 1) {
-            rpc->sendReply();
             requestRemoveIndexEntries(oldObject);
         }
     }

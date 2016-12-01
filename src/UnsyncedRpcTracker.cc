@@ -76,10 +76,13 @@ UnsyncedRpcTracker::registerUnsynced(Transport::SessionRef session,
                                     WireFormat::LogPosition logPos,
                                     std::function<void()> callback)
 {
-    Lock lock(mutex);
-    Master* master = getOrInitMasterRecord(session);
-    master->rpcs.emplace(rpcRequest, tableId, keyHash, objVer, logPos,
-                         callback);
+    {
+        Lock lock(mutex);
+        Master* master = getOrInitMasterRecord(session);
+        master->rpcs.emplace(rpcRequest, tableId, keyHash, objVer, logPos,
+                             callback);
+    }
+    updateSyncPoint(session.get(), logPos);
 }
 
 /**
@@ -144,7 +147,7 @@ UnsyncedRpcTracker::updateSyncPoint(Transport::Session* sessionPtr,
 
     while (!master->rpcs.empty()) {
         UnsyncedRpc& rpc = master->rpcs.front();
-        if (rpc.logPosition > syncPoint) {
+        if (!rpc.logPosition.isSynced(syncPoint)) {
             break;
         }
         rpc.callback();
