@@ -135,6 +135,18 @@ uint64_t dataTable = -1;
 // and slaves to coordinate execution of tests.
 uint64_t controlTable = -1;
 
+// For readDistWorkload and writeDistWorkload, the percentage of the first
+// table from migrate in the middle of the benchmark. If 0 (the default),
+// then no migration is done.
+int migratePercentage = 0;
+
+// For doWorkload-based experiments tells how long to run before exiting.
+int seconds = 10;
+
+// If true print alternate sample format that includes the timestamp
+// for each sample along with its duration.
+bool fullSamples = false;
+
 #define MAX_METRICS 8
 
 // The following type holds metrics for all the clients.  Each inner vector
@@ -347,6 +359,20 @@ class WorkloadGenerator {
                 "Unknown workload type %s - Using default",
                 workloadName.c_str());
         }
+
+        if (numObjects != 1) {
+            recordCount = numObjects;
+        }
+
+        // All lines that don't start with 'x.x ' get parsed by the CDF
+        // generator.
+        RAMCLOUD_LOG(NOTICE, ">>> Workload: %s", workloadName.c_str());
+        RAMCLOUD_LOG(NOTICE, ">>> Record Count: %d", recordCount);
+        RAMCLOUD_LOG(NOTICE, ">>> Record Size: %d", recordSizeB);
+        RAMCLOUD_LOG(NOTICE, ">>> Total Table Size: %lu",
+               uint64_t(recordCount) * recordSizeB / (1lu << 20));
+        RAMCLOUD_LOG(NOTICE, ">>> Read Percentage: %d", readPercent);
+        RAMCLOUD_LOG(NOTICE, ">>> Migrate Percentage: %d", migratePercentage);
 
         generator.construct(recordCount);
     }
@@ -4175,6 +4201,63 @@ doShuffleValues(int numIter, int selectivity, int numMasters, int objsPerMaster)
     return cumulativeElapsed;
 }
 
+/**
+ * Used in doWorkload to capture information about probe reads. This
+ * information can be dumped at the end of benchmarking and parsed
+ * to generate latency CDFs and more.
+ */
+struct Sample {
+    uint64_t startTicks;
+    uint64_t endTicks;
+    uint64_t table;
+    bool type;
+
+    /// Create a sample and capture all of its parameters.
+    Sample(uint64_t startTicks,
+           uint64_t endTicks,
+           uint64_t table,
+           bool type)
+        : startTicks{startTicks}
+        , endTicks{endTicks}
+        , table{table}
+        , type{type}
+    {}
+
+    /**
+     * Dump a R read.table compatible header that matches the format of each
+     * sample dumped by Dump().
+     */
+    static void DumpHeader() {
+        printf(">>> startNs endNs durationNs table isWrite\n");
+    }
+
+    /**
+     * Dump this sample to stdout subtracting an experiment start time
+     * from each of its samples, so that results look zero-based from the start
+     * of the run.
+     */
+    void Dump(uint64_t experimentStartTicks) const {
+        uint64_t startNs =
+            Cycles::toNanoseconds(startTicks - experimentStartTicks);
+        uint64_t endNs =
+            Cycles::toNanoseconds(endTicks - experimentStartTicks);
+        printf(">>> %lu %lu %lu %lu %d\n",
+                startNs, endNs, endNs - startNs, table, type);
+    }
+};
+
+/**
+ * Dump out a vector of samples and a R read.table compatible header.
+ */
+template <typename T>
+void dumpSamples(const vector<T>& samples, uint64_t experimentStartTime)
+{
+    T::DumpHeader();
+    foreach (const auto& sample, samples)
+        sample.Dump(experimentStartTime);
+}
+
+
 enum OpType{ READ_TYPE, WRITE_TYPE };
 /**
  * Run a specified workload and measure the latencies of the specified opType.
@@ -4246,15 +4329,31 @@ doWorkload(OpType type)
                     &statsBuffer);
     PerfStats startStats = *statsBuffer.getStart<PerfStats>();
 
+    const size_t maxSamples = (targetOps ?: 1 * 1000 * 1000) * seconds;
+    if (maxSamples > 20lu * 1000 * 1000) {
+        RAMCLOUD_LOG(ERROR, "Asking the client to log a lot of samples. You "
+                            "probably need to lower your targetOps (or add "
+                            "some form of sampling to the code).");
+    }
+
+    std::vector<Sample> samples{};
+    samples.reserve(maxSamples);
+
+    Tub<MigrateTabletRpc> migration{};
+    uint64_t migrationStartCycles = 0;
+    uint64_t migrationCycles = 0;
+    const uint64_t oneSecond = Cycles::fromSeconds(1);
+
     uint64_t nextStop = 0;
     uint64_t start = Cycles::rdtsc();
     uint64_t stop = 0;
 
+    const uint64_t experimentStartTicks = Cycles::rdtsc();
+    const uint64_t targetEndTime =
+        experimentStartTicks + Cycles::fromSeconds(seconds);
+
     // Issue the reads back-to-back, and save the times.
-    std::vector<uint64_t> ticks;
-    ticks.resize(count);
-    int i = 0;
-    while (i < count) {
+    while (true) {
         // Generate random key.
         memset(key, 0, keyLen);
         string("workload").copy(key, 8);
@@ -4266,9 +4365,10 @@ doWorkload(OpType type)
             // Do read
             uint64_t start = Cycles::rdtsc();
             cluster->read(dataTable, key, keyLen, &readBuf);
-            ticks[i] = Cycles::rdtsc() - start;
+            stop = Cycles::rdtsc();
             if (type == READ_TYPE) {
-                i++;
+                if (samples.size() < maxSamples && (readCount & 0xf) == 0)
+                    samples.emplace_back(start, stop, dataTable, 0);
             }
             readCount++;
         } else {
@@ -4277,16 +4377,43 @@ doWorkload(OpType type)
             uint64_t start = Cycles::rdtsc();
             cluster->write(dataTable, key, keyLen, value,
                     loadGenerator.recordSizeB);
-            ticks[i] = Cycles::rdtsc() - start;
+            stop = Cycles::rdtsc();
             if (type == WRITE_TYPE) {
-                i++;
+                if (samples.size() < maxSamples)
+                    samples.emplace_back(start, stop, dataTable, 1);
             }
             writeCount++;
         }
         opCount++;
         stop = Cycles::rdtsc();
 
+        // Stick a migration in the middle of the benchmark, if requested.
+        if (migratePercentage &&
+            !migrationCycles &&
+            stop > experimentStartTicks + oneSecond)
+        {
+            if (!migration) {
+                RAMCLOUD_LOG(NOTICE, "Starting migration\n");
+                uint64_t endKeyHash = ~0lu;
+                if (migratePercentage < 100)
+                    endKeyHash = endKeyHash / 100 * migratePercentage;
+                migration.construct(cluster,
+                                    dataTable,
+                                    0,
+                                    endKeyHash,
+                                    ServerId(2, 0));
+                migrationStartCycles = Cycles::rdtsc();
+            } else if (migration->isReady()) {
+                migration->wait();
+                migrationCycles = Cycles::rdtsc() - migrationStartCycles;
+                double migrationS = Cycles::toSeconds(migrationCycles);
+                RAMCLOUD_LOG(NOTICE, "Migration took: %f s", migrationS);
+                migration.destroy();
+            }
+        }
+
         // throttle
+        uint64_t now = stop;
         if (targetNSPO > 0) {
             nextStop = start +
                        Cycles::fromNanoseconds(
@@ -4294,11 +4421,15 @@ doWorkload(OpType type)
                             (generateRandom() % targetNSPO) -
                             (targetNSPO / 2));
 
-            if (Cycles::rdtsc() > nextStop) {
+            if (now > nextStop) {
                 targetMissCount++;
             }
-            while (Cycles::rdtsc() < nextStop);
+            while (now < nextStop) {
+                now = Cycles::rdtsc();
+            }
         }
+        if (now > targetEndTime)
+            break;
     }
 
     cluster->objectServerControl(dataTable, key, keyLen,
@@ -4333,22 +4464,27 @@ doWorkload(OpType type)
 
     // Output the times (several comma-separated values on each line).
     Logger::get().sync();
-    int valuesInLine = 0;
-    for (int i = 0; i < count; i++) {
-        if (valuesInLine >= 10) {
-            valuesInLine = 0;
-            printf("\n");
+
+    if (fullSamples) {
+        dumpSamples(samples, experimentStartTicks);
+    } else {
+        int valuesInLine = 0;
+        for (Sample& sample : samples) {
+            if (valuesInLine >= 10) {
+                valuesInLine = 0;
+                printf("\n");
+            }
+            if (valuesInLine != 0) {
+                printf(",");
+            }
+            double micros =
+                Cycles::toSeconds(sample.endTicks - sample.startTicks)*1.0e06;
+            printf("%.2f", micros);
+            valuesInLine++;
         }
-        if (valuesInLine != 0) {
-            printf(",");
-        }
-        double micros = Cycles::toSeconds(ticks[i])*1.0e06;
-        printf("%.2f", micros);
-        valuesInLine++;
+        printf("\n");
+        fflush(stdout);
     }
-    printf("\n");
-    fflush(stdout);
-    #undef NUM_KEYS
 
     // Wait for slaves to exit.
     sendCommand(NULL, "done", 1, numClients-1);
@@ -6306,7 +6442,19 @@ try
                 "number of secondary keys per object")
         ("asyncReplication",
                 po::value<bool>(&asyncReplication)->default_value(false),
-                "Send update RPCs that doesn't wait for replications.");
+                "Send update RPCs that doesn't wait for replications.")
+        ("migratePercentage",
+                 po::value<int>(&migratePercentage)->default_value(0),
+                "For readDistWorkload and writeDistWorkload, the percentage "
+                "of the first table from migrate in the middle of the "
+                "benchmark. If 0 (the default), then no migration is done.")
+        ("seconds", po::value<int>(&seconds)->default_value(30),
+                "Number of seconds to run the experiment for; "
+                "only applies to doWorkload based experiments.")
+        ("fullSamples", po::bool_switch(&fullSamples),
+                "Print alternate format for latency samples that includes "
+                "timestamps for each of the samples.");
+
     po::positional_options_description desc2;
     desc2.add("testName", -1);
     po::variables_map vm;

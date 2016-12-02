@@ -206,6 +206,19 @@ struct PerfStats {
     uint64_t backupWriteActiveCycles;
 
     //--------------------------------------------------------------------
+    // Statistics for the migration follow below.
+    //--------------------------------------------------------------------
+
+    /// Total number of bytes put into migration segments for transmit in
+    /// Phase 1.
+    uint64_t migrationPhase1Bytes;
+
+    /// Total amount of time spent putting items into migration segments,
+    /// transmitting them across the network, and waiting for the remote
+    /// side to complete replay during Phase 1.
+    uint64_t migrationPhase1Cycles;
+
+    //--------------------------------------------------------------------
     // Statistics for the network follow below.
     //--------------------------------------------------------------------
 

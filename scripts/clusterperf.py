@@ -112,10 +112,16 @@ def print_cdf_from_log(
     if len(globResult) == 0:
         raise Exception("couldn't find log file for client %d" % (index))
     result = "";
+    leader = '>>> '
     for line in open(globResult[0], 'r'):
+        if re.match(leader, line):
+            continue
         if not re.match('([0-9]+\.[0-9]+) ', line):
             for value in line.split(","):
-                numbers.append(float(value))
+                try:
+                    numbers.append(float(value))
+                except ValueError, e:
+                    print("Skipping, couldn't parse %s" % line)
 
     # Generate a CDF from the array.
     numbers.sort()
@@ -148,10 +154,16 @@ def print_rcdf_from_log(
     if len(globResult) == 0:
         raise Exception("couldn't find log file for client %d" % (index))
     result = "";
+    leader = '>>> '
     for line in open(globResult[0], 'r'):
+        if re.match(leader, line):
+            continue
         if not re.match('([0-9]+\.[0-9]+) ', line):
             for value in line.split(","):
-                numbers.append(float(value))
+                try:
+                    numbers.append(float(value))
+                except ValueError, e:
+                    print("Skipping, couldn't parse %s" % line)
 
     # Generate a RCDF from the array.
     numbers.sort()
@@ -162,6 +174,61 @@ def print_rcdf_from_log(
             print("%8.2f    %11.6f" % (numbers[i], 1-(i/len(numbers))))
     print("%8.2f    %11.6f" % (numbers[-1], 1/len(numbers)))
 
+def print_samples_from_log(
+        outfile = sys.stdout,
+        index = 1                 # Client index (1 for first client,
+                                  # which is usually the one that's wanted)
+        ):
+    """
+    Given the index of a client, find all lines starting with '>>> ' strip
+    the leader off and print to stdout. Mostly used to extract samples/tables
+    to be passed on to R for postprocessing.
+    """
+
+    # Read the log file into an array of numbers.
+    numbers = []
+    globResult = glob.glob('%s/latest/client%d.*.log' %
+            (options.log_dir, index))
+    if len(globResult) == 0:
+        raise Exception("couldn't find log file for client %d" % (index))
+    leader = '>>> '
+    n = len(leader)
+    for line in open(globResult[0], 'r'):
+        if re.match(leader, line):
+            print(line[n:].strip(), file=outfile)
+
+def print_rcdf_from_log_samples(
+        outfile = sys.stdout,
+        index = 1                 # Client index (1 for first client,
+                                  # which is usually the one that's wanted)
+        ):
+    # Read the log file into an array of numbers.
+    numbers = []
+    globResult = glob.glob('%s/latest/client%d.*.log' %
+            (options.log_dir, index))
+    if len(globResult) == 0:
+        raise Exception("couldn't find log file for client %d" % (index))
+    leader = '>>> '
+    n = len(leader)
+    for line in open(globResult[0], 'r'):
+        if re.match(leader, line):
+            line = line[n:].strip()
+            durationNs = line.split(' ')[2]
+            try:
+                numbers.append(float(durationNs))
+            except ValueError, e:
+                print("Skipping, couldn't parse %s" % line, file=sys.stderr)
+
+    # Generate a RCDF from the array.
+    numbers.sort()
+    result = []
+    print("%8.2f    %11.6f" % (numbers[0], 1.0), file=outfile)
+    for i in range(1, len(numbers)-1):
+        if (numbers[i] != numbers[i-1] or numbers[i] != numbers[i+1]):
+            print("%8.2f    %11.6f" % (numbers[i], 1-(i/len(numbers))),
+                file=outfile)
+    print("%8.2f    %11.6f" % (numbers[-1], 1/len(numbers)), file=outfile)
+
 def run_test(
         test,                     # Test object describing the test to run.
         options                   # Command-line options.
@@ -171,6 +238,10 @@ def run_test(
     prepare a candidate set of options for cluster.run and another set
     for the ClusterPerf clients, based on the command-line options.
     """
+
+    if options.seconds and options.timeout < options.seconds:
+        options.timeout = options.seconds * 2
+
     cluster_args = {
         'debug':       options.debug,
         'log_dir':     options.log_dir,
@@ -221,6 +292,10 @@ def run_test(
         client_args['--numIndexes'] = options.numIndexes
     if options.numVClients != None:
         client_args['--numVClients'] = options.numVClients
+    if options.migratePercentage != None:
+        client_args['--migratePercentage'] = options.migratePercentage
+    if options.fullSamples:
+        client_args['--fullSamples'] = ''
     test.function(test.name, options, cluster_args, client_args)
 
 #-------------------------------------------------------------------
@@ -616,23 +691,105 @@ def writeDist(name, options, cluster_args, client_args):
         print_cdf_from_log()
 
 def workloadDist(name, options, cluster_args, client_args):
-    if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '-t 2000'
-    cluster_args['disjunct'] = True
-    cluster.run(client='%s/apps/ClusterPerf %s %s' %
-            (config.hooks.get_remote_obj_path(),
-             flatten_args(client_args), name),
-            **cluster_args)
-    print("# Cumulative distribution latencies for operations specified by\n"
-          "# the benchmark.\n#\n"
-          "# Generated by 'clusterperf.py %s'\n#\n"
-          "# Time (usec)  Cum. Fraction\n"
-          "#---------------------------"
-          % (name))
-    if (options.rcdf):
-        print_rcdf_from_log()
+    if not options.extract:
+        if 'master_args' not in cluster_args:
+            cluster_args['master_args'] = '-t 2000'
+        cluster_args['disjunct'] = True
+        cluster.run(client='%s/apps/ClusterPerf %s %s' %
+                (config.hooks.get_remote_obj_path(),
+                 flatten_args(client_args), name),
+                **cluster_args)
+    if options.fullSamples:
+        import gzip
+        with gzip.open('logs/latest/rcdf.data.gz', 'wb') as rcdf_file:
+            print_rcdf_from_log_samples(rcdf_file)
+        with gzip.open('logs/latest/samples.data.gz', 'wb') as samples_file:
+            print_samples_from_log(samples_file)
     else:
-        print_cdf_from_log()
+        print("# Cumulative distribution latencies for operations specified by\n"
+              "# the benchmark.\n#\n"
+              "# Generated by 'clusterperf.py %s'\n#\n"
+              "# Time (usec)  Cum. Fraction\n"
+              "#---------------------------"
+              % (name))
+        if (options.rcdf):
+            print_rcdf_from_log()
+        else:
+            print_cdf_from_log()
+
+def defaultTo(config, field, value):
+    """If the field is already in the config dict, do nothing, else set field
+    in the dict to value.  """
+    if field not in config:
+        config[field] = value
+
+def calculatePerClientTarget(workload, clients, percentage):
+    """Given a workload 'YCSB-A', etc. and a count of client return the
+    targetOps rate that each client should run to keep a single server at
+    percentage of peak load.
+    """
+    peak = 0
+
+    if workload == 'YCSB-A':
+        peak = 300 * 1000
+    elif workload == 'YCSB-B':
+        peak = 815 * 1000
+    elif workload == 'YCSB-C':
+        peak = 1024 * 1000
+    else:
+        raise Exception('Unknown peak rate for workload %s' % workload)
+
+    return int(peak * (percentage / 100.0) / int(clients))
+
+def migrateLoaded(name, options, cluster_args, client_args):
+    if not options.extract:
+        clients = 16
+        servers = len(getHosts()) - clients - 1
+
+        if servers < 4:
+            raise Exception('Not enough servers: only %d left' % servers)
+
+        cluster_args['num_servers'] = servers
+
+        # Use two backups per server for more disk bandwidth.
+        defaultTo(cluster_args, 'backup_disks_per_server', 2)
+
+        # Need lots of mem for big workload and migration.
+        defaultTo(cluster_args, 'master_args',
+                '-t 18000 --segmentFrames 8192')
+
+        # Sixteen clients to try to generate enough load to keep things at
+        # about 90% load.
+        cluster_args['num_clients'] = clients
+
+        # Can take awhile due to fillup and migration.
+        if cluster_args['timeout'] < 300:
+            cluster_args['timeout'] = 300
+
+        # We're really interested in jitter on servers; better keep the clients
+        # off the server machines.
+        cluster_args['disjunct'] = True
+
+        # Can't default --workload this due to command line default...
+
+        # 1 million * 100 B ~= 100 MB table
+        defaultTo(client_args, '--numObjects', 1 * 1000 * 1000)
+
+        # Set clients up to keep server at 90% load.
+        defaultTo(client_args, '--targetOps',
+                calculatePerClientTarget(
+                    client_args['--workload'], clients,
+                    options.loadPct))
+
+        cluster.run(client='%s/ClusterPerf %s %s' %
+                (obj_path,  flatten_args(client_args), name),
+                **cluster_args)
+
+    import gzip
+    with gzip.open('logs/latest/rcdf.data.gz', 'wb') as rcdf_file:
+        print_rcdf_from_log_samples(rcdf_file)
+    with gzip.open('logs/latest/samples.data.gz', 'wb') as samples_file:
+        print_samples_from_log(samples_file)
 
 #-------------------------------------------------------------------
 #  End of driver functions.
@@ -687,6 +844,7 @@ graph_tests = [
     Test("writeInterference", default),
     Test("writeThroughput", readThroughput),
     Test("workloadThroughput", readThroughput),
+    Test("migrateLoaded", migrateLoaded),
 ]
 
 if __name__ == '__main__':
@@ -771,7 +929,37 @@ if __name__ == '__main__':
     parser.add_option('--rcdf', action='store_true', default=False,
             dest='rcdf',
             help='Output reverse CDF data instead.')
+    parser.add_option('--migratePercentage', type=int, dest='migratePercentage',
+            help='For readDistWorkload and writeDistWorkload, the percentage '
+                 'of the first table from migrate in the middle of the '
+                 'benchmark. If 0 (the default), then no migration is done.')
+    parser.add_option('--seconds', type=int, default=10, dest='seconds',
+            help='For doWorkload based workloads, exit benchmarks after about '
+                  'this many seconds.')
+    parser.add_option('--parse', action='store_true', default=False,
+            dest='parse',
+            help='Just output CDF data from latest client log without running '
+            'anything.')
+    parser.add_option('--extract',
+            action='store_true', default=False, dest='extract',
+            help='For some experiments skip re-running, just parse the '
+                 'latest output file and dump the results.')
+    parser.add_option('--loadPct', type=int, default=90, dest='loadPct',
+            help='For doWorkload based workloads, how close to peak load each '
+            'server should be driven at.')
+    parser.add_option('--fullSamples',
+            action='store_true', default=False, dest='fullSamples',
+            help='Run with alternate sample format that includes sample '
+                 'timestamps along with their durations.')
     (options, args) = parser.parse_args()
+
+    if options.parse:
+        if options.rcdf:
+            print_rcdf_from_log()
+        else:
+            print_cdf_from_log()
+        raise SystemExit()
+
 
     # Invoke the requested tests (run all of them if no tests were specified)
     try:

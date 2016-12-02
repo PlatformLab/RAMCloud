@@ -113,6 +113,8 @@ PerfStats::collectStats(PerfStats* total)
         total->backupWriteOps += stats->backupWriteOps;
         total->backupWriteBytes += stats->backupWriteBytes;
         total->backupWriteActiveCycles += stats->backupWriteActiveCycles;
+        total->migrationPhase1Bytes += stats->migrationPhase1Bytes;
+        total->migrationPhase1Cycles += stats->migrationPhase1Cycles;
         total->networkInputBytes += stats->networkInputBytes;
         total->networkOutputBytes += stats->networkOutputBytes;
         total->temp1 += stats->temp1;
@@ -297,6 +299,14 @@ PerfStats::printClusterStats(Buffer* first, Buffer* second)
             formatMetricRatio(&diff, "backupReadActiveCycles",
             "collectionTime", " %8.3f").c_str()));
 
+    result.append("\nMigration:\n");
+    result.append(format("%-30s %s\n", "  P1 migrated bytes (MB/s)",
+            formatMetricRate(&diff, "migrationPhase1Bytes",
+            " %8.2f", 1e-6).c_str()));
+    result.append(format("%-30s %s\n", "  P1 load factor",
+            formatMetricRatio(&diff, "migrationPhase1Cycles",
+            "collectionTime", " %8.3f").c_str()));
+
     result.append("\nNetwork:\n");
     result.append(format("%-30s %s\n", "  Input bytes (MB/s)",
             formatMetricRate(&diff, "networkInputBytes",
@@ -387,6 +397,8 @@ PerfStats::clusterDiff(Buffer* before, Buffer* after,
         ADD_METRIC(backupWriteOps);
         ADD_METRIC(backupWriteBytes);
         ADD_METRIC(backupWriteActiveCycles);
+        ADD_METRIC(migrationPhase1Bytes);
+        ADD_METRIC(migrationPhase1Cycles);
         ADD_METRIC(networkInputBytes);
         ADD_METRIC(networkOutputBytes);
         ADD_METRIC(temp1);

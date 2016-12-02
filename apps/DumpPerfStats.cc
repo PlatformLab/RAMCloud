@@ -47,6 +47,7 @@ class StatDumper {
         while (true) {
             printf("== %d ==\n", i++);
             collectStats();
+            fflush(stdout);
             sleep(1);
         }
     }

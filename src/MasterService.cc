@@ -1011,6 +1011,7 @@ MasterService::migrateSingleLogEntry(
 
     entryTotals[type]++;
     totalBytes += buffer.size();
+    PerfStats::threadStats.migrationPhase1Bytes += buffer.size();
 
     if (!transferSeg)
         transferSeg.construct();
@@ -1106,6 +1107,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     LogIterator it(*objectManager.getLog());
     // Phase 1: scan the log from oldest to newest entries until we reach
     // the head segment.
+    CycleCounter<> phase1Cycles{};
     if (!it.isDone()) {
         while (true) {
             Status error = migrateSingleLogEntry(
@@ -1114,11 +1116,13 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
                     tableId, firstKeyHash, lastKeyHash,
                     receiver);
             if (error) return;
+
             if (it.onHead())
                 break;
             it.next();
         }
     }
+    PerfStats::threadStats.migrationPhase1Cycles += phase1Cycles.stop();
 
     // Phase 2: block new writes and let current writes finish
     if (it.onHead()) {
