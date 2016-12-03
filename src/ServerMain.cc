@@ -364,7 +364,7 @@ realMain(int argc, char *argv[])
 }
 int
 main(int argc, char *argv[]) {
-    Arachne::numCores = 3;
+    Arachne::numCores = 2;
     Arachne::threadInit();
     // Invoke realMain outside of Arachne for now so we can defer handling of
     // the fact that the dispatch thread does not yield or terminate until we
