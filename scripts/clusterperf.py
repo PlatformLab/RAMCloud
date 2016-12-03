@@ -781,7 +781,8 @@ def migrateLoaded(name, options, cluster_args, client_args):
                     client_args['--workload'], clients,
                     options.loadPct))
 
-        cluster.run(client='%s/ClusterPerf %s %s' %
+        name = 'readDistWorkload'
+        cluster.run(client='%s/apps/ClusterPerf %s %s' %
                 (obj_path,  flatten_args(client_args), name),
                 **cluster_args)
 

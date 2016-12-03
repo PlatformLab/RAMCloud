@@ -1021,8 +1021,11 @@ MasterService::migrateSingleLogEntry(
         transferSeg->close();
         LOG(DEBUG, "Sending migration segment");
         if (expect_true(receiver != ServerId{})) {
+#define MIGRATION_SKIP_TX false
+#if !MIGRATION_SKIP_TX
             MasterClient::receiveMigrationData(context, receiver,
                     transferSeg.get(), tableId, firstKeyHash);
+#endif
         }
 
         transferSeg.destroy();

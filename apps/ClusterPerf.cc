@@ -4328,6 +4328,7 @@ doWorkload(OpType type)
                     WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                     &statsBuffer);
     PerfStats startStats = *statsBuffer.getStart<PerfStats>();
+    std::deque<Buffer> stats{};
 
     const size_t maxSamples = (targetOps ?: 1 * 1000 * 1000) * seconds;
     if (maxSamples > 20lu * 1000 * 1000) {
@@ -4428,6 +4429,13 @@ doWorkload(OpType type)
                 now = Cycles::rdtsc();
             }
         }
+
+        if (stats.size() <= ((now - experimentStartTicks) / oneSecond)) {
+            stats.emplace_back();
+            cluster->serverControlAll(
+                WireFormat::ControlOp::GET_PERF_STATS, NULL, 0, &stats.back());
+        }
+
         if (now > targetEndTime)
             break;
     }
@@ -4466,6 +4474,11 @@ doWorkload(OpType type)
     Logger::get().sync();
 
     if (fullSamples) {
+        for (size_t i = 1; i < stats.size(); ++i) {
+            printf("== %lu ==\n%s\n",
+               i,
+               PerfStats::printClusterStats(&stats[i - 1], &stats[i]).c_str());
+        }
         dumpSamples(samples, experimentStartTicks);
     } else {
         int valuesInLine = 0;
