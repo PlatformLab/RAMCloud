@@ -28,6 +28,7 @@
 #include "LogSegment.h"
 #include "SegmentManager.h"
 #include "ReplicaManager.h"
+#include "Arachne.h"
 
 #include "LogMetrics.pb.h"
 
@@ -98,7 +99,7 @@ class LogCleaner {
 
   PRIVATE:
     typedef LogCleanerMetrics::AtomicCycleCounter AtomicCycleCounter;
-    typedef std::unique_lock<std::mutex> Lock;
+    typedef std::unique_lock<Arachne::SpinLock> Lock;
 
     /// If no cleaning work had to be done the last time we checked, sleep for
     /// this many microseconds before checking again.
@@ -388,12 +389,12 @@ class LogCleaner {
 
     /// This variable is signaled if activeThreads becomes zero at a time
     /// when disableCount is nonzero.
-    std::condition_variable cleanerIdle;
+    Arachne::ConditionVariable cleanerIdle;
 
     /// Protects access to activeThreads, disableCount, and cleanerIdle
     /// (used for synchronization between cleaner threads and Disabler
     /// objects).
-    std::mutex mutex;
+    Arachne::SpinLock mutex;
 
     /// Number of cpu cycles spent in the doWork() routine.
     LogCleanerMetrics::Atomic64BitType doWorkTicks;
@@ -425,7 +426,7 @@ class LogCleaner {
     /// This vector contains pointers to these threads. When the cleaner is
     /// started, these threads are created. When stopped, they are deleted and
     /// the pointers in this vector are set to NULL.
-    vector<std::thread*> threads;
+    vector<Arachne::ThreadId> threads;
 
     /// Instance of the balancer module that decides when to clean on disk,
     /// when to compact in memory, and how many of our threads to employ.
