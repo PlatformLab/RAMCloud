@@ -83,6 +83,7 @@ class Log : public AbstractLog {
     void getMetrics(ProtoBuf::LogMetrics& m);
     void sync();
     void syncTo(Log::Reference reference);
+    void syncTo(LogPosition target, LogPosition* synced = NULL);
     LogPosition rollHeadOver();
 
   PRIVATE:

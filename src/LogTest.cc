@@ -278,6 +278,52 @@ TEST_F(LogSyncTest, syncTo) {
     EXPECT_EQ(5U, l->metrics.totalSyncCalls);
 }
 
+TEST_F(LogSyncTest, syncToLogPosition) {
+    TestLog::Enable _(syncFilter);
+    l->sync();
+    EXPECT_EQ("sync: sync not needed: already fully replicated",
+        TestLog::get());
+
+    TestLog::reset();
+    Log::Reference reference2;
+    LogPosition synced(0, 0);
+    l->append(LOG_ENTRY_TYPE_OBJ, "hi", 2, NULL);
+    LogPosition target(l->head->id, l->head->getAppendedLength());
+    EXPECT_NE(l->head->syncedLength, l->head->getAppendedLength());
+    l->syncTo(target, &synced);
+    EXPECT_EQ(1U, synced.getSegmentId());
+    EXPECT_EQ(84U, synced.getSegmentOffset());
+    EXPECT_EQ("sync: syncing segment 1 to offset 84 | syncTo: log synced",
+        TestLog::get());
+    EXPECT_EQ(l->head->syncedLength, l->head->getAppendedLength());
+
+    TestLog::reset();
+    l->append(LOG_ENTRY_TYPE_OBJ, "ho", 2, &reference2);
+    LogPosition target2(l->head->id, l->head->getAppendedLength());
+    EXPECT_NE(l->head->syncedLength, l->head->getAppendedLength());
+    l->syncTo(target, &synced);
+    EXPECT_EQ(1U, synced.getSegmentId());
+    EXPECT_EQ(84U, synced.getSegmentOffset());
+    EXPECT_EQ("syncTo: sync not needed: entry is already replicated",
+        TestLog::get());
+
+    // Test sync if preceding segment is not closed durably.
+    TestLog::reset();
+    {
+        SpinLock::Guard lock(l->appendLock);
+        l->allocNewWritableHead();
+    }
+    EXPECT_FALSE(l->getSegment(reference2)->closedCommitted);
+    l->syncTo(target2, &synced);
+    EXPECT_EQ(2U, synced.getSegmentId());
+    EXPECT_EQ(88U, synced.getSegmentOffset());
+    EXPECT_TRUE(l->getSegment(reference2)->closedCommitted);
+    EXPECT_EQ("sync: syncing segment 2 to offset 88 | syncTo: log synced",
+        TestLog::get());
+
+    EXPECT_EQ(5U, l->metrics.totalSyncCalls);
+}
+
 TEST_F(LogTest, rollHeadOver) {
     LogPosition oldPos = LogPosition(0, 0);
     LogSegment* oldHead = l.head;
