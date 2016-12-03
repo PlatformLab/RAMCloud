@@ -37,15 +37,12 @@ namespace RAMCloud {
 class WorkerManager : Dispatch::Poller {
   public:
     explicit WorkerManager(Context* context, uint32_t maxCores = 3);
-    ~WorkerManager();
 
-    void exitWorker();
     void handleRpc(Transport::ServerRpc* rpc);
     bool idle();
-    static void init();
     int poll();
-    void setServerId(ServerId serverId);
     Transport::ServerRpc* waitForRpc(double timeoutSeconds);
+    void workerMain(Transport::ServerRpc* serverRpc);
 
   PROTECTED:
   static inline void timeTrace(const char* format,
@@ -63,39 +60,17 @@ class WorkerManager : Dispatch::Poller {
     /// Shared RAMCloud information.
     Context* context;
 
-    // This class (along with the levels variable) stores information
-    // for each of the levels defined by RpcLevel; if we run low on threads
-    // for servicing RPCs, we queue RPCs according to their level.
-    class Level {
-      public:
-        int requestsRunning;           /// The number of RPCs at this level
-                                       /// that are currently executing.
-        std::queue<Transport::ServerRpc*> waitingRpcs;
-                                       /// Requests that cannot execute until
-                                       /// a thread becomes available.
-        explicit Level()
-            : requestsRunning(0)
-            , waitingRpcs()
-        {}
-    };
-    std::vector<Level> levels;
+    /// Requests that cannot execute until / a thread becomes available.
+    std::queue<Transport::ServerRpc*> waitingRpcs;
 
-    // Worker threads that are currently executing RPCs (no particular order).
-    std::vector<Worker*> busyThreads;
+    // For now, we will use this locked queue to pass completed Rpc's back to
+    // the WorkerManager.
+    Arachne::SpinLock completedRpcsMutex;
+    std::queue<Transport::ServerRpc*> completedRpcs;
 
-    // Worker threads that are available to execute incoming RPCs.  Threads
-    // are push_back'ed and pop_back'ed (the thread with highest index was
-    // the last one to go idle, so it's most likely to be POLLING and thus
-    // offer a fast wakeup).
-    std::vector<Worker*> idleThreads;
-
-    // Once the number of worker threads reaches this value, new RPCs will
-    // only start executing if that is needed to provide a distributed
-    // deadlock; other RPCs will wait until some threads finish.
-    uint32_t maxCores;
-
-    // Total number of RPCs (across all Levels) in waitingRpcs queues.
-    int rpcsWaiting;
+    // Track the current number of Rpcs that have entered the system and not
+    // yet exited.
+    uint64_t numOutstandingRpcs;
 
     // Nonzero means save incoming RPCs rather than executing them.
     // Intended for use in unit tests only.
@@ -105,7 +80,6 @@ class WorkerManager : Dispatch::Poller {
     // queued here, not sent to workers.
     std::queue<Transport::ServerRpc*> testRpcs;
 
-    static void workerMain(Worker* worker);
     static Syscall *sys;
 
     friend class Worker;
@@ -113,88 +87,40 @@ class WorkerManager : Dispatch::Poller {
 };
 
 /**
- * An object of this class describes a single worker thread and is used
- * for communication between the thread and the WorkerManager poller
- * running in the dispatch thread.  This structure is read-only to the
- * worker except for the #state field.  In principle this class definition
- * should be nested inside WorkerManager; however, we need to make forward
- * references to it, and C++ doesn't seem to permit forward references to
- * nested classes.
+ * An object of this class encapsulates the state needed by a worker thread
+ * that handles a single Rpc on the server side.
  */
 class Worker {
   typedef RAMCloud::Perf::ReadThreadingCost_MetricSet
       ReadThreadingCost_MetricSet;
   public:
-    bool replySent();
     void sendReply();
 
   PRIVATE:
     Context* context;                  /// Shared RAMCloud information.
-    Tub<std::thread> thread;           /// Thread that executes this worker.
+
   public:
-    int threadId;                      /// Identifier for this thread, assigned
-                                       /// by the ThreadId class; set when the
-                                       /// worker starts execution, 0 before
-                                       /// then.
+    bool replySent;                    /// Allow  worker thread
+                                       /// to track whether it has already sent
+                                       /// its reply and avoid sending
+                                       /// duplicate replies.
     WireFormat::Opcode opcode;         /// Opcode value from most recent RPC.
-    int level;                         /// RpcLevel of most recent RPC.
     Transport::ServerRpc* rpc;         /// RPC being serviced by this worker.
                                        /// NULL means the last RPC given to
                                        /// the worker has been finished and a
                                        /// response sent (but the worker may
                                        /// still be in POSTPROCESSING state).
   PRIVATE:
-    int busyIndex;                     /// Location of this worker in
-                                       /// #busyThreads, or -1 if this worker
-                                       /// is idle.
-    Atomic<int> state;                 /// Shared variable used to pass RPCs
-                                       /// between the dispatch thread and this
-                                       /// worker.
-
-    /// Values for #state:
-    enum {
-        /// Set by the worker thread to indicate that it has finished
-        /// processing its current request and is in a polling loop waiting
-        /// for more work to do.  From this state 2 things can happen:
-        /// * dispatch thread can change state to WORKING
-        /// * worker can change state to SLEEPING.
-        /// Note: this is the only state where both threads may set a new
-        /// state (it requires special care!).
-        POLLING,
-
-        /// Set by the dispatch thread to indicate that a new RPC is ready
-        /// to be processed.  From this state the worker will change state
-        /// to either POSTPROCESSING or POLLING.
-        WORKING,
-
-        /// Set by the worker thread if it invokes #sendReply on the RPC;
-        /// means that the RPC response is ready to be returned to the client,
-        /// but the worker is still busy so we can't give it anything else
-        /// to do.  From the state the worker will eventually change the
-        /// state to POLLING.
-        POSTPROCESSING,
-
-        /// Set by the worker thread to indicate that it has been waiting
-        /// so long for new work that it put itself to sleep; the dispatch
-        /// thread will need to wake it up the next time it has an RPC for the
-        /// worker.  From the state the dispatch thread will eventually change
-        /// state to WORKING.
-        SLEEPING
-    };
     bool exited;                       /// True means the worker is no longer
                                        /// running.
 
-    explicit Worker(Context* context)
+    explicit Worker(Context* context, Transport::ServerRpc* rpc, WireFormat::Opcode opcode)
             : context(context)
-            , thread()
-            , threadId(0)
-            , opcode(WireFormat::Opcode::ILLEGAL_RPC_TYPE)
-            , level(0)
-            , rpc(NULL)
-            , busyIndex(-1)
-            , state(POLLING)
-            , exited(false),
-            threadWork(&ReadThreadingCost_MetricSet::threadWork, false)
+            , replySent(false)
+            , opcode(opcode)
+            , rpc(rpc)
+            , exited(false)
+            , threadWork(&ReadThreadingCost_MetricSet::threadWork, false)
         {}
     void exit();
     void handoff(Transport::ServerRpc* rpc);

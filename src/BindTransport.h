@@ -126,8 +126,7 @@ struct BindTransport : public Transport {
             ServerRpc* serverRpc = transport.serverRpcPool.construct();
             ServerRpcPoolGuard<ServerRpc> serverRpcKiller(
                     transport.serverRpcPool, serverRpc);
-            Worker w(NULL);
-            w.rpc = serverRpc;
+            Worker w(context, serverRpc, WireFormat::Opcode::ILLEGAL_RPC_TYPE);
 
             Service::Rpc rpc(&w, request, response);
             if (transport.abortCounter > 0) {

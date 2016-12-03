@@ -99,7 +99,7 @@ realMain(int argc, char *argv[])
 
         Context context(true, &optionParser.options);
 
-        context.workerManager = new WorkerManager(&context, maxCores-1);
+        context.workerManager = new WorkerManager(&context);
 
         pinAllMemory();
         localLocator = optionParser.options.getCoordinatorLocator();

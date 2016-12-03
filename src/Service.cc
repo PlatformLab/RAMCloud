@@ -158,7 +158,7 @@ Service::handleRpc(Context* context, Rpc* rpc) {
     try {
         service->dispatch(opcode, rpc);
     } catch (RetryException& e) {
-        if (rpc->worker->replySent()) {
+        if (rpc->worker->replySent) {
             DIE("Retry exception thrown after reply sent for %s RPC",
                     WireFormat::opcodeSymbol(opcode));
         } else {
@@ -166,7 +166,7 @@ Service::handleRpc(Context* context, Rpc* rpc) {
                     e.maxDelayMicros, e.message);
         }
     } catch (ClientException& e) {
-        if (rpc->worker->replySent()) {
+        if (rpc->worker->replySent) {
             DIE("%s exception thrown after reply sent for %s RPC",
                     statusToSymbol(e.status),
                     WireFormat::opcodeSymbol(opcode));

@@ -99,7 +99,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     allocHeader()
     {
         assert(request.size() == 0);
-        RpcLevel::checkCall(RpcType::opcode);
+//        RpcLevel::checkCall(RpcType::opcode);
         typename RpcType::Request* reqHdr =
                 request.emplaceAppend<typename RpcType::Request>();
         // Don't allow this method to be used for RPCs that use
