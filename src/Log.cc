@@ -123,7 +123,7 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
  */
 LogPosition
 Log::getHead() {
-    SpinLock::Guard _(appendLock);
+    Lock _(appendLock);
     return LogPosition(head->id, head->getAppendedLength());
 }
 
@@ -155,7 +155,7 @@ Log::sync()
 {
     CycleCounter<uint64_t> __(&PerfStats::threadStats.logSyncCycles);
 
-    Tub<SpinLock::Guard> lock;
+    Tub<Lock> lock;
     lock.construct(appendLock);
     metrics.totalSyncCalls++;
 
@@ -187,7 +187,7 @@ Log::sync()
     // log while we wait. Once we grab the sync lock, take the append lock again
     // to ensure our new view of the head is consistent.
     lock.destroy();
-    SpinLock::Guard _(syncLock);
+    Lock _(syncLock);
     lock.construct(appendLock);
 
     // See if we still have work to do. It's possible that another thread
@@ -239,12 +239,12 @@ Log::syncTo(Log::Reference reference)
     segment->getEntry(offset, NULL, &lengthWithMetadata);
     uint32_t desiredSyncedLength = offset + lengthWithMetadata;
 
-    SpinLock::Guard _(syncLock);
+    Lock _(syncLock);
 
     // See if we still have work to do. It's possible that another thread
     // already did the syncing we needed for us.
     if (desiredSyncedLength > segment->syncedLength) {
-        Tub<SpinLock::Guard> lock;
+        Tub<Lock> lock;
         lock.construct(appendLock);
 
         // Get the latest segment length and certificate. This allows us to
@@ -286,8 +286,8 @@ Log::syncTo(Log::Reference reference)
 LogPosition
 Log::rollHeadOver()
 {
-    SpinLock::Guard lock(syncLock);
-    SpinLock::Guard lock2(appendLock);
+    Lock lock(syncLock);
+    Lock lock2(appendLock);
 
     // Allocate the new head and sync the log. This will ensure that the
     // position returned is stable on backups. This is paricularly important

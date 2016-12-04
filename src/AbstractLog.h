@@ -140,7 +140,7 @@ class AbstractLog {
            uint32_t length,
            Reference* outReference = NULL)
     {
-        SpinLock::Guard lock(appendLock);
+        Lock lock(appendLock);
         metrics.totalAppendCalls++;
         return append(lock,
                       type,
@@ -158,7 +158,7 @@ class AbstractLog {
            Buffer& buffer,
            Reference* outReference = NULL)
     {
-        SpinLock::Guard lock(appendLock);
+        Lock lock(appendLock);
         metrics.totalAppendCalls++;
         return append(lock,
                       type,
@@ -171,6 +171,8 @@ class AbstractLog {
 
   PROTECTED:
     LogSegment* getSegment(Reference reference);
+
+    typedef std::lock_guard<Arachne::SpinLock> Lock;
 
     /**
      * This virtual method is used to allocate the next segment to append
@@ -194,18 +196,18 @@ class AbstractLog {
      */
     virtual LogSegment* allocNextSegment(bool mustNotFail) = 0;
 
-    bool append(const SpinLock::Guard& lock,
+    bool append(const Lock& lock,
                 LogEntryType type,
                 const void* data,
                 uint32_t length,
                 Reference* outReference = NULL,
                 uint64_t* outTickCounter = NULL);
-    bool append(const SpinLock::Guard& lock,
+    bool append(const Lock& lock,
                 const void* data,
                 uint32_t *entryLength = NULL,
                 Reference* outReference = NULL,
                 uint64_t* outTickCounter = NULL);
-    bool append(const SpinLock::Guard& lock,
+    bool append(const Lock& lock,
                 LogEntryType type,
                 Buffer& buffer,
                 Reference* outReference = NULL,
@@ -246,7 +248,7 @@ class AbstractLog {
     /// writers do not modify the head segment concurrently. The sync()
     /// method also uses this lock to get a consistent view of the head
     /// segment in the presence of multiple appending threads.
-    SpinLock appendLock;
+    Arachne::SpinLock appendLock;
 
     // Total amount of log space occupied by long-term data such as
     // objects. Excludes data that can eventually be cleaned, such

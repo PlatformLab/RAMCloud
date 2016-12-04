@@ -380,7 +380,7 @@ ReplicatedSegment::sync(uint32_t offset, SegmentCertificate* certificate)
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     TEST_LOG("syncing segment %lu to offset %u", segmentId, offset);
 
-    Lock syncLock(syncMutex);
+    SpinLockGuard syncLock(syncMutex);
     Tub<Lock> lock;
     lock.construct(dataMutex);
 
@@ -439,6 +439,9 @@ ReplicatedSegment::sync(uint32_t offset, SegmentCertificate* certificate)
             dumpProgress();
             syncStartTicks = Cycles::rdtsc();
         }
+
+        lock.destroy();
+        Arachne::yield();
         lock.construct(dataMutex);
     }
 }

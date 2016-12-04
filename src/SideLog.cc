@@ -90,7 +90,7 @@ SideLog::~SideLog()
 void
 SideLog::commit()
 {
-    Tub<SpinLock::Guard> lock;
+    Tub<Lock> lock;
     lock.construct(appendLock);
 
     if (segments.empty())

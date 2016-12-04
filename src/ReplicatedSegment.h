@@ -28,6 +28,7 @@
 #include "Transport.h"
 #include "TaskQueue.h"
 #include "VarLenArray.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 
@@ -469,7 +470,8 @@ class ReplicatedSegment : public Task {
      * See ReplicaManager::dataMutex; there are many subtleties to the locking
      * in this module.
      */
-    std::mutex syncMutex;
+    Arachne::SpinLock syncMutex;
+    typedef std::lock_guard<Arachne::SpinLock> SpinLockGuard;
 
     /**
      * Segment to be replicated.
