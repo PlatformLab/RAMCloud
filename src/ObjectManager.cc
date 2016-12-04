@@ -1180,7 +1180,7 @@ Status
 ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer,
                 RpcResult* rpcResult, uint64_t* rpcResultPtr,
-                WireFormat::LogPosition* objPos)
+                WireFormat::LogState* objPos)
 {
     uint16_t keyLength = 0;
     const void *keyString = newObject.getKey(0, &keyLength);

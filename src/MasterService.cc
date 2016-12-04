@@ -230,6 +230,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::SplitMasterTablet, MasterService,
                         &MasterService::splitMasterTablet>(rpc);
             break;
+        case WireFormat::SyncLog::opcode:
+            callHandler<WireFormat::SyncLog, MasterService,
+                        &MasterService::syncLog>(rpc);
+            break;
         case WireFormat::TakeTabletOwnership::opcode:
             callHandler<WireFormat::TakeTabletOwnership, MasterService,
                         &MasterService::takeTabletOwnership>(rpc);
@@ -2417,6 +2421,30 @@ MasterService::splitMasterTablet(
                 reqHdr->tableId, reqHdr->splitKeyHash);
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
     }
+}
+
+/**
+ * Top-level server method to handle the SYNC_LOG request.
+ *
+ * This RPC is issued by the client when it want to know as some object writes
+ * are replicated to backups.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::syncLog(
+        const WireFormat::SyncLog::Request* reqHdr,
+        WireFormat::SyncLog::Response* respHdr,
+        Rpc* rpc)
+{
+    LogPosition target(reqHdr->syncGoal.headSegmentId,
+                       reqHdr->syncGoal.appended);
+    LogPosition synced(0, 0);
+    objectManager.getLog()->syncTo(target, &synced);
+    respHdr->logState.headSegmentId = synced.getSegmentId();
+    respHdr->logState.synced = synced.getSegmentOffset();
+    respHdr->logState.appended = synced.getSegmentOffset();
+    //respHdr->common.status = STATUS_OK;
 }
 
 /**

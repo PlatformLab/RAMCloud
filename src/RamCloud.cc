@@ -2411,6 +2411,15 @@ SplitTabletRpc::SplitTabletRpc(RamCloud* ramcloud,
 }
 
 /**
+ * Wait for backup replication of all changes made by this client up to now.
+ */
+void
+RamCloud::sync()
+{
+    unsyncedRpcTracker->sync();
+}
+
+/**
  * Ask a master to create a given number of objects, each of the
  * same given size. Objects are added to all tables in the master in
  * a round-robin fashion. This method exists simply to quickly fill a

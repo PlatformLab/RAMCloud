@@ -83,7 +83,7 @@ AbstractLog::AbstractLog(LogEntryHandlers* entryHandlers,
  */
 bool
 AbstractLog::append(AppendVector* appends, uint32_t numAppends,
-                    WireFormat::LogPosition* appendedPos)
+                    WireFormat::LogState* appendedPos)
 {
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
     SpinLock::Guard lock(appendLock);
@@ -116,9 +116,9 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends,
     assert(head == headBefore);
 
     if (appendedPos) {
-        appendedPos->segmentId = head->id;
-        appendedPos->offset = head->getAppendedLength();
-        appendedPos->syncedOffset = head->syncedLength;
+        appendedPos->headSegmentId = head->id;
+        appendedPos->appended = head->getAppendedLength();
+        appendedPos->synced = head->syncedLength;
     }
 
     return true;

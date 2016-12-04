@@ -275,6 +275,9 @@ class MasterService : public Service {
                 const WireFormat::TakeTabletOwnership::Request* reqHdr,
                 WireFormat::TakeTabletOwnership::Response* respHdr,
                 Rpc* rpc);
+    void syncLog(const WireFormat::SyncLog::Request* reqHdr,
+                WireFormat::SyncLog::Response* respHdr,
+                Rpc* rpc);
     void takeIndexletOwnership(
                 const WireFormat::TakeIndexletOwnership::Request* reqHdr,
                 WireFormat::TakeIndexletOwnership::Response* respHdr,

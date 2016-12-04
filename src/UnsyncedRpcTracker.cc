@@ -14,6 +14,7 @@
  */
 
 #include "UnsyncedRpcTracker.h"
+#include "ClientException.h"
 #include "ObjectRpcWrapper.h"
 #include "RamCloud.h"
 #include "RpcRequestPool.h"
@@ -73,7 +74,7 @@ UnsyncedRpcTracker::registerUnsynced(Transport::SessionRef session,
                                     uint64_t tableId,
                                     uint64_t keyHash,
                                     uint64_t objVer,
-                                    WireFormat::LogPosition logPos,
+                                    WireFormat::LogState logPos,
                                     std::function<void()> callback)
 {
     {
@@ -82,7 +83,7 @@ UnsyncedRpcTracker::registerUnsynced(Transport::SessionRef session,
         master->rpcs.emplace(rpcRequest, tableId, keyHash, objVer, logPos,
                              callback);
     }
-    updateSyncPoint(session.get(), logPos);
+    updateLogState(session.get(), logPos);
 }
 
 /**
@@ -129,12 +130,13 @@ UnsyncedRpcTracker::flushSession(Transport::Session* sessionPtr)
  *
  * \param sessionPtr
  *      Session which represents a target master.
- * \param syncPoint
- *      Master's log location up to which all log is replicated to backups.
+ * \param masterLogState
+ *      Master's log state including the master's log position up to which
+ *      all log is replicated to backups.
  */
 void
-UnsyncedRpcTracker::updateSyncPoint(Transport::Session* sessionPtr,
-                                    WireFormat::LogPosition syncPoint)
+UnsyncedRpcTracker::updateLogState(Transport::Session* sessionPtr,
+                                   WireFormat::LogState masterLogState)
 {
     Lock lock(mutex);
     Master* master;
@@ -145,15 +147,7 @@ UnsyncedRpcTracker::updateSyncPoint(Transport::Session* sessionPtr,
         return;
     }
 
-    while (!master->rpcs.empty()) {
-        UnsyncedRpc& rpc = master->rpcs.front();
-        if (!rpc.logPosition.isSynced(syncPoint)) {
-            break;
-        }
-        rpc.callback();
-        ramcloud->rpcRequestPool->free(rpc.request);
-        master->rpcs.pop();
-    }
+    master->updateLogState(ramcloud, masterLogState);
 }
 
 /**
@@ -233,6 +227,33 @@ UnsyncedRpcTracker::pingMasterByTimeout()
 }
 
 /**
+ * Wait for backup replication of all changes made by this client up to now.
+ */
+void
+UnsyncedRpcTracker::sync()
+{
+    Lock lock(mutex);
+    for (MasterMap::iterator it = masters.begin(); it != masters.end(); ++it) {
+        Master* master = it->second;
+        if (!master->rpcs.empty()) {
+            master->syncRpcHolder.construct(ramcloud->clientContext,
+                                            master->session,
+                                            master->lastestLogState);
+        }
+    }
+
+    for (MasterMap::iterator it = masters.begin(); it != masters.end(); ++it) {
+        Master* master = it->second;
+        if (master->syncRpcHolder) {
+            WireFormat::LogState newLogState;
+            master->syncRpcHolder->wait(&newLogState);
+            master->syncRpcHolder.destroy();
+            master->updateLogState(ramcloud, newLogState);
+        }
+    }
+}
+
+/**
  * Return a pointer to the requested client record; create a new record if
  * one does not already exist.
  *
@@ -255,6 +276,85 @@ UnsyncedRpcTracker::getOrInitMasterRecord(Transport::SessionRef& session)
     }
     assert(master != NULL);
     return master;
+}
+
+/**********************************
+ * Sync RPC
+ **********************************/
+
+/**
+ * Construct and sends SyncRpc.
+ * \param context
+ *      Client context. Mainly for dispatch during wait.
+ * \param sessionToMaster
+ *      Session reference to which ask for backup replication.
+ * \param objPos
+ *      Log position to which we wait for replications.
+ */
+UnsyncedRpcTracker::SyncRpc::SyncRpc(Context* context,
+        Transport::SessionRef& sessionToMaster, LogState objPos)
+    : RpcWrapper(sizeof(WireFormat::SyncLog::Response), NULL)
+    , context(context)
+{
+    session = sessionToMaster;
+    WireFormat::SyncLog::Request* reqHdr(
+            allocHeader<WireFormat::SyncLog>());
+    reqHdr->syncGoal = objPos;
+    send();
+}
+
+/**
+ * Wait for a Sync RPC to complete, and fetches new state of master's log.
+ *
+ * \param[out] newLogState
+ *      If non-NULL, the up-to-date value of master's log state is returned.
+ */
+void
+UnsyncedRpcTracker::SyncRpc::wait(LogState* newLogState)
+{
+    waitInternal(context->dispatch);
+    const WireFormat::SyncLog::Response* respHdr(
+            getResponseHeader<WireFormat::SyncLog>());
+
+    if (newLogState != NULL)
+        *newLogState = respHdr->logState;
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+}
+
+/**********************************
+ * Master
+ **********************************/
+
+/**
+ * Update the saved log state if the given one is newer, and
+ * garbage collect RPC information for requests whose updates are made durable
+ * and invoke callbacks for those requests.
+ *
+ * \param ramcloud
+ *      Pointer to RamCloud instance. Used to find rpcRequestPool.
+ * \param newLogState
+ *      Master's log state including the master's log position up to which
+ *      all log is replicated to backups.
+ */
+void
+UnsyncedRpcTracker::Master::updateLogState(RamCloud* ramcloud,
+                                           LogState newLogState)
+{
+    if (lastestLogState < newLogState) {
+        lastestLogState = newLogState;
+    }
+
+    while (!rpcs.empty()) {
+        UnsyncedRpc& rpc = rpcs.front();
+        if (!rpc.logPosition.isSynced(newLogState)) {
+            break;
+        }
+        rpc.callback();
+        ramcloud->rpcRequestPool->free(rpc.request);
+        rpcs.pop();
+    }
 }
 
 } // namespace RAMCloud

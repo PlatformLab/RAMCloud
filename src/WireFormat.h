@@ -130,7 +130,8 @@ enum Opcode {
     TX_REQUEST_ABORT            = 78,
     TX_HINT_FAILED              = 79,
     ECHO                        = 80,
-    ILLEGAL_RPC_TYPE            = 81, // 1 + the highest legitimate Opcode
+    SYNC_LOG                    = 81,
+    ILLEGAL_RPC_TYPE            = 82, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -166,29 +167,30 @@ struct ClientLease {
                                 /// provided by the coordinator.
 } __attribute__((packed));
 
-struct LogPosition {
-    uint64_t segmentId;
-    uint32_t offset;
-    uint32_t syncedOffset;
+struct LogState {
+    uint64_t headSegmentId;
+    uint32_t appended;
+    uint32_t synced;
 
-    bool isSynced(const LogPosition& syncPos) {
-        return segmentId < syncPos.segmentId ||
-            (segmentId == syncPos.segmentId && offset <= syncPos.syncedOffset);
+    bool isSynced(const LogState& syncPos) {
+        return headSegmentId < syncPos.headSegmentId ||
+            (headSegmentId == syncPos.headSegmentId &&
+                    appended <= syncPos.synced);
     }
 
-//    friend bool operator< (const LogPosition& lhs, const LogPosition& rhs) {
-//        return lhs.segmentId < rhs.segmentId ||
-//        (lhs.segmentId == rhs.segmentId && lhs.offset < rhs.offset);
-//    }
-//    friend bool operator> (const LogPosition& lhs, const LogPosition& rhs) {
-//        return rhs < lhs;
-//    }
-//    friend bool operator<=(const LogPosition& lhs, const LogPosition& rhs) {
-//        return !(lhs > rhs);
-//    }
-//    friend bool operator>=(const LogPosition& lhs, const LogPosition& rhs) {
-//        return !(lhs < rhs);
-//    }
+    friend bool operator< (const LogState& lhs, const LogState& rhs) {
+        return lhs.headSegmentId < rhs.headSegmentId ||
+        (lhs.headSegmentId == rhs.headSegmentId && lhs.appended < rhs.appended);
+    }
+    friend bool operator> (const LogState& lhs, const LogState& rhs) {
+        return rhs < lhs;
+    }
+    friend bool operator<=(const LogState& lhs, const LogState& rhs) {
+        return !(lhs > rhs);
+    }
+    friend bool operator>=(const LogState& lhs, const LogState& rhs) {
+        return !(lhs < rhs);
+    }
 } __attribute__((packed));
 
 enum Asynchrony {
@@ -1655,6 +1657,20 @@ struct SplitTablet {
     } __attribute__((packed));
 };
 
+struct SyncLog {
+    static const Opcode opcode = SYNC_LOG;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+        LogState syncGoal;   // Master waits for replication of log at least
+                                // to this position.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        LogState logState;   // Up-to-date info on replication progress.
+    } __attribute__((packed));
+};
+
 struct TakeTabletOwnership {
     static const Opcode opcode = TAKE_TABLET_OWNERSHIP;
     static const ServiceType service = MASTER_SERVICE;
@@ -1970,7 +1986,7 @@ struct Write {
     struct Response {
         ResponseCommon common;
         uint64_t version;
-        LogPosition objPos;
+        LogState objPos;
     } __attribute__((packed));
 };
 

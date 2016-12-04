@@ -138,6 +138,7 @@ class RamCloud {
     void logMessageAll(LogLevel level, const char* fmt, ...)
         __attribute__ ((format (gnu_printf, 3, 4)));
     void splitTablet(const char* name, uint64_t splitKeyHash);
+    void sync();
     void testingFill(uint64_t tableId, const void* key, uint16_t keyLength,
             uint32_t numObjects, uint32_t objectSize);
     uint64_t testingGetServerId(uint64_t tableId, const void* key,

@@ -19,6 +19,7 @@
 #include "ServerMetrics.h"
 #include "RamCloud.h"
 #include "TableEnumerator.h"
+#include "UnsyncedRpcTracker.h"
 
 namespace RAMCloud {
 
@@ -604,6 +605,37 @@ TEST_F(RamCloudTest, splitTablet) {
         message = e.toSymbol();
     }
     ramcloud->splitTablet("table2", 0x100000000U);
+}
+
+TEST_F(RamCloudTest, sync) {
+    uint64_t version;
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6, NULL, &version, true);
+    EXPECT_EQ(1U, version);
+    ramcloud->write(tableId1, "0", 1, "xyzzy", 5, NULL, &version, true);
+    EXPECT_EQ(2U, version);
+    ramcloud->write(tableId2, "1", 1, "ghi", 3, NULL, &version, true);
+    EXPECT_EQ(1U, version);
+
+    // Check UnsyncedRpcTracker already cleared the first write.
+    EXPECT_EQ(2U, ramcloud->unsyncedRpcTracker->masters.size());
+    auto it = ramcloud->unsyncedRpcTracker->masters.begin();
+    EXPECT_LE(1U, (it++)->second->rpcs.size());
+    EXPECT_LE(1U, (it++)->second->rpcs.size());
+
+    ramcloud->sync();
+    it = ramcloud->unsyncedRpcTracker->masters.begin();
+    EXPECT_EQ(0U, (it++)->second->rpcs.size());
+    EXPECT_EQ(0U, (it++)->second->rpcs.size());
+    EXPECT_EQ(ramcloud->unsyncedRpcTracker->masters.end(), it);
+
+    ObjectBuffer value;
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &value);
+    EXPECT_EQ("xyzzy", string(reinterpret_cast<const char*>(
+                        value.getValue()), 5));
+    value.reset();
+    ramcloud->readKeysAndValue(tableId2, "1", 1, &value);
+    EXPECT_EQ("ghi", string(reinterpret_cast<const char*>(
+                        value.getValue()), 3));
 }
 
 TEST_F(RamCloudTest, testingFill) {

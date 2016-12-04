@@ -48,7 +48,7 @@ class UnsyncedRpcTrackerTest : public ::testing::Test {
 };
 
 TEST_F(UnsyncedRpcTrackerTest, registerUnsynced) {
-    WireFormat::LogPosition logPos = {2, 10, 5};
+    WireFormat::LogState logPos = {2, 10, 5};
     auto callback = []() {};
     tracker->registerUnsynced(session, request, 1, 2, 3, logPos, callback);
 
@@ -62,8 +62,8 @@ TEST_F(UnsyncedRpcTrackerTest, registerUnsynced) {
     EXPECT_EQ(1UL, unsynced->tableId);
     EXPECT_EQ(2UL, unsynced->keyHash);
     EXPECT_EQ(3UL, unsynced->objVersion);
-    EXPECT_EQ(2UL, unsynced->logPosition.segmentId);
-    EXPECT_EQ(10UL, unsynced->logPosition.offset);
+    EXPECT_EQ(2UL, unsynced->logPosition.headSegmentId);
+    EXPECT_EQ(10UL, unsynced->logPosition.appended);
     free(request);
 }
 
@@ -72,7 +72,7 @@ TEST_F(UnsyncedRpcTrackerTest, flushSession) {
 }
 
 TEST_F(UnsyncedRpcTrackerTest, UpdateSyncPoint) {
-    WireFormat::LogPosition logPos = {2, 10, 5};
+    WireFormat::LogState logPos = {2, 10, 5};
     bool callbackInvoked = false;
     auto callback = [&callbackInvoked]() {
         callbackInvoked = true;
@@ -83,13 +83,13 @@ TEST_F(UnsyncedRpcTrackerTest, UpdateSyncPoint) {
     EXPECT_EQ(1U, master->rpcs.size());
 
     // Normal case: GC and callback is invoked.
-    WireFormat::LogPosition syncPos = {3, 1, 1};
-    tracker->updateSyncPoint(session.get(), syncPos);
+    WireFormat::LogState syncPos = {3, 1, 1};
+    tracker->updateLogState(session.get(), syncPos);
     EXPECT_TRUE(master->rpcs.empty());
     EXPECT_TRUE(callbackInvoked);
 
     // No matching session / master.
-    tracker->updateSyncPoint(NULL, syncPos);
+    tracker->updateLogState(NULL, syncPos);
     EXPECT_TRUE(master->rpcs.empty());
 }
 

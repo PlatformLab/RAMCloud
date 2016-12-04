@@ -25,6 +25,8 @@
 
 namespace RAMCloud {
 
+using WireFormat::LogState;
+
 /**
  * A temporary storage for RPC requests that have been responded by master but
  * have not been made durable in backups.
@@ -44,14 +46,29 @@ class UnsyncedRpcTracker {
                           uint64_t tableId,
                           uint64_t keyHash,
                           uint64_t objVer,
-                          WireFormat::LogPosition logPos,
+                          WireFormat::LogState logPos,
                           std::function<void()> callback);
     void flushSession(Transport::Session* sessionPtr);
-    void updateSyncPoint(Transport::Session* session,
-                         WireFormat::LogPosition syncPoint);
+    void updateLogState(Transport::Session* session,
+                        WireFormat::LogState masterLogState);
     void pingMasterByTimeout();
+    void sync();
 
   PRIVATE:
+    /**
+     * RPC to ask a master replicate log up to the given position.
+     */
+    class SyncRpc : public RpcWrapper {
+      public:
+        SyncRpc(Context* context, Transport::SessionRef& sessionToMaster,
+                LogState objPos);
+        void wait(LogState* newLogState);
+
+      PRIVATE:
+        Context* context;
+        DISALLOW_COPY_AND_ASSIGN(SyncRpc);
+    };
+
     /**
      * Holds info about an RPC whose effect is not made durable yet, which is
      * necessary to retry the RPC when a master crashes and loose the effects.
@@ -60,7 +77,7 @@ class UnsyncedRpcTracker {
 
         /// Default constructor
         UnsyncedRpc(void* rpcRequest, uint64_t tableId, uint64_t keyHash,
-                    uint64_t objVer, WireFormat::LogPosition logPos,
+                    uint64_t objVer, WireFormat::LogState logPos,
                     std::function<void()> callback)
             : request(rpcRequest), tableId(tableId), keyHash(keyHash),
               objVersion(objVer), logPosition(logPos), callback(callback) {}
@@ -94,7 +111,7 @@ class UnsyncedRpcTracker {
          * This information will be matched later with master's sync point,
          * so that we can safely discard RPC records as they become durable.
          */
-        WireFormat::LogPosition logPosition;
+        WireFormat::LogState logPosition;
 
         /**
          * The callback to be invoked as the effects of this RPC becomes
@@ -119,22 +136,30 @@ class UnsyncedRpcTracker {
          *      The boost_intrusive pointer to transport session
          */
         explicit Master(Transport::SessionRef& session)
-            : syncPoint()
+            : lastestLogState()
             , session(session)
+            , syncRpcHolder()
             , rpcs()
         {}
 
+        void updateLogState(RamCloud* ramcloud, LogState newLogState);
+
         /**
-         * Indicating the master's to log is synchronized with backups up to
-         * this log position.
+         * Caches the most up-to-date information on the state of master's log.
          */
-        WireFormat::LogPosition syncPoint;
+        WireFormat::LogState lastestLogState;
 
         /**
          * Used to prevent Transport::Session instance from destruction by
          * holding this smart pointer until the destruction of Master.
          */
         Transport::SessionRef session;
+
+        /**
+         * Placeholder for SyncRpc to this master. Used during sync() call.
+         * It is here to avoid malloc in sync().
+         */
+        Tub<SyncRpc> syncRpcHolder;
 
         /**
          * Queue keeping #UnsyncedRpc sent to this master.
