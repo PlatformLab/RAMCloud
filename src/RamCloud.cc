@@ -2945,10 +2945,10 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
     memset(reqHdr, 0, sizeof(*reqHdr));
     reqHdr->common.opcode = WireFormat::Write::opcode;
     reqHdr->common.service = WireFormat::Write::service;
+    reqHdr->common.asyncType = async ? WireFormat::Asynchrony::ASYNC :
+                                       WireFormat::Asynchrony::SYNC;
     reqHdr->tableId = tableId;
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    reqHdr->asyncType = async ? WireFormat::Asynchrony::ASYNC :
-                                WireFormat::Asynchrony::SYNC;
     reqHdr->length = keyValueLength;
 
     Object::appendKeysAndValueToMemory(primaryKey, buf, length, keysAndValues);
@@ -3007,8 +3007,8 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
     Object::appendKeysAndValueToBuffer(tableId, numKeys, keyList,
                     buf, length, &request, &totalLength);
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
-    reqHdr->asyncType = async ? WireFormat::Asynchrony::ASYNC :
-                                WireFormat::Asynchrony::SYNC;
+    reqHdr->common.asyncType = async ? WireFormat::Asynchrony::ASYNC :
+                                       WireFormat::Asynchrony::SYNC;
     reqHdr->length = totalLength;
 
     fillLinearizabilityHeader<WireFormat::Write::Request>(reqHdr);
@@ -3051,7 +3051,7 @@ WriteRpc::wait(uint64_t* version)
     if (rawRequest) {
         WireFormat::Write::Request* reqHdr =
                 reinterpret_cast<WireFormat::Write::Request*>(rawRequest);
-        if (reqHdr->asyncType == WireFormat::Asynchrony::ASYNC) {
+        if (reqHdr->common.asyncType == WireFormat::Asynchrony::ASYNC) {
             ramcloud->unsyncedRpcTracker->registerUnsynced(session, rawRequest,
                     tableId, keyHash, respHdr->version, respHdr->objPos, []{});
             rawRequest = 0;

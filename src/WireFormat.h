@@ -167,11 +167,22 @@ struct ClientLease {
                                 /// provided by the coordinator.
 } __attribute__((packed));
 
+/**
+ * Used to communicate a master's log replication state.
+ */
 struct LogState {
-    uint64_t headSegmentId;
-    uint32_t appended;
-    uint32_t synced;
+    uint64_t headSegmentId; // Current head segment of master's log.
+    uint32_t appended;      // Number of bytes appended to head segment.
+    uint32_t synced;        // Number of bytes replicated in head segment.
 
+    /**
+     * Check the appended bytes is replicated in newer state.
+     *
+     * \param syncPos
+     *      New log state with newer synchronized position.
+     * \return
+     *      True if current state is replicated to backup.
+     */
     bool isSynced(const LogState& syncPos) {
         return headSegmentId < syncPos.headSegmentId ||
             (headSegmentId == syncPos.headSegmentId &&
@@ -193,6 +204,9 @@ struct LogState {
     }
 } __attribute__((packed));
 
+/**
+ * This enum indicates asynchronous replication options for RPC request.
+ */
 enum Asynchrony {
     ASYNC,  // RPC will be responded before sync()
     SYNC,   // RPC will be responded after sync()
@@ -206,6 +220,13 @@ enum Asynchrony {
 struct RequestCommon {
     uint16_t opcode;              /// Opcode of operation to be performed.
     uint16_t service;             /// ServiceType to invoke for this rpc.
+} __attribute__((packed));
+
+/**
+ * Each RPC request with asynchronous replication option starts with this.
+ */
+struct AsyncRequestCommon : public RequestCommon {
+    Asynchrony asyncType;
 } __attribute__((packed));
 
 /**
@@ -1972,7 +1993,7 @@ struct Write {
     static const Opcode opcode = WRITE;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        AsyncRequestCommon common;
         uint64_t tableId;
         ClientLease lease;
         uint64_t rpcId;
@@ -1981,7 +2002,6 @@ struct Write {
                                       // keysAndValue blob in bytes.These
                                       // follow immediately after this header
         RejectRules rejectRules;
-        Asynchrony asyncType;
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

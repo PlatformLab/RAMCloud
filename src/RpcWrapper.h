@@ -106,7 +106,9 @@ class RpcWrapper : public Transport::RpcNotifier {
         // RequestCommonWithId as the header; use the other form
         // with targetId instead.
         static_assert(sizeof(reqHdr->common) ==
-                sizeof(WireFormat::RequestCommon),
+                sizeof(WireFormat::RequestCommon) ||
+                sizeof(reqHdr->common) ==
+                sizeof(WireFormat::AsyncRequestCommon),
                 "must pass targetId to allocHeader");
         memset(reqHdr, 0, sizeof(*reqHdr));
         reqHdr->common.opcode = RpcType::opcode;

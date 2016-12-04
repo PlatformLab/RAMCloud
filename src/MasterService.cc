@@ -3231,7 +3231,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
             &rpcResult, &rpcResultPtr, &respHdr->objPos);
 
-    bool asyncReplication = reqHdr->asyncType == WireFormat::Asynchrony::ASYNC;
+    bool asyncReplication = reqHdr->common.asyncType == WireFormat::ASYNC;
     if (respHdr->common.status == STATUS_OK) {
         if (!asyncReplication) {
             objectManager.syncChanges();
