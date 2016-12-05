@@ -43,6 +43,10 @@ UnsyncedRpcTracker::~UnsyncedRpcTracker()
 {
     for (MasterMap::iterator it = masters.begin(); it != masters.end(); ++it) {
         Master* master = it->second;
+        while (!master->rpcs.empty()) {
+            ramcloud->rpcRequestPool->free(master->rpcs.front().request.data);
+            master->rpcs.pop();
+        }
         delete master;
     }
 }
@@ -253,6 +257,54 @@ UnsyncedRpcTracker::sync()
             master->syncRpcHolder.destroy();
             master->updateLogState(ramcloud, newLogState);
         }
+    }
+}
+
+/**
+ * Register a callback that will be invoked when all currently outstanding RPCs
+ * are made durable.
+ *
+ * \param callback
+ *      Callback desired to be invoked.
+ */
+void
+UnsyncedRpcTracker::sync(std::function<void()> callback)
+{
+    Lock lock(mutex);
+    int numMasters = 0;
+    for (MasterMap::iterator it = masters.begin(); it != masters.end(); ++it) {
+        Master* master = it->second;
+        if (!master->rpcs.empty()) {
+            numMasters++;
+        }
+    }
+    // TODO(seojin): Atomic necessary? think about cleaner thread more...
+    //               Probably it is safe without atomic...
+    //               Or it is already protected by mutex??
+    int* syncedMasterCounter;
+    if (numMasters > 0) {
+        syncedMasterCounter = new int;
+        *syncedMasterCounter = 0;
+    }
+    for (MasterMap::iterator it = masters.begin(); it != masters.end(); ++it) {
+        Master* master = it->second;
+        if (master->rpcs.empty()) {
+            continue;
+        }
+
+        // TODO(seojin): chain the original callback.
+        //               Use performant way to check previous value is empty.
+        //std::function<void()> callback = master->rpcs.back().callback;
+        master->rpcs.back().callback = [callback, numMasters,
+                                        syncedMasterCounter] {
+            (*syncedMasterCounter)++;
+            assert(*syncedMasterCounter <= numMasters);
+            if (*syncedMasterCounter >= numMasters) {
+                callback();
+                // This is the last access to syncedMasterCounter.
+                delete syncedMasterCounter;
+            }
+        };
     }
 }
 

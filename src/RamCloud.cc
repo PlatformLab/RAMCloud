@@ -139,8 +139,8 @@ RamCloud::~RamCloud()
 
     delete transactionManager;
 
-    delete rpcRequestPool;
     delete unsyncedRpcTracker;
+    delete rpcRequestPool;
 }
 
 /**

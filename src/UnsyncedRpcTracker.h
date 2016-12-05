@@ -53,6 +53,7 @@ class UnsyncedRpcTracker {
                         WireFormat::LogState masterLogState);
     void pingMasterByTimeout();
     void sync();
+    void sync(std::function<void()> callback);
 
   PRIVATE:
     /**

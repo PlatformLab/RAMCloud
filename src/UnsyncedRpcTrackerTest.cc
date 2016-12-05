@@ -85,7 +85,6 @@ TEST_F(UnsyncedRpcTrackerTest, registerUnsynced) {
     EXPECT_EQ(3UL, unsynced->objVersion);
     EXPECT_EQ(2UL, unsynced->logPosition.headSegmentId);
     EXPECT_EQ(10UL, unsynced->logPosition.appended);
-    free(request.data);
 }
 
 TEST_F(UnsyncedRpcTrackerTest, flushSession) {
@@ -152,6 +151,51 @@ TEST_F(UnsyncedRpcTrackerTest, UpdateSyncPoint) {
     // No matching session / master.
     tracker->updateLogState(NULL, syncPos);
     EXPECT_TRUE(master->rpcs.empty());
+}
+
+TEST_F(UnsyncedRpcTrackerTest, syncWithCallback) {
+    auto callback = []() {};
+    Transport::SessionRef session2(new Transport::Session("Test2"));
+    Transport::SessionRef session3(new Transport::Session("Test3"));
+    ClientRequest req2({Memory::xmalloc(HERE, 1000), 1000});
+    ClientRequest req3({Memory::xmalloc(HERE, 1000), 1000});
+    ClientRequest req4({Memory::xmalloc(HERE, 1000), 1000});
+    tracker->registerUnsynced(session, request, 1, 2, 3, {2, 10, 5}, callback);
+    tracker->registerUnsynced(session, req2, 1, 2, 4, {2, 11, 5}, callback);
+    tracker->registerUnsynced(session2, req3, 2, 2, 4, {2, 11, 5}, callback);
+    // Adding a master with empty rpcs queue.
+    tracker->registerUnsynced(session3, req4, 3, 2, 4, {1, 1, 1}, callback);
+
+    // Check UnsyncedRpcTracker already cleared the first write.
+    EXPECT_EQ(3U, tracker->masters.size());
+    int totalUnsynced = 0;
+    int totalNonEmptyMasters = 0;
+    for (auto it = tracker->masters.begin();
+            it != tracker->masters.end(); ++it) {
+        totalUnsynced += static_cast<int>(it->second->rpcs.size());
+        totalNonEmptyMasters += it->second->rpcs.size() > 0 ? 1 : 0;
+    }
+    EXPECT_LE(3, totalUnsynced);
+    EXPECT_LE(2, totalNonEmptyMasters);
+
+    bool callbackInvoked = false;
+    tracker->sync([&callbackInvoked] {
+        callbackInvoked = true;
+    });
+    EXPECT_FALSE(callbackInvoked);
+
+    tracker->updateLogState(session.get(), {2, 11, 11});
+
+    // One master is synced is not enough.
+    EXPECT_FALSE(callbackInvoked);
+
+    // New unsynced RPC registered after sync does not matter.
+    // Also, new log state info is triggering the GC and callback.
+    ClientRequest req5({Memory::xmalloc(HERE, 1000), 1000});
+    tracker->registerUnsynced(session2, req5, 2, 2, 4, {3, 3, 1}, callback);
+
+    // Once all masters are synced, callback was fired.
+    EXPECT_TRUE(callbackInvoked);
 }
 
 }  // namespace RAMCloud
