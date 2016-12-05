@@ -42,7 +42,7 @@ class UnsyncedRpcTracker {
     explicit UnsyncedRpcTracker(RamCloud* ramcloud);
     ~UnsyncedRpcTracker();
     void registerUnsynced(Transport::SessionRef session,
-                          void* rpcRequest,
+                          ClientRequest rpcRequest,
                           uint64_t tableId,
                           uint64_t keyHash,
                           uint64_t objVer,
@@ -70,16 +70,29 @@ class UnsyncedRpcTracker {
     };
 
     /**
+     * RPC to send retries of requests that are lost due to a master's crash.
+     */
+    class RetryUnsyncedRpc : public ObjectRpcWrapper {
+      public:
+        RetryUnsyncedRpc(Context* context, uint64_t tableId, uint64_t keyHash,
+                         ClientRequest requestToRetry);
+        /// \copydoc RpcWrapper::docForWait
+        void wait() {simpleWait(context);}
+      PRIVATE:
+        DISALLOW_COPY_AND_ASSIGN(RetryUnsyncedRpc);
+    };
+
+    /**
      * Holds info about an RPC whose effect is not made durable yet, which is
      * necessary to retry the RPC when a master crashes and loose the effects.
      */
     struct UnsyncedRpc {
 
         /// Default constructor
-        UnsyncedRpc(void* rpcRequest, uint64_t tableId, uint64_t keyHash,
+        UnsyncedRpc(ClientRequest rpcReq, uint64_t tableId, uint64_t keyHash,
                     uint64_t objVer, WireFormat::LogState logPos,
                     std::function<void()> callback)
-            : request(rpcRequest), tableId(tableId), keyHash(keyHash),
+            : request(rpcReq), tableId(tableId), keyHash(keyHash),
               objVersion(objVer), logPosition(logPos), callback(callback) {}
 
         /**
@@ -88,7 +101,7 @@ class UnsyncedRpcTracker {
          * will be sent to recovery master.
          * This request must be constructed by linearizable object RPC.
          */
-        void* request;
+        ClientRequest request;
 
         /**
          * Information about an object that determines which server the request
@@ -168,30 +181,6 @@ class UnsyncedRpcTracker {
 
       PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(Master);
-    };
-
-    /**
-     * RPC to send retries of requests that are lost due to a master's crash.
-     */
-    class RetryUnsyncedRpc : public ObjectRpcWrapper {
-      public:
-        RetryUnsyncedRpc(Context* context, uint64_t tableId, uint64_t keyHash,
-                         void* requestToRetry)
-            : ObjectRpcWrapper(context, tableId, keyHash,
-                               sizeof(WireFormat::ResponseCommon), NULL)
-        {
-            rawRequest = requestToRetry;
-            // TODO(seojin): Set flag of retry.
-
-
-            send();
-        }
-
-        /// \copydoc RpcWrapper::docForWait
-        void wait() {simpleWait(context);}
-
-      PRIVATE:
-        DISALLOW_COPY_AND_ASSIGN(RetryUnsyncedRpc);
     };
 
     /// Helper methods

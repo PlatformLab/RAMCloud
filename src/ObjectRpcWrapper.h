@@ -21,6 +21,15 @@
 namespace RAMCloud {
 
 /**
+ * Packages pointer to client RPC request and its size.
+ */
+struct ClientRequest {
+    //ClientRequest() : data(NULL), size(0) {}
+    void* data;     // Pointer to RPC request.
+    uint32_t size;  // RPC request size.
+};
+
+/**
  * ObjectRpcWrapper manages the client side of RPCs that must be sent to the
  * server that stores a particular object (more specifically, a particular
  * key hash within a particular table). If that server becomes unavailable,
@@ -60,7 +69,7 @@ class ObjectRpcWrapper : public RpcWrapper {
     /// For non-durable RPCs, request buffer is linking this memory.
     /// We keep this pointer to register this request to UnsyncedRpcTracker.
     /// For regular durable RPCs, its value is null.
-    void* rawRequest;
+    ClientRequest rawRequest;
 
     DISALLOW_COPY_AND_ASSIGN(ObjectRpcWrapper);
 };

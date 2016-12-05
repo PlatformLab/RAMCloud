@@ -123,7 +123,7 @@ static BasicDpdkTransportFactory basicDpdkTransportFactory;
 
 /**
  * TransportManager constructor.
- * 
+ *
  * \param context
  *      Shared state about various RAMCloud modules.
  */

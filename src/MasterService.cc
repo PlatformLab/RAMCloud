@@ -3229,7 +3229,8 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // Write the object.
     respHdr->common.status = objectManager.writeObject(
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
-            &rpcResult, &rpcResultPtr, &respHdr->objPos);
+            &rpcResult, &rpcResultPtr, &respHdr->objPos,
+            reqHdr->common.asyncType == WireFormat::Asynchrony::RETRY);
 
     bool asyncReplication = reqHdr->common.asyncType == WireFormat::ASYNC;
     if (respHdr->common.status == STATUS_OK) {
@@ -3980,17 +3981,19 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         // Re-grab all transaction locks.
         transactionManager.regrabLocksAfterRecovery(&objectManager);
 
-        // Ok - we're expected to be serving now. Mark recovered tablets
-        // as normal so we can handle clients.
+        // Almost done. We should wait for retries of unsynced RPCs until
+        // serving normal requests.
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
                 recoveryPartition.tablet()) {
             bool changed = tabletManager.changeState(
                     tablet.table_id(),
                     tablet.start_key_hash(), tablet.end_key_hash(),
-                    TabletManager::NOT_READY, TabletManager::NORMAL);
+                    TabletManager::NOT_READY,
+                    TabletManager::LOCKED_FOR_RETRIES);
             if (!changed) {
                 throw FatalError(HERE, format("Could not change recovering "
-                        "tablet's state to NORMAL (%lu range [%lu,%lu])",
+                        "tablet's state to LOCKED_FOR_RETRIES "
+                        "(%lu range [%lu,%lu])",
                         tablet.table_id(),
                         tablet.start_key_hash(), tablet.end_key_hash()));
             }
@@ -4014,6 +4017,24 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                         "indexlet's state to NORMAL for an indexlet in "
                         "index id %u in table id %lu.",
                         indexlet.index_id(), indexlet.table_id()));
+            }
+        }
+
+        // After 2 seconds of waiting for retries of unsynced RPCs, start
+        // serving normal requests. Mark recovered tablets as normal.
+        sleep(2000);
+        foreach (const ProtoBuf::Tablets::Tablet& tablet,
+                recoveryPartition.tablet()) {
+            bool changed = tabletManager.changeState(
+                    tablet.table_id(),
+                    tablet.start_key_hash(), tablet.end_key_hash(),
+                    TabletManager::LOCKED_FOR_RETRIES, TabletManager::NORMAL);
+            if (!changed) {
+                throw FatalError(HERE, format("Could not change "
+                        "LOCKED_FOR_RETRIES tablet's state to NORMAL"
+                        "(%lu range [%lu,%lu])",
+                        tablet.table_id(),
+                        tablet.start_key_hash(), tablet.end_key_hash()));
             }
         }
     } else {

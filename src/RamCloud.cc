@@ -2935,11 +2935,12 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 
     uint32_t size = sizeof32(WireFormat::Write::Request) + keyValueLength;
 
-    rawRequest = ramcloud->rpcRequestPool->alloc(size);
+    rawRequest.data = ramcloud->rpcRequestPool->alloc(size);
+    rawRequest.size = size;
     WireFormat::Write::Request* reqHdr =
-            reinterpret_cast<WireFormat::Write::Request*>(rawRequest);
+            reinterpret_cast<WireFormat::Write::Request*>(rawRequest.data);
 
-    char* keysAndValues = reinterpret_cast<char*>(rawRequest) +
+    char* keysAndValues = reinterpret_cast<char*>(rawRequest.data) +
                                 sizeof(WireFormat::Write::Request);
 
     memset(reqHdr, 0, sizeof(*reqHdr));
@@ -2955,7 +2956,7 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 
     fillLinearizabilityHeader<WireFormat::Write::Request>(reqHdr);
 
-    request.appendExternal(rawRequest, size);
+    request.appendExternal(rawRequest.data, rawRequest.size);
 
     send();
 }
@@ -3021,8 +3022,8 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
  */
 WriteRpc::~WriteRpc()
 {
-    if (rawRequest) {
-        ramcloud->rpcRequestPool->free(rawRequest);
+    if (rawRequest.data) {
+        ramcloud->rpcRequestPool->free(rawRequest.data);
     }
 }
 
@@ -3048,13 +3049,14 @@ WriteRpc::wait(uint64_t* version)
         ClientException::throwException(HERE, respHdr->common.status);
 
     // TODO(seojin): Remove this after changing multi-key write constructor.
-    if (rawRequest) {
+    if (rawRequest.data) {
         WireFormat::Write::Request* reqHdr =
-                reinterpret_cast<WireFormat::Write::Request*>(rawRequest);
+                reinterpret_cast<WireFormat::Write::Request*>(rawRequest.data);
         if (reqHdr->common.asyncType == WireFormat::Asynchrony::ASYNC) {
             ramcloud->unsyncedRpcTracker->registerUnsynced(session, rawRequest,
                     tableId, keyHash, respHdr->version, respHdr->objPos, []{});
-            rawRequest = 0;
+            rawRequest.data = NULL;
+            rawRequest.size = 0;
         }
     }
 }

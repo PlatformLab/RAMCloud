@@ -38,6 +38,7 @@ class MasterRecoveryManager;
 class MasterService;
 class MockContextMember;
 class ObjectFinder;
+class UnsyncedRpcTracker;
 class PortAlarmTimer;
 class Service;
 class WorkerManager;
@@ -93,6 +94,7 @@ class Context {
     CacheTrace* cacheTrace;
     ObjectFinder* objectFinder; // On Client and Master, this locator tells
                                 // which master is the owner of an object.
+    UnsyncedRpcTracker* unsyncedRpcTracker; // On client, to flush session.
 
     // Holds command-line options, or NULL if no options are available.
     // Memory for this is managed by whoever created this object; we can

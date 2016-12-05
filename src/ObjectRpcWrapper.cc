@@ -17,6 +17,7 @@
 #include "Logger.h"
 #include "ObjectFinder.h"
 #include "ObjectRpcWrapper.h"
+#include "UnsyncedRpcTracker.h"
 
 namespace RAMCloud {
 
@@ -50,7 +51,7 @@ ObjectRpcWrapper::ObjectRpcWrapper(Context* context, uint64_t tableId,
     , context(context)
     , tableId(tableId)
     , keyHash(Key::getHash(tableId, key, keyLength))
-    , rawRequest(NULL)
+    , rawRequest({NULL, 0})
 {
 }
 
@@ -80,7 +81,7 @@ ObjectRpcWrapper::ObjectRpcWrapper(Context* context, uint64_t tableId,
     , context(context)
     , tableId(tableId)
     , keyHash(keyHash)
-    , rawRequest(NULL)
+    , rawRequest({NULL, 0})
 {
 }
 
@@ -110,8 +111,12 @@ ObjectRpcWrapper::handleTransportError()
     // to this session, and related to the object mapping for our object.
     // Then retry.
     context->objectFinder->flushSession(tableId, keyHash);
-    session = NULL;
     context->objectFinder->flush(tableId);
+    if (context->unsyncedRpcTracker) {
+        context->unsyncedRpcTracker->flushSession(session.get());
+    }
+    session = NULL;
+
     send();
     return false;
 }

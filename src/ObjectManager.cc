@@ -1172,6 +1172,9 @@ ObjectManager::syncChanges()
  *      If non-NULL, pointer to the RpcResult in log is returned.
  * \param[out] objPos
  *      If non-NULL, position of last byte written to log is returned.
+ * \param isRetryUnsynced
+ *      If true, this write is a recovery retry of a lost write. It will
+ *      be accepted when tablet's status is LOCKED_FOR_RETRIES.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_UKNOWN_TABLE may be returned.
@@ -1180,7 +1183,7 @@ Status
 ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer,
                 RpcResult* rpcResult, uint64_t* rpcResultPtr,
-                WireFormat::LogState* objPos)
+                WireFormat::LogState* objPos, bool isRetryUnsynced)
 {
     uint16_t keyLength = 0;
     const void *keyString = newObject.getKey(0, &keyLength);
@@ -1195,10 +1198,17 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         return STATUS_UNKNOWN_TABLET;
     }
     if (tablet.state != TabletManager::NORMAL) {
-        if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+        if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION) {
             throw RetryException(HERE, 1000, 2000,
                     "Tablet is currently locked for migration!");
-        return STATUS_UNKNOWN_TABLET;
+        } else if (tablet.state == TabletManager::LOCKED_FOR_RETRIES) {
+            if (!isRetryUnsynced) {
+                throw RetryException(HERE, 100000, 200000,
+                    "Tablet is currently locked for waiting recovery retries");
+            }
+        } else {
+            return STATUS_UNKNOWN_TABLET;
+        }
     }
 
     // If key is locked due to an in-progress transaction, we must wait.

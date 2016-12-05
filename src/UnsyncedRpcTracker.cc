@@ -18,6 +18,7 @@
 #include "ObjectRpcWrapper.h"
 #include "RamCloud.h"
 #include "RpcRequestPool.h"
+#include "ShortMacros.h"
 
 namespace RAMCloud {
 
@@ -32,6 +33,7 @@ UnsyncedRpcTracker::UnsyncedRpcTracker(RamCloud* ramcloud)
     , mutex()
     , ramcloud(ramcloud)
 {
+    ramcloud->clientContext->unsyncedRpcTracker = this;
 }
 
 /**
@@ -70,20 +72,18 @@ UnsyncedRpcTracker::~UnsyncedRpcTracker()
  */
 void
 UnsyncedRpcTracker::registerUnsynced(Transport::SessionRef session,
-                                    void* rpcRequest,
+                                    ClientRequest rpcRequest,
                                     uint64_t tableId,
                                     uint64_t keyHash,
                                     uint64_t objVer,
                                     WireFormat::LogState logPos,
                                     std::function<void()> callback)
 {
-    {
-        Lock lock(mutex);
-        Master* master = getOrInitMasterRecord(session);
-        master->rpcs.emplace(rpcRequest, tableId, keyHash, objVer, logPos,
-                             callback);
-    }
-    updateLogState(session.get(), logPos);
+    Lock lock(mutex);
+    Master* master = getOrInitMasterRecord(session);
+    master->rpcs.emplace(rpcRequest, tableId, keyHash, objVer, logPos,
+                         callback);
+    master->updateLogState(ramcloud, logPos);
 }
 
 /**
@@ -106,10 +106,12 @@ UnsyncedRpcTracker::flushSession(Transport::Session* sessionPtr)
         return;
     }
 
+    LOG(NOTICE, "Flushing session in UnsyncedRpcTracker. Total retries: %d",
+                static_cast<int>(master->rpcs.size()));
     while (!master->rpcs.empty()) {
         uint64_t tableId = master->rpcs.front().tableId;
         uint64_t keyHash = master->rpcs.front().keyHash;
-        void* request = master->rpcs.front().request;
+        ClientRequest request = master->rpcs.front().request;
         // TODO(seojin): fire in parallel?
         RetryUnsyncedRpc retryRpc(ramcloud->clientContext,
                                   tableId, keyHash, request);
@@ -119,9 +121,10 @@ UnsyncedRpcTracker::flushSession(Transport::Session* sessionPtr)
         // Problem: not sure the destructor will be called on std::stack::pop().
         UnsyncedRpc& rpc = master->rpcs.front();
         rpc.callback();
-        ramcloud->rpcRequestPool->free(rpc.request);
+        ramcloud->rpcRequestPool->free(rpc.request.data);
         master->rpcs.pop();
     }
+    LOG(NOTICE, "Done with sending retries for unsynced RPCs.");
 }
 
 /**
@@ -278,9 +281,9 @@ UnsyncedRpcTracker::getOrInitMasterRecord(Transport::SessionRef& session)
     return master;
 }
 
-/**********************************
- * Sync RPC
- **********************************/
+/////////////////////////////////////////
+// Sync RPC
+/////////////////////////////////////////
 
 /**
  * Construct and sends SyncRpc.
@@ -323,9 +326,40 @@ UnsyncedRpcTracker::SyncRpc::wait(LogState* newLogState)
         ClientException::throwException(HERE, respHdr->common.status);
 }
 
-/**********************************
- * Master
- **********************************/
+/////////////////////////////////////////
+// RetryUnsyncedRPC
+/////////////////////////////////////////
+
+/**
+ * Constructs and sends retry of an RPC.
+ *
+ * \param context
+ *      RAMCloud client context.
+ * \param tableId
+ *      The table containing the desired object.
+ * \param keyHash
+ *      Key hash that identifies a particular tablet.
+ * \param requestToRetry
+ */
+UnsyncedRpcTracker::RetryUnsyncedRpc::RetryUnsyncedRpc(Context* context,
+        uint64_t tableId, uint64_t keyHash, ClientRequest requestToRetry)
+    : ObjectRpcWrapper(context, tableId, keyHash,
+                       sizeof(WireFormat::ResponseCommon), NULL)
+{
+    rawRequest = requestToRetry;
+    WireFormat::AsyncRequestCommon* common =
+            reinterpret_cast<WireFormat::AsyncRequestCommon*>(rawRequest.data);
+
+    // Set flag of retry, so that master will process it during recovery.
+    common->asyncType = WireFormat::Asynchrony::RETRY;
+
+    request.appendExternal(rawRequest.data, rawRequest.size);
+    send();
+}
+
+/////////////////////////////////////////
+// Master
+/////////////////////////////////////////
 
 /**
  * Update the saved log state if the given one is newer, and
@@ -352,7 +386,7 @@ UnsyncedRpcTracker::Master::updateLogState(RamCloud* ramcloud,
             break;
         }
         rpc.callback();
-        ramcloud->rpcRequestPool->free(rpc.request);
+        ramcloud->rpcRequestPool->free(rpc.request.data);
         rpcs.pop();
     }
 }
