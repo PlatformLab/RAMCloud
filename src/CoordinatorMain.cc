@@ -27,6 +27,7 @@
 #include "TransportManager.h"
 #include "WorkerManager.h"
 #include "Arachne.h"
+#include "FileLogger.h"
 
 /**
  * \file
@@ -164,7 +165,11 @@ realMain(int argc, char *argv[])
 }
 int
 main(int argc, char *argv[]) {
-    Arachne::numCores = 2;
+    FileLogger arachneLogger(NOTICE, "ARACHNE: ");
+    Arachne::setErrorStream(arachneLogger.getFile());
+
+    Arachne::numCores = 1;
+    Arachne::maxNumCores = 4;
     Arachne::threadInit();
     // Invoke realMain outside of Arachne for now so we can defer handling of
     // the fact that the dispatch thread does not yield or terminate until we

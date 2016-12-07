@@ -32,6 +32,7 @@
 #include "TransportManager.h"
 #include "WorkerTimer.h"
 #include "Arachne.h"
+#include "FileLogger.h"
 
 using namespace RAMCloud;
 
@@ -364,7 +365,11 @@ realMain(int argc, char *argv[])
 }
 int
 main(int argc, const char *argv[]) {
-    Arachne::numCores = 3;
+    FileLogger arachneLogger(NOTICE, "ARACHNE: ");
+    Arachne::setErrorStream(arachneLogger.getFile());
+
+    Arachne::numCores = 2;
+    Arachne::maxNumCores = 4;
     Arachne::threadInit(&argc, argv);
     // Invoke realMain outside of Arachne for now so we can defer handling of
     // the fact that the dispatch thread does not yield or terminate until we
