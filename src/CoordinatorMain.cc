@@ -170,7 +170,7 @@ main(int argc, char *argv[]) {
 
     Arachne::numCores = 1;
     Arachne::maxNumCores = 4;
-    Arachne::threadInit();
+    Arachne::init();
     // Invoke realMain outside of Arachne for now so we can defer handling of
     // the fact that the dispatch thread does not yield or terminate until we
     // are ready to do that experiment.

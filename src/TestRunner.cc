@@ -171,7 +171,7 @@ main(int argc, char *argv[])
         virtual ~Environment() {}
         virtual void SetUp() {
             Arachne::numCores = 1;
-            Arachne::threadInit();
+            Arachne::init();
             Arachne::testInit();
         }
         // Override this to define how to tear down the environment.
