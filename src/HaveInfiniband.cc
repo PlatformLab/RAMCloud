@@ -23,6 +23,9 @@
 
 int main() {
     int r;
+    static_assert(IBV_QPT_RAW_ETH >= 0,
+            "Symbol `IBV_QPT_RAW_ETH` is undefined; consider upgrading "
+            "your libverbs.");
     ibv_free_device_list(ibv_get_device_list(&r));
     return r;
 }
