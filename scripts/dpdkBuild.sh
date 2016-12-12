@@ -26,11 +26,5 @@ if [ "$NUM_JOBS" -gt 2 ]; then
 fi
 
 DPDK_OPTIONS="CONFIG_RTE_BUILD_SHARED_LIB=y CONFIG_RTE_BUILD_COMBINE_LIBS=y"
-if [ -n "$DPDK_PMD" ];
-then
-    # The PMD libraries of some NICs (e.g., MLX4) are disabled by default
-    # due to external dependencies.
-    DPDK_OPTIONS+=" CONFIG_RTE_LIBRTE_${DPDK_PMD}_PMD=y"
-fi
 cd dpdk && make config T=$TARGET O=$TARGET
 cd $TARGET && make clean && make $DPDK_OPTIONS EXTRA_CFLAGS=-fPIC -j$NUM_JOBS

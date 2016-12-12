@@ -153,9 +153,8 @@ endif
 
 # Test whether Infiniband support is available. Avoids using $(COMFLAGS)
 # (particularly, -MD) which results in bad interactions with mergedeps.
-INFINIBAND = $(shell $(CXX) $(INCLUDES) $(EXTRACXXFLAGS) $(LIBS) -libverbs \
-                         -o /dev/null src/HaveInfiniband.cc \
-                         >/dev/null 2>&1 \
+INFINIBAND = $(shell $(CXX) $(INCLUDES) $(EXTRACXXFLAGS) src/HaveInfiniband.cc \
+                         $(LIBS) -libverbs -o /dev/null >/dev/null 2>&1 \
                          && echo yes || echo no)
 
 ifeq ($(INFINIBAND),yes)
@@ -237,9 +236,9 @@ LIBS += $(DPDK_SHLIBS) $(DPDK_RPATH) -ldl
 else
 # Link with static libraries
 # DPDK must have been compiled with CONFIG_RTE_BUILD_COMBINE_LIBS=y and -fPIC
-DPDK_AR_LIBS := $(DPDK_LIB_DIR)/libintel_dpdk.a
+DPDK_AR_LIBS := $(DPDK_LIB_DIR)/libdpdk.a
 ## --whole-archive is required to link the pmd objects.
-LIBS += -Wl,--whole-archive $(DPDK_AR_LIBS) -Wl,--no-whole-archive -ldl
+LIBS := -Wl,--whole-archive $(DPDK_AR_LIBS) -Wl,--no-whole-archive -ldl $(LIBS)
 endif
 
 # End of DPDK definitions

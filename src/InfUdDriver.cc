@@ -214,7 +214,7 @@ InfUdDriver::~InfUdDriver()
 uint32_t
 InfUdDriver::getMaxPacketSize()
 {
-    const uint32_t eth = 1500 + 14 - sizeof(EthernetHeader);
+    const uint32_t eth = 1500 + 14 - sizeof32(EthernetHeader);
     const uint32_t inf = 2048 - GRH_SIZE;
     return localMac ? eth : inf;
 }
