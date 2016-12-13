@@ -153,7 +153,7 @@ endif
 
 # Test whether Infiniband support is available. Avoids using $(COMFLAGS)
 # (particularly, -MD) which results in bad interactions with mergedeps.
-INFINIBAND = $(shell $(CXX) $(INCLUDES) $(EXTRACXXFLAGS) src/HaveInfiniband.cc \
+INFINIBAND = $(shell $(CXX) -std=c++11 $(INCLUDES) src/HaveInfiniband.cc \
                          $(LIBS) -libverbs -o /dev/null >/dev/null 2>&1 \
                          && echo yes || echo no)
 
