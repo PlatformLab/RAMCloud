@@ -85,6 +85,9 @@ main(int argc, char *argv[])
              "from scratch.");
 
         OptionParser optionParser(coordinatorOptions, argc, argv);
+        // Running DPDK requires extra system setup (e.g. reserving Hugepages).
+        // Coordinators never use DPDK. Disable DpdkDriver to avoid the hassle.
+        optionParser.options.dpdkPort = -1;
 
         // Log all the command-line arguments.
         string args;

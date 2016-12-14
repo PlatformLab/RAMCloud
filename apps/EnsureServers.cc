@@ -72,6 +72,9 @@ try
              "seconds.");
 
     OptionParser optionParser(clientOptions, argc, argv);
+    // Running DPDK requires extra system setup (e.g. reserving Hugepages).
+    // EnsureServers never uses DPDK. Disable DpdkDriver to avoid the hassle.
+    optionParser.options.dpdkPort = -1;
     RamCloud ramcloud(&optionParser.options);
 
     if (numMasters == -1 && numBackups == -1) {
