@@ -46,18 +46,13 @@
 #include <unordered_set>
 namespace po = boost::program_options;
 
-#include "assert.h"
 #include "BasicTransport.h"
 #include "btreeRamCloud/Btree.h"
 #include "ClientLeaseAgent.h"
-#include "CycleCounter.h"
-#include "Cycles.h"
-#include "PerfStats.h"
 #include "IndexLookup.h"
-#include "RamCloud.h"
-#include "Util.h"
 #include "TimeTrace.h"
 #include "Transaction.h"
+#include "Util.h"
 
 using namespace RAMCloud;
 
@@ -6404,28 +6399,17 @@ try
 {
     // Parse command-line options.
     vector<string> testNames;
-    CommandLineOptions options;
-    string logFile;
-    string logLevel("NOTICE");
-    po::options_description desc(
+    OptionsDescription clusterperfOptions(
             "Usage: ClusterPerf [options] testName testName ...\n\n"
             "Runs one or more benchmarks on a RAMCloud cluster and outputs\n"
             "performance information.  This program is not normally invoked\n"
             "directly; it is invoked by the clusterperf script.\n\n"
             "Allowed options:");
-    desc.add_options()
+    clusterperfOptions.add_options()
         ("clientIndex", po::value<int>(&clientIndex)->default_value(0),
                 "Index of this client (first client is 0)")
-        ("coordinator,C", po::value<string>(&options.coordinatorLocator),
-                "Service locator for the cluster coordinator (required)")
         ("count,c", po::value<int>(&count)->default_value(100000),
                 "Number of times to invoke operation for test")
-        ("logFile", po::value<string>(&logFile),
-                "Redirect all output to this file")
-        ("logLevel,l", po::value<string>(&logLevel)->default_value("NOTICE"),
-                "Print log messages only at this severity level or higher "
-                "(ERROR, WARNING, NOTICE, DEBUG)")
-        ("help,h", "Print this help message")
         ("numClients", po::value<int>(&numClients)->default_value(1),
                 "Total number of clients running")
         ("numVClients", po::value<int>(&numVClients)->default_value(1),
@@ -6468,34 +6452,11 @@ try
                 "Print alternate format for latency samples that includes "
                 "timestamps for each of the samples.");
 
-    po::positional_options_description desc2;
-    desc2.add("testName", -1);
-    po::variables_map vm;
-    po::store(po::command_line_parser(argc, argv).
-            options(desc).positional(desc2).run(), vm);
-    po::notify(vm);
-    if (logFile.size() != 0) {
-        // Redirect both stdout and stderr to the log file.
-        FILE* f = fopen(logFile.c_str(), "w");
-        if (f == NULL) {
-            RAMCLOUD_LOG(ERROR, "couldn't open log file '%s': %s",
-                    logFile.c_str(), strerror(errno));
-            exit(1);
-        }
-        stdout = stderr = f;
-        Logger::get().setLogFile(fileno(f));
-    }
-    Logger::get().setLogLevels(logLevel);
-    if (vm.count("help")) {
-        std::cout << desc << '\n';
-        exit(0);
-    }
-    if (options.coordinatorLocator.empty()) {
-        RAMCLOUD_LOG(ERROR, "missing required option --coordinator");
-        exit(1);
-    }
+    po::positional_options_description pos_desc;
+    pos_desc.add("testName", -1);
+    OptionParser optionParser(clusterperfOptions, pos_desc, argc, argv);
 
-    RamCloud r(&options);
+    RamCloud r(&optionParser.options);
     context = r.clientContext;
     cluster = &r;
     cluster->createTable("data");
@@ -6505,14 +6466,14 @@ try
 
     if (testNames.size() == 0) {
         // No test names specified; run all tests.
-        foreach (TestInfo& info, tests) {
+        for (TestInfo& info : tests) {
             info.func();
         }
     } else {
         // Run only the tests that were specified on the command line.
         foreach (string& name, testNames) {
             bool foundTest = false;
-            foreach (TestInfo& info, tests) {
+            for (TestInfo& info : tests) {
                 if (name.compare(info.name) == 0) {
                     foundTest = true;
                     info.func();

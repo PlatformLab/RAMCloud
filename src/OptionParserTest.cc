@@ -67,6 +67,27 @@ TEST_F(OptionParserTest, constructor_appSpecific) {
     EXPECT_TRUE(value);
 }
 
+TEST_F(OptionParserTest, constructor_positional) {
+    vector<string> testNames;
+    int argc = 7;
+    const char* argv[] = { "fooprogram"
+                            , "foo"
+                            , "-L", localLocator
+                            , "-C", coordinatorLocator
+                            , "bar"
+                            };
+    OptionsDescription appOptions;
+    appOptions.add_options()
+            ("testNames", ProgramOptions::value<vector<string>>(&testNames),
+             "Name(s) of test(s)");
+    PositionalOptionsDescription posDesc;
+    posDesc.add("testNames", -1);
+    OptionParser parser(appOptions, posDesc, argc, const_cast<char**>(argv));
+    EXPECT_TRUE(testNames.size() == 2
+            && testNames[0].compare("foo") == 0
+            && testNames[1].compare("bar") == 0);
+}
+
 struct TempFile {
     TempFile()
         : fd(-1)

@@ -29,6 +29,11 @@ namespace ProgramOptions {
 /// See boost::program_options::options_description, just a type synonym.
 typedef ProgramOptions::options_description OptionsDescription;
 
+/// See boost::program_options::positional_options_description, just a
+/// type synonym.
+typedef ProgramOptions::positional_options_description
+        PositionalOptionsDescription;
+
 /// Holds values for generic RAMCloud options.
 class CommandLineOptions {
   public:
@@ -151,6 +156,9 @@ class OptionParser {
     OptionParser(int argc, char* argv[]);
     OptionParser(const OptionsDescription& appOptions,
                  int argc, char* argv[]);
+    OptionParser(const OptionsDescription& appOptions,
+                 const PositionalOptionsDescription& positionalOptions,
+                 int argc, char* argv[]);
     void usage() const;
     void usageAndExit() const;
 
@@ -165,6 +173,10 @@ class OptionParser {
 
     /// Additional application-specific options that should be parsed.
     const OptionsDescription appOptions;
+
+    /// Command line options that are allowed to be identified by their
+    /// positions without option names.
+    const PositionalOptionsDescription positionalOptions;
 };
 
 } // end RAMCloud

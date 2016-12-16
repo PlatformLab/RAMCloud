@@ -16,7 +16,6 @@
 #include <signal.h>
 #include <boost/version.hpp>
 #include <boost/program_options.hpp>
-#include <boost/lexical_cast.hpp>
 #include <iostream>
 #include <fstream>
 
@@ -45,6 +44,7 @@ OptionParser::OptionParser(int argc,
     : options()
     , allOptions("Usage")
     , appOptions()
+    , positionalOptions()
 {
     setup(argc, argv);
 }
@@ -71,6 +71,40 @@ OptionParser::OptionParser(
     : options()
     , allOptions("Usage")
     , appOptions(appOptions)
+    , positionalOptions()
+{
+    setup(argc, argv);
+}
+
+/**
+ * Parse the common RAMCloud command line options and store
+ * them in #options as well as additional application-specific options.
+ * Furthermore, options can be specified as positional so that they can be
+ * identified by their positions in the command line.
+ *
+ * \param appOptions
+ *      The OptionsDescription to be parsed.  Each of the options that are
+ *      part of it should include a pointer to where the value should be
+ *      stored after parsing.  See boost::program_options::options_description
+ *      for details.
+ * \param positionalOptions
+ *      Describes which command line options are positional. See
+ *      boost::program_options::positional_options_description for details.
+ * \param argc
+ *      Count of the number of elements in argv.
+ * \param argv
+ *      A Unix style word tokenized array of command arguments including
+ *      the executable name as argv[0].
+ */
+OptionParser::OptionParser(
+        const OptionsDescription& appOptions,
+        const PositionalOptionsDescription& positionalOptions,
+        int argc,
+        char* argv[])
+    : options()
+    , allOptions("Usage")
+    , appOptions(appOptions)
+    , positionalOptions(positionalOptions)
 {
     setup(argc, argv);
 }
@@ -233,16 +267,15 @@ OptionParser::setup(int argc, char* argv[])
         // Need to skip unknown parameters since we'll repeat the parsing
         // once we know which config file to read in.
         po::store(po::command_line_parser(argc, argv).options(commonOptions)
-                                                     .allow_unregistered()
-                                                     .run(),
-                  throwAway);
+                .allow_unregistered().run(), throwAway);
         po::notify(throwAway);
 
         allOptions.add(commonOptions).add(configOptions).add(appOptions);
 
         po::variables_map vm;
         std::ifstream configInput(configFile.c_str());
-        po::store(po::parse_command_line(argc, argv, allOptions), vm);
+        po::store(po::command_line_parser(argc, argv).options(allOptions)
+                .positional(positionalOptions).run(), vm);
         // true here lets config files contain unknown key/value pairs
         // this lets a config file be used for multiple programs
         po::store(po::parse_config_file(configInput, allOptions, true), vm);
