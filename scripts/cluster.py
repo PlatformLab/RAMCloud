@@ -64,8 +64,8 @@ coord_locator_templates = {
     'basic+udp-1g': 'basic+udp:host=%(host1g)s,port=%(port)d',
     'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
     'infrc': 'infrc:host=%(host)s,port=%(port)d',
-    # Coordinator uses udp even when rest of cluster uses infud
-    # or infeth.
+    # Coordinator uses udp to initiate the RPC even when rest of cluster uses
+    # infud, infeth, or dpdk.
     'basic+infud': 'basic+udp:host=%(host)s,port=%(port)d',
     'basic+dpdk': 'basic+udp:host=%(host)s,port=%(port)d',
 }
