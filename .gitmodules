@@ -7,7 +7,7 @@
 	url = https://github.com/logcabin/logcabin.git
 [submodule "Arachne"]
 	path = Arachne
-	url = git@hq6.me:hq6/Arachne
+	url = git@github.com:PlatformLab/Arachne.git
 [submodule "PerfUtils"]
 	path = PerfUtils
 	url = git@github.com:PlatformLab/PerfUtils.git
