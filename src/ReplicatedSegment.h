@@ -471,7 +471,9 @@ class ReplicatedSegment : public Task {
      * in this module.
      */
     Arachne::SpinLock syncMutex;
-    typedef std::lock_guard<Arachne::SpinLock> SpinLockGuard;
+    Arachne::ConditionVariable syncCV;
+    bool isSyncing;
+    typedef std::unique_lock<Arachne::SpinLock> SpinLockGuard;
 
     /**
      * Segment to be replicated.

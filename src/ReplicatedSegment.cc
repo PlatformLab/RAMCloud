@@ -106,6 +106,8 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , replicationEpoch(replicationEpoch)
     , dataMutex(dataMutex)
     , syncMutex()
+    , syncCV()
+    , isSyncing(false)
     , segment(segment)
     , normalLogSegment(normalLogSegment)
     , masterId(masterId)
@@ -380,7 +382,13 @@ ReplicatedSegment::sync(uint32_t offset, SegmentCertificate* certificate)
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     TEST_LOG("syncing segment %lu to offset %u", segmentId, offset);
 
-    SpinLockGuard syncLock(syncMutex);
+    {
+        SpinLockGuard syncLock(syncMutex);
+        while (isSyncing) {
+            syncCV.wait(syncLock);
+        }
+        isSyncing = true;
+    }
     Tub<Lock> lock;
     lock.construct(dataMutex);
 
@@ -425,10 +433,10 @@ ReplicatedSegment::sync(uint32_t offset, SegmentCertificate* certificate)
             if (!normalLogSegment || precedingSegmentCloseCommitted) {
                 if (offset == ~0u) {
                     if (getCommitted().close)
-                        return;
+                        break;
                 } else {
                     if (getCommitted().bytes >= offset)
-                        return;
+                        break;
                 }
             }
         }
@@ -443,6 +451,13 @@ ReplicatedSegment::sync(uint32_t offset, SegmentCertificate* certificate)
         lock.destroy();
         Arachne::yield();
         lock.construct(dataMutex);
+    }
+
+    // Allow others to attempt to synchronize
+    {
+        SpinLockGuard syncLock(syncMutex);
+        isSyncing = false;
+        syncCV.notifyOne();
     }
 }
 
