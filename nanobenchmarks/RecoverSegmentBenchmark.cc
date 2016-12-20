@@ -21,6 +21,7 @@
 #include "SegmentIterator.h"
 #include "Seglet.h"
 #include "Tablets.pb.h"
+#include "Util.h"
 
 namespace RAMCloud {
 
@@ -31,13 +32,27 @@ class RecoverSegmentBenchmark {
     ServerConfig config;
     ServerList serverList;
     MasterService* service;
+    size_t numSegments;
+    std::atomic<size_t> next;
+    std::vector<Segment*> segments;
+    std::atomic<size_t> nReady;
+    std::atomic<bool> go;
+    std::atomic<size_t> nDone;
 
-    RecoverSegmentBenchmark(string logSize, string hashTableSize,
-        int numSegments)
+    RecoverSegmentBenchmark(
+        string logSize,
+        string hashTableSize,
+        size_t numSegments)
         : context()
         , config(ServerConfig::forTesting())
         , serverList(&context)
         , service(NULL)
+        , numSegments{numSegments}
+        , next{}
+        , segments{}
+        , nReady{}
+        , go{}
+        , nDone{}
     {
         Logger::get().setLogLevels(WARNING);
         config.localLocator = "bogus";
@@ -53,11 +68,52 @@ class RecoverSegmentBenchmark {
 
     ~RecoverSegmentBenchmark()
     {
+        for (Segment* segment : segments)
+            delete segment;
         delete service;
     }
 
+    Segment*
+    getNextSegment()
+    {
+        size_t i = next++;
+        if (i < numSegments)
+            return segments[i];
+        return nullptr;
+    }
+
     void
-    run(int numSegments, int dataLen)
+    doReplay(int threadId)
+    {
+        // Prefer Linux's core enumeration order: core-to-core, then across
+        // sockets, then loop back over hyperthreads.
+        Util::pinThreadToCore(threadId);
+        // Can also hack to e.g. prefer colocated hyperthreads to more cores.
+        //Util::pinThreadToCore(((threadId % 2) * 4) + (threadId / 2));
+
+        SideLog sideLog(service->objectManager.getLog());
+
+        nReady++;
+        while (!go);
+
+        Segment* s = nullptr;
+        while ((s = getNextSegment()) != nullptr) {
+            Buffer buffer;
+            s->appendToBuffer(buffer);
+            SegmentCertificate certificate;
+            s->getAppendedLength(&certificate);
+            const void* contigSeg = buffer.getRange(0, buffer.size());
+            SegmentIterator it(contigSeg, buffer.size(), certificate);
+            service->objectManager.replaySegment(&sideLog, it);
+        }
+
+        nDone++;
+
+        sideLog.commit();
+    }
+
+    void
+    run(uint32_t dataLen, size_t nThreads)
     {
         /*
          * Allocate numSegments Segments and fill them up with objects of
@@ -65,9 +121,8 @@ class RecoverSegmentBenchmark {
          */
         uint64_t numObjects = 0;
         uint64_t nextKeyVal = 0;
-        Segment *segments[numSegments];
-        for (int i = 0; i < numSegments; i++) {
-            segments[i] = new Segment();
+        for (size_t i = 0; i < numSegments; i++) {
+            segments.push_back(new Segment());
             while (1) {
                 Key key(0, &nextKeyVal, sizeof(nextKeyVal));
 
@@ -111,27 +166,35 @@ class RecoverSegmentBenchmark {
         metrics->temp.count8 =
         metrics->temp.count9 = 0;
 
+        ObjectManager::TombstoneProtector _{&service->objectManager};
+
         /*
          * Now run a fake recovery.
          */
-        SideLog sideLog(service->objectManager.getLog());
+        std::deque<std::thread> threads{};
+        for (size_t i = 0; i < nThreads; ++i)
+            threads.emplace_back(&RecoverSegmentBenchmark::doReplay, this, i);
+
+        while (nReady < nThreads)
+            usleep(100);
+        go = true;
+
         uint64_t before = Cycles::rdtsc();
-        for (int i = 0; i < numSegments; i++) {
-            Segment* s = segments[i];
-            Buffer buffer;
-            s->appendToBuffer(buffer);
-            SegmentCertificate certificate;
-            s->getAppendedLength(&certificate);
-            const void* contigSeg = buffer.getRange(0, buffer.size());
-            SegmentIterator it(contigSeg, buffer.size(), certificate);
-            service->objectManager.replaySegment(&sideLog, it);
-        }
+
+        while (nDone < nThreads)
+            usleep(10000);
+
         uint64_t ticks = Cycles::rdtsc() - before;
 
+        for (auto& thread : threads)
+            thread.join();
+
         uint64_t totalObjectBytes = numObjects * dataLen;
-        uint64_t totalSegmentBytes = numSegments *
+        uint64_t totalSegmentBytes = uint64_t(numSegments) *
                                      Segment::DEFAULT_SEGMENT_SIZE;
-        printf("Recovery of %d %dKB Segments with %d byte Objects took %lu "
+
+        printf("%lu threads\n", nThreads);
+        printf("Recovery of %lu %uKB Segments with %u byte Objects took %lu "
             "ms\n", numSegments, Segment::DEFAULT_SEGMENT_SIZE / 1024,
             dataLen, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);
         printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
@@ -188,11 +251,6 @@ if (metrics->temp.count##i.load()) { \
         DUMP_TEMP_COUNT(7);
         DUMP_TEMP_COUNT(8);
         DUMP_TEMP_COUNT(9);
-
-        // clean up
-        for (int i = 0; i < numSegments; i++) {
-            delete segments[i];
-        }
     }
 
     DISALLOW_COPY_AND_ASSIGN(RecoverSegmentBenchmark);
@@ -203,13 +261,16 @@ if (metrics->temp.count##i.load()) { \
 int
 main()
 {
-    int numSegments = 600 / 8; // = 72.
-    int dataLen[] = { 64, 128, 256, 512, 1024, 2048, 8192, 0 };
+    size_t numSegments = 5 * 600 / 8;
+    uint32_t dataLen[] = { 64, 128, 256, 512, 1024, 2048, 8192 };
+    size_t nThreads[] = { 1, 2, 4, 8 };
 
-    for (int i = 0; dataLen[i] != 0; i++) {
-        printf("==========================\n");
-        RAMCloud::RecoverSegmentBenchmark rsb("2048", "10%", numSegments);
-        rsb.run(numSegments, dataLen[i]);
+    for (size_t threads : nThreads) {
+        for (uint32_t len : dataLen) {
+            printf("==========================\n");
+            RAMCloud::RecoverSegmentBenchmark rsb("4096", "10%", numSegments);
+            rsb.run(len, threads);
+        }
     }
 
     return 0;
