@@ -83,8 +83,9 @@ void pinThreadToCore(int id) {
     cpu_set_t cpuset;
 
     CPU_ZERO(&cpuset);
-        CPU_SET(id, &cpuset);
-        assert(sched_setaffinity(0, sizeof(cpuset), &cpuset) == 0);
+    CPU_SET(id, &cpuset);
+    int r = sched_setaffinity(0, sizeof(cpuset), &cpuset);
+    assert(r == 0);
 }
 
 /**
@@ -97,7 +98,8 @@ cpu_set_t getCpuAffinity() {
     cpu_set_t cpuset;
 
     CPU_ZERO(&cpuset);
-    assert(sched_getaffinity(0, sizeof(cpuset), &cpuset) == 0);
+    int r = sched_getaffinity(0, sizeof(cpuset), &cpuset);
+    assert(r == 0);
     return cpuset;
 }
 
@@ -112,7 +114,8 @@ cpu_set_t getCpuAffinity() {
  */
 static FORCE_INLINE
 void setCpuAffinity(cpu_set_t cpuset) {
-    assert(sched_setaffinity(0, sizeof(cpuset), &cpuset) == 0);
+    int r = sched_setaffinity(0, sizeof(cpuset), &cpuset);
+    assert(r == 0);
 }
 
 /**
