@@ -82,6 +82,7 @@ class Logger {
 
     void setLogFile(const char* path, bool truncate = false);
     void setLogFile(int fd);
+    int getLogFile() { return fd; }
 
     void setLogLevel(LogModule, LogLevel level);
     void setLogLevel(LogModule, int level);

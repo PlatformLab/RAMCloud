@@ -364,7 +364,7 @@ class WorkloadGenerator {
         RAMCLOUD_LOG(NOTICE, ">>> Workload: %s", workloadName.c_str());
         RAMCLOUD_LOG(NOTICE, ">>> Record Count: %d", recordCount);
         RAMCLOUD_LOG(NOTICE, ">>> Record Size: %d", recordSizeB);
-        RAMCLOUD_LOG(NOTICE, ">>> Total Table Size: %lu",
+        RAMCLOUD_LOG(NOTICE, ">>> Total Table Size: %lu MB",
                uint64_t(recordCount) * recordSizeB / (1lu << 20));
         RAMCLOUD_LOG(NOTICE, ">>> Read Percentage: %d", readPercent);
         RAMCLOUD_LOG(NOTICE, ">>> Migrate Percentage: %d", migratePercentage);
@@ -4475,6 +4475,8 @@ doWorkload(OpType type)
                PerfStats::printClusterStats(&stats[i - 1], &stats[i]).c_str());
         }
         dumpSamples(samples, experimentStartTicks);
+        printf("\n");
+        fflush(stdout);
     } else {
         int valuesInLine = 0;
         for (Sample& sample : samples) {
@@ -6455,6 +6457,9 @@ try
     po::positional_options_description pos_desc;
     pos_desc.add("testName", -1);
     OptionParser optionParser(clusterperfOptions, pos_desc, argc, argv);
+
+    dup2(Logger::get().getLogFile(), 1);
+    dup2(Logger::get().getLogFile(), 2);
 
     RamCloud r(&optionParser.options);
     context = r.clientContext;
