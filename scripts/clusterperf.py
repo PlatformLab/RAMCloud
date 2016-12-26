@@ -219,6 +219,9 @@ def print_rcdf_from_log_samples(
             except ValueError, e:
                 print("Skipping, couldn't parse %s" % line, file=sys.stderr)
 
+    if len(numbers) == 0:
+        return
+
     # Generate a RCDF from the array.
     numbers.sort()
     result = []
@@ -743,11 +746,14 @@ def calculatePerClientTarget(workload, clients, percentage):
 
 def migrateLoaded(name, options, cluster_args, client_args):
     if not options.extract:
-        clients = 16
-        servers = len(getHosts()) - clients - 1
+        clients = options.num_clients
+        servers = options.num_servers # len(getHosts()) - clients - 1
 
         if servers < 4:
             raise Exception('Not enough servers: only %d left' % servers)
+        if clients < 16:
+            print('!!! WARNING !!! Use 16 clients to ensure enough load for ' +
+                  'real experiments !!! WARNING !!!', file=sys.stderr)
 
         cluster_args['num_servers'] = servers
 
@@ -780,6 +786,9 @@ def migrateLoaded(name, options, cluster_args, client_args):
                 calculatePerClientTarget(
                     client_args['--workload'], clients,
                     options.loadPct))
+
+        # Turn on timestamps on latency samples.
+        defaultTo(client_args, '--fullSamples', '')
 
         name = 'readDistWorkload'
         cluster.run(client='%s/apps/ClusterPerf %s %s' %
