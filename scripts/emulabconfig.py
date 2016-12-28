@@ -7,7 +7,9 @@ ssh access. Check https://www.cloudlab.us/ssh-keys.php if you didn't export keys
 
 Sample localconfig.py 
 from emulabconfig import *
-hooks = EmulabClusterHooks();
+hooks = EmulabClusterHooks(makeflags='-j12 DEBUG=no');
+# EmulabClusterHooks(makeflags='-j12 DPDK=yes DPDK_DIR=/local/RAMCloud/deps/dpdk-16.07')
+# builds for DPDK
 hosts = getHosts()
 
 """
@@ -107,9 +109,10 @@ default_disk1 = '-f /dev/sda2'
 default_disk2 = '-f /dev/sda2,/dev/sda3'
 
 class EmulabClusterHooks:
-    def __init__(self):
+    def __init__(self, makeflags=''):
         self.remotewd = None
         self.hosts = getHosts()
+	self.makeflags = makeflags
         self.parallel = self.cmd_exists("pdsh")
         if not self.parallel:
             log("NOTICE: Remote commands could be faster if you install and configure pdsh")
@@ -154,8 +157,8 @@ class EmulabClusterHooks:
         clean_cmd = ''
         if clean:
             clean_cmd = 'make clean;'
-        self.remote_func('(cd %s; (%s make -j12 DPDK=yes DPDK_DIR=/local/RAMCloud/deps/dpdk-16.07)  > ' % (self.get_remote_wd(), clean_cmd) +
-                         '%s/build.log)' % self.get_remote_wd())
+        self.remote_func('(cd %s; %s make %s  > %s/build.log)' % (self.get_remote_wd(),
+                          clean_cmd, self.makeflags, self.get_remote_wd()))
 
     def kill_procs(self):
         log("Killing existing processes")
@@ -181,7 +184,7 @@ class EmulabClusterHooks:
         log('== Connecting to Emulab via %s ==' % self.hosts[0][0])
         #self.kill_procs()
         self.send_code()
-        self.compile_code()
+        self.compile_code(clean=True)
         self.create_log_dir()
         self.fix_disk_permissions()
         log('== Emulab Cluster Configured ==')
