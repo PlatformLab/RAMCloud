@@ -299,6 +299,8 @@ def run_test(
         client_args['--migratePercentage'] = options.migratePercentage
     if options.fullSamples:
         client_args['--fullSamples'] = ''
+    if options.seconds:
+        client_args['--seconds'] = options.seconds
     test.function(test.name, options, cluster_args, client_args)
 
 #-------------------------------------------------------------------
