@@ -157,7 +157,7 @@ class EmulabClusterHooks:
         clean_cmd = ''
         if clean:
             clean_cmd = 'make clean;'
-        self.remote_func('(cd %s; %s make %s  > %s/build.log)' % (self.get_remote_wd(),
+        self.remote_func('(cd %s; %s make %s  > %s/build.log 2>&1)' % (self.get_remote_wd(),
                           clean_cmd, self.makeflags, self.get_remote_wd()))
 
     def kill_procs(self):
@@ -184,7 +184,7 @@ class EmulabClusterHooks:
         log('== Connecting to Emulab via %s ==' % self.hosts[0][0])
         #self.kill_procs()
         self.send_code()
-        self.compile_code(clean=True)
+        self.compile_code(clean=False)
         self.create_log_dir()
         self.fix_disk_permissions()
         log('== Emulab Cluster Configured ==')
