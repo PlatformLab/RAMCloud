@@ -1016,12 +1016,12 @@ MasterService::migrateSingleLogEntry(
     if (!transferSeg)
         transferSeg.construct();
 
+#if !MIGRATION_SKIP_APPEND
     // If we can't fit it, send the current buffer and retry.
     if (!transferSeg->append(type, buffer)) {
         transferSeg->close();
         LOG(DEBUG, "Sending migration segment");
         if (expect_true(receiver != ServerId{})) {
-#define MIGRATION_SKIP_TX false
 #if !MIGRATION_SKIP_TX
             MasterClient::receiveMigrationData(context, receiver,
                     transferSeg.get(), tableId, firstKeyHash);
@@ -1039,6 +1039,7 @@ MasterService::migrateSingleLogEntry(
             return STATUS_INTERNAL_ERROR;
         }
     }
+#endif
 
     TEST_LOG("Migrated log entry type %s",
             LogEntryTypeHelpers::toString(type));
@@ -1093,8 +1094,10 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
 
     MasterClient::prepForMigration(context, receiver, tableId,
             firstKeyHash, lastKeyHash);
+#if !(MIGRATION_SKIP_APPEND || MIGRATION_SKIP_TX || MIGRATION_SKIP_REPLAY)
     LogPosition newOwnerLogHead = MasterClient::getHeadOfLog(
             context, receiver);
+#endif
 
     LOG(NOTICE, "Migrating tablet [0x%lx,0x%lx] in tableId %lu to %s",
         firstKeyHash, lastKeyHash, tableId,
@@ -1161,6 +1164,11 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // the tablet. If this succeeds, we are free to drop the tablet. The
     // data is all on the other machine and the coordinator knows to use it
     // for any recoveries.
+
+#if MIGRATION_SKIP_APPEND || MIGRATION_SKIP_TX || MIGRATION_SKIP_REPLAY
+    tabletManager.changeState(tableId, firstKeyHash, lastKeyHash,
+            TabletManager::LOCKED_FOR_MIGRATION, TabletManager::NORMAL);
+#else
     CoordinatorClient::reassignTabletOwnership(context,
             tableId, firstKeyHash, lastKeyHash, receiver,
             newOwnerLogHead.getSegmentId(), newOwnerLogHead.getSegmentOffset());
@@ -1187,6 +1195,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
 
     // Removed unnecessary prepared transaction operations.
     transactionManager.removeOrphanedOps();
+#endif
 }
 
 /**
@@ -1782,6 +1791,10 @@ MasterService::receiveMigrationData(
 
     LOG(NOTICE, "Receiving %u bytes of migration data for tablet [0x%lx,??] "
             "in tableId %lu", segmentBytes, firstKeyHash, tableId);
+
+#if MIGRATION_SKIP_REPLAY
+    return;
+#endif
 
     // Make sure we already have a table created that was previously prepped
     // for migration.
