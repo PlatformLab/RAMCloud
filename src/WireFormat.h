@@ -129,7 +129,8 @@ enum Opcode {
     TX_PREPARE                  = 77,
     TX_REQUEST_ABORT            = 78,
     TX_HINT_FAILED              = 79,
-    ILLEGAL_RPC_TYPE            = 80, // 1 + the highest legitimate Opcode
+    ECHO                        = 80,
+    ILLEGAL_RPC_TYPE            = 81, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -559,6 +560,19 @@ struct DropTabletOwnership {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct Echo {
+    static const Opcode opcode = ECHO;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint32_t length;            // Length of the original message.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint32_t length;            // Length of the echo message.
     } __attribute__((packed));
 };
 

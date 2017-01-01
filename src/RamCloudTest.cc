@@ -198,6 +198,17 @@ TEST_F(RamCloudTest, concurrentAsyncRpc) {
     EXPECT_EQ("STATUS_TABLE_DOESNT_EXIST", message2);
 }
 
+TEST_F(RamCloudTest, echo_basics) {
+    Buffer echo;
+    ramcloud->echo("mock:host=master1", "abcdef", 6, &echo);
+    EXPECT_EQ("abcdef", TestUtil::toString(&echo));
+    EXPECT_EQ(6U, echo.size());
+
+    ramcloud->echo("mock:host=master2", "ghijkl", 6, &echo);
+    EXPECT_EQ("ghijkl", TestUtil::toString(&echo));
+    EXPECT_EQ(6U, echo.size());
+}
+
 TEST_F(RamCloudTest, enumeration_basics) {
     uint64_t version0, version1, version2, version3, version4;
     ramcloud->write(tableId3, "0", 1, "abcdef", 6, NULL, &version0);

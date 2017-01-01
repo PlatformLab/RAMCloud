@@ -142,6 +142,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::DropIndexletOwnership, MasterService,
                         &MasterService::dropIndexletOwnership>(rpc);
             break;
+        case WireFormat::Echo::opcode:
+            callHandler<WireFormat::Echo, MasterService,
+                        &MasterService::echo>(rpc);
+            break;
         case WireFormat::Enumerate::opcode:
             callHandler<WireFormat::Enumerate, MasterService,
                         &MasterService::enumerate>(rpc);
@@ -379,6 +383,21 @@ MasterService::dropIndexletOwnership(
 
     LOG(NOTICE, "Dropped ownership of (or did not own) indexlet in "
             "tableId %lu, indexId %u", reqHdr->tableId, reqHdr->indexId);
+}
+
+/**
+ * Top-level server method to handle the ECHO request.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::echo(const WireFormat::Echo::Request* reqHdr,
+        WireFormat::Echo::Response* respHdr,
+        Rpc* rpc)
+{
+    respHdr->length = reqHdr->length;
+    uint32_t messageOffset = sizeof32(*reqHdr);
+    rpc->replyPayload->appendExternal(rpc->requestPayload, messageOffset);
 }
 
 /**

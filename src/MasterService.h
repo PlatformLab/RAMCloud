@@ -156,6 +156,9 @@ class MasterService : public Service {
                 const WireFormat::DropIndexletOwnership::Request* reqHdr,
                 WireFormat::DropIndexletOwnership::Response* respHdr,
                 Rpc* rpc);
+    void echo(const WireFormat::Echo::Request* reqHdr,
+                WireFormat::Echo::Response* respHdr,
+                Rpc* rpc);
     void enumerate(const WireFormat::Enumerate::Request* reqHdr,
                 WireFormat::Enumerate::Response* respHdr,
                 Rpc* rpc);

@@ -74,6 +74,8 @@ class RamCloud {
     void createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
             uint8_t numIndexlets = 1);
     void dropIndex(uint64_t tableId, uint8_t indexId);
+    void echo(const char* serviceLocator, const void* message, uint32_t length,
+         Buffer* echo);
     uint64_t enumerateTable(uint64_t tableId, bool keysOnly,
          uint64_t tabletFirstHash, Buffer& state, Buffer& objects);
     void getLogMetrics(const char* serviceLocator,
@@ -275,6 +277,23 @@ class DropIndexRpc : public CoordinatorRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(DropIndexRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::echo operation,
+ * allowing it to execute asynchronously.
+ */
+class EchoRpc : public RpcWrapper {
+  public:
+    EchoRpc(RamCloud* ramcloud, const char* serviceLocator,
+            const void* message, uint32_t length, Buffer* echo);
+    ~EchoRpc() {}
+    /// \copydoc RpcWrapper::docForWait
+    void wait();
+
+  PRIVATE:
+    RamCloud* ramcloud;
+    DISALLOW_COPY_AND_ASSIGN(EchoRpc);
 };
 
 /**

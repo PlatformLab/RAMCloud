@@ -495,6 +495,13 @@ TEST_F(MasterServiceTest, takeIndexletOwnership) {
     // is done by IndexletManager.
 }
 
+TEST_F(MasterServiceTest, echo_basics) {
+    Buffer echo;
+    ramcloud->echo("mock:host=master", "abcdef", 6, &echo);
+    EXPECT_EQ("abcdef", TestUtil::toString(&echo));
+    EXPECT_EQ(6U, echo.size());
+}
+
 TEST_F(MasterServiceTest, enumerate_basics) {
     uint64_t version0, version1;
     ramcloud->write(1, "0", 1, "abcdef", 6, NULL, &version0, false);
