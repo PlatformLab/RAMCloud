@@ -449,8 +449,6 @@ DropIndexRpc::DropIndexRpc(RamCloud* ramcloud, uint64_t tableId,
  * Send a message to a given server and cause that server to echo with the
  * exact same message.
  *
- * \param ramcloud
- *      The RAMCloud object that governs this RPC.
  * \param serviceLocator
  *      The server that is the receiver of the message.
  * \param message
