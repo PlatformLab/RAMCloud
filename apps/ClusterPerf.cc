@@ -135,6 +135,11 @@ uint64_t controlTable = -1;
 // then no migration is done.
 int migratePercentage = 0;
 
+// For multiRead_colocation. Number of accesses (out of numObjects) that
+// will be read from different servers than the reset.
+// That is, spannedOps + 1  servers will be accessed per multiread.
+int spannedOps = 0;
+
 // For doWorkload-based experiments tells how long to run before exiting.
 int seconds = 10;
 
@@ -2261,6 +2266,179 @@ doMultiWrite(int dataLength, uint16_t keyLength,
     return latency;
 }
 
+/**
+ * Similar to "multiRead" tests above, but varies how multi-read keys are
+ * mapped to servers. spannedOps controls how many of the requests in each
+ * multiget go to different servers.
+ *
+ * \param dataLength
+ *      Length of data for each object to be written.
+ * \param keyLength
+ *      Length of key for each object to be written.
+ * \param numMasters
+ *      The number of master servers across which the objects written
+ *      should be distributed.
+ * \param objsPerMaster
+ *      The number of objects to be written to each master server.
+ */
+void
+doMultiReadColocation(
+    int dataLength,
+    uint16_t keyLength,
+    int numMasters,
+    int objsPerMaster)
+{
+    std::vector<uint64_t> tableIds(numMasters);
+    const uint16_t keyLen = 30;
+    char key[keyLen];
+
+    if (clientIndex == 0) {
+        createTables(tableIds, dataLength, "0", 1);
+
+        Buffer value{};
+        char garbage[dataLength];
+        value.appendCopy(garbage, dataLength);
+
+        foreach (uint64_t tableId, tableIds) {
+            for (uint64_t key  = 0; key < uint64_t(objsPerMaster); ++key) {
+                cluster->write(tableId, &key, sizeof(key),
+                               value.getRange(0, dataLength), dataLength);
+            }
+        }
+
+        memset(key, 0, keyLen);
+
+        foreach (uint64_t tableId, tableIds) {
+            cluster->objectServerControl(tableId, "0", 1,
+                                    WireFormat::START_PERF_COUNTERS);
+        }
+
+        sendCommand("run", "running", 1, numClients-1);
+
+        Buffer statsBuffer;
+        vector<PerfStats> startStats{};
+        vector<PerfStats> finishStats{};
+
+        foreach (uint64_t tableId, tableIds) {
+            cluster->objectServerControl(tableId, "0", 1,
+                    WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
+                    &statsBuffer);
+            startStats.emplace_back(*statsBuffer.getStart<PerfStats>());
+        }
+
+        sleep(10);
+
+        foreach (uint64_t tableId, tableIds) {
+            cluster->objectServerControl(tableId, "0", 1,
+                    WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
+                    &statsBuffer);
+            finishStats.emplace_back(*statsBuffer.getStart<PerfStats>());
+        }
+
+        printf("server readsSec utilization dispatchUtilization "
+                "objectsPerOp spannedObjectsPerOp\n");
+        for (size_t i = 0; i < tableIds.size(); ++i) {
+            const PerfStats& start = startStats[i];
+            const PerfStats& end = finishStats[i];
+
+            uint64_t cycles = end.collectionTime - start.collectionTime;
+            double elapsedTime = double(cycles) / end.cyclesPerSecond;
+
+            double rate =
+                double(end.readCount - start.readCount) / elapsedTime;
+
+            double utilization =
+                double(end.workerActiveCycles - start.workerActiveCycles) /
+                double(cycles);
+
+            double dispatchUtilization =
+                double(end.dispatchActiveCycles - start.dispatchActiveCycles) /
+                double(cycles);
+
+            printf("%lu %.0f %8.3f %8.3f %d %d\n",
+                    i, rate, utilization, dispatchUtilization,
+                    numObjects, spannedOps);
+        }
+
+        sendCommand("done", "done", 1, numClients-1);
+    } else {
+        char command[20];
+        while (true) {
+            getCommand(command, sizeof(command), false);
+            if (strcmp(command, "run") == 0) {
+                setSlaveState("running");
+                RAMCLOUD_LOG(NOTICE,
+                        "Starting multiReadColocation benchmark");
+                break;
+            }
+        }
+
+        getTableIds(tableIds);
+
+        static const size_t atATime = 16;
+
+        uint64_t keys[objsPerMaster];
+        MultiReadObject requestObjects[atATime][objsPerMaster];
+        MultiReadObject* requests[atATime][objsPerMaster];
+        Tub<ObjectBuffer> values[atATime][objsPerMaster];
+
+        // Create read object corresponding to each object to be
+        // used in the multiread request later.
+        for (uint64_t instance = 0; instance < atATime; ++instance) {
+            for (uint64_t key  = 0; key < uint64_t(objsPerMaster); ++key) {
+                keys[key] = key;
+
+                uint64_t tableIndex = clientIndex - 1;
+                if (key < uint64_t(spannedOps))
+                    tableIndex += (key + 1);
+                tableIndex %= numMasters;
+                uint64_t tableId = tableIds[tableIndex];
+
+                requestObjects[instance][key] =
+                    MultiReadObject(
+                            tableId,
+                            &keys[key],
+                            sizeof(key),
+                            &values[instance][key]);
+                requests[instance][key] = &requestObjects[instance][key];
+            }
+        }
+
+        Tub<MultiRead> multiReads[atATime]{};
+
+        size_t instance = 0;
+        while (true) {
+            getCommand(command, sizeof(command), false);
+            if (strcmp(command, "run") == 0) {
+                uint64_t checkTime =
+                    Cycles::rdtsc() + Cycles::fromSeconds(1.0);
+
+                do {
+                    Tub<MultiRead>& op = multiReads[instance];
+                    if (!op) {
+                        op.construct(cluster,
+                                     &requests[instance][0],
+                                     uint32_t(objsPerMaster));
+                    } else if (op->isReady()) {
+                        op->wait();
+                        op.destroy();
+                    }
+                    cluster->poll();
+                    instance = (instance + 1) % atATime;
+                } while (Cycles::rdtsc() < checkTime);
+            } else if (strcmp(command, "done") == 0) {
+                setSlaveState("done");
+                RAMCLOUD_LOG(NOTICE, "Ending multiReadColocation benchmark");
+                return;
+            } else {
+                RAMCLOUD_LOG(ERROR, "unknown command %s", command);
+                return;
+            }
+        }
+    }
+}
+
+
 // Measure round-trip time for messages of different sizes.
 void
 echo()
@@ -4020,6 +4198,12 @@ multiReadThroughput()
             }
         }
     }
+}
+
+void
+multiRead_colocation()
+{
+    doMultiReadColocation(objectSize, 30, numTables, numObjects);
 }
 
 // This benchmark measures the multiwrite times for multiple objects on a
@@ -6583,11 +6767,12 @@ TestInfo tests[] = {
     {"transactionContention", transactionContention},
     {"transactionDistRandom", transactionDistRandom},
     {"transactionThroughput", transactionThroughput},
-    {"multiWrite_oneMaster", multiWrite_oneMaster},
     {"multiRead_oneMaster", multiRead_oneMaster},
     {"multiRead_oneObjectPerMaster", multiRead_oneObjectPerMaster},
     {"multiRead_general", multiRead_general},
     {"multiRead_generalRandom", multiRead_generalRandom},
+    {"multiRead_colocation", multiRead_colocation},
+    {"multiWrite_oneMaster", multiWrite_oneMaster},
     {"multiReadThroughput", multiReadThroughput},
     {"netBandwidth", netBandwidth},
     {"readAllToAll", readAllToAll},
@@ -6662,6 +6847,9 @@ try
                 "For readDistWorkload and writeDistWorkload, the percentage "
                 "of the first table from migrate in the middle of the "
                 "benchmark. If 0 (the default), then no migration is done.")
+        ("spannedOps", po::value<int>(&spannedOps)->default_value(0),
+                "number of objects per multiget that should come from "
+                "different servers than the rest")
         ("seconds", po::value<int>(&seconds)->default_value(30),
                 "Number of seconds to run the experiment for; "
                 "only applies to doWorkload based experiments.")

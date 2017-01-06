@@ -297,6 +297,8 @@ def run_test(
         client_args['--numVClients'] = options.numVClients
     if options.migratePercentage != None:
         client_args['--migratePercentage'] = options.migratePercentage
+    if options.spannedOps != None:
+        client_args['--spannedOps'] = options.spannedOps
     if options.fullSamples:
         client_args['--fullSamples'] = ''
     if options.seconds:
@@ -785,6 +787,7 @@ simple_tests = [
     Test("basic", basic),
     Test("broadcast", broadcast),
     Test("echo", basic),
+    Test("multiRead_colocation", default),
     Test("netBandwidth", netBandwidth),
     Test("readAllToAll", readAllToAll),
     Test("readNotFound", default),
@@ -914,6 +917,9 @@ if __name__ == '__main__':
             help='For readDistWorkload and writeDistWorkload, the percentage '
                  'of the first table from migrate in the middle of the '
                  'benchmark. If 0 (the default), then no migration is done.')
+    parser.add_option('--spannedOps', type=int, dest='spannedOps',
+            help='Number of objects per multiget that should come from '
+                 'different servers than the rest for multiRead_colocation.')
     parser.add_option('--seconds', type=int, default=10, dest='seconds',
             help='For doWorkload based workloads, exit benchmarks after about '
                   'this many seconds.')
