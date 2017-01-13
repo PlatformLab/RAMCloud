@@ -251,6 +251,11 @@ class AbstractLog {
     // Total amount of log space occupied by long-term data such as
     // objects. Excludes data that can eventually be cleaned, such
     // as tombstones.
+    //
+    // totalLiveBytes is atomic so that AbstractLog::free() is thread-safe
+    // without the use of a monitor lock.  Calls to free() can run concurrently
+    // with calls to append() and other calls to free().  Atomicity prevents
+    // calls to append() and free() from racing on totalLiveBytes updates.
     std::atomic<uint64_t> totalLiveBytes;
 
     // Largest value of totalLiveBytes that is "safe" (i.e. the cleaner
