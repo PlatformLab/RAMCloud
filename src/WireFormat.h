@@ -251,6 +251,10 @@ struct ResponseCommon {
                                   // succeeded; if not, it explains why.
 } __attribute__((packed));
 
+struct MasterResponseCommon : public ResponseCommon {
+    LogState logState;            // Master's log replication state.
+} __attribute__((packed));
+
 /**
  * When the response status is STATUS_RETRY, the full response looks like
  * this (it contains extra information for use by the requesting client).
@@ -1814,7 +1818,7 @@ struct TxPrepare {
                                     // the commit process is too slow).
 
     struct Request {
-        RequestCommon common;
+        AsyncRequestCommon common;
         ClientLease lease;          // Lease information for the requested
                                     // transaction.  To ensure prepare requests
                                     // are linearizable.
@@ -1902,7 +1906,7 @@ struct TxPrepare {
     } __attribute__((packed));
 
     struct Response {
-        ResponseCommon common;
+        MasterResponseCommon common;
         Vote vote;
     } __attribute__((packed));
 };

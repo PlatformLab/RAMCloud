@@ -27,6 +27,8 @@ namespace RAMCloud {
 
 using WireFormat::LogState;
 
+class ClientTransactionTask;
+
 /**
  * A temporary storage for RPC requests that have been responded by master but
  * have not been made durable in backups.
@@ -48,6 +50,9 @@ class UnsyncedRpcTracker {
                           uint64_t objVer,
                           WireFormat::LogState logPos,
                           std::function<void()> callback);
+    void registerUnsynced(Transport::SessionRef session,
+                          ClientTransactionTask* txTask,
+                          WireFormat::LogState logPos);
     void flushSession(Transport::Session* sessionPtr);
     void updateLogState(Transport::Session* session,
                         WireFormat::LogState masterLogState);
@@ -91,22 +96,30 @@ class UnsyncedRpcTracker {
 
         /// Default constructor
         UnsyncedRpc(ClientRequest rpcReq, uint64_t tableId, uint64_t keyHash,
-                    uint64_t objVer, WireFormat::LogState logPos,
-                    std::function<void()> callback)
+                    uint64_t objVer, ClientTransactionTask* txTask,
+                    WireFormat::LogState logPos, std::function<void()> callback)
             : request(rpcReq), tableId(tableId), keyHash(keyHash),
-              objVersion(objVer), logPosition(logPos), callback(callback) {}
+              objVersion(objVer), txWithUnsyncedPrepare(txTask),
+              logPosition(logPos), callback(callback) {}
 
+        ///////////////////////////////////////
+        /////// Info for retries
+        ///////////////////////////////////////
         /**
          * The pointer to the RPC request that was originally constructed by
          * this client. In case of master crash, a retry RPC with this request
          * will be sent to recovery master.
          * This request must be constructed by linearizable object RPC.
+         *
+         * Note: used for normal RPC only.
          */
         ClientRequest request;
 
         /**
          * Information about an object that determines which server the request
          * is sent to; we must save this information for use in retries.
+         *
+         * Note: used for normal RPC only.
          */
         uint64_t tableId;
         uint64_t keyHash;
@@ -117,9 +130,23 @@ class UnsyncedRpcTracker {
          * If a master already accepted an update request on the same key from
          * other clients and cannot successfully recover the original state by
          * retry, the master will notify the linearizability violations.
+         *
+         * Note: used for normal RPC only.
          */
         uint64_t objVersion;
 
+        /**
+         * The pointer to the transaction task whose PREPARE RPCs are not made
+         * durable yet. If the master that processed PREPARE crashes, we should
+         * resend the PREPARE.
+         *
+         * Note: used for transaction only. Left NULL for normal RPC.
+         */
+        ClientTransactionTask* txWithUnsyncedPrepare;
+
+        ///////////////////////////////////////
+        /////// Info for garbage collection
+        ///////////////////////////////////////
         /**
          * Location of updated value of the object in master's log.
          * This information will be matched later with master's sync point,

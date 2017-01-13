@@ -55,7 +55,7 @@ class Transaction {
   PUBLIC:
     explicit Transaction(RamCloud* ramcloud);
 
-    bool commit();
+    bool commit(bool async = false);
     void sync();
     bool commitAndSync();
 

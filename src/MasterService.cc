@@ -3102,7 +3102,8 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
         try {
             respHdr->common.status = objectManager.prepareOp(
                     *op, &rejectRules, &newOpPtr, &isCommitVote,
-                    &rpcResult, &rpcResultPtr);
+                    &rpcResult, &rpcResultPtr, &respHdr->common.logState,
+                    reqHdr->common.asyncType == WireFormat::Asynchrony::RETRY);
         } catch (RetryException& e) {
             objectManager.syncChanges();
             throw;
@@ -3172,11 +3173,16 @@ MasterService::txPrepare(const WireFormat::TxPrepare::Request* reqHdr,
 
     // All of the individual writes were done asynchronously. Sync the objects
     // now to propagate them in bulk to backups.
-    objectManager.syncChanges();
+    bool asyncReplication = reqHdr->common.asyncType == WireFormat::ASYNC;
+    if (!asyncReplication) {
+        objectManager.syncChanges();
+    }
 
-    // Respond to the client RPC now. Removing old index entries can be
-    // done asynchronously while maintaining strong consistency.
     rpc->sendReply();
+
+    if (asyncReplication) {
+        objectManager.syncChanges();
+    }
 }
 
 /**

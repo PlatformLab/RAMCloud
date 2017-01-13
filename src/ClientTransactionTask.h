@@ -84,6 +84,10 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
         return (state == DONE ||
                 (state == DECISION && nextCacheEntry == commitCache.end()));
     }
+    /// Check if all vote responses for prepares are received.
+    bool allVotesReceived() {
+        return (state == DECISION || state == DONE);
+    }
     void performTask();
 
   PRIVATE:
@@ -98,6 +102,12 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     /// Flag that can be set indicating that the transaction is read-only and
     /// the read-only optimization can be used.
     bool readOnly;
+
+    /// Indicates Prepare RPCs are doing asynchronous replication to backups.
+    bool asyncPrepare;
+
+    /// A flag that will be set to true by sync callback for prepare RPCs.
+    bool preparesReplicated;
 
   PRIVATE:
     /// Number of participant objects/operations.
@@ -225,7 +235,7 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
     class PrepareRpc : public ClientTransactionRpcWrapper {
       PUBLIC:
         PrepareRpc(RamCloud* ramcloud, Transport::SessionRef session,
-                ClientTransactionTask* task);
+                ClientTransactionTask* task, bool async = false);
         ~PrepareRpc() {}
         bool appendOp(CommitCacheMap::iterator opEntry);
         WireFormat::TxPrepare::Vote wait();
@@ -235,6 +245,9 @@ class ClientTransactionTask : public RpcTracker::TrackedRpc {
 
         /// Header for the RPC (used to update count as objects are added).
         WireFormat::TxPrepare::Request* reqHdr;
+
+        /// Save the transaction task to pass to UnsyncedRpcTracker later.
+        ClientTransactionTask* txTask;
 
         DISALLOW_COPY_AND_ASSIGN(PrepareRpc);
     };

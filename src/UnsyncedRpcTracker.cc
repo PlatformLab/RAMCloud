@@ -85,8 +85,33 @@ UnsyncedRpcTracker::registerUnsynced(Transport::SessionRef session,
 {
     Lock lock(mutex);
     Master* master = getOrInitMasterRecord(session);
-    master->rpcs.emplace(rpcRequest, tableId, keyHash, objVer, logPos,
-                         callback);
+    master->rpcs.emplace(rpcRequest, tableId, keyHash, objVer,
+                         static_cast<ClientTransactionTask*>(NULL),
+                         logPos, callback);
+    master->updateLogState(ramcloud, logPos);
+}
+
+/**
+ * Saves the information of an non-durable transaction PREPARE whose vote is
+ * received. ClientTransactionTask::PrepareRpc::wait() should register itself.
+ *
+ * \param session
+ *      Transport session where this PREPARE RPC is sent to.
+ * \param txTask
+ *      Pointer to ClientTransactionTask whose PREPARE is previously sent to
+ *      target master.
+ * \param logPos
+ *      Location of new value of object in master after applying this RPC.
+ */
+void
+UnsyncedRpcTracker::registerUnsynced(Transport::SessionRef session,
+                                     ClientTransactionTask* txTask,
+                                     WireFormat::LogState logPos)
+{
+    Lock lock(mutex);
+    Master* master = getOrInitMasterRecord(session);
+    ClientRequest emptyRequest({NULL, 0});
+    master->rpcs.emplace(emptyRequest, 0, 0, 0, txTask, logPos, []{});
     master->updateLogState(ramcloud, logPos);
 }
 
@@ -113,19 +138,21 @@ UnsyncedRpcTracker::flushSession(Transport::Session* sessionPtr)
     LOG(NOTICE, "Flushing session in UnsyncedRpcTracker. Total retries: %d",
                 static_cast<int>(master->rpcs.size()));
     while (!master->rpcs.empty()) {
-        uint64_t tableId = master->rpcs.front().tableId;
-        uint64_t keyHash = master->rpcs.front().keyHash;
-        ClientRequest request = master->rpcs.front().request;
-        // TODO(seojin): fire in parallel?
-        RetryUnsyncedRpc retryRpc(ramcloud->clientContext,
-                                  tableId, keyHash, request);
-        retryRpc.wait();
-
-        // TODO(seojin): package them in a single function or destructor?
-        // Problem: not sure the destructor will be called on std::stack::pop().
         UnsyncedRpc& rpc = master->rpcs.front();
-        rpc.callback();
-        ramcloud->rpcRequestPool->free(rpc.request.data);
+        if (rpc.txWithUnsyncedPrepare) {
+            // TODO(seojin): call retry prepares in rpc.txWithUnsyncedPrepare.
+        } else {
+            // TODO(seojin): fire in parallel?
+            RetryUnsyncedRpc retryRpc(ramcloud->clientContext,
+                                      rpc.tableId, rpc.keyHash, rpc.request);
+            retryRpc.wait();
+
+            // TODO(seojin): package them in a single function or destructor?
+            // Problem: not sure the destructor will be called on stack::pop().
+            UnsyncedRpc& rpc = master->rpcs.front();
+            rpc.callback();
+            ramcloud->rpcRequestPool->free(rpc.request.data);
+        }
         master->rpcs.pop();
     }
     LOG(NOTICE, "Done with sending retries for unsynced RPCs.");
@@ -278,14 +305,14 @@ UnsyncedRpcTracker::sync(std::function<void()> callback)
             numMasters++;
         }
     }
+    if (numMasters == 0) {
+        return;
+    }
     // TODO(seojin): Atomic necessary? think about cleaner thread more...
     //               Probably it is safe without atomic...
     //               Or it is already protected by mutex??
-    int* syncedMasterCounter;
-    if (numMasters > 0) {
-        syncedMasterCounter = new int;
-        *syncedMasterCounter = 0;
-    }
+    int* syncedMasterCounter = new int;
+    *syncedMasterCounter = 0;
     for (MasterMap::iterator it = masters.begin(); it != masters.end(); ++it) {
         Master* master = it->second;
         if (master->rpcs.empty()) {
@@ -438,7 +465,9 @@ UnsyncedRpcTracker::Master::updateLogState(RamCloud* ramcloud,
             break;
         }
         rpc.callback();
-        ramcloud->rpcRequestPool->free(rpc.request.data);
+        if (!rpc.txWithUnsyncedPrepare) {
+            ramcloud->rpcRequestPool->free(rpc.request.data);
+        }
         rpcs.pop();
     }
 }

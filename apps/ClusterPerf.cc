@@ -5181,7 +5181,7 @@ transactionDistRandom()
 
         // Do the benchmark
         uint64_t start = Cycles::rdtsc();
-        t.commit();
+        t.commit(asyncReplication);
         ticks[i] = Cycles::rdtsc() - start;
         t.sync();
     }
@@ -5342,7 +5342,7 @@ transactionThroughput()
         }
 
         // Do the benchmark
-        t.commit();
+        t.commit(asyncReplication);
         t.sync();
         elapsed = Cycles::rdtsc() - startCycles;
 

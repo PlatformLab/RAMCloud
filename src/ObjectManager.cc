@@ -1449,6 +1449,11 @@ ObjectManager::writeRpcResultOnly(RpcResult* rpcResult, uint64_t* rpcResultPtr)
  *      linearizability.
  * \param[out] rpcResultPtr
  *      The pointer to the RpcResult in log is returned.
+ * \param[out] objPos
+ *      If non-NULL, position of last byte written to log is returned.
+ * \param isRetryUnsynced
+ *      If true, this prepare is a recovery retry of a lost write. It will
+ *      be accepted when tablet's status is LOCKED_FOR_RETRIES.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_UNKNOWN_TABLE may be returned.
@@ -1456,7 +1461,8 @@ ObjectManager::writeRpcResultOnly(RpcResult* rpcResult, uint64_t* rpcResultPtr)
 Status
 ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                 uint64_t* newOpPtr, bool* isCommitVote,
-                RpcResult* rpcResult, uint64_t* rpcResultPtr)
+                RpcResult* rpcResult, uint64_t* rpcResultPtr,
+                WireFormat::LogState* objPos, bool isRetryUnsynced)
 {
     *isCommitVote = false;
     if (!anyWrites) {
@@ -1561,7 +1567,7 @@ ObjectManager::prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
     }
 
 
-    if (!log.append(appends, 2)) {
+    if (!log.append(appends, 2, objPos)) {
         writePrepareFail(rpcResult, rpcResultPtr);
         // The log is out of space. Tell the client to retry and hope
         // that either the cleaner makes space soon or we shift load

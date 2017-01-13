@@ -95,7 +95,9 @@ class ObjectManager : public LogEntryHandlers,
     void writeRpcResultOnly(RpcResult* rpcResult, uint64_t* rpcResultPtr);
     Status prepareOp(PreparedOp& newOp, RejectRules* rejectRules,
                 uint64_t* newOpPtr, bool* isCommitVote,
-                RpcResult* rpcResult, uint64_t* rpcResultPtr);
+                RpcResult* rpcResult, uint64_t* rpcResultPtr,
+                WireFormat::LogState* objPos = NULL,
+                bool isRetryUnsynced = false);
     Status prepareReadOnly(PreparedOp& newOp, RejectRules* rejectRules,
                 bool* isCommitVote);
     Status tryGrabTxLock(Object& objToLock, Log::Reference& ref);

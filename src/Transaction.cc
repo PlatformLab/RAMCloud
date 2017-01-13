@@ -40,22 +40,35 @@ Transaction::Transaction(RamCloud* ramcloud)
  * reached and sent to all participant servers but does not wait of the
  * participant servers to acknowledge the decision (e.g. does not wait to sync).
  *
+ * \param async
+ *      If true, this commit call will return before prepares are made durable.
+ *      You may loose entire committed changes atomically if client and server
+ *      both crashes before replications.
+ *
  * \return
  *      True if the transaction was able to commit.  False otherwise.
  */
 bool
-Transaction::commit()
+Transaction::commit(bool async)
 {
     ClientTransactionTask* task = taskPtr.get();
+    task->asyncPrepare = async;
 
     if (!commitStarted) {
         commitStarted = true;
         ramcloud->transactionManager->startTransactionTask(taskPtr);
     }
 
-    while (!task->allDecisionsSent()) {
-        ramcloud->transactionManager->poll();
-        ramcloud->poll();
+    if (async) {
+        while (!task->allVotesReceived()) {
+            ramcloud->transactionManager->poll();
+            ramcloud->poll();
+        }
+    } else {
+        while (!task->allDecisionsSent()) {
+            ramcloud->transactionManager->poll();
+            ramcloud->poll();
+        }
     }
 
     if (expect_false(task->getDecision() ==

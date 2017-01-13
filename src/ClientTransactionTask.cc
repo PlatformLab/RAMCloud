@@ -19,8 +19,10 @@
 #include "Context.h"
 #include "ObjectFinder.h"
 #include "RamCloud.h"
+#include "RpcRequestPool.h"
 #include "RpcTracker.h"
 #include "ShortMacros.h"
+#include "UnsyncedRpcTracker.h"
 
 namespace RAMCloud {
 
@@ -33,6 +35,8 @@ namespace RAMCloud {
 ClientTransactionTask::ClientTransactionTask(RamCloud* ramcloud)
     : ramcloud(ramcloud)
     , readOnly(true)
+    , asyncPrepare(false)
+    , preparesReplicated(false)
     , participantCount(0)
     , participantList()
     , state(INIT)
@@ -166,11 +170,18 @@ ClientTransactionTask::performTask()
             }
         }
         if (state == DECISION) {
-            sendDecisionRpc();
-            processDecisionRpcResults();
-            if (decisionRpcs.empty() && nextCacheEntry == commitCache.end()) {
-                ramcloud->rpcTracker->rpcFinished(txId);
-                state = DONE;
+            assert(!preparesReplicated);
+            ramcloud->unsyncedRpcTracker->sync([this] {
+                preparesReplicated = true;
+            });
+            if  (!asyncPrepare || preparesReplicated) {
+                sendDecisionRpc();
+                processDecisionRpcResults();
+                if (decisionRpcs.empty() &&
+                    nextCacheEntry == commitCache.end()) {
+                    ramcloud->rpcTracker->rpcFinished(txId);
+                    state = DONE;
+                }
             }
         }
     } catch (ClientException& e) {
@@ -460,7 +471,7 @@ ClientTransactionTask::sendPrepareRpc()
             rpcSession =
                     ramcloud->clientContext->objectFinder->lookup(key->tableId,
                                                                   key->keyHash);
-            prepareRpcs.emplace_back(ramcloud, rpcSession, this);
+            prepareRpcs.emplace_back(ramcloud, rpcSession, this, asyncPrepare);
             nextRpc = &prepareRpcs.back();
         }
 
@@ -657,15 +668,20 @@ ClientTransactionTask::DecisionRpc::markOpsForRetry()
  *      Session on which this RPC will eventually be sent.
  * \param task
  *      Pointer to the transaction task that issued this request.
+ * \param async
+ *      Indicates master should reply before replicating PREPARE log to backup.
  */
 ClientTransactionTask::PrepareRpc::PrepareRpc(RamCloud* ramcloud,
-        Transport::SessionRef session, ClientTransactionTask* task)
+        Transport::SessionRef session, ClientTransactionTask* task, bool async)
     : ClientTransactionRpcWrapper(ramcloud,
                                   session,
                                   task,
                                   sizeof(WireFormat::TxDecision::Response))
     , reqHdr(allocHeader<WireFormat::TxPrepare>())
+    , txTask(task)
 {
+    reqHdr->common.asyncType = async ? WireFormat::Asynchrony::ASYNC :
+                                       WireFormat::Asynchrony::SYNC;
     reqHdr->lease = task->lease;
     reqHdr->clientTxId = task->txId;
     reqHdr->ackId = ramcloud->rpcTracker->ackId();
@@ -761,6 +777,11 @@ ClientTransactionTask::PrepareRpc::wait()
 
     WireFormat::TxPrepare::Response* respHdr =
             response->getStart<WireFormat::TxPrepare::Response>();
+
+    if (reqHdr->common.asyncType == WireFormat::Asynchrony::ASYNC) {
+        ramcloud->unsyncedRpcTracker->registerUnsynced(session,
+                txTask, respHdr->common.logState);
+    }
     return respHdr->vote;
 }
 
