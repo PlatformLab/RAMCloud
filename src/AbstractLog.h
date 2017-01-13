@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2016 Stanford University
+/* Copyright (c) 2009-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_ABSTRACTLOG_H
 #define RAMCLOUD_ABSTRACTLOG_H
 
+#include <atomic>
 #include <stdint.h>
 #include <unordered_map>
 #include <vector>
@@ -250,7 +251,7 @@ class AbstractLog {
     // Total amount of log space occupied by long-term data such as
     // objects. Excludes data that can eventually be cleaned, such
     // as tombstones.
-    uint64_t totalLiveBytes;
+    std::atomic<uint64_t> totalLiveBytes;
 
     // Largest value of totalLiveBytes that is "safe" (i.e. the cleaner
     // can always make progress).
