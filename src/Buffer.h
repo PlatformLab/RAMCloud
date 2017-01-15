@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -452,7 +452,7 @@ class Buffer {
     class Iterator {
       public:
         explicit Iterator(const Buffer* buffer);
-        Iterator(const Buffer* buffer, uint32_t offset, uint32_t length);
+        Iterator(Buffer* buffer, uint32_t offset, uint32_t length);
         Iterator(const Iterator& other);
         ~Iterator();
         Iterator& operator=(const Iterator& other);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -835,28 +835,36 @@ Buffer::Iterator::Iterator(const Buffer* buffer)
  *      Notice if this exceeds the bounds of the buffer then isDone() may occur
  *      before length number of bytes have been iterated over.
  */
-Buffer::Iterator::Iterator(const Buffer* buffer, uint32_t offset,
-        uint32_t length)
-    : current(buffer->firstChunk)
+Buffer::Iterator::Iterator(Buffer* buffer, uint32_t offset, uint32_t length)
+    : current()
     , currentData()
     , currentLength()
     , bytesLeft()
 {
     // Clip offset and length if they are out of range.
-    uint32_t bytesToSkip = offset;
     if (offset >= buffer->totalLength) {
         // The iterator's range is empty.
-        currentData = 0;
-        currentLength = 0;
         return;
     }
-    bytesLeft = std::min(length, buffer->totalLength - bytesToSkip);
+
+    // Start from the first chunk of the buffer if the requested range starts
+    // before the recently accessed chunk.
+    if (offset < buffer->cursorOffset) {
+        assert(buffer->firstChunk);
+        buffer->cursorChunk = buffer->firstChunk;
+        buffer->cursorOffset = 0;
+    }
+    current = buffer->cursorChunk;
+    uint32_t bytesToSkip = offset - buffer->cursorOffset;
+    bytesLeft = std::min(length, buffer->totalLength - offset);
 
     // Advance Iterator up to the first chunk with data from the subrange.
-    while ((current != NULL) && (bytesToSkip >= current->length)) {
+    while (bytesToSkip >= current->length) {
+        buffer->cursorOffset += current->length;
         bytesToSkip -= current->length;
         current = current->next;
     }
+    buffer->cursorChunk = current;
     currentData = current->data + bytesToSkip;
     currentLength = current->length - bytesToSkip;
     if (bytesLeft < currentLength) {

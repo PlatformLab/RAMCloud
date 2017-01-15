@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -814,12 +814,16 @@ TEST_F(BufferTest, Iterator_constructor_withRange) {
     EXPECT_EQ('3', *it3.currentData);
     EXPECT_EQ(3u, it3.currentLength);
     EXPECT_EQ(6u, it3.bytesLeft);
+    EXPECT_EQ(buffer.cursorChunk, it3.current);
+    EXPECT_EQ(4u, buffer.cursorOffset);
 
     // Truncate currentLength if the iterator ends before the end of
     // its first chunk.
     Buffer::Iterator it4(&buffer, 6, 2);
     EXPECT_EQ(2u, it4.currentLength);
     EXPECT_EQ(2u, it4.bytesLeft);
+    EXPECT_EQ(buffer.cursorChunk, it4.current);
+    EXPECT_EQ(4u, buffer.cursorOffset);
 }
 
 TEST_F(BufferTest, Iterator_getNumberChunks_none) {
