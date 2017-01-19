@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -569,6 +569,7 @@ struct Echo {
     struct Request {
         RequestCommon common;
         uint32_t length;            // Length of the original message.
+        uint32_t echoLength;        // Length of the echo message.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

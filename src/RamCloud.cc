@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -456,15 +456,19 @@ DropIndexRpc::DropIndexRpc(RamCloud* ramcloud, uint64_t tableId,
  *      least length bytes.
  * \param length
  *      Size of the original message, in bytes.
+ * \param echoLength
+ *      Size of the message to be echoed, in bytes.
  * \param[out] echo
- *      After a successful return, this Buffer will hold the echoed message,
- *      which should have the same contents as the original message being sent.
+ *      After a successful return, this Buffer will hold the echoed message.
+ *      The first min{length, echoLength} bytes of the echoed message are
+ *      guaranteed to be the same as the original message, while the rest, if
+ *      any, are undefined.
  */
 void
 RamCloud::echo(const char* serviceLocator, const void* message,
-        uint32_t length, Buffer* echo)
+        uint32_t length, uint32_t echoLength, Buffer* echo)
 {
-    EchoRpc rpc(this, serviceLocator, message, length, echo);
+    EchoRpc rpc(this, serviceLocator, message, length, echoLength, echo);
     rpc.wait();
 }
 
@@ -479,15 +483,20 @@ RamCloud::echo(const char* serviceLocator, const void* message,
  *      The server that is the receiver of the message.
  * \param message
  *      Address of the first byte of the message to be sent; must contain at
- *      least messageLength bytes.
+ *      least length bytes.
  * \param length
- *      Size of the input data, in bytes.
+ *      Size of the original message, in bytes.
+ * \param echoLength
+ *      Size of the message to be echoed, in bytes.
  * \param[out] echo
- *      After a successful return, this Buffer will hold the echoed message,
- *      which should have the same contents as the original message being sent.
+ *      After a successful return, this Buffer will hold the echoed message.
+ *      The first min{length, echoLength} bytes of the echoed message are
+ *      guaranteed to be the same as the original message, while the rest, if
+ *      any, are undefined.
  */
 EchoRpc::EchoRpc(RamCloud* ramcloud, const char* serviceLocator,
-        const void* message, uint32_t length, Buffer* echo)
+        const void* message, uint32_t length, uint32_t echoLength,
+        Buffer* echo)
     : RpcWrapper(sizeof(WireFormat::Echo::Response), echo)
     , ramcloud(ramcloud)
 {
@@ -500,6 +509,7 @@ EchoRpc::EchoRpc(RamCloud* ramcloud, const char* serviceLocator,
     }
     WireFormat::Echo::Request* reqHdr(allocHeader<WireFormat::Echo>());
     reqHdr->length = length;
+    reqHdr->echoLength = echoLength;
     request.append(message, length);
     send();
 }

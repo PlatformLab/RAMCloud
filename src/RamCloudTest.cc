@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016 Stanford University
+/* Copyright (c) 2011-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -200,11 +200,11 @@ TEST_F(RamCloudTest, concurrentAsyncRpc) {
 
 TEST_F(RamCloudTest, echo_basics) {
     Buffer echo;
-    ramcloud->echo("mock:host=master1", "abcdef", 6, &echo);
+    ramcloud->echo("mock:host=master1", "abcdef", 6, 6, &echo);
     EXPECT_EQ("abcdef", TestUtil::toString(&echo));
     EXPECT_EQ(6U, echo.size());
 
-    ramcloud->echo("mock:host=master2", "ghijkl", 6, &echo);
+    ramcloud->echo("mock:host=master2", "ghijkl", 6, 6, &echo);
     EXPECT_EQ("ghijkl", TestUtil::toString(&echo));
     EXPECT_EQ(6U, echo.size());
 }

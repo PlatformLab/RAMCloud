@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -75,7 +75,7 @@ class RamCloud {
             uint8_t numIndexlets = 1);
     void dropIndex(uint64_t tableId, uint8_t indexId);
     void echo(const char* serviceLocator, const void* message, uint32_t length,
-         Buffer* echo);
+         uint32_t echoLength, Buffer* echo);
     uint64_t enumerateTable(uint64_t tableId, bool keysOnly,
          uint64_t tabletFirstHash, Buffer& state, Buffer& objects);
     void getLogMetrics(const char* serviceLocator,
@@ -286,7 +286,8 @@ class DropIndexRpc : public CoordinatorRpcWrapper {
 class EchoRpc : public RpcWrapper {
   public:
     EchoRpc(RamCloud* ramcloud, const char* serviceLocator,
-            const void* message, uint32_t length, Buffer* echo);
+            const void* message, uint32_t length, uint32_t echoLength,
+            Buffer* echo);
     ~EchoRpc() {}
     /// \copydoc RpcWrapper::docForWait
     void wait();

@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2016 Stanford University
+/* Copyright (c) 2009-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -395,9 +395,26 @@ MasterService::echo(const WireFormat::Echo::Request* reqHdr,
         WireFormat::Echo::Response* respHdr,
         Rpc* rpc)
 {
-    respHdr->length = reqHdr->length;
+    respHdr->length = reqHdr->echoLength;
     uint32_t messageOffset = sizeof32(*reqHdr);
-    rpc->replyPayload->appendExternal(rpc->requestPayload, messageOffset);
+    if (reqHdr->echoLength <= reqHdr->length) {
+        rpc->replyPayload->appendExternal(rpc->requestPayload, messageOffset,
+                reqHdr->echoLength);
+    } else {
+        // Declare the dummy data as static to avoid repeated allocations.
+        const uint32_t dummyBlockSize = 1 << 20;
+        static const char dummyBlock[dummyBlockSize] = {0};
+
+        // Fill in the reply buffer with the original message plus dummy data.
+        rpc->replyPayload->appendExternal(rpc->requestPayload, messageOffset,
+                reqHdr->length);
+        uint32_t bytesLeft = reqHdr->echoLength - reqHdr->length;
+        while (bytesLeft > dummyBlockSize) {
+            bytesLeft -= dummyBlockSize;
+            rpc->replyPayload->appendExternal(dummyBlock, dummyBlockSize);
+        }
+        rpc->replyPayload->appendExternal(dummyBlock, bytesLeft);
+    }
 }
 
 /**
