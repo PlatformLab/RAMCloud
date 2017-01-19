@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2011-2015 Stanford University
+# Copyright (c) 2011-2017 Stanford University
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -343,6 +343,16 @@ def basic(name, options, cluster_args, client_args):
 def broadcast(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 10
+    default(name, options, cluster_args, client_args)
+
+def echo(name, options, cluster_args, client_args):
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '-t 4000'
+    if cluster_args['timeout'] < 250:
+        cluster_args['timeout'] = 250
+    cluster_args['replicas'] = 0
+    if options.num_servers == None:
+        cluster_args['num_servers'] = 1
     default(name, options, cluster_args, client_args)
 
 def indexBasic(name, options, cluster_args, client_args):
@@ -786,12 +796,12 @@ def migrateLoaded(name, options, cluster_args, client_args):
 simple_tests = [
     Test("basic", basic),
     Test("broadcast", broadcast),
-    Test("echo", basic),
+    Test("echo_basic", echo),
+    Test("echo_incast", echo),
     Test("multiRead_colocation", default),
     Test("netBandwidth", netBandwidth),
     Test("readAllToAll", readAllToAll),
     Test("readNotFound", default),
-    Test("transport_singleReceiver", default)
 ]
 
 graph_tests = [
@@ -961,6 +971,7 @@ if __name__ == '__main__':
             if len(args) == 0:
                 # Provide a default set of tests to run (the most useful ones).
                 args = ["basic",
+                        "echo_basic",
                         "multiRead_oneMaster",
                         "multiRead_oneObjectPerMaster",
                         "multiReadThroughput",

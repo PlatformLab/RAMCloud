@@ -1077,55 +1077,63 @@ readObject(uint64_t tableId, const void* key, uint16_t keyLength,
 }
 
 /**
- * Send fixed-length messages to randomly-chosen servers back-to-back, wait
- * for them to reply with the same messages and return information about the
- * distribution of message round-trip times.
+ * Send and receive messages of given sizes, return information about the
+ * distribution of message round-trip times and network bandwidth.
  *
  * \param receivers
- *      Service locators of master servers that act as receivers of the
- *      messages.
- * \param messageLength
+ *      Service locators of master servers that are receivers of the messages.
+ * \param length
  *      Size of the message being sent, in bytes.
- * \param count
+ * \param echoLength
+ *      Size of the message to be echoed, in bytes.
+ * \param iteration
  *      Send this many messages.
  * \param timeLimit
  *      Maximum time (in seconds) to spend on this test: if this much
- *      time elapses, then less than count iterations will be run.
+ *      time elapses, then less iterations will be run.
  *
  * \return
  *      Information about how long the echos took.
  */
 TimeDist
-echoRandomMessages(vector<string>* receivers, uint32_t messageLength,
-        uint32_t count, double timeLimit)
+echoMessages(const vector<string>& receivers, uint32_t length,
+        uint32_t echoLength, uint64_t iteration, double timeLimit)
 {
-    uint64_t total = 0;
-    std::vector<uint64_t> times(count);
-    string message(messageLength, 'x');
-    Buffer echo;
-    uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(timeLimit);
+    // Collect at most MAX_NUM_SAMPLE samples. Any more samples will simply
+    // overwrite old ones by wrapping around.
+    const uint32_t MAX_NUM_SAMPLE = 1000000;
+    std::vector<uint64_t> times(MAX_NUM_SAMPLE);
 
-    size_t numReceivers = receivers->size();
-    for (uint32_t i = 0; i < count; i++) {
-        const char* serviceLocator =
-                (*receivers)[i % numReceivers].c_str();
+    uint64_t totalCycles = 0;
+    static const string message(length, 'x');
+    Buffer buffer;
+    size_t numReceivers = receivers.size();
+
+    // Each iteration of the following loop invokes an Echo RPC and records
+    // its completion time.
+    uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(timeLimit);
+    uint64_t count;
+    for (count = 0; count < iteration; count++) {
         uint64_t start = Cycles::rdtsc();
         if (start >= stopTime) {
-            LOG(NOTICE, "time expired after %d iterations", i);
-            times.resize(i);
+            LOG(NOTICE, "time expired after %lu iterations", count);
             break;
         }
-        cluster->echo(serviceLocator, message.c_str(), messageLength, &echo);
+
+        const char* receiver = receivers[count % numReceivers].c_str();
+        cluster->echo(receiver, message.c_str(), length, echoLength, &buffer);
         uint64_t interval = Cycles::rdtsc() - start;
-        total += interval;
-        times[i] = interval;
+        totalCycles += interval;
+        times[count % MAX_NUM_SAMPLE] = interval;
     }
+    if (count <= MAX_NUM_SAMPLE) {
+        times.resize(count);
+    }
+
     TimeDist result;
     getDist(times, &result);
-    double totalBytes = messageLength;
-    totalBytes *= downCast<int>(times.size());
-    result.bandwidth = totalBytes/Cycles::toSeconds(total);
-
+    double totalRxBytes = echoLength * static_cast<double>(count);
+    result.bandwidth = totalRxBytes/Cycles::toSeconds(totalCycles);
     return result;
 }
 
@@ -1421,6 +1429,26 @@ string
 keyVal(int client, const char* name)
 {
     return format("%d:%s", client, name);
+}
+
+/**
+ * Slaves invoke this function to indicate their current state.
+ *
+ * \param slaveId
+ *      The client index of the slave.
+ * \return
+ *      A string identifying what the slave is doing now, such as "idle".
+ */
+string
+getSlaveState(int slaveId)
+{
+    string key = keyVal(slaveId, "state");
+    Buffer buffer;
+    cluster->read(controlTable, key.c_str(), downCast<uint16_t>(key.length()),
+            &buffer);
+    string state(reinterpret_cast<char*>(buffer.getRange(0, buffer.size())),
+            buffer.size());
+    return state;
 }
 
 /**
@@ -1787,6 +1815,32 @@ getMetrics(ClientMetrics& metrics, int clientCount)
         for (int i = 0; i < MAX_METRICS; i++) {
             metrics[i][client] = clientMetrics[i];
         }
+    }
+}
+
+/**
+ * Obtain a list of available servers in the cluster from the coordinator.
+ *
+ * @param[out] servers
+ *      Filled in with information about available servers. Each server is
+ *      described as a (service mask, service locator) pair indexed by its
+ *      server Id.
+ */
+void
+getServerList(std::map<uint64_t, std::pair<string, ServiceMask>>* servers)
+{
+    servers->clear();
+    ProtoBuf::ServerList serverList;
+    CoordinatorClient::getServerList(cluster->clientContext, &serverList);
+    for (int i = 0; i < serverList.server_size(); i++) {
+        const ProtoBuf::ServerList_Entry* server = &serverList.server(i);
+        if (ServerStatus(server->status()) != ServerStatus::UP) {
+            continue;
+        }
+
+        (*servers)[server->server_id()] = std::make_pair(
+                server->service_locator(),
+                ServiceMask::deserialize(server->services()));
     }
 }
 
@@ -2441,42 +2495,46 @@ doMultiReadColocation(
 
 // Measure round-trip time for messages of different sizes.
 void
-echo()
+echo_basic()
 {
     if (clientIndex != 0)
         return;
+    const uint32_t outgoingMessageLength = 30;
 #define NUM_SIZES 5
     int sizes[NUM_SIZES] = {100, 1000, 10000, 100000, 1000000};
     TimeDist echoDists[NUM_SIZES];
     const char* ids[NUM_SIZES] = {"100", "1K", "10K", "100K", "1M"};
     char name[50], description[50];
 
-    // Obtain a list of service locators of master servers that can be used
-    // in the test.
-    vector<std::string> masterServiceLocators;
-    ProtoBuf::ServerList serverList;
-    CoordinatorClient::getServerList(cluster->clientContext, &serverList);
-    for (int i = 0; i < serverList.server_size(); i++) {
-        ServerStatus status = ServerStatus(serverList.server(i).status());
-        if (status != ServerStatus::UP)
-            continue;
-        ServiceMask mask =
-            ServiceMask::deserialize(serverList.server(i).services());
-        if (mask.has(WireFormat::MASTER_SERVICE)) {
-            masterServiceLocators.push_back(
-                    serverList.server(i).service_locator());
+    // Choose the first master server in the server list as the receiver.
+    using ServerMap = std::map<uint64_t, std::pair<string, ServiceMask>>;
+    ServerMap servers;
+    getServerList(&servers);
+    string receiverLocator;
+    ServerMap::iterator it;
+    for (it = servers.begin(); it != servers.end(); it++) {
+        if (it->second.second.has(WireFormat::MASTER_SERVICE)) {
+            break;
         }
+    }
+    if (it != servers.end()) {
+        receiverLocator = it->second.first;
+        LOG(NOTICE, "Choose server %lu at %s as the receiver", it->first,
+                receiverLocator.c_str());
+    } else {
+        LOG(ERROR, "No master server available");
+        return;
     }
 
     // Each iteration through the following loop measures the round-trip time
     // of a particular message size.
     for (int i = 0; i < NUM_SIZES; i++) {
         int size = sizes[i];
-        LOG(NOTICE, "Starting echo test for %d-byte messages", size);
+        LOG(NOTICE, "Starting echo test for %d-byte reply messages", size);
         cluster->logMessageAll(NOTICE,
-                "Starting echo test for %d-byte messages", size);
-        echoDists[i] = echoRandomMessages(&masterServiceLocators, size,
-                100000, 2.0);
+                "Starting echo test for %d-byte reply messages", size);
+        echoDists[i] = echoMessages({receiverLocator}, outgoingMessageLength,
+                size, 100000, 2.0);
     }
     Logger::get().sync();
 
@@ -2484,7 +2542,8 @@ echo()
     for (int i = 0; i < NUM_SIZES; i++) {
         TimeDist* dist = &echoDists[i];
         snprintf(description, sizeof(description),
-                "echo random %sB message", ids[i]);
+                "send %uB message, receive %sB message", outgoingMessageLength,
+                ids[i]);
         snprintf(name, sizeof(name), "echo%s", ids[i]);
         printf("%-20s %s     %s median\n", name, formatTime(dist->p50).c_str(),
                 description);
@@ -2506,10 +2565,131 @@ echo()
         }
         snprintf(name, sizeof(name), "echoBw%s", ids[i]);
         snprintf(description, sizeof(description),
-                "bandwidth echoing %sB messages", ids[i]);
+                "bandwidth receiving %sB messages", ids[i]);
         printBandwidth(name, dist->bandwidth, description);
     }
 #undef NUM_SIZES
+}
+
+// This benchmark measures the latency of sending and receiving small messages
+// in the presence of large messages, when there are multiple senders but only
+// one receiver.
+void
+echo_incast()
+{
+    // Define parameters that control the experiment.
+    const uint32_t echoSize = 30;
+    const double masterRunningSecs = seconds;
+    const double slaveWarmupSecs = 1.0;
+    const double slaveRunningSecs = masterRunningSecs + 2.0;
+    uint32_t messageSize;
+
+    char name[50], description[50];
+    TimeDist dist[1];
+    Buffer statsBefore, statsAfter;
+    string receiverLocator;
+    if (clientIndex == 0) {
+        // Master client chooses the first master server in the server list as
+        // the receiver.
+        using ServerMap = std::map<uint64_t, std::pair<string, ServiceMask>>;
+        ServerMap servers;
+        getServerList(&servers);
+        ServerMap::iterator it;
+        for (it = servers.begin(); it != servers.end(); it++) {
+            if (it->second.second.has(WireFormat::MASTER_SERVICE)) {
+                break;
+            }
+        }
+        if (it != servers.end()) {
+            receiverLocator = it->second.first;
+            LOG(NOTICE, "Choose server %lu at %s as the receiver", it->first,
+                    receiverLocator.c_str());
+        } else {
+            LOG(ERROR, "No master server available");
+            return;
+        }
+
+        // Inform slave clients about the decision and wait until all of them
+        // have started.
+        sendCommand(receiverLocator.c_str(), "running", 1, numClients-1);
+
+        // Run experiment and collect server performance statistics.
+        messageSize = 30;
+        LOG(NOTICE, "Send %uB messages, receive %uB messages", messageSize,
+                echoSize);
+        cluster->serverControlAll(WireFormat::START_PERF_COUNTERS);
+        cluster->serverControlAll(WireFormat::GET_PERF_STATS, NULL, 0,
+                &statsBefore);
+        dist[0] = echoMessages({receiverLocator}, messageSize, echoSize, ~0u,
+                masterRunningSecs);
+        cluster->serverControlAll(WireFormat::GET_PERF_STATS, NULL, 0,
+                &statsAfter);
+
+        // Raise a warning if any slave client may have finished before us.
+        for (int i = 1; i < numClients; i++) {
+            string state = getSlaveState(i);
+            if (state.compare("running") != 0) {
+                LOG(ERROR, "Slave client %d may have finished before "
+                        "the master client", i);
+            }
+        }
+
+        // Print echo completion time distribution.
+        Logger::get().sync();
+        snprintf(description, sizeof(description),
+                "send %uB message, receive %uB message", messageSize, echoSize);
+        snprintf(name, sizeof(name), "echo");
+        printf("%-20s %s     %s median\n", name, formatTime(dist->p50).c_str(),
+                description);
+        snprintf(name, sizeof(name), "echo.min");
+        printf("%-20s %s     %s minimum\n", name, formatTime(dist->min).c_str(),
+                description);
+        snprintf(name, sizeof(name), "echo.9");
+        printf("%-20s %s     %s 90%%\n", name, formatTime(dist->p90).c_str(),
+                description);
+        if (dist->p99 != 0) {
+            snprintf(name, sizeof(name), "echo.99");
+            printf("%-20s %s     %s 99%%\n", name,
+                    formatTime(dist->p99).c_str(), description);
+        }
+        if (dist->p999 != 0) {
+            snprintf(name, sizeof(name), "echo.999");
+            printf("%-20s %s     %s 99.9%%\n", name,
+                    formatTime(dist->p999).c_str(), description);
+        }
+    } else {
+        // Slave client obtains the receiver's service locator from the master
+        // client.
+        char command[50];
+        receiverLocator = getCommand(command, sizeof(command));
+        messageSize = 1000000;
+        LOG(NOTICE, "Send %uB messages to server at %s, receive %uB messages",
+                messageSize, receiverLocator.c_str(), echoSize);
+
+        // Do some warmup before setting its state to "running".
+        echoMessages({receiverLocator}, messageSize, echoSize, ~0u,
+               slaveWarmupSecs);
+        setSlaveState("running");
+        dist[0] = echoMessages({receiverLocator}, messageSize, echoSize, ~0u,
+               slaveRunningSecs);
+        setSlaveState("done");
+    }
+
+    // Print client bandwidth information.
+    Logger::get().sync();
+    double echoRatio = 1.0 * echoSize / messageSize;
+    snprintf(description, sizeof(description),
+             "bandwidth sending %uB messages", messageSize);
+    printBandwidth("sendBw", dist->bandwidth / echoRatio, description);
+    snprintf(description, sizeof(description),
+             "bandwidth receiving %uB messages", echoSize);
+    printBandwidth("recvBw", dist->bandwidth, description);
+
+    // Print server network bandwidth information.
+    if (clientIndex == 0) {
+        printf("========\n%s",
+            PerfStats::printClusterStats(&statsBefore, &statsAfter).c_str());
+    }
 }
 
 /**
@@ -4347,93 +4527,6 @@ doTransaction(int dataLength, uint16_t keyLength,
             break;
     }
     return Cycles::toSeconds(cumulativeElapsed)/count;
-}
-
-// This benchmark measures the latency of sending and receiving small messages
-// in the presence of large messages, when there are multiple senders but only
-// one receiver.
-void
-transport_singleReceiver()
-{
-    // Choose the master server 1.0 as the receiver.
-    ProtoBuf::ServerList serverList;
-    CoordinatorClient::getServerList(cluster->clientContext, &serverList);
-    string serviceLocator;
-    for (int i = 0; i < serverList.server_size(); i++) {
-        const ProtoBuf::ServerList_Entry* server = &serverList.server(i);
-        if (server->server_id() == 1) {
-            if (ServerStatus(server->status()) != ServerStatus::UP) {
-                LOG(ERROR, "Server 1.0 not up");
-                return;
-            } else if (!ServiceMask::deserialize(server->services()).has(
-                    WireFormat::MASTER_SERVICE)) {
-                LOG(ERROR, "Server 1.0 has no MASTER_SERVICE");
-                return;
-            }
-
-            serviceLocator = server->service_locator();
-            break;
-        }
-    }
-    if (serviceLocator.empty()) {
-        LOG(ERROR, "Cannot find server 1.0 in the coordinator server list");
-        return;
-    }
-    vector<string> serviceLocators = {serviceLocator};
-
-    // The master client sends and receives 100B messages, while the rest
-    // of the clients use 1MB messages.
-    bool masterClient = (clientIndex == 0);
-    uint32_t messageSize = masterClient ? 100 : 1000000;
-    const char* id = masterClient ? "100" : "1M";
-
-    double timeLimit = 3.0;
-    if (masterClient) {
-        // Make sure that the receiver's bandwidth is saturated by the long
-        // messages of other clients during the entire time of our experiment.
-        Cycles::sleep(1000000);
-        timeLimit = 1.0;
-    }
-
-    LOG(NOTICE, "Send %sB messages to master server: %s", id,
-            serviceLocator.c_str());
-    TimeDist dist[1] = {echoRandomMessages(&serviceLocators, messageSize,
-            100000, timeLimit)};
-
-    Logger::get().sync();
-    char name[50], description[50];
-    if (masterClient) {
-        snprintf(description, sizeof(description),
-                "echo random %sB message", id);
-        snprintf(name, sizeof(name), "echo%s", id);
-        printf("%-20s %s     %s median\n", name, formatTime(dist->p50).c_str(),
-                description);
-        snprintf(name, sizeof(name), "echo%s.min", id);
-        printf("%-20s %s     %s minimum\n", name, formatTime(dist->min).c_str(),
-                description);
-        snprintf(name, sizeof(name), "echo%s.9", id);
-        printf("%-20s %s     %s 90%%\n", name, formatTime(dist->p90).c_str(),
-                description);
-        if (dist->p99 != 0) {
-            snprintf(name, sizeof(name), "echo%s.99", id);
-            printf("%-20s %s     %s 99%%\n", name,
-                    formatTime(dist->p99).c_str(), description);
-        }
-        if (dist->p999 != 0) {
-            snprintf(name, sizeof(name), "echo%s.999", id);
-            printf("%-20s %s     %s 99.9%%\n", name,
-                    formatTime(dist->p999).c_str(), description);
-        }
-        snprintf(name, sizeof(name), "echoBw%s", id);
-        snprintf(description, sizeof(description),
-                "bandwidth echoing %sB messages", id);
-        printBandwidth(name, dist->bandwidth, description);
-    } else {
-        snprintf(name, sizeof(name), "echoBw%s", id);
-        snprintf(description, sizeof(description),
-                 "bandwidth echoing %sB messages", id);
-        printBandwidth(name, dist->bandwidth, description);
-    }
 }
 
 // This benchmark measures the transaction commit times for multiple
@@ -6755,7 +6848,8 @@ struct TestInfo {
 TestInfo tests[] = {
     {"basic", basic},
     {"broadcast", broadcast},
-    {"echo", echo},
+    {"echo_basic", echo_basic},
+    {"echo_incast", echo_incast},
     {"indexBasic", indexBasic},
     {"indexRange", indexRange},
     {"indexMultiple", indexMultiple},
@@ -6785,7 +6879,6 @@ TestInfo tests[] = {
     {"readRandom", readRandom},
     {"readThroughput", readThroughput},
     {"readVaryingKeyLength", readVaryingKeyLength},
-    {"transport_singleReceiver", transport_singleReceiver},
     {"writeVaryingKeyLength", writeVaryingKeyLength},
     {"writeAsyncSync", writeAsyncSync},
     {"writeDistRandom", writeDistRandom},
