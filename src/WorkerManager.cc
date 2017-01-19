@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016 Stanford University
+/* Copyright (c) 2011-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -204,10 +204,11 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 
     // Temporary code to test how much faster things would be without threads.
 #if 0
-    if ((header->opcode == WireFormat::READ) &&
+    if (((header->opcode == WireFormat::ECHO) ||
+            (header->opcode == WireFormat::READ)) &&
             (header->service == WireFormat::MASTER_SERVICE)) {
         Service::Rpc serviceRpc(NULL, &rpc->requestPayload, &rpc->replyPayload);
-        services[WireFormat::MASTER_SERVICE]->service.handleRpc(&serviceRpc);
+        Service::handleRpc(context, &serviceRpc);
         rpc->sendReply();
         return;
     }
