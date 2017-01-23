@@ -161,6 +161,10 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     }
 
     // Create a new thread to handle the RPC.
+    #ifdef SMTT
+    TimeTrace::record("handing off opcode %d to worker thread",
+            header->opcode);
+    #endif
     if (Arachne::createThread(&WorkerManager::workerMain, this, rpc) ==
             Arachne::NullThread) {
         // On failure, enqueue the rpc.
@@ -192,10 +196,12 @@ WorkerManager::poll()
 {
     int foundWork = 0;
     std::unique_lock<Arachne::SpinLock> lock(completedRpcsMutex);
-    
+
     while (!completedRpcs.empty()) {
         Transport::ServerRpc* rpc = completedRpcs.front();
         completedRpcs.pop();
+        timeTrace("dispatch thread starting cleanup for opcode %d",
+                *(rpc->requestPayload.getStart<uint16_t>()));
 
         // No need to hold the queue's lock while we post-process
         lock.unlock();
@@ -219,7 +225,7 @@ WorkerManager::poll()
 #endif
             rpc->sendReply();
             timeTrace("sent reply for opcode %d",
-                    *reinterpret_cast<uint8_t*>(&rpc->requestPayload));
+                *(rpc->requestPayload.getStart<uint16_t>()));
         numOutstandingRpcs--;
         lock.lock();
     }
@@ -276,7 +282,7 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
     try {
         const WireFormat::RequestCommon* header;
         header = serverRpc->requestPayload.getStart<WireFormat::RequestCommon>();
-
+        timeTrace("worker thread received opcode %d", header->opcode);
         Worker worker(context, serverRpc, WireFormat::Opcode(header->opcode));
 
         serverRpc->epoch = LogProtector::getCurrentEpoch();
