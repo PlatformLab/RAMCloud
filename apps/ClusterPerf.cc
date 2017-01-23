@@ -6720,7 +6720,7 @@ writeThroughput()
                             "Starting writeThroughput benchmark");
                 }
 
-                // Perform reads for a second (then check to see
+                // Perform writes for a second (then check to see
                 // if the experiment is over).
                 startTime = Cycles::rdtsc();
                 objectsWritten = 0;
