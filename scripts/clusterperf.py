@@ -632,7 +632,9 @@ def readThroughput(name, options, cluster_args, client_args):
     if cluster_args['timeout'] < 250:
         cluster_args['timeout'] = 250
     if 'num_clients' not in cluster_args:
-        cluster_args['num_clients'] = len(getHosts()) - cluster_args['num_servers']
+        # Clients should not share a machine with coordinator by default.
+        cluster_args['num_clients'] = len(getHosts()) - \
+        cluster_args['num_servers'] - 1
     if cluster_args['num_clients'] < 2:
         print("Not enough machines in the cluster to run the '%s' benchmark"
                 % name)
