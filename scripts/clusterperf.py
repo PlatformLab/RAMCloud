@@ -255,7 +255,6 @@ def run_test(
         'timeout':     options.timeout,
         'share_hosts': True,
         'transport':   options.transport,
-        'replicas':    options.replicas,
         'disjunct':    options.disjunct,
         'verbose':     options.verbose
     }
