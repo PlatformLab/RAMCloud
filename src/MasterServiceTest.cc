@@ -3993,7 +3993,7 @@ TEST_F(MasterServiceTest, write_rejectRules) {
     RejectRules rules;
     memset(&rules, 0, sizeof(rules));
     rules.doesntExist = true;
-    uint64_t version;
+    uint64_t version = 0;
     EXPECT_THROW(ramcloud->write(1, "key0", 4, "item0", 5, &rules, &version),
             ObjectDoesntExistException);
     EXPECT_EQ(VERSION_NONEXISTENT, version);
