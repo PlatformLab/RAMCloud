@@ -23,6 +23,7 @@
 #include "ObjectRpcWrapper.h"
 #include "OptionParser.h"
 #include "ServerMetrics.h"
+#include "UnsyncedObjectRpcWrapper.h"
 
 #include "LogMetrics.pb.h"
 #include "ServerConfig.pb.h"
@@ -39,6 +40,7 @@ class ObjectFinder;
 class RpcRequestPool;
 class RpcTracker;
 class UnsyncedRpcTracker;
+class WitnessTracker;
 
 /**
  * This structure describes a key (primary or secondary) and its length.
@@ -203,6 +205,7 @@ class RamCloud {
     ClientTransactionManager *transactionManager;
     RpcRequestPool *rpcRequestPool;
     UnsyncedRpcTracker *unsyncedRpcTracker;
+    WitnessTracker *witnessTracker;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);
@@ -1030,7 +1033,7 @@ class SplitTabletRpc : public CoordinatorRpcWrapper {
  * Encapsulates the state of a RamCloud::write operation,
  * allowing it to execute asynchronously.
  */
-class WriteRpc : public LinearizableObjectRpcWrapper {
+class WriteRpc : public UnsyncedObjectRpcWrapper {
   public:
     WriteRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
             uint16_t keyLength, const void* buf, uint32_t length,

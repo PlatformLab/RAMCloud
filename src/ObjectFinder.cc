@@ -98,9 +98,22 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
                              LogPosition(tablet.ctime_log_head_id(),
                                          tablet.ctime_log_head_offset()));
 
+            int witnessIndex = 0;
+            uint64_t witnessIds[WITNESS_PER_MASTER];
+            string witnessLocators[WITNESS_PER_MASTER];
+            uint64_t witnessBufferPtrs[WITNESS_PER_MASTER];
+            for (const ProtoBuf::TableConfig::Tablet::Witness& witness :
+                    tablet.witness()) {
+                witnessIds[witnessIndex] = witness.server_id();
+                witnessLocators[witnessIndex] = witness.service_locator();
+                witnessBufferPtrs[witnessIndex] = witness.buffer_base_ptr();
+                witnessIndex++;
+            }
+
             tableMap->emplace(
                     TabletKey{*tableId, tablet.start_key_hash()},
-                    TabletWithLocator(rawTablet, tablet.service_locator()));
+                    TabletWithLocator(rawTablet, tablet.service_locator(),
+                            witnessIds, witnessLocators, witnessBufferPtrs));
         }
 
         for (const ProtoBuf::TableConfig::Index& index : tableConfig.index()) {
@@ -565,6 +578,62 @@ ObjectFinder::tryLookup(uint64_t tableId, uint8_t indexId,
                 getSession(indexletWithLocator->serviceLocator);
     }
     return indexletWithLocator->session;
+}
+
+/**
+ * Lookup the master for a key hash in a given table. Returns witnesses
+ * corresponding to the master as well.
+ *
+ * \param tableId
+ *      The table containing the desired object.
+ * \param keyHash
+ *      A hash value in the space of key hashes.
+ * \return
+ *      Sessions to master and witness which are used to communicate with
+ *      the server who holds the tablet and the servers who will temporary keep
+ *      unsynced update RPC requests to this tablet.
+ *      NULL session for means the result is not available yet and the caller
+ *      should try again later.
+ *
+ * \throw TableDoesntExistException
+ *      The coordinator has no record of the table.
+ */
+SessionWithWitness
+ObjectFinder::tryLookupWithWitness(uint64_t tableId, KeyHash keyHash)
+{
+    // No lock needed: doesn't access ObjectFinder object.
+    TabletWithLocator* tabletWithLocator = tryLookupTablet(tableId, keyHash);
+    if (tabletWithLocator == NULL) {
+        return {Transport::SessionRef(), ServerId(), {NULL, }, {0, }, {0, }};
+    }
+
+    SessionWithWitness& cachedSessions = tabletWithLocator->sessionsWithWitness;
+    if (!cachedSessions.toMaster) {
+        cachedSessions.toMaster = ObjectFinder::tryLookup(tableId, keyHash);
+        cachedSessions.masterId = tabletWithLocator->tablet.serverId;
+        for (int i = 0; i < WITNESS_PER_MASTER; ++i) {
+            if (tabletWithLocator->witnessLocators[i].empty()) {
+                RAMCLOUD_CLOG(WARNING, "Witness(es) are not fully assigned to "
+                        "master %lu. Witness lookup for a tablet is failed.",
+                        tabletWithLocator->tablet.serverId.getId());
+                cachedSessions.toMaster = NULL;
+                return {tabletWithLocator->session,
+                        tabletWithLocator->tablet.serverId,
+                        {NULL, },
+                        {0, },
+                        {0, }};
+            }
+
+            cachedSessions.toWitness[i] = context->transportManager->getSession(
+                    tabletWithLocator->witnessLocators[i]);
+            cachedSessions.witnessBufferBasePtr[i] =
+                    tabletWithLocator->witnessBufferBasePtr[i];
+            cachedSessions.witnessServerIds[i] =
+                    tabletWithLocator->witnessServerIds[i];
+        }
+    }
+
+    return tabletWithLocator->sessionsWithWitness;
 }
 
 /**

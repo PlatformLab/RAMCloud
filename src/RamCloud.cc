@@ -36,6 +36,8 @@
 #include "ShortMacros.h"
 #include "TimeTrace.h"
 #include "UnsyncedRpcTracker.h"
+#include "UnsyncedObjectRpcWrapper.h"
+#include "WitnessTracker.h"
 
 namespace RAMCloud {
 
@@ -64,6 +66,7 @@ RamCloud::RamCloud(CommandLineOptions* options)
     , transactionManager(new ClientTransactionManager())
     , rpcRequestPool(new RpcRequestPool())
     , unsyncedRpcTracker(new UnsyncedRpcTracker(this))
+    , witnessTracker(new WitnessTracker())
 {
     coordinatorLocator = options->getExternalStorageLocator();
     if (coordinatorLocator.size() == 0) {
@@ -88,6 +91,7 @@ RamCloud::RamCloud(Context* context)
     , transactionManager(new ClientTransactionManager())
     , rpcRequestPool(new RpcRequestPool())
     , unsyncedRpcTracker(new UnsyncedRpcTracker(this))
+    , witnessTracker(new WitnessTracker())
 {
     coordinatorLocator = context->options->getExternalStorageLocator();
     if (coordinatorLocator.size() == 0) {
@@ -109,6 +113,7 @@ RamCloud::RamCloud(const char* locator, const char* clusterName)
     , transactionManager(new ClientTransactionManager())
     , rpcRequestPool(new RpcRequestPool())
     , unsyncedRpcTracker(new UnsyncedRpcTracker(this))
+    , witnessTracker(new WitnessTracker())
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
@@ -122,6 +127,7 @@ RamCloud::RamCloud(Context* context, const char* locator,
     , transactionManager(new ClientTransactionManager())
     , rpcRequestPool(new RpcRequestPool())
     , unsyncedRpcTracker(new UnsyncedRpcTracker(this))
+    , witnessTracker(new WitnessTracker())
 {
     clientContext->coordinatorSession->setLocation(locator, clusterName);
 }
@@ -141,6 +147,7 @@ RamCloud::~RamCloud()
 
     delete unsyncedRpcTracker;
     delete rpcRequestPool;
+    delete witnessTracker;
 }
 
 /**
@@ -2918,7 +2925,7 @@ RamCloud::write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
 WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
         const void* key, uint16_t keyLength, const void* buf, uint32_t length,
         const RejectRules* rejectRules, bool async)
-    : LinearizableObjectRpcWrapper(ramcloud, true, tableId, key,
+    : UnsyncedObjectRpcWrapper(ramcloud, async, tableId, key,
             keyLength, sizeof(WireFormat::Write::Response))
 {
     uint16_t currentKeyLength = 0;
@@ -2995,7 +3002,7 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
         uint8_t numKeys, KeyInfo *keyList, const void* buf, uint32_t length,
         const RejectRules* rejectRules, bool async)
-    : LinearizableObjectRpcWrapper(ramcloud, true, tableId,
+    : UnsyncedObjectRpcWrapper(ramcloud, false, tableId,
             keyList[0].key, keyList[0].keyLength,
             sizeof(WireFormat::Write::Response))
 {
@@ -3052,9 +3059,11 @@ WriteRpc::wait(uint64_t* version)
     if (rawRequest.data) {
         WireFormat::Write::Request* reqHdr =
                 reinterpret_cast<WireFormat::Write::Request*>(rawRequest.data);
+        std::function<void()> witnessFreer = getWitnessFreeFunc();
         if (reqHdr->common.asyncType == WireFormat::Asynchrony::ASYNC) {
             ramcloud->unsyncedRpcTracker->registerUnsynced(session, rawRequest,
-                    tableId, keyHash, respHdr->version, respHdr->objPos, []{});
+                    tableId, keyHash, respHdr->version,
+                    respHdr->common.logState, witnessFreer);
             rawRequest.data = NULL;
             rawRequest.size = 0;
         }

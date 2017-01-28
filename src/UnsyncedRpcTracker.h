@@ -230,6 +230,8 @@ class UnsyncedRpcTracker {
 
     RamCloud* ramcloud;
 
+    friend class UnsyncedObjectRpcWrapper;
+
     DISALLOW_COPY_AND_ASSIGN(UnsyncedRpcTracker);
 };
 

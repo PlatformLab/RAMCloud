@@ -26,12 +26,15 @@ class RpcResultTest : public ::testing::Test {
   public:
     RpcResultTest()
         : stringKey(),
-          response({{Status::STATUS_OK}, 123UL, {10UL, 55U, 8U}}),
+          response(),
           buffer(),
           buffer2(),
           rpcResultFromResponse(),
           rpcResultFromBuffer()
     {
+        response.common.logState = {10UL, 55U, 8U};
+        response.common.status = Status::STATUS_OK;
+        response.version = 123UL;
         snprintf(stringKey, sizeof(stringKey), "key!");
         Key key(572, stringKey, 5);
 
@@ -89,7 +92,7 @@ TEST_F(RpcResultTest, constructor_fromResponse) {
     EXPECT_EQ(1UL, record.header.leaseId);
     EXPECT_EQ(10UL, record.header.rpcId);
     EXPECT_EQ(9UL, record.header.ackId);
-    EXPECT_EQ(3695638899U, record.header.checksum);
+    EXPECT_EQ(1995158382U, record.header.checksum);
 
     EXPECT_TRUE(record.response);
 
@@ -108,7 +111,7 @@ TEST_F(RpcResultTest, constructor_fromBuffer) {
     EXPECT_EQ(1UL, record.header.leaseId);
     EXPECT_EQ(10UL, record.header.rpcId);
     EXPECT_EQ(9UL, record.header.ackId);
-    EXPECT_EQ(3695638899U, record.header.checksum);
+    EXPECT_EQ(1995158382U, record.header.checksum);
 
     EXPECT_FALSE(record.response);
     EXPECT_TRUE(record.respBuffer);
@@ -142,7 +145,7 @@ TEST_F(RpcResultTest, assembleForLog) {
         EXPECT_EQ(1UL, header->leaseId);
         EXPECT_EQ(10UL, header->rpcId);
         EXPECT_EQ(9UL, header->ackId);
-        EXPECT_EQ(3695638899U, header->checksum);
+        EXPECT_EQ(1995158382U, header->checksum);
 
         const void* respRaw = buffer.getRange(sizeof(*header),
                     sizeof(WireFormat::Write::Response));
@@ -174,7 +177,7 @@ TEST_F(RpcResultTest, assembleForLog_contigMemory) {
         EXPECT_EQ(1UL, header->leaseId);
         EXPECT_EQ(10UL, header->rpcId);
         EXPECT_EQ(9UL, header->ackId);
-        EXPECT_EQ(3695638899U, header->checksum);
+        EXPECT_EQ(1995158382U, header->checksum);
 
         const void* respRaw = target + sizeof(*header);
         const WireFormat::Write::Response* resp =

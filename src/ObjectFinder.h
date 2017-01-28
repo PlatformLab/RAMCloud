@@ -79,6 +79,14 @@ struct IndexletWithLocator {
     {}
 };
 
+struct SessionWithWitness {
+    Transport::SessionRef toMaster;
+    ServerId masterId;
+    Transport::SessionRef toWitness[WITNESS_PER_MASTER];
+    uint64_t witnessBufferBasePtr[WITNESS_PER_MASTER];
+    uint64_t witnessServerIds[WITNESS_PER_MASTER];
+};
+
 /**
  * This structure holds configuration information for a single tablet.
  */
@@ -94,19 +102,57 @@ struct TabletWithLocator {
     /// yet fetched the session from TransportManager.
     Transport::SessionRef session;
 
+    /// Used to track entries written to witnesses.
+    uint64_t witnessServerIds[WITNESS_PER_MASTER];
+
+    /// Used to find witnesses for this tablet.
+    string witnessLocators[WITNESS_PER_MASTER];
+
+    uint64_t witnessBufferBasePtr[WITNESS_PER_MASTER];
+
+    /// This is a cache to avoid repeated calls to TransportManager; NULL value
+    /// of toMaster field means that we haven't yet fetched the session from
+    /// TransportManager, and fabricated this Sessions struct.
+    SessionWithWitness sessionsWithWitness;
+
     /// If the status of the tablet is RECOVERING, this specifies the clock
     /// time in rdtsc ticks before which we should not attempt to load the
     /// configuration information again. If the status of the tablet is
     /// NORMAL, it is simply set to 0.
     const uint64_t nextFetchTime;
 
+    TabletWithLocator(Tablet tablet, string serviceLocator,
+            uint64_t witnessIds[], string witnessServiceLocators[],
+            uint64_t witnessBasePtr[])
+        : tablet(tablet)
+        , serviceLocator(serviceLocator)
+        , session(NULL)
+        , witnessServerIds()
+        , witnessLocators()
+        , witnessBufferBasePtr()
+        , sessionsWithWitness({NULL, ServerId(), {NULL, }, {0, }, {0, }})
+        , nextFetchTime(tablet.status == Tablet::Status::RECOVERING ?
+                        Cycles::rdtsc() + Cycles::fromMicroseconds(10000) : 0)
+    {
+        memcpy(witnessServerIds, witnessIds, sizeof(witnessServerIds));
+        for (int i = 0; i < WITNESS_PER_MASTER; ++i) {
+            witnessLocators[i] = witnessServiceLocators[i];
+        }
+        memcpy(witnessBufferBasePtr, witnessBasePtr,
+                sizeof(witnessBufferBasePtr));
+    }
+
     TabletWithLocator(Tablet tablet, string serviceLocator)
         : tablet(tablet)
         , serviceLocator(serviceLocator)
         , session(NULL)
+        , witnessServerIds()
+        , witnessLocators()
+        , witnessBufferBasePtr()
+        , sessionsWithWitness({NULL, ServerId(), {NULL, }, {0, }, {0, }})
         , nextFetchTime(tablet.status == Tablet::Status::RECOVERING ?
                         Cycles::rdtsc() + Cycles::fromMicroseconds(10000) : 0)
-    {}
+    { }
 };
 
 /**
@@ -146,6 +192,8 @@ class ObjectFinder {
     Transport::SessionRef tryLookup(uint64_t tableId, uint8_t indexId,
                                     const void* key, KeyLength keyLength,
                                     bool* indexDoesntExist);
+
+    SessionWithWitness tryLookupWithWitness(uint64_t tableId, KeyHash keyHash);
 
     void waitForTabletDown(uint64_t tableId);
     void waitForAllTabletsNormal(uint64_t tableId, uint64_t timeoutNs = ~0lu);

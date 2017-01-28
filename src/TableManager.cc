@@ -109,7 +109,7 @@ TableManager::Index::~Index()
  *      \a splitKey belong to the other.
  * \param splitKeyLength
  *      Length of splitKey in bytes.
- * 
+ *
  * \throw NoSuchIndexlet
  *      If the indexlet being split, or the index for which the indexlet
  *      is being split doesn't exist anymore.
@@ -382,7 +382,7 @@ TableManager::debugString(bool shortForm)
  * Delete the table with the given name. All existing data for the table will
  * be deleted, and the table's name will no longer exist in the directory
  * of tables.
- * 
+ *
  * \param name
  *      Name of the table that is to be dropped.
  */
@@ -773,10 +773,13 @@ TableManager::recover(uint64_t lastCompletedUpdate)
  * \param tableId
  *      The id of the table whose configuration will be fetched. If
  *      the table doesn't exist, then the protocol buffer ends up empty.
+ * \param witnessManager
+ *      Pointer to witness manager to fetch corresponding witness info per
+ *      tablet. We rely on TableConfig to notify witness mapping to clients.
  */
 void
 TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
-        uint64_t tableId)
+        uint64_t tableId, WitnessManager* witnessManager)
 {
     Lock lock(mutex);
     IdMap::iterator it = idMap.find(tableId);
@@ -798,6 +801,32 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
                     "tableId %lu, startKeyHash 0x%lx)",
                     tablet->serverId.toString().c_str(), table->name.c_str(),
                     tableId, tablet->startKeyHash);
+        }
+
+        if (witnessManager != NULL) {
+            vector<WitnessManager::Witness> witnessesForTablet =
+                    witnessManager->getWitness(tablet->serverId);
+            for (WitnessManager::Witness witness : witnessesForTablet) {
+                ProtoBuf::TableConfig::Tablet::Witness& protoWitness(
+                    *entry.add_witness());
+
+                if (!witness.isActive) {
+                    continue;
+                }
+                protoWitness.set_server_id(witness.id.getId());
+                try {
+                    string locator = context->serverList->getLocator(
+                            witness.id);
+                    protoWitness.set_service_locator(locator);
+                    protoWitness.set_buffer_base_ptr(witness.bufferBasePtr);
+                } catch (const ServerListException& e) {
+                    RAMCLOUD_CLOG(NOTICE, "Server id (%s) for witness no "
+                            "longer in server list; omitting locator for entry "
+                            "(tableName %s, tableId %lu, witnessServerId %lu)",
+                            tablet->serverId.toString().c_str(),
+                            table->name.c_str(), tableId, witness.id.getId());
+                }
+            }
         }
     }
 
@@ -1153,7 +1182,7 @@ TableManager::dropIndex(const Lock& lock, uint64_t tableId, uint8_t indexId)
  * Delete the table with the given name. All existing data for the table will
  * be deleted, and the table's name will no longer exist in the directory
  * of tables.
- * 
+ *
  * \param lock
  *      Ensures that the caller holds the monitor lock; not actually used.
  * \param name

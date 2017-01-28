@@ -39,6 +39,7 @@ enum ServiceType {
     BACKUP_SERVICE,
     COORDINATOR_SERVICE,
     ADMIN_SERVICE,
+    WITNESS_SERVICE,
     INVALID_SERVICE, // One higher than the max.
 };
 
@@ -131,7 +132,10 @@ enum Opcode {
     TX_HINT_FAILED              = 79,
     ECHO                        = 80,
     SYNC_LOG                    = 81,
-    ILLEGAL_RPC_TYPE            = 82, // 1 + the highest legitimate Opcode
+    WITNESS_START               = 82,
+    WITNESS_RECORD              = 83,
+    WITNESS_REPLAY_AND_QUIT     = 84,
+    ILLEGAL_RPC_TYPE            = 85, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -2008,12 +2012,50 @@ struct Write {
         RejectRules rejectRules;
     } __attribute__((packed));
     struct Response {
-        ResponseCommon common;
+        MasterResponseCommon common;
         uint64_t version;
-        LogState objPos;
     } __attribute__((packed));
 };
 
+struct WitnessStart {
+    static const Opcode opcode = WITNESS_START;
+    static const ServiceType service = WITNESS_SERVICE;
+    struct Request {
+        RequestCommonWithId common;
+        uint64_t targetMasterId;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t bufferBasePtr;
+    } __attribute__((packed));
+};
+
+struct WitnessRecord {
+    static const Opcode opcode = WITNESS_RECORD;
+    static const ServiceType service = WITNESS_SERVICE;
+
+    struct RecordEntryHeader {
+        // TODO(seojin): check memory alignment harms performance of memcpy...?
+        int64_t requestSize; // just need int16, but for better alignment..
+        uint64_t tableId;
+        uint64_t keyHash;
+    };
+
+    struct Request {
+        AsyncRequestCommon common;
+        uint64_t targetMasterId;
+        uint64_t bufferBasePtr;
+        int16_t clearHashIndices[3]; // Value 0 means not available.
+        int16_t hashIndex;
+        // Below this goes directly into buffer in witness.
+        RecordEntryHeader entryHeader;
+        // Actual request is followed.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        bool accepted;
+    } __attribute__((packed));
+};
 // DON'T DEFINE NEW RPC TYPES HERE!! Put them in alphabetical order above.
 
 Status getStatus(Buffer* buffer);

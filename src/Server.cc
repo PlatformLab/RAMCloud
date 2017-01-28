@@ -42,6 +42,7 @@ Server::Server(Context* context, const ServerConfig* config)
     , master()
     , backup()
     , adminService()
+    , witness()
     , enlistTimer()
 {
     context->coordinatorSession->setLocation(
@@ -163,6 +164,11 @@ Server::createAndRegisterServices()
         adminService.construct(context,
                                static_cast<ServerList*>(context->serverList),
                                &config);
+    }
+
+    if (config.services.has(WireFormat::WITNESS_SERVICE)) {
+        LOG(NOTICE, "Starting witness service");
+        witness.construct(context, &config);
     }
 
     return formerServerId;

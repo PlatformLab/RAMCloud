@@ -26,6 +26,7 @@
 #include "ShortMacros.h"
 #include "ServerRpcPool.h"
 #include "TimeTrace.h"
+#include "WitnessService.h"
 #include "WireFormat.h"
 #include "WorkerManager.h"
 
@@ -213,6 +214,25 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
         return;
     }
 #endif
+
+    if (header->opcode == WireFormat::WITNESS_RECORD) {
+        assert(header->service == WireFormat::WITNESS_SERVICE);
+        assert(rpc->replyPayload.size() == 0);
+        const WireFormat::WitnessRecord::Request* reqHdr =
+            rpc->requestPayload.getStart<WireFormat::WitnessRecord::Request>();
+        assert(reqHdr != NULL);
+
+        WireFormat::WitnessRecord::Response* respHdr =
+            rpc->replyPayload.emplaceAppend<
+                WireFormat::WitnessRecord::Response>();
+
+        // Skipped memset to zeros for faster performance.
+
+        WitnessService::record(reqHdr, respHdr, &rpc->requestPayload);
+        rpc->sendReply();
+        return;
+    }
+
 
     levels[level].requestsRunning++;
 

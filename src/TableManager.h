@@ -25,6 +25,7 @@
 #include "Tablet.h"
 #include "TableConfig.pb.h"
 #include "Indexlet.h"
+#include "WitnessManager.h"
 
 namespace RAMCloud {
 
@@ -90,7 +91,7 @@ class TableManager {
             uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset);
     void recover(uint64_t lastCompletedUpdate);
     void serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
-            uint64_t tableId);
+            uint64_t tableId, WitnessManager* witnessManager = NULL);
     void splitTablet(const char* name, uint64_t splitKeyHash);
     void splitRecoveringTablet(uint64_t tableId, uint64_t splitKeyHash);
     void tabletRecovered(uint64_t tableId, uint64_t startKeyHash,
@@ -99,7 +100,7 @@ class TableManager {
   PRIVATE:
     /**
      * The following structure holds information about a indexlet of an index.
-     * 
+     *
      * Each indexlet is stored by a backing RAMCloud table. The name of the
      * table is synthesized and has the format:
      * "__backingTable:tableId:indexId:i" where tableId and indexId

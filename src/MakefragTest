@@ -182,6 +182,7 @@ TESTS_SRCFILES := \
 		  src/TubTest.cc \
 		  src/UdpDriverTest.cc \
 		  src/UnackedRpcResultsTest.cc \
+		  src/UnsyncedObjectRpcWrapper.cc \
 		  src/UnsyncedRpcTrackerTest.cc \
 		  src/UpdateReplicationEpochTaskTest.cc \
 		  src/UtilTest.cc \
@@ -189,6 +190,8 @@ TESTS_SRCFILES := \
 		  src/WallTimeTest.cc \
 		  src/WindowTest.cc \
 		  src/WireFormatTest.cc \
+		  src/WitnessServiceTest.cc \
+		  src/WitnessTrackerTest.cc \
 		  src/WorkerManagerTest.cc \
 		  src/WorkerSessionTest.cc \
 		  src/WorkerTimerTest.cc \

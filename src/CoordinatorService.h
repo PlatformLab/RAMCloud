@@ -36,6 +36,7 @@
 #include "TableManager.h"
 #include "TransportManager.h"
 #include "ServerConfig.h"
+#include "WitnessManager.h"
 
 namespace RAMCloud {
 
@@ -180,6 +181,11 @@ class CoordinatorService : public Service {
      * Manages the tables and constituting tablets information on Coordinator.
      */
     TableManager tableManager;
+
+    /**
+     * Manages the assignment of witnesses to each master.
+     */
+    WitnessManager witnessManager;
 
     /**
      * Manages all client lease and serves requests for new leases and checks

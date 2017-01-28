@@ -96,6 +96,10 @@ class CoordinatorServerList : public AbstractServerList{
             return (status == ServerStatus::UP) &&
                     services.has(WireFormat::BACKUP_SERVICE);
         }
+        bool isWitness() const {
+            return (status == ServerStatus::UP) &&
+                    services.has(WireFormat::WITNESS_SERVICE);
+        }
 
         // Fields below this point are maintained on the coordinator only
         // and are not transmitted to members' ServerLists.

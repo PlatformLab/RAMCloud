@@ -51,6 +51,7 @@ callees = {
     "CREATE_TABLE":          ["TAKE_TABLET_OWNERSHIP"],
     "DROP_INDEX":            ["DROP_TABLET_OWNERSHIP"],
     "DROP_TABLE":            ["TAKE_TABLET_OWNERSHIP"],
+    "ENLIST_SERVER":         ["WITNESS_START"],
     "FILL_WITH_TEST_DATA":   ["BACKUP_WRITE"],
     "GET_HEAD_OF_LOG":       ["BACKUP_WRITE"],
     "HINT_SERVER_CRASHED":   ["PING"],
@@ -71,6 +72,7 @@ callees = {
     "SERVER_CONTROL_ALL":    ["SERVER_CONTROL"],
     "SPLIT_AND_MIGRATE_INDEXLET":
                              ["RECEIVE_MIGRATION_DATA"],
+    "SYNC_LOG":              ["BACKUP_WRITE"],
     "TAKE_TABLET_OWNERSHIP": ["BACKUP_WRITE"],
     "TX_DECISION":           ["BACKUP_WRITE"],
     "TX_HINT_FAILED":        ["BACKUP_WRITE"],

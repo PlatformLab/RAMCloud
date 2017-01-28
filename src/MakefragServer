@@ -8,6 +8,7 @@ SERVER_SRCFILES := \
 		   src/PriorityTaskQueue.cc \
 		   src/RecoverySegmentBuilder.cc \
 		   src/Server.cc \
+		   src/WitnessService.cc \
 		   $(NULL)
 
 SERVER_OBJFILES := $(SERVER_SRCFILES)

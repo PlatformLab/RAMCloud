@@ -3235,7 +3235,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // Write the object.
     respHdr->common.status = objectManager.writeObject(
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
-            &rpcResult, &rpcResultPtr, &respHdr->objPos,
+            &rpcResult, &rpcResultPtr, &respHdr->common.logState,
             reqHdr->common.asyncType == WireFormat::Asynchrony::RETRY);
 
     bool asyncReplication = reqHdr->common.asyncType == WireFormat::ASYNC;

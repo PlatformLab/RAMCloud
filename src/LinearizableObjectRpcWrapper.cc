@@ -194,7 +194,7 @@ LinearizableObjectRpcWrapper::waitInternal(Dispatch* dispatch,
     ramcloud->rpcTracker->rpcFinished(assignedRpcId);
     assignedRpcId = 0;
     return true;
-    }
+}
 
 // See RpcTracker::TrackedRpc for documentation.
 void LinearizableObjectRpcWrapper::tryFinish()

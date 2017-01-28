@@ -25,6 +25,7 @@
 #include "ShortMacros.h"
 #include "ServerId.h"
 #include "ServiceMask.h"
+#include "WitnessManager.h"
 
 namespace RAMCloud {
 bool CoordinatorService::forceSynchronousInit = false;
@@ -51,6 +52,7 @@ CoordinatorService::CoordinatorService(Context* context,
     , updateManager(context->externalStorage)
     , serverList(context)
     , tableManager(context, &updateManager)
+    , witnessManager(context, &serverList)
     , leaseAuthority(context)
     , runtimeOptions()
     , recoveryManager(context, tableManager, &runtimeOptions)
@@ -376,6 +378,8 @@ CoordinatorService::enlistServer(
                                                    readSpeed,
                                                    serviceLocator);
     respHdr->serverId = newServerId.getId();
+    rpc->sendReply();
+    witnessManager.allocWitness(newServerId); // Caution..
 }
 
 /**
@@ -477,7 +481,9 @@ CoordinatorService::getTableConfig(
         Rpc* rpc)
 {
     ProtoBuf::TableConfig tableConfig;
-    tableManager.serializeTableConfig(&tableConfig, reqHdr->tableId);
+    tableManager.serializeTableConfig(&tableConfig,
+                                      reqHdr->tableId,
+                                      &witnessManager);
     respHdr->tableConfigLength = serializeToResponse(rpc->replyPayload,
                                                      &tableConfig);
 }

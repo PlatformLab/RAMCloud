@@ -25,6 +25,7 @@
 #include "ServerConfig.h"
 #include "ServerId.h"
 #include "ServerList.h"
+#include "WitnessService.h"
 #include "WorkerTimer.h"
 
 namespace RAMCloud {
@@ -108,6 +109,12 @@ class Server {
      * See config.services.
      */
     Tub<AdminService> adminService;
+
+    /**
+     * The WitnessService running on this Server, if requested, else empty.
+     * See config.services.
+     */
+    Tub<WitnessService> witness;
 
     // The class and variable below are used to run enlistment in a
     // worker thread, so that post-enlistment initialization doesn't

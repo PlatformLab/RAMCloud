@@ -56,6 +56,15 @@ message Tablets {
     /// tablet when it was assigned to the server. Any objects appearing
     /// earlier in that segment cannot contain data belonging to this tablet.
     required uint32 ctime_log_head_offset = 9;
+
+    /// Information of a Witness server for the master that owns this tablet.
+    message Witness {
+        required fixed64 server_id = 1;
+        optional string service_locator = 2;
+        optional fixed64 buffer_base_ptr = 3;
+    }
+
+    repeated Witness witness = 10;
   }
 
   /// The tablets.

@@ -265,7 +265,8 @@ main(int argc, char *argv[])
         } else {
             config.services = {WireFormat::MASTER_SERVICE,
                                WireFormat::BACKUP_SERVICE,
-                               WireFormat::ADMIN_SERVICE};
+                               WireFormat::ADMIN_SERVICE,
+                               WireFormat::WITNESS_SERVICE};
         }
 
         const string localLocator = optionParser.options.getLocalLocator();

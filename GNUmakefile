@@ -439,6 +439,7 @@ INSTALL_INCLUDES := \
     src/TestLog.h \
     src/Transport.h \
     src/Tub.h \
+    src/UnsyncedObjectRpcWrapper.h \
     src/WireFormat.h \
     $(OBJDIR)/Histogram.pb.h \
     $(OBJDIR)/Indexlet.pb.h \
