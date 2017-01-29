@@ -108,7 +108,9 @@ ObjectManager::ObjectManager(Context* context, ServerId* serverId,
 ObjectManager::~ObjectManager()
 {
     if (tombstoneProtectorCount > 0) {
-        DIE("Can't destroy ObjectManager with active TombstoneProtectors.");
+        LOG(ERROR, "Can't destroy ObjectManager with active "
+                "TombstoneProtectors.");
+        std::terminate();
     }
     replicaManager.haltFailureMonitor();
 }

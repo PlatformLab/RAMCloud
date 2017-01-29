@@ -60,7 +60,7 @@ SHARED_SRCFILES := \
 		   src/BackupFailureMonitor.cc \
 		   src/BackupSelector.cc \
 		   src/Buffer.cc \
-                   src/CleanableSegmentManager.cc \
+		   src/CleanableSegmentManager.cc \
 		   src/ClientException.cc \
 		   src/ClusterMetrics.cc \
 		   src/CodeLocation.cc \
@@ -174,7 +174,7 @@ SHARED_SRCFILES := \
 		   src/WorkerTimer.cc \
 		   $(INFINIBAND_SRCFILES) \
 		   $(SOLARFLARE_SRC) \
-                   $(DPDK_SRC) \
+		   $(DPDK_SRC) \
 		   $(OBJDIR)/EnumerationIterator.pb.cc \
 		   $(OBJDIR)/Histogram.pb.cc \
 		   $(OBJDIR)/LogMetrics.pb.cc \

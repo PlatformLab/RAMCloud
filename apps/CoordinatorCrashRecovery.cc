@@ -192,7 +192,7 @@ void
 fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
            const void* key, uint16_t keyLength)
 {
-    char chunk[51];
+    char chunk[100];
     buffer.reset();
     uint32_t bytesLeft = size;
     int position = 0;

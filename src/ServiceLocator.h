@@ -176,7 +176,9 @@ class ServiceLocator {
  */
 template<typename T> T
 ServiceLocator::getOption(const string& key) const {
-    return boost::lexical_cast<T>(getOption(key));
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+        return boost::lexical_cast<T>(getOption(key));
+#pragma GCC diagnostic warning "-Wmaybe-uninitialized"
 }
 
 /**

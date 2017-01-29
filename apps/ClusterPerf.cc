@@ -3875,9 +3875,9 @@ indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
         uint32_t numHashes[numRequests];
         uint16_t nextKeyLength[numRequests];
         uint64_t nextKeyHash[numRequests];
-        char primaryKey[numRequests][30];
-        char firstKey[numRequests][30];
-        char lastKey[numRequests][30];
+        char primaryKey[numRequests][50];
+        char firstKey[numRequests][50];
+        char lastKey[numRequests][50];
 
         Tub<LookupIndexKeysRpc> rpcs[numRequests];
 
@@ -3941,9 +3941,9 @@ indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
 
     while (true) {
         int numRequests = concurrent;
-        char primaryKey[numRequests][30];
-        char firstKey[numRequests][30];
-        char lastKey[numRequests][30];
+        char primaryKey[numRequests][50];
+        char firstKey[numRequests][50];
+        char lastKey[numRequests][50];
 
         uint64_t startTimes[numRequests];
         uint64_t stopTimes[numRequests];
@@ -4091,7 +4091,7 @@ indexScalability()
         for (int i = 0; i < numObjectsPerIndexlet; i++) {
             int intKey = randomized[i];
 
-            char primaryKey[30];
+            char primaryKey[50];
             snprintf(primaryKey, sizeof(primaryKey), "%c:%dp%0*d",
                     firstKey, intKey, 30, 0);
             char secondaryKey[30];
@@ -5072,8 +5072,8 @@ transaction_collision()
            "avg. objs | Avg. Latency (us) |\n");
     printf("#------------------------------------------------------------\n");
     for (int i = 1; i < numClients; ++i) {
-        char abortCountKey[20], commitCountKey[20], latencyKey[20],
-             serverSpanKey[20], objsSelectedKey[20];
+        char abortCountKey[30], commitCountKey[30], latencyKey[30],
+             serverSpanKey[30], objsSelectedKey[30];
         snprintf(abortCountKey, sizeof(abortCountKey), "abortCount %3d", i);
         Buffer value;
         cluster->read(dataTable, abortCountKey, (uint16_t)strlen(abortCountKey),

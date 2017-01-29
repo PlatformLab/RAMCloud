@@ -63,13 +63,11 @@ TEST_F(IpAddressTest, constructor) {
             "host=localhost, port=badInteger' couldn't be "
             "converted to IP address: bad lexical cast: source "
             "type value could not be interpreted as target"
-// GCC 5 and Clang include the inline namespace and full type specification
-// in the demangled type name.
-#if __GNUC__ < 5
-            "\nCould not convert from source type std::string"
-#else
+#if _GLIBCXX_USE_CXX11_ABI == 1
             "\nCould not convert from source type std::__cxx11::basic_string<"
             "char, std::char_traits<char>, std::allocator<char> >"
+#else
+            "\nCould not convert from source type std::string"
 #endif
             " to target type unsigned short\n",
             tryLocator("fast+udp: host=localhost, port=badInteger"));

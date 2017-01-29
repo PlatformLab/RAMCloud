@@ -2719,7 +2719,7 @@ TEST_F(ObjectManagerTest, relocateRpcResult_relocateRecord) {
     unackedRpcResults.recordCompletion(leaseId,
                                        rpcId,
                                        reinterpret_cast<void*>(rpcResultPtr),
-                                       this);
+                                       true);
 
     unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
 
@@ -2783,7 +2783,7 @@ TEST_F(ObjectManagerTest, relocateRpcResult_cleanRecord) {
     unackedRpcResults.recordCompletion(leaseId,
                                        rpcId,
                                        reinterpret_cast<void*>(rpcResultPtr),
-                                       this);
+                                       true);
 
     unackedRpcResults.checkDuplicate(clientLease, rpcId, ackId, &result);
 

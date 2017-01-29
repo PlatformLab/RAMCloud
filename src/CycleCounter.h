@@ -72,14 +72,14 @@ class CycleCounter {
      *      stopped or canceled). Otherwise, 0 is returned.
      */
     uint64_t stop() {
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
         if (startTime == ~0UL)
             return 0;
         // using 1 avoids most div by zero errors
         uint64_t stopTime = (__is_empty(T) ? 0 : Cycles::rdtsc());
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
         uint64_t elapsed = stopTime - startTime;
-#pragma GCC diagnostic warning "-Wmaybe-uninitialized"
         if (total != NULL)
+#pragma GCC diagnostic warning "-Wmaybe-uninitialized"
             *total += elapsed;
         startTime = ~0UL;
         return elapsed;

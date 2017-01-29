@@ -12,8 +12,9 @@ include $(wildcard private/MakefragPrivateTop)
 DEBUG ?= yes
 YIELD ?= no
 SSE ?= sse4.2
-ARCH ?= core2
+ARCH ?= native
 COMPILER ?= gnu
+GLIBCXX_USE_CXX11_ABI ?= no
 SANITIZER ?= none
 VALGRIND ?= no
 ONLOAD_DIR ?= /usr/local/openonload-201405
@@ -57,6 +58,15 @@ else
 BASECFLAGS := -g
 OPTFLAG := -O3
 DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
+endif
+
+# Starting from GCC 5.1, libstdc++ introduced a new library ABI. To maintain
+# backwards compatibility, the _GLIBCXX_USE_CXX11_ABI macro is used to select
+# whether the declarations in the library headers use the old or new ABI.
+ifeq ($(GLIBCXX_USE_CXX11_ABI),yes)
+BASECFLAGS += -D_GLIBCXX_USE_CXX11_ABI=1
+else
+BASECFLAGS += -D_GLIBCXX_USE_CXX11_ABI=0
 endif
 
 COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \

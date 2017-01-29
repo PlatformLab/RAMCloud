@@ -866,9 +866,6 @@ Segment::copyOut(uint32_t offset, void* buffer, uint32_t length) const
 Segment::EntryHeader
 Segment::getEntryHeader(uint32_t offset)
 {
-    if (this == NULL) {
-        DIE("Null `this` pointer");
-    }
     static_assert(sizeof(EntryHeader) == 1,
                   "Contiguity in segments not guaranteed!");
     const EntryHeader* header = NULL;

@@ -142,9 +142,8 @@ $(OBJDIR)/libramcloud.a: $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(AR) rcs $@ $^
 
-# protocol buffers seems to need -lpthread, meh
 $(OBJDIR)/libramcloud.so: $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -shared -lpthread -o $@ $^ -Wl,--no-undefined,-soname,libramcloud.so $(LIBS)
+	$(CXX) $(LDFLAGS) -shared -o $@ $^ -Wl,--no-undefined,-soname,libramcloud.so $(LIBS)
 
 all: $(OBJDIR)/libramcloud.so $(OBJDIR)/libramcloud.a

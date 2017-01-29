@@ -386,9 +386,10 @@ Dispatch::dumpProfile(const char* fileName) {
  */
 void
 Dispatch::cleanProfiler() {
-    if (pollingTimes != NULL)
-        delete [] pollingTimes;
+    if (pollingTimes != NULL) {
+        delete[] pollingTimes;
         pollingTimes = NULL;
+    }
 }
 
 /**

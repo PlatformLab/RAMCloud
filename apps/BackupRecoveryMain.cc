@@ -78,7 +78,7 @@ try
     int i = 0;
     uint64_t lastBackupTable = 0;
     while (true) {
-        char name[10];
+        char name[20];
         snprintf(name, sizeof(name), "backup%d", ++i);
         client.createTable(name);
         uint64_t table = client.getTableId(name);

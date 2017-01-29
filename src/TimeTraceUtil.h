@@ -49,7 +49,7 @@ class TimeTraceUtil {
     static const char* statusMsg(int thread, WireFormat::Opcode,
             RequestStatus status);
 
-    static const uint32_t MAX_MESSAGE_SIZE = 50;
+    static const uint32_t MAX_MESSAGE_SIZE = 60;
     static const int MAX_THREAD_ID = 20;
     static const uint32_t MAX_QUEUE_LENGTH = 100;
 
