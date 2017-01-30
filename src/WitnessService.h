@@ -25,6 +25,7 @@
 #include "Service.h"
 #include "ServerConfig.h"
 #include "TaskQueue.h"
+#include "PerfStats.h"
 
 namespace RAMCloud {
 
@@ -170,8 +171,10 @@ WitnessService::record(const WireFormat::WitnessRecord::Request* reqHdr,
                 static_cast<uint32_t>(reqHdr->entryHeader.requestSize),
                 buffer->table[reqHdr->hashIndex].request);
         respHdr->accepted = true;
+        PerfStats::threadStats.temp1++;
     } else {
         respHdr->accepted = false;
+        PerfStats::threadStats.temp2++;
     }
 
     respHdr->common.status = Status::STATUS_OK;

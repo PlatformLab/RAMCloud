@@ -847,6 +847,7 @@ graph_tests = [
     Test("readLoaded", readLoaded),
     Test("readRandom", readRandom),
     Test("readThroughput", readThroughput),
+    Test("readThroughputWhileBeingWitness", readThroughput),
     Test("readVaryingKeyLength", default),
     Test("transaction_collision", txCollision),
     Test("transaction_oneMaster", multiOp),
