@@ -22,6 +22,7 @@
 #include "RamCloud.h"
 #include "WitnessService.h"
 #include "WitnessTracker.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -162,9 +163,11 @@ bool
 UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
                                        uint64_t abortTime)
 {
+//    TimeTrace::record("UnsyncedObjectRpcWrapper waitInternal start.");
     if (!LinearizableObjectRpcWrapper::waitInternal(dispatch, abortTime)) {
         return false; // Aborted by timeout. Shouldn't process RPC's response.
     }
+//    TimeTrace::record("LinearizableObjectRpcWrapper waitInternal done.");
 
     auto respCommon = reinterpret_cast<const WireFormat::MasterResponseCommon*>(
             responseHeader);
@@ -172,28 +175,31 @@ UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
         ClientException::throwException(HERE, respCommon->status);
     }
 
+    bool shouldSync = false;
     if (async == ASYNC_DURABLE) {
         assert(WITNESS_PER_MASTER);
         if (!witnessRecordRpcs[WITNESS_PER_MASTER - 1]) {
-            async = SYNC;
+            shouldSync = true;
         } else {
             for (int i = 0; i < WITNESS_PER_MASTER; ++i) {
                 if (!witnessRecordRpcs[i]->wait()) {
                     // Witness rejected recording request. Must sync..
-                    async = SYNC;
+                    shouldSync = true;
                     break;
                 }
             }
         }
     }
+//    TimeTrace::record("LinearizableObjectRpcWrapper witness waiting done.");
 
-    if (async == SYNC) {
+    if (shouldSync) {
         UnsyncedRpcTracker::SyncRpc rpc(context, session, respCommon->logState);
         LogState newLogState;
         rpc.wait(&newLogState);
         ramcloud->unsyncedRpcTracker->updateLogState(session.get(),
                                                      newLogState);
     }
+//    TimeTrace::record("LinearizableObjectRpcWrapper sync call done.");
     return true;
 }
 
@@ -215,6 +221,10 @@ UnsyncedObjectRpcWrapper::getWitnessFreeFunc()
             witnessServerId[i] = witnessRecordRpcs[i]->witnessServerId;
             targetMasterId[i] = witnessRecordRpcs[i]->targetMasterId;
             hashIndex[i] = witnessRecordRpcs[i]->hashIndex;
+        } else {
+            witnessServerId[i] = 0;
+            targetMasterId[i] = 0;
+            hashIndex[i] = -1;
         }
     }
     WitnessTracker* witnessTracker = ramcloud->witnessTracker;

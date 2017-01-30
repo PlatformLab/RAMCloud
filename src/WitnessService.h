@@ -107,9 +107,23 @@ WitnessService::record(const WireFormat::WitnessRecord::Request* reqHdr,
     Master* buffer = reinterpret_cast<Master*>(reqHdr->bufferBasePtr);
     assert(reqHdr->entryHeader.requestSize <= MAX_REQUEST_SIZE);
 
-    if (buffer->id == reqHdr->targetMasterId && buffer->writable &&
-            reqHdr->hashIndex < NUM_ENTRIES_PER_TABLE &&
-            !buffer->table[reqHdr->hashIndex].occupied) {
+    // Sanity check.
+    if (buffer->id != reqHdr->targetMasterId || !buffer->writable ||
+            reqHdr->hashIndex >= NUM_ENTRIES_PER_TABLE) {
+        respHdr->accepted = false;
+        respHdr->common.status = Status::STATUS_OK;
+        return;
+    }
+
+    // Garbage collection
+    for (int i = 0; i < 3; ++i) {
+        if (reqHdr->clearHashIndices[i] != -1) { //Optimize by set 0 and use
+            // 0th index as no-op index.
+            buffer->table[reqHdr->clearHashIndices[i]].occupied = false;
+        }
+    }
+
+    if (!buffer->table[reqHdr->hashIndex].occupied) {
         buffer->table[reqHdr->hashIndex].occupied = true;
         buffer->table[reqHdr->hashIndex].header = reqHdr->entryHeader;
         requestPayload->copy(

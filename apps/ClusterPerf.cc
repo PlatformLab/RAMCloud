@@ -6519,6 +6519,7 @@ writeDistRandom()
         Util::genRandomString(value, objectSize);
         // Do the benchmark
         uint64_t start = Cycles::rdtsc();
+//        TimeTrace::record("write operation is starting.");
         cluster->write(dataTable, key, keyLength, value, objectSize,
                        NULL, NULL, asyncReplication);
         uint64_t now = Cycles::rdtsc();

@@ -2928,6 +2928,7 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
     : UnsyncedObjectRpcWrapper(ramcloud, async, tableId, key,
             keyLength, sizeof(WireFormat::Write::Response))
 {
+//    TimeTrace::record("WriteRpc constructor after UnsyncedObjectRpcWrapper.");
     uint16_t currentKeyLength = 0;
     if (keyLength)
         currentKeyLength = keyLength;
@@ -2965,7 +2966,9 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 
     request.appendExternal(rawRequest.data, rawRequest.size);
 
+//    TimeTrace::record("WriteRpc is sending.");
     send();
+//    TimeTrace::record("WriteRpc sent.");
 }
 
 /**
@@ -3045,7 +3048,9 @@ WriteRpc::~WriteRpc()
 void
 WriteRpc::wait(uint64_t* version)
 {
+//    TimeTrace::record("WriteRpc wait before waitInternal.");
     waitInternal(context->dispatch);
+//    TimeTrace::record("WriteRpc wait waitInternal done.");
     const WireFormat::Write::Response* respHdr(
             getResponseHeader<WireFormat::Write>());
 
@@ -3068,6 +3073,7 @@ WriteRpc::wait(uint64_t* version)
             rawRequest.size = 0;
         }
     }
+//    TimeTrace::record("WriteRpc wait done.");
 }
 
 }  // namespace RAMCloud

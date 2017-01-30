@@ -216,6 +216,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 #endif
 
     if (header->opcode == WireFormat::WITNESS_RECORD) {
+//        TimeTrace::record("WitnessRecord check start.");
         assert(header->service == WireFormat::WITNESS_SERVICE);
         assert(rpc->replyPayload.size() == 0);
         const WireFormat::WitnessRecord::Request* reqHdr =
@@ -229,6 +230,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
         // Skipped memset to zeros for faster performance.
 
         WitnessService::record(reqHdr, respHdr, &rpc->requestPayload);
+//        TimeTrace::record("WitnessRecord check end.");
         rpc->sendReply();
         return;
     }
