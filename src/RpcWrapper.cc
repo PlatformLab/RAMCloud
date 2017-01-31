@@ -21,6 +21,7 @@
 #include "RpcWrapper.h"
 #include "ShortMacros.h"
 #include "WireFormat.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 
@@ -379,6 +380,9 @@ RpcWrapper::waitInternal(Dispatch* dispatch, uint64_t abortTime)
     while (!isReady()) {
         if (isDispatchThread)
             dispatch->poll();
+        else {
+            Arachne::yield();
+        }
         if (dispatch->currentTime > abortTime)
             return false;
     }

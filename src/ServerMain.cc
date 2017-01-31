@@ -368,8 +368,8 @@ main(int argc, const char *argv[]) {
     FileLogger arachneLogger(NOTICE, "ARACHNE: ");
     Arachne::setErrorStream(arachneLogger.getFile());
 
-    Arachne::numCores = 2;
-    Arachne::maxNumCores = 4;
+    Arachne::numCores = 1;
+    Arachne::maxNumCores = 2;
     Arachne::init(&argc, argv);
     // Invoke realMain outside of Arachne for now so we can defer handling of
     // the fact that the dispatch thread does not yield or terminate until we
