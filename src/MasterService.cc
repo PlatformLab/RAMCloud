@@ -1733,6 +1733,8 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
     using RAMCloud::Perf::ReadRPC_MetricSet;
     ReadRPC_MetricSet::Interval _(&ReadRPC_MetricSet::readRpcTime);
 
+    TimeTrace::record("Top of MasterService::read");
+
     uint32_t reqOffset = sizeof32(*reqHdr);
     const void* stringKey = rpc->requestPayload->getRange(
             reqOffset, reqHdr->keyLength);
@@ -1748,8 +1750,10 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
     RejectRules rejectRules = reqHdr->rejectRules;
     bool valueOnly = true;
     uint32_t initialLength = rpc->replyPayload->size();
+    TimeTrace::record("Constructed key");
     respHdr->common.status = objectManager.readObject(
             key, rpc->replyPayload, &rejectRules, &respHdr->version, valueOnly);
+    TimeTrace::record("Finished ObjectManager::readObject");
 
     if (respHdr->common.status != STATUS_OK)
         return;
@@ -3157,6 +3161,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         WireFormat::Write::Response* respHdr,
         Rpc* rpc)
 {
+    TimeTrace::record("Top of MasterService::write");
     assert(reqHdr->rpcId > 0);
     UnackedRpcHandle rh(&unackedRpcResults,
                         reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
@@ -3194,13 +3199,16 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
             respHdr, sizeof(*respHdr));
 
+    TimeTrace::record("Prepared linearizability information");
     // Write the object.
     respHdr->common.status = objectManager.writeObject(
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
             &rpcResult, &rpcResultPtr);
+    TimeTrace::record("wrote the object to the log");
 
     if (respHdr->common.status == STATUS_OK) {
         objectManager.syncChanges();
+        TimeTrace::record("Synced object to backups");
         rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is
                                            // written.
                                            // Otherwise, RPC state should reset
@@ -3224,6 +3232,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             requestRemoveIndexEntries(oldObject);
         }
     }
+    TimeTrace::record("Bottom of MasterService::write");
 }
 
 ///////////////////////////////////////////////////////////////////////////////
