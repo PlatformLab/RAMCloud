@@ -31,6 +31,7 @@
 #include "TimeTrace.h"
 #include "Unlock.h"
 #include "Util.h"
+#include "../PerfUtils/Util.h"
 
 namespace RAMCloud {
 
@@ -725,6 +726,7 @@ Logger::addToBuffer(const char* src, int length)
 void
 Logger::printThreadMain(Logger* logger)
 {
+    PerfUtils::Util::pinAvailableCore();
     Lock lock(logger->mutex);
     int bytesToPrint;
     ssize_t bytesPrinted;

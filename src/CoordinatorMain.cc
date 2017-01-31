@@ -28,6 +28,7 @@
 #include "WorkerManager.h"
 #include "Arachne.h"
 #include "FileLogger.h"
+#include "../PerfUtils/Util.h"
 
 /**
  * \file
@@ -169,11 +170,12 @@ main(int argc, char *argv[]) {
     Arachne::setErrorStream(arachneLogger.getFile());
 
     Arachne::numCores = 1;
-    Arachne::maxNumCores = 4;
+    Arachne::maxNumCores = 2;
     Arachne::init();
     // Invoke realMain outside of Arachne for now so we can defer handling of
     // the fact that the dispatch thread does not yield or terminate until we
     // are ready to do that experiment.
+    PerfUtils::Util::pinAvailableCore();
     realMain(argc, argv);
     Arachne::waitForTermination();
 }
