@@ -7000,3 +7000,4 @@ catch (std::exception& e) {
     RAMCLOUD_LOG(ERROR, "%s", e.what());
     exit(1);
 }
+
