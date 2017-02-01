@@ -14,6 +14,7 @@ YIELD ?= no
 SSE ?= sse4.2
 ARCH ?= native
 COMPILER ?= gnu
+CCACHE ?= no
 GLIBCXX_USE_CXX11_ABI ?= no
 LINKER ?= default
 SANITIZER ?= none
@@ -152,6 +153,12 @@ PROTOC ?= protoc
 EPYDOC ?= epydoc
 EPYDOCFLAGS ?= --simple-term -v
 DOXYGEN ?= doxygen
+
+# Using ccache is as simple as prefixing the compilation commands with `ccache`.
+ifeq ($(CCACHE),yes)
+CC := ccache $(CC)
+CXX := ccache $(CXX)
+endif
 
 # Directory for installation: various subdirectories such as include and
 # bin will be created by "make install".
