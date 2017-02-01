@@ -15,6 +15,7 @@ SSE ?= sse4.2
 ARCH ?= native
 COMPILER ?= gnu
 GLIBCXX_USE_CXX11_ABI ?= no
+LINKER ?= default
 SANITIZER ?= none
 VALGRIND ?= no
 ONLOAD_DIR ?= /usr/local/openonload-201405
@@ -74,6 +75,11 @@ COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
 	        $(DEBUGFLAGS)
 ifeq ($(COMPILER),gnu)
 COMFLAGS += -march=$(ARCH)
+endif
+ifeq ($(LINKER),gold)
+LDFLAGS += -fuse-ld=gold
+else ifeq ($(LINKER),bfd)
+LDFLAGS += -fuse-ld=bfd
 endif
 # Google sanitizers are not compatible with each other, so only apply one at a
 # time.
