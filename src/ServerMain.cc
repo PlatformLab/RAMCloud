@@ -102,6 +102,7 @@ main(int argc, char *argv[])
 
         bool masterOnly;
         bool backupOnly;
+        bool witnessOnly;
 
         OptionsDescription serverOptions("Server");
         serverOptions.add_options()
@@ -229,6 +230,9 @@ main(int argc, char *argv[])
              ProgramOptions::value<bool>(&config.master.useMinCopysets)->
                 default_value(false),
              "Whether to use MinCopysets or random replication")
+            ("witnessOnly,W",
+             ProgramOptions::bool_switch(&witnessOnly),
+             "The server should run the witness service only")
             ("writeCostThreshold,w",
              ProgramOptions::value<uint32_t>(
                 &config.master.cleanerWriteCostThreshold)->default_value(8),
@@ -261,6 +265,9 @@ main(int argc, char *argv[])
                                WireFormat::ADMIN_SERVICE};
         } else if (backupOnly) {
             config.services = {WireFormat::BACKUP_SERVICE,
+                               WireFormat::ADMIN_SERVICE};
+        } else if (witnessOnly) {
+            config.services = {WireFormat::WITNESS_SERVICE,
                                WireFormat::ADMIN_SERVICE};
         } else {
             config.services = {WireFormat::MASTER_SERVICE,

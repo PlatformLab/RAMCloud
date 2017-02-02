@@ -1231,6 +1231,7 @@ InfRcTransport::ServerRpc::sendReply()
 
     t->sendZeroCopy(nonce, &replyPayload, qp, true);
     interval.stop();
+    TimeTrace::record("Infrc transport sent reply.");
 
     // Restart port watchdog for this server port
 
@@ -1433,6 +1434,7 @@ InfRcTransport::Poller::poll()
         for (int i = 0; i < numRequests; i++) {
             foundWork = 1;
             ibv_wc* request = &wc[i];
+            TimeTrace::record("Infrc transport found RPC request.");
             ReadRequestHandle_MetricSet::Interval interval
                 (&ReadRequestHandle_MetricSet::requestToHandleRpc);
 

@@ -566,6 +566,24 @@ struct VirtualClient {
 };
 
 /**
+ * Signal handler which invokes gdb on segfault for ease of debugging.
+ */
+char* executableName;
+void invokeGDB(int signum) {
+    // Prevent repeated invocation of gdb when the server suicides
+    if (signum == SIGABRT)
+       signal(SIGINT, SIG_DFL);
+    char buf[256];
+    snprintf(buf, sizeof(buf), "/usr/bin/gdb %s %d", executableName, getpid());
+    int ret = system(buf);
+
+    if (ret == -1) {
+        std::cerr << "Failed to attach gdb upon receiving the signal "
+                  << strsignal(signum) << std::endl;
+    }
+}
+
+/**
  * Given an integer value, generate a key of a given length
  * that corresponds to that value.
  *
@@ -6785,6 +6803,7 @@ writeAsyncSync()
 void
 writeDistRandom()
 {
+    usleep(500);
     int numKeys = 2000000;
     if (clientIndex != 0)
         return;
@@ -6811,13 +6830,14 @@ writeDistRandom()
     std::vector<uint64_t> ticks;
     ticks.resize(count);
     for (int i = 0; i < count; i++) {
+        Cycles::sleep(3); // to give master time for syncing to backups.
         // We generate the random number separately to avoid timing potential
         // cache misses on the client side.
         makeKey(downCast<int>(generateRandom() % numKeys), keyLength, key);
         Util::genRandomString(value, objectSize);
         // Do the benchmark
         uint64_t start = Cycles::rdtsc();
-//        TimeTrace::record("write operation is starting.");
+        TimeTrace::record("write operation is starting.");
         cluster->write(dataTable, key, keyLength, value, objectSize,
                        NULL, NULL, asyncReplication);
         uint64_t now = Cycles::rdtsc();
@@ -7284,6 +7304,9 @@ try
     po::positional_options_description pos_desc;
     pos_desc.add("testName", -1);
     OptionParser optionParser(clusterperfOptions, pos_desc, argc, argv);
+
+//    signal(SIGSEGV, invokeGDB);
+//    signal(SIGABRT, invokeGDB);
 
     dup2(Logger::get().getLogFile(), 1);
     dup2(Logger::get().getLogFile(), 2);

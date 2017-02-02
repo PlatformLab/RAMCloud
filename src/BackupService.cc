@@ -23,6 +23,7 @@
 #include "ShortMacros.h"
 #include "MultiFileStorage.h"
 #include "Status.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -566,6 +567,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
                             WireFormat::BackupWrite::Response* respHdr,
                             Rpc* rpc)
 {
+    TimeTrace::record("BackupService writeSegment rpc handler start.");
     ServerId masterId(reqHdr->masterId);
     uint64_t segmentId = reqHdr->segmentId;
 
@@ -651,6 +653,7 @@ BackupService::writeSegment(const WireFormat::BackupWrite::Request* reqHdr,
         LOG(DEBUG, "Closing <%s,%lu>", masterId.toString().c_str(), segmentId);
         frame->close();
     }
+    TimeTrace::record("BackupService writeSegment rpc handler finished.");
 }
 
 /**

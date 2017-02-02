@@ -3231,6 +3231,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         WireFormat::Write::Response* respHdr,
         Rpc* rpc)
 {
+    TimeTrace::record("MasterService write rpc handler start.");
     assert(reqHdr->common.rpcId > 0);
     // TODO(seojin): remove this hack after discussion...
     uint64_t ackId = reqHdr->common.ackId;
@@ -3302,6 +3303,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // Respond to the client RPC now. Removing old index entries can be
     // done asynchronously while maintaining strong consistency.
     rpc->sendReply();
+    TimeTrace::record("MasterService write rpc handler replied.");
     // reqHdr, respHdr, and rpc are off-limits now!
 
     // TODO(seojin): remove this to dedicated replication thread.
@@ -3312,6 +3314,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         }
         witnessTracker.registerRpcAndSyncBatch(object.getPKHash(),
                 reqHdr->common.lease.leaseId, reqHdr->common.rpcId);
+        TimeTrace::record("MasterService write rpc registerRpcAndSyncBatch to backup.");
     }
 
     // If this is a overwrite, delete old index entries if any (this can

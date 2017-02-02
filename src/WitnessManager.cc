@@ -88,7 +88,7 @@ WitnessManager::consumeServerTracker()
                 idMap[serverId]; // Add server to masters..
             }
             if (server.services.has(WireFormat::WITNESS_SERVICE)) {
-                serviceCount[serverId]; // Add to witnesses..
+                serviceCount[serverId] = 0; // Add to witnesses..
             }
             scanScheduled = true;
         } else if (event == SERVER_CRASHED) {
@@ -170,7 +170,19 @@ WitnessManager::scanAndAssignWitness()
             }
         }
 
+        char buffer[100];
+        sprintf(buffer, "candidate before sort");
+        for (uint i = 0; i < witnessCandidates.size(); ++i) {
+            sprintf(buffer + strlen(buffer), " %lu", witnessCandidates[i].getId());
+        }
+        LOG(NOTICE, "%s", buffer);
         sort(witnessCandidates.begin(), witnessCandidates.end(), cmp);
+
+        sprintf(buffer, "candidate after sort");
+        for (uint i = 0; i < witnessCandidates.size(); ++i) {
+            sprintf(buffer + strlen(buffer), " %lu", witnessCandidates[i].getId());
+        }
+        LOG(NOTICE, "%s", buffer);
 
         // Try to assign witnesses for this master in order of current load.
         for (uint candidIndex = 0; master.witnesses.size() < witnessFactor &&

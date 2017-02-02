@@ -137,6 +137,7 @@ UnsyncedObjectRpcWrapper::send()
         } else {
             retry(0, 0);
         }
+        TimeTrace::record("WriteRpc send (main)");
         // Send Witness record request if we have full set of witness ready.
         if (async == ASYNC_DURABLE &&
                 sessions.toWitness[WITNESS_PER_MASTER - 1]) {
@@ -154,6 +155,7 @@ UnsyncedObjectRpcWrapper::send()
                     sessions.toWitness[i], sessions.witnessServerIds[i],
                     sessions.masterId.getId(), sessions.witnessBufferBasePtr[i],
                     hashIndex, tableId, keyHash, rawRequest);
+                TimeTrace::record("WriteRpc send (witness)");
             }
         }
     } catch (TableDoesntExistException& e) {
@@ -176,7 +178,9 @@ UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
             shouldSync = true;
         } else {
             for (int i = 0; i < WITNESS_PER_MASTER; ++i) {
-                if (!witnessRecordRpcs[i]->wait()) {
+                bool accepted = witnessRecordRpcs[i]->wait();
+                TimeTrace::record("Witness wait.");
+                if (!accepted) {
                     // Witness rejected recording request. Must sync..
                     shouldSync = true;
                     break;
@@ -184,12 +188,11 @@ UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
             }
         }
     }
-//    TimeTrace::record("LinearizableObjectRpcWrapper witness waiting done.");
 
     if (!LinearizableObjectRpcWrapper::waitInternal(dispatch, abortTime)) {
         return false; // Aborted by timeout. Shouldn't process RPC's response.
     }
-//    TimeTrace::record("LinearizableObjectRpcWrapper waitInternal done.");
+    TimeTrace::record("Main linearizable RPC waitInternal.");
 
     auto respCommon = reinterpret_cast<const WireFormat::MasterResponseCommon*>(
             responseHeader);
@@ -200,15 +203,18 @@ UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
     if (shouldSync) {
         ++rejectCount;
         UnsyncedRpcTracker::SyncRpc rpc(context, session, respCommon->logState);
+//        TimeTrace::record("syncRpc send.");
         LogState newLogState;
         if (!rpc.wait(&newLogState)) {
             clearAndRetry(0, 0);
             return waitInternal(dispatch, abortTime);
         }
+//        TimeTrace::record("syncRpc wait.");
         ramcloud->unsyncedRpcTracker->updateLogState(session.get(),
                                                      newLogState);
+//        TimeTrace::record("syncRpc updateLogState.");
     }
-//    TimeTrace::record("LinearizableObjectRpcWrapper sync call done.");
+    TimeTrace::record("syncRpc done.");
     return true;
 }
 

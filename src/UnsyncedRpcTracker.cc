@@ -42,12 +42,14 @@ UnsyncedRpcTracker::UnsyncedRpcTracker(RamCloud* ramcloud)
  */
 UnsyncedRpcTracker::~UnsyncedRpcTracker()
 {
+    Lock _(mutex);
     for (MasterMap::iterator it = masters.begin(); it != masters.end(); ++it) {
         Master* master = it->second;
         while (!master->rpcs.empty()) {
             ramcloud->rpcRequestPool->free(master->rpcs.front().request.data);
             master->rpcs.pop();
         }
+        Logger::get().sync();
         delete master;
     }
 }
