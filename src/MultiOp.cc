@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015 Stanford University
+/* Copyright (c) 2013-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -431,20 +431,6 @@ MultiOp::wait()
         if (isDispatchThread)
             ramcloud->clientContext->dispatch->poll();
     }
-}
-
-/**
- * Adds a request back to a session buffer.
- *
- * \param request
- *      Pointer to the request to be read in.
- */
-inline void
-MultiOp::retryRequest(MultiOpObject* request) {
-    request->status = STATUS_RETRY;
-    Transport::SessionRef session;
-    SessionQueue *queue;
-    dispatchRequest(request, &session, &queue);
 }
 
 /**

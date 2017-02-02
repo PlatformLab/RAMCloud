@@ -10,6 +10,7 @@
 include $(wildcard private/MakefragPrivateTop)
 
 DEBUG ?= yes
+DEBUG_OPT ?= no
 YIELD ?= no
 SSE ?= sse4.2
 ARCH ?= native
@@ -52,12 +53,13 @@ ZOOKEEPER_LIB :=
 ZOOKEEPER_DIR :=
 endif
 
-ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
-OPTFLAG	 :=
+ifeq ($(DEBUG),yes)
+ifeq ($(DEBUG_OPT),yes)
+OPTFLAG := -Og
+endif
 DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
-BASECFLAGS := -g
 OPTFLAG := -O3
 DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
 endif

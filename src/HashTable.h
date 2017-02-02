@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2014 Stanford University
+/* Copyright (c) 2009-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -115,7 +115,21 @@ class HashTable {
             uint64_t ptr;
         };
 
-        void unpack(UnpackedEntry& ue) const;
+        /**
+         * Read the contents of this hash table entry.
+         * \param ue
+         *      The extracted values are returned here. See UnpackedEntry.
+         *
+         * Note that this method used to return a UnpackedEntry, but that
+         * was about 50 cycles slower than passing one in.
+         */
+        inline void
+        unpack(UnpackedEntry& ue) const
+        {
+            ue.hash  = (this->value >> 48) & 0x000000000000ffffUL;
+            ue.chain = (this->value >> 47) & 0x0000000000000001UL;
+            ue.ptr   = this->value         & 0x00007fffffffffffUL;
+        }
     };
     static_assert(sizeof(Entry) == 8, "HashTable::Entry is not 8 bytes");
 

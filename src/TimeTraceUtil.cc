@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2016 Stanford University
+/* Copyright (c) 2015-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -140,6 +140,8 @@ TimeTraceUtil::initStatusMessages()
                     case RequestStatus::WORKER_SLEEP:
                         statusString = "Worker sleeping after";
                         break;
+                    default:
+                        statusString = "Unknown status";
                 }
                 statusMessages[thread][op][status] = new char[MAX_MESSAGE_SIZE];
                 if (thread <= MAX_THREAD_ID) {

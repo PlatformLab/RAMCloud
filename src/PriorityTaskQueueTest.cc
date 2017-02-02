@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -53,7 +53,7 @@ struct PriorityTaskQueueTest : public ::testing::Test {
             if (count == 1)
                 schedule(LOW);
             if (count == 2)
-                taskQueue.halt();
+                taskQueue->halt();
         }
 
         int count;

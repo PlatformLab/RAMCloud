@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2016 Stanford University
+/* Copyright (c) 2009-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -146,22 +146,6 @@ HashTable::Entry::pack(uint64_t hash, bool chain, uint64_t ptr)
     uint64_t c = chain ? 1 : 0;
     assert((hash >> 16) == 0);
     this->value = ((hash << 48) | (c << 47) | ptr);
-}
-
-/**
- * Read the contents of this hash table entry.
- * \param ue
- *      The extracted values are returned here. See UnpackedEntry.
- *
- * Note that this method used to return a UnpackedEntry, but that
- * was about 50 cycles slower than passing one in.
- */
-inline void
-HashTable::Entry::unpack(UnpackedEntry& ue) const
-{
-    ue.hash  = (this->value >> 48) & 0x000000000000ffffUL;
-    ue.chain = (this->value >> 47) & 0x0000000000000001UL;
-    ue.ptr   = this->value         & 0x00007fffffffffffUL;
 }
 
 /**

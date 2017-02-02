@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -239,6 +239,8 @@ Logger::setLogLevel(string module, string level)
         return;
     }
     int moduleLevel;
+// The uninitialized variable is inside boost::lexical_cast.
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
     try {
         moduleLevel = boost::lexical_cast<int>(level);
     } catch (boost::bad_lexical_cast& e) {
@@ -255,6 +257,7 @@ Logger::setLogLevel(string module, string level)
         }
     }
     setLogLevel(static_cast<LogModule>(moduleIndex), moduleLevel);
+#pragma GCC diagnostic warning "-Wmaybe-uninitialized"
 }
 
 /**
@@ -314,6 +317,8 @@ Logger::setLogLevels(int level)
 void
 Logger::setLogLevels(string level)
 {
+// The uninitialized variable is inside boost::lexical_cast.
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
     // No lock needed: doesn't access Logger object.
     int moduleLevel;
     try {
@@ -332,6 +337,7 @@ Logger::setLogLevels(string level)
         }
     }
     setLogLevels(moduleLevel);
+#pragma GCC diagnostic warning "-Wmaybe-uninitialized"
 }
 
 /**

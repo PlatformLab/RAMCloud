@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,7 +29,7 @@ namespace RAMCloud {
  *      PriorityTaskQueue which will execute performTask().
  */
 PriorityTask::PriorityTask(PriorityTaskQueue& taskQueue)
-    : taskQueue(taskQueue)
+    : taskQueue(&taskQueue)
     , entry()
 {
 }
@@ -56,7 +56,7 @@ PriorityTask::~PriorityTask()
 bool
 PriorityTask::isScheduled() const
 {
-    return entry;
+    return entry != NULL;
 }
 
 /**
@@ -77,7 +77,9 @@ PriorityTask::isScheduled() const
 void
 PriorityTask::schedule(Priority priority)
 {
-    taskQueue.schedule(this, priority);
+    if (taskQueue) {
+        taskQueue->schedule(this, priority);
+    }
 }
 
 /**
@@ -90,7 +92,9 @@ PriorityTask::schedule(Priority priority)
 void
 PriorityTask::deschedule()
 {
-    taskQueue.deschedule(this);
+    if (taskQueue) {
+        taskQueue->deschedule(this);
+    }
 }
 
 // --- PriorityTaskQueue ---
@@ -123,6 +127,9 @@ PriorityTaskQueue::~PriorityTaskQueue()
     while (!tasks.empty()) {
         PriorityQueueEntry* entry = tasks.top();
         tasks.pop();
+        if (entry->task) {
+            entry->task->taskQueue = NULL;
+        }
         deschedule(lock, entry->task);
         entryPool.destroy(entry);
     }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012 Stanford University
+/* Copyright (c) 2012-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -125,7 +125,20 @@ class MultiOp {
     void finishRpc(MultiOp::PartRpc* rpc);
     void flushSessionQueue(Transport::SessionRef session,
                            SessionQueue *queue);
-    void retryRequest(MultiOpObject* request);
+
+    /**
+     * Adds a request back to a session buffer.
+     *
+     * \param request
+     *      Pointer to the request to be read in.
+     */
+    inline void
+    retryRequest(MultiOpObject* request) {
+        request->status = STATUS_RETRY;
+        Transport::SessionRef session;
+        SessionQueue *queue;
+        dispatchRequest(request, &session, &queue);
+    }
 
     /// A special Status value indicating than an RPC is underway but
     /// we haven't yet seen the response.

@@ -545,7 +545,7 @@ TEST_F(RamCloudTest, objectServerControl) {
     string serverLocator = ramcloud->clientContext->objectFinder->lookupTablet(
                              tableId1, Key::getHash(tableId1, "0", 1))->
                                 serviceLocator;
-    Server* targetServer;
+    Server* targetServer = NULL;
     foreach (Server* server, cluster.servers) {
         if (serverLocator.compare(server->config.localLocator) == 0)
             targetServer = server;
