@@ -134,7 +134,7 @@ enum Opcode {
     SYNC_LOG                    = 81,
     WITNESS_START               = 82,
     WITNESS_RECORD              = 83,
-    WITNESS_REPLAY_AND_QUIT     = 84,
+    WITNESS_GETRECOVERYDATA     = 84,
     ILLEGAL_RPC_TYPE            = 85, // 1 + the highest legitimate Opcode
 };
 
@@ -216,6 +216,7 @@ enum Asynchrony {
     SYNC,   // RPC will be responded after sync()
     RETRY   // Request is a retry from client buffer. Master should process
             // this request during lockedForClientRetries phase.
+            // TODO: RETRY_NOSYNC
 };
 
 /**
@@ -2017,16 +2018,30 @@ struct Write {
     } __attribute__((packed));
 };
 
-struct WitnessStart {
-    static const Opcode opcode = WITNESS_START;
+struct WitnessGetRecoveryData {
+    static const Opcode opcode = WITNESS_GETRECOVERYDATA;
     static const ServiceType service = WITNESS_SERVICE;
+
     struct Request {
         RequestCommonWithId common;
-        uint64_t targetMasterId;
+        uint64_t crashedMasterId;   // Server Id of the crashed server.
+        uint64_t tableId;           // TableId of the tablet to recover.
+        uint64_t firstKeyHash;      // First key of the tablet to recover.
+        uint64_t lastKeyHash;       // Last key of the tablet to recover.
+        int16_t continuation;       // Set 0 for initial request.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        uint64_t bufferBasePtr;
+        int numOps;
+        int16_t continuation;       // If witness's response is complete, it is
+                                    // left as 0. If witness still has more
+                                    // data, recovery master should redo
+                                    // this RPC with the given value.
+        // Operations follows here. they are tightly packed.
+        struct Op {
+            int16_t requestSize;
+            char request[0];
+        } __attribute__((packed));
     } __attribute__((packed));
 };
 
@@ -2042,7 +2057,7 @@ struct WitnessRecord {
     };
 
     struct Request {
-        AsyncRequestCommon common;
+        RequestCommon common;
         uint64_t targetMasterId;
         uint64_t bufferBasePtr;
         int16_t clearHashIndices[3]; // Value 0 means not available.
@@ -2056,6 +2071,20 @@ struct WitnessRecord {
         bool accepted;
     } __attribute__((packed));
 };
+
+struct WitnessStart {
+    static const Opcode opcode = WITNESS_START;
+    static const ServiceType service = WITNESS_SERVICE;
+    struct Request {
+        RequestCommonWithId common;
+        uint64_t targetMasterId;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t bufferBasePtr;
+    } __attribute__((packed));
+};
+
 // DON'T DEFINE NEW RPC TYPES HERE!! Put them in alphabetical order above.
 
 Status getStatus(Buffer* buffer);

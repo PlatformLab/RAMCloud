@@ -39,6 +39,7 @@
 #include "Transport.h"
 #include "Tub.h"
 #include "WallTime.h"
+#include "WitnessClient.h"
 #include "WorkerManager.h"
 
 namespace RAMCloud {
@@ -3196,8 +3197,13 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         Rpc* rpc)
 {
     assert(reqHdr->rpcId > 0);
+    // TODO(seojin): remove this hack after discussion...
+    uint64_t ackId = reqHdr->ackId;
+    if (reqHdr->common.asyncType == WireFormat::Asynchrony::RETRY) {
+        ackId = 0;
+    }
     UnackedRpcHandle rh(&unackedRpcResults,
-                        reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
+                        reqHdr->lease, reqHdr->rpcId, ackId);
     if (rh.isDuplicate()) {
         *respHdr = parseRpcResult<WireFormat::Write>(rh.resultLoc());
         rpc->sendReply();
@@ -4026,9 +4032,22 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             }
         }
 
+        // Now fetch requests from Witness & replay.
+        foreach (const ProtoBuf::Tablets::Tablet& tablet,
+                 recoveryPartition.tablet()) {
+            foreach (const ProtoBuf::Tablets::Tablet::Witness& witness,
+                    tablet.witness()) {
+                bool succeed = recoverFromWitness(crashedServerId, tablet,
+                                                  witness);
+                if (succeed) {
+                    break;
+                }
+            }
+        }
+
         // After 2 seconds of waiting for retries of unsynced RPCs, start
         // serving normal requests. Mark recovered tablets as normal.
-        sleep(2000);
+        sleep(2);
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
                 recoveryPartition.tablet()) {
             bool changed = tabletManager.changeState(
@@ -4077,6 +4096,117 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         objectManager.removeOrphanedObjects();
         transactionManager.removeOrphanedOps();
     }
+}
+
+static void
+printRpcInfo(Service::Rpc* rpc, const char* msg) {
+    auto common =
+            rpc->requestPayload->getStart<WireFormat::AsyncRequestCommon>();
+    WireFormat::Opcode opcode = WireFormat::Opcode(common->opcode);
+
+    auto hdr = rpc->requestPayload->getStart<WireFormat::Write::Request>();
+
+    Object object(hdr->tableId, 0, 0, *(rpc->requestPayload),
+            sizeof32(*hdr));
+    KeyLength pKeyLen;
+    const void* pKey = object.getKey(0, &pKeyLen);
+    const char* pKeyStr = reinterpret_cast<const char*>(pKey);
+    uint64_t hash = Key::getHash(hdr->tableId, pKey, pKeyLen);
+    int value = *(reinterpret_cast<const int*>(object.getValue()));
+
+    LOG(NOTICE, "%s | <%s, %d> "
+            "leaseId %lu | rpcId %lu | ackId %lu | exp Ver. %lu | "
+            "key: %s | hash %lu | value %d",
+        msg, WireFormat::opcodeSymbol(opcode), common->asyncType,
+        hdr->lease.leaseId, hdr->rpcId, hdr->ackId,
+        hdr->rejectRules.givenVersion, pKeyStr, hash, value);
+}
+
+/**
+ * Try recovering recent update requests from witness of the crashed master.
+ *
+ * \param crashedServerId
+ *      id of crashed master.
+ * \param tablet
+ *      tablet being recovered.
+ * \param witness
+ *      witness who has records of recent update RPCs to the crashed master.
+ * \return
+ *      True if recovery finished successfully. False if the given witness is
+ *      not available.
+ */
+bool
+MasterService::recoverFromWitness(ServerId crashedServerId,
+        const ProtoBuf::Tablets::Tablet& tablet,
+        const ProtoBuf::Tablets::Tablet::Witness& witness)
+{
+    ServerId witnessId(witness.server_id());
+    int totalRecovered = 0;
+    int totalFiltered = 0;
+
+    try {
+        int16_t continuation = 0;
+        do {
+            Buffer getDataRespBuf;
+            std::vector<ClientRequest> requests = WitnessClient::witnessGetData(
+                    context, witnessId, &getDataRespBuf, crashedServerId,
+                    tablet.table_id(), tablet.start_key_hash(),
+                    tablet.end_key_hash(), &continuation);
+
+            Buffer reqPayload;
+            Buffer replyPayload;
+            for (ClientRequest clientReq : requests) {
+                reqPayload.reset();
+                replyPayload.reset();
+                reqPayload.appendExternal(clientReq.data, clientReq.size);
+
+                WireFormat::AsyncRequestCommon* header =
+                        reqPayload.getStart<WireFormat::AsyncRequestCommon>();
+                assert(header);
+                assert(header->service == WireFormat::MASTER_SERVICE);
+
+                // Master will process only retries during recovery.
+                header->asyncType = WireFormat::Asynchrony::RETRY;
+
+                Service::Rpc retryRpc(NULL, &reqPayload, &replyPayload);
+                WireFormat::Opcode opcode = WireFormat::Opcode(header->opcode);
+
+                try {
+                    // TODO: possible optimization: let it skip sync(). let's
+                    // batch the sync.
+                    dispatch(opcode, &retryRpc);
+                    printRpcInfo(&retryRpc, "success");
+                } catch (StaleRpcException& e) {
+                    // This update survived the crash. Nothing to do.
+                    totalFiltered++;
+                    printRpcInfo(&retryRpc, "filtered");
+                } catch (RetryException& e) {
+                    LOG(WARNING, "Retry exception thrown while recovery by "
+                            "witness for %s RPC",
+                            WireFormat::opcodeSymbol(opcode));
+                } catch (ClientException& e) {
+                    LOG(WARNING, "%s exception thrown while recovery by "
+                            "witness for %s RPC",
+                            statusToSymbol(e.status),
+                            WireFormat::opcodeSymbol(opcode));
+                    printRpcInfo(&retryRpc, "exception");
+                }
+                ++totalRecovered;
+            }
+        } while (continuation);
+    } catch (ServerNotUpException&) {
+        LOG(WARNING, "failed to recover unsynced update requests for tablet"
+                " %lu %lu %lu from witness %lu",
+                tablet.table_id(), tablet.start_key_hash(),
+                tablet.end_key_hash(), witnessId.getId());
+        return false;
+    }
+    // TODO: sync here?
+    LOG(NOTICE, "recovered %d unsynced requests (%d filtered by RIFL) for"
+            " tablet %lu %lu %lu from witness %lu",
+            totalRecovered, totalFiltered, tablet.table_id(),
+            tablet.start_key_hash(), tablet.end_key_hash(), witnessId.getId());
+    return true;
 }
 
 } // namespace RAMCloud

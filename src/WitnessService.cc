@@ -67,6 +67,10 @@ WitnessService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::WitnessStart, WitnessService,
                         &WitnessService::start>(rpc);
             break;
+        case WireFormat::WitnessGetRecoveryData::opcode:
+            callHandler<WireFormat::WitnessGetRecoveryData, WitnessService,
+                        &WitnessService::getRecoveryData>(rpc);
+            break;
         case WireFormat::WitnessRecord::opcode:
             // Only used by unit tests using MockCluster. The real version of
             // this invoker is in WorkerManager::handleRpc().
@@ -111,6 +115,42 @@ WitnessService::start(const WireFormat::WitnessStart::Request* reqHdr,
 
     // Prepare response
     respHdr->bufferBasePtr = reinterpret_cast<uint64_t>(buffer);
+}
+
+void
+WitnessService::getRecoveryData(
+        const WireFormat::WitnessGetRecoveryData::Request* reqHdr,
+        WireFormat::WitnessGetRecoveryData::Response* respHdr,
+        Rpc* rpc)
+{
+    Lock _(mutex);
+    Master* master = buffers[reqHdr->crashedMasterId];
+    assert(master->id == reqHdr->crashedMasterId);
+    assert(!master->writable);
+
+    int numEntry = 0;
+    for (int i = reqHdr->continuation; i < NUM_ENTRIES_PER_TABLE; ++i) {
+        Entry& entry = master->table[i];
+        if (entry.occupied &&
+                entry.header.tableId == reqHdr->tableId &&
+                entry.header.keyHash >= reqHdr->firstKeyHash &&
+                entry.header.keyHash <= reqHdr->lastKeyHash) {
+            numEntry++;
+            rpc->replyPayload->emplaceAppend<int16_t>(
+                    downCast<int16_t>(entry.header.requestSize));
+            rpc->replyPayload->append(entry.request,
+                    downCast<uint32_t>(entry.header.requestSize));
+            //TODO: need a mechanism to check we are over RPC reply limit.
+            // Now, 2KB * 512 = 1MB, should be okay.
+        }
+    }
+    LOG(NOTICE, "found %d requests for tablet %lu %lu %lu (scanned indices from"
+            " %d to %d)", numEntry, reqHdr->tableId, reqHdr->firstKeyHash,
+            reqHdr->lastKeyHash, reqHdr->continuation, NUM_ENTRIES_PER_TABLE);
+
+    respHdr->numOps = numEntry;
+    respHdr->continuation = 0;
+    respHdr->common.status = STATUS_OK;
 }
 
 } // namespace RAMCloud

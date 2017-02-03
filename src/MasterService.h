@@ -489,6 +489,9 @@ class MasterService : public Service {
                 uint64_t partitionId,
                 vector<Replica>& replicas,
                 std::unordered_map<uint64_t, uint64_t>& nextNodeIdMap);
+    bool recoverFromWitness(ServerId crashedServerId,
+                const ProtoBuf::Tablets::Tablet& tablet,
+                const ProtoBuf::Tablets::Tablet::Witness& witness);
 
 ///////////////////////////////////////////////////////////////////////////////
 /////////////////////////End of Recovery related code./////////////////////////

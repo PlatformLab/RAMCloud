@@ -93,8 +93,6 @@ class MasterClient {
     static void txHintFailed(Context* context, uint64_t tableId,
             uint64_t keyHash, uint64_t leaseId, uint64_t clientTransactionId,
             uint32_t participantCount, WireFormat::TxParticipant *participants);
-    static uint64_t witnessStart(Context* context, ServerId serverId,
-            ServerId requestTarget);
 
   private:
     MasterClient();
@@ -355,21 +353,6 @@ class TxHintFailedRpc : public ObjectRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(TxHintFailedRpc);
-};
-
-/**
- * Encapsulates the state of a MasterClient::witnessStart
- * request, allowing it to execute asynchronously.
- */
-class WitnessStartRpc : public ServerIdRpcWrapper {
-  public:
-    WitnessStartRpc(Context* context, ServerId serverId,
-                    ServerId requestTarget);
-    ~WitnessStartRpc() {}
-    uint64_t wait();
-
-  PRIVATE:
-    DISALLOW_COPY_AND_ASSIGN(WitnessStartRpc);
 };
 
 } // namespace RAMCloud

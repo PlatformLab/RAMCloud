@@ -15,6 +15,7 @@
 
 #include "UnsyncedRpcTracker.h"
 #include "ClientException.h"
+#include "ObjectFinder.h"
 #include "ObjectRpcWrapper.h"
 #include "RamCloud.h"
 #include "RpcRequestPool.h"
@@ -149,7 +150,6 @@ UnsyncedRpcTracker::flushSession(Transport::Session* sessionPtr)
 
             // TODO(seojin): package them in a single function or destructor?
             // Problem: not sure the destructor will be called on stack::pop().
-            UnsyncedRpc& rpc = master->rpcs.front();
             rpc.callback();
             ramcloud->rpcRequestPool->free(rpc.request.data);
         }
@@ -390,19 +390,27 @@ UnsyncedRpcTracker::SyncRpc::SyncRpc(Context* context,
  *
  * \param[out] newLogState
  *      If non-NULL, the up-to-date value of master's log state is returned.
+ * \return
+ *      True if sync was successful. False if master is unreachable. (probably
+ *      crashed)
  */
-void
+bool
 UnsyncedRpcTracker::SyncRpc::wait(LogState* newLogState)
 {
     waitInternal(context->dispatch);
+    if (getState() == FAILED) {
+        return false;
+    }
+
+    if (responseHeader->status != STATUS_OK) {
+        ClientException::throwException(HERE, responseHeader->status);
+    }
+
     const WireFormat::SyncLog::Response* respHdr(
             getResponseHeader<WireFormat::SyncLog>());
-
     if (newLogState != NULL)
         *newLogState = respHdr->logState;
-
-    if (respHdr->common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr->common.status);
+    return true;
 }
 
 /////////////////////////////////////////
@@ -434,6 +442,37 @@ UnsyncedRpcTracker::RetryUnsyncedRpc::RetryUnsyncedRpc(Context* context,
 
     request.appendExternal(rawRequest.data, rawRequest.size);
     send();
+}
+
+// See RpcWrapper for documentation.
+bool
+UnsyncedRpcTracker::RetryUnsyncedRpc::handleTransportError()
+{
+    // Similar to ObjectRpcWrapper::handleTransportError, but don't ask
+    // unsyncedRpcTracker to flushSession since we are already doing this.
+    // (this RPC is constructed to flush session.)
+    context->objectFinder->flushSession(tableId, keyHash);
+    context->objectFinder->flush(tableId);
+    session = NULL;
+
+    send();
+    return false;
+}
+
+// See RpcWrapper for documentation.
+void
+UnsyncedRpcTracker::RetryUnsyncedRpc::wait()
+{
+    waitInternal(context->dispatch);
+    if (responseHeader->status == STATUS_OK) {
+        return;
+    } else if (responseHeader->status == STATUS_STALE_RPC) {
+        // The RPC acknowledged this one survived from crash, or recovered from
+        // witness.
+        return;
+    } else {
+        ClientException::throwException(HERE, responseHeader->status);
+    }
 }
 
 /////////////////////////////////////////

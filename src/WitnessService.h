@@ -43,6 +43,7 @@ class WitnessService : public Service {
     static inline void record(const WireFormat::WitnessRecord::Request* reqHdr,
                               WireFormat::WitnessRecord::Response* respHdr,
                               Buffer* requestPayload);
+    static inline void prepRecovery(Context* context, uint64_t crashedMasterId);
 
     static const int MAX_REQUEST_SIZE = 2048;
     static const int NUM_ENTRIES_PER_TABLE = 512; // Must be power of 2.
@@ -51,6 +52,10 @@ class WitnessService : public Service {
   PRIVATE:
     void start(const WireFormat::WitnessStart::Request* reqHdr,
                 WireFormat::WitnessStart::Response* respHdr,
+                Rpc* rpc);
+    void getRecoveryData(
+                const WireFormat::WitnessGetRecoveryData::Request* reqHdr,
+                WireFormat::WitnessGetRecoveryData::Response* respHdr,
                 Rpc* rpc);
 
     /**
@@ -136,6 +141,27 @@ WitnessService::record(const WireFormat::WitnessRecord::Request* reqHdr,
     }
 
     respHdr->common.status = Status::STATUS_OK;
+}
+
+/**
+ * Intended to run on dispatch thread. Only call this if continuation == 0.
+ * \param context
+ * \param crashedMasterId
+ */
+inline void
+WitnessService::prepRecovery(Context* context, uint64_t crashedMasterId)
+{
+    WitnessService* ws = reinterpret_cast<WitnessService*>(
+            context->services[WireFormat::WITNESS_SERVICE]);
+    Lock _(ws->mutex);
+    Master* buffer = ws->buffers[crashedMasterId];
+    if (buffer->writable) {
+        // Block further witness record requests to this table and
+        // ensure everything written so far is visible to worker thread.
+        buffer->writable = false;
+        // Thread handoff does sfence operation. No need additional one here.
+        //__asm__ __volatile__("sfence" ::: "memory");
+    }
 }
 
 } // namespace RAMCloud

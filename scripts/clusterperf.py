@@ -628,7 +628,7 @@ def readRandom(name, options, cluster_args, client_args):
 # linearizableWriteThroughput
 def readThroughput(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '-t 2000'
+        cluster_args['master_args'] = '-t 4000'
     if cluster_args['timeout'] < 250:
         cluster_args['timeout'] = 250
     if 'num_clients' not in cluster_args:
@@ -650,6 +650,28 @@ def txCollision(name, options, cluster_args, client_args):
     #client_args['--numTables'] = cluster_args['num_servers'];
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 5
+    default(name, options, cluster_args, client_args)
+
+def witnessConsistency(name, options, cluster_args, client_args):
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '-t 2000'
+    if cluster_args['timeout'] < 250:
+        cluster_args['timeout'] = 250
+    if 'num_servers' not in cluster_args:
+        cluster_args['num_servers'] = cluster_args['replicas'] + 2;
+    if 'num_clients' not in cluster_args:
+        # Clients should not share a machine with coordinator by default.
+        cluster_args['num_clients'] = 5;
+    if cluster_args['num_clients'] < 2:
+        print("Not enough machines in the cluster to run the '%s' benchmark"
+                % name)
+        print("Need at least 2 machines in this configuration")
+        return
+    if cluster_args['num_servers'] < cluster_args['replicas'] + 2:
+        print("Not enough servers in the cluster to run the '%s' benchmark"
+                % name)
+        print("Need at least (2 + replicas) servers in this configuration")
+        return
     default(name, options, cluster_args, client_args)
 
 def writeDist(name, options, cluster_args, client_args):
@@ -831,6 +853,7 @@ graph_tests = [
     Test("transactionContention", transactionThroughput),
     Test("transactionDistRandom", transactionDist),
     Test("transactionThroughput", transactionThroughput),
+    Test("witnessConsistency", witnessConsistency),
     Test("writeAsyncSync", default),
     Test("writeVaryingKeyLength", default),
     Test("writeDist", writeDist),

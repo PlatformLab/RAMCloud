@@ -138,6 +138,11 @@ UnsyncedObjectRpcWrapper::send()
             assert(WITNESS_PER_MASTER - 1 >= 0);
 
             for (int i = 0; i < WITNESS_PER_MASTER; ++i) {
+                if (witnessRecordRpcs[i]) {
+                    // Main RPC is retrying, do nothing since
+                    // WitnessRecordRpc was already constructed before.
+                    continue;
+                }
                 int16_t clearHashIndices[3];
                 ramcloud->witnessTracker->getDeletable(
                         sessions.witnessServerIds[i],
@@ -195,12 +200,40 @@ UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
     if (shouldSync) {
         UnsyncedRpcTracker::SyncRpc rpc(context, session, respCommon->logState);
         LogState newLogState;
-        rpc.wait(&newLogState);
+        if (!rpc.wait(&newLogState)) {
+            clearAndRetry(0, 0);
+            return waitInternal(dispatch, abortTime);
+        }
         ramcloud->unsyncedRpcTracker->updateLogState(session.get(),
                                                      newLogState);
     }
 //    TimeTrace::record("LinearizableObjectRpcWrapper sync call done.");
     return true;
+}
+
+/**
+ * This method is invoked in situations where the RPC should be retried although
+ * it was finished before. (eg. syncRpc failed.)
+ * This method resets every internal states set by previous send.
+ * \param minDelayMicros
+ *      Minimum time to wait, in microseconds.
+ * \param maxDelayMicros
+ *      Maximum time to wait, in microseconds. The actual delay time
+ *      will be chosen randomly between minDelayMicros and maxDelayMicros.
+ */
+void
+UnsyncedObjectRpcWrapper::clearAndRetry(uint32_t minDelayMicros,
+                                        uint32_t maxDelayMicros)
+{
+    (getWitnessFreeFunc())();
+//    for (int i = 0; i < WITNESS_PER_MASTER; ++i) {
+//        if (witnessRecordRpcs[i]) {
+//            witnessRecordRpcs[i].destroy();
+//        }
+//    }
+    response->reset();
+    responseHeader = NULL;
+    retry(minDelayMicros, maxDelayMicros);
 }
 
 /**
@@ -292,9 +325,11 @@ UnsyncedObjectRpcWrapper::WitnessRecordRpc::handleTransportError()
     // There was a transport-level failure. Flush cached state related
     // to this session, and related to the object mapping for our object.
     // Then retry.
-    context->transportManager->flushSession(session->serviceLocator);
+    if (session) {
+        context->transportManager->flushSession(session->serviceLocator);
+    }
     context->objectFinder->flush(tableId);
-    if (context->unsyncedRpcTracker) {
+    if (session && context->unsyncedRpcTracker) {
         context->unsyncedRpcTracker->flushSession(session.get());
     }
     session = NULL;

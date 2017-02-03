@@ -68,7 +68,7 @@ class UnsyncedRpcTracker {
       public:
         SyncRpc(Context* context, Transport::SessionRef& sessionToMaster,
                 LogState objPos);
-        void wait(LogState* newLogState);
+        bool wait(LogState* newLogState);
 
       PRIVATE:
         Context* context;
@@ -83,7 +83,9 @@ class UnsyncedRpcTracker {
         RetryUnsyncedRpc(Context* context, uint64_t tableId, uint64_t keyHash,
                          ClientRequest requestToRetry);
         /// \copydoc RpcWrapper::docForWait
-        void wait() {simpleWait(context);}
+        void wait();
+      PROTECTED:
+        virtual bool handleTransportError();
       PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(RetryUnsyncedRpc);
     };

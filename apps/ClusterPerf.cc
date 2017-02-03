@@ -6379,6 +6379,162 @@ readVaryingKeyLength()
     }
 }
 
+// This benchmark tests consistency guarantee of witness recovery
+// by crashing master while several clients trasfer balances among many objects
+// using unsynced conditional write operations.
+void
+witnessConsistency()
+{
+    const int numObjs = 50, keyLength = 4;
+    char keys[numObjs][keyLength];
+
+    for (int i = 0; i < numObjs; i++) {
+        snprintf(keys[i], keyLength, "%3d", i);
+    }
+
+    if (clientIndex > 0) {
+        bool running = false;
+
+        uint64_t startTime;
+        int xferTotal = 0;
+        int rejectTotal = 0;
+        int xferCurrent = 0;
+
+        while (true) {
+            char command[20];
+            if (running) {
+                // Write out some statistics for debugging.
+                double totalTime = Cycles::toSeconds(Cycles::rdtsc()
+                        - startTime);
+                double rate = xferCurrent/totalTime;
+                RAMCLOUD_LOG(NOTICE, "xfer rate: %.1f kTransfers/sec",
+                        rate/1e03);
+            }
+            getCommand(command, sizeof(command), false);
+            if (strcmp(command, "run") == 0) {
+                if (!running) {
+                    setSlaveState("running");
+                    running = true;
+                    RAMCLOUD_LOG(NOTICE,
+                            "Starting writeThroughput benchmark");
+                }
+
+                // Perform writes for a second (then check to see
+                // if the experiment is over).
+                startTime = Cycles::rdtsc();
+                xferCurrent = 0;
+                uint64_t checkTime = startTime + Cycles::fromSeconds(1.0);
+                do {
+                    int from = downCast<int>(generateRandom() % numObjs);
+                    int to = downCast<int>(generateRandom() % numObjs);
+                    int xferAmount = 0;
+
+                    // Step 1. Deduct amount from origin.
+                    bool succeeded = false;
+                    do {
+                        Buffer value;
+                        uint64_t version;
+                        cluster->read(dataTable, keys[from], keyLength,
+                                &value, NULL, &version);
+                        int balOrigin = *(value.getStart<int>());
+                        xferAmount = downCast<int>(generateRandom() %
+                                (balOrigin + 1));
+                        balOrigin -= xferAmount;
+
+                        RejectRules rules;
+                        memset(&rules, 0, sizeof(rules));
+                        rules.versionNeGiven = true;
+                        rules.givenVersion = version;
+                        try {
+                            cluster->write(dataTable, keys[from], keyLength,
+                                    &balOrigin, sizeof32(balOrigin), &rules,
+                                    NULL, true);
+                            succeeded = true;
+                        } catch (WrongVersionException&) {
+                            ++rejectTotal;
+                        }
+                    } while (!succeeded);
+
+                    // Step 2. Add amount to dest.
+                    succeeded = false;
+                    do {
+                        Buffer value;
+                        uint64_t version;
+                        cluster->read(dataTable, keys[to], keyLength,
+                                &value, NULL, &version);
+                        int balance = *(value.getStart<int>()) + xferAmount;
+
+                        RejectRules rules;
+                        memset(&rules, 0, sizeof(rules));
+                        rules.versionNeGiven = true;
+                        rules.givenVersion = version;
+                        try {
+                            cluster->write(dataTable, keys[to], keyLength,
+                                    &balance, sizeof32(balance), &rules,
+                                    NULL, true);
+                            succeeded = true;
+                        } catch (WrongVersionException&) {
+                            ++rejectTotal;
+                        }
+                    } while (!succeeded);
+                    ++xferTotal;
+                    ++xferCurrent;
+                } while (Cycles::rdtsc() < checkTime);
+            } else if (strcmp(command, "done") == 0) {
+                setSlaveState("done");
+                RAMCLOUD_LOG(NOTICE, "Ending witnessConsistency."
+                        " Total xfer: %d, rejectRate: %2.3f", xferTotal,
+                        static_cast<double>(100 * rejectTotal) / xferTotal);
+                return;
+            } else {
+                RAMCLOUD_LOG(ERROR, "unknown command %s", command);
+                return;
+            }
+        }
+    }
+
+    // The master executes the following code, which starts up zero or more
+    // slaves to generate load, then times the performance of reading.
+    int startingValue = 100;
+    for (int i = 0; i < numObjs; i++) {
+        cluster->write(dataTable, keys[i], keyLength,
+                       &startingValue, sizeof32(startingValue));
+    }
+    printf("# RAMCloud witness recovery test\n");
+    printf("#----------------------------------------------------------\n");
+    printf("# Balances after all balance transfers\n");
+
+    sendCommand("run", "running", 1, numClients-1);
+    Cycles::sleep(1000000);
+    KillRpc rpc(cluster, dataTable, keys[0], keyLength);
+    RAMCLOUD_LOG(NOTICE, "Killed the master holding dataTable.");
+    // Wait for recovery...
+    Buffer dummyValue;
+    cluster->read(dataTable, keys[0], keyLength, &dummyValue);
+    Cycles::sleep(500000);
+
+    sendCommand("done", NULL, 1, numClients-1);
+    for (int i = 1; i < numClients; i++) {
+        waitSlave(i, "done", 60);
+        RAMCLOUD_LOG(NOTICE, "slave %d is done.", i);
+    }
+
+    RAMCLOUD_LOG(NOTICE, "All slaves are done.");
+    int sum = 0;
+    for (int i = 0; i < numObjs; i++) {
+        Buffer value;
+        cluster->read(dataTable, keys[i], keyLength, &value);
+        printf("%4d ", *(value.getStart<int>()));
+        if (i % 20 == 19) {
+            printf("\n");
+        }
+        sum += *(value.getStart<int>());
+    }
+
+    printf("\n#------------------------------------------------------------\n");
+    printf("# Total sum: %d\n", sum);
+}
+
 // Write times for objects with string keys of different lengths.
 void
 writeVaryingKeyLength()
@@ -6602,7 +6758,13 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
         PerfStats startStats = *statsBuffer.getStart<PerfStats>();
-        Cycles::sleep(1000000);
+        if (numSlaves == 5) {
+            Cycles::sleep(500000);
+            KillRpc rpc(cluster, dataTable, "abc", 3);
+            Cycles::sleep(500000);
+        } else {
+            Cycles::sleep(1000000);
+        }
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
@@ -6880,6 +7042,7 @@ TestInfo tests[] = {
     {"readRandom", readRandom},
     {"readThroughput", readThroughput},
     {"readVaryingKeyLength", readVaryingKeyLength},
+    {"witnessConsistency", witnessConsistency},
     {"writeVaryingKeyLength", writeVaryingKeyLength},
     {"writeAsyncSync", writeAsyncSync},
     {"writeDistRandom", writeDistRandom},

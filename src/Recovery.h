@@ -29,6 +29,7 @@
 #include "RecoveryPartition.pb.h"
 #include "TaskQueue.h"
 #include "TableStats.h"
+#include "WitnessManager.h"
 
 namespace RAMCloud {
 
@@ -182,7 +183,8 @@ class Recovery : public Task {
     void splitTablets(vector<Tablet> *tablets,
                       TableStats::Estimator* estimator);
     void partitionTablets(vector<Tablet> tablets,
-                          TableStats::Estimator* estimator);
+                          TableStats::Estimator* estimator,
+                          WitnessManager* witnessManager = NULL);
     void startBackups();
     void startRecoveryMasters();
     void broadcastRecoveryComplete();

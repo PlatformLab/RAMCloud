@@ -126,7 +126,7 @@ opcodeSymbol(uint32_t opcode)
         case SYNC_LOG:                     return "SYNC_LOG";
         case WITNESS_START:                return "WITNESS_START";
         case WITNESS_RECORD:               return "WITNESS_RECORD";
-        case WITNESS_REPLAY_AND_QUIT:      return "WITNESS_REPLAY_AND_QUIT";
+        case WITNESS_GETRECOVERYDATA:      return "WITNESS_GETRECOVERYDATA";
         case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
     }
 

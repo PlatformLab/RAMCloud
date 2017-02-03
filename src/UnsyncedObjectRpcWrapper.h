@@ -44,6 +44,7 @@ class UnsyncedObjectRpcWrapper : public LinearizableObjectRpcWrapper {
   PROTECTED:
     virtual void send();
     bool waitInternal(Dispatch* dispatch, uint64_t abortTime = ~0UL);
+    void clearAndRetry(uint32_t minDelayMicros, uint32_t maxDelayMicros);
     std::function<void()> getWitnessFreeFunc();
 
     // General client information.

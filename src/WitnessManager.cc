@@ -14,8 +14,8 @@
  */
 
 #include "CoordinatorService.h"
-#include "MasterClient.h"
 #include "ShortMacros.h"
+#include "WitnessClient.h"
 #include "WitnessManager.h"
 
 namespace RAMCloud {
@@ -199,7 +199,7 @@ WitnessManager::assignWitness(ServerId master, ServerId witnessId)
     // TODO(seojin): handle the case when we cannot assign witness now..
     // TODO(seojin): handle exceptions...?
     uint64_t basePtr =
-            MasterClient::witnessStart(context, witnessId, master);
+            WitnessClient::witnessStart(context, witnessId, master);
     if (idMap.count(master.getId()) == 0) {
         idMap[master.getId()];
     }

@@ -20,6 +20,7 @@
 #include "Recovery.h"
 #include "BackupClient.h"
 #include "Buffer.h"
+#include "CoordinatorService.h"
 #include "MasterClient.h"
 #include "ParallelRun.h"
 #include "ShortMacros.h"
@@ -298,10 +299,14 @@ struct Partition {
  * \param estimator
  *      Pointer to tablet information estimator.  If estimator is not valid,
  *      we will naively place one tablet per partition.
+ * \param witnessManager
+ *      Pointer to witness assignment information. Used to populate protobuf
+ *      tablet information with witness info.
  */
 void
 Recovery::partitionTablets(vector<Tablet> tablets,
-                           TableStats::Estimator* estimator)
+                           TableStats::Estimator* estimator,
+                           WitnessManager* witnessManager)
 {
     numPartitions = 0;
 
@@ -318,6 +323,18 @@ Recovery::partitionTablets(vector<Tablet> tablets,
             ProtoBuf::Tablets::Tablet& entry = *dataToRecover.add_tablet();
             tablet.serialize(entry);
             entry.set_user_data(numPartitions++);
+
+            if (witnessManager != NULL) {
+                vector<WitnessManager::Witness> witnessesForTablet =
+                        witnessManager->getWitness(tablet.serverId);
+                for (WitnessManager::Witness witness : witnessesForTablet) {
+                    ProtoBuf::Tablets::Tablet::Witness& protoWitness(
+                        *entry.add_witness());
+
+                    protoWitness.set_server_id(witness.id.getId());
+                    protoWitness.set_buffer_base_ptr(witness.bufferBasePtr);
+                }
+            }
         }
         return;
     }
@@ -358,6 +375,18 @@ Recovery::partitionTablets(vector<Tablet> tablets,
             ProtoBuf::Tablets::Tablet& entry = *dataToRecover.add_tablet();
             tablet.serialize(entry);
             entry.set_user_data(partition.partitionId);
+
+            if (witnessManager != NULL) {
+                vector<WitnessManager::Witness> witnessesForTablet =
+                        witnessManager->getWitness(tablet.serverId);
+                for (WitnessManager::Witness witness : witnessesForTablet) {
+                    ProtoBuf::Tablets::Tablet::Witness& protoWitness(
+                        *entry.add_witness());
+
+                    protoWitness.set_server_id(witness.id.getId());
+                    protoWitness.set_buffer_base_ptr(witness.bufferBasePtr);
+                }
+            }
             // If the partition still has room for more tablets, add it to the
             // available set of partitions.
             if (partition.usage() <= 0.9) {
@@ -898,7 +927,9 @@ Recovery::startBackups()
 
     /* Broadcast 2: partition replicas into tablets for recovery masters */
     TableStats::Estimator estimator(tableStats);
-    partitionTablets(tablets, &estimator);
+    CoordinatorService* coordinatorService = context->getCoordinatorService();
+    partitionTablets(tablets, &estimator, (coordinatorService) ?
+                     &coordinatorService->witnessManager : NULL);
     LOG(NOTICE, "Partition Scheme for Recovery:\n%s",
                 dataToRecover.DebugString().c_str());
 

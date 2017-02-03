@@ -235,6 +235,18 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
         return;
     }
 
+    if (header->opcode == WireFormat::WITNESS_GETRECOVERYDATA) {
+        assert(header->service == WireFormat::WITNESS_SERVICE);
+        assert(rpc->replyPayload.size() == 0);
+        const WireFormat::WitnessGetRecoveryData::Request* reqHdr =
+            rpc->requestPayload.getStart<
+                    WireFormat::WitnessGetRecoveryData::Request>();
+        assert(reqHdr != NULL);
+        if (reqHdr->continuation == 0) {
+            WitnessService::prepRecovery(context, reqHdr->crashedMasterId);
+        }
+    }
+
 
     levels[level].requestsRunning++;
 

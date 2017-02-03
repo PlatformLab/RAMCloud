@@ -172,6 +172,7 @@ SHARED_SRCFILES := \
 		   src/Util.cc \
 		   src/WallTime.cc \
 		   src/WireFormat.cc \
+		   src/WitnessClient.cc \
 		   src/WitnessTracker.cc \
 		   src/WorkerManager.cc \
 		   src/WorkerSession.cc \

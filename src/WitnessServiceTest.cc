@@ -19,17 +19,16 @@
 #include "BackupService.h"
 #include "InMemoryStorage.h"
 #include "LogDigest.h"
-#include "MasterClient.h"
 #include "MockCluster.h"
 #include "SegmentIterator.h"
 #include "Server.h"
 #include "Key.h"
 #include "ServerListBuilder.h"
-#include "MultiFileStorage.h"
 #include "ShortMacros.h"
 #include "StringUtil.h"
 #include "TabletsBuilder.h"
 #include "UnsyncedObjectRpcWrapper.h"
+#include "WitnessClient.h"
 
 namespace RAMCloud {
 
@@ -83,7 +82,7 @@ class WitnessServiceTest : public ::testing::Test {
 
 TEST_F(WitnessServiceTest, start) {
     uint64_t bufferBasePtr =
-            MasterClient::witnessStart(&context, witnessId, masterId);
+            WitnessClient::witnessStart(&context, witnessId, masterId);
     EXPECT_NE(0UL, bufferBasePtr);
     WitnessService::Master* buffer =
             reinterpret_cast<WitnessService::Master*>(bufferBasePtr);
@@ -93,7 +92,7 @@ TEST_F(WitnessServiceTest, start) {
 
 TEST_F(WitnessServiceTest, record) {
     uint64_t bufferBasePtr =
-            MasterClient::witnessStart(&context, witnessId, masterId);
+            WitnessClient::witnessStart(&context, witnessId, masterId);
     EXPECT_NE(0UL, bufferBasePtr);
 
 
@@ -143,7 +142,7 @@ TEST_F(WitnessServiceTest, record) {
 
 TEST_F(WitnessServiceTest, record_badRequest) {
     uint64_t bufferBasePtr =
-            MasterClient::witnessStart(&context, witnessId, masterId);
+            WitnessClient::witnessStart(&context, witnessId, masterId);
     EXPECT_NE(0UL, bufferBasePtr);
     WitnessService::Master* buffer =
             reinterpret_cast<WitnessService::Master*>(bufferBasePtr);

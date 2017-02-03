@@ -99,9 +99,9 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
                                          tablet.ctime_log_head_offset()));
 
             int witnessIndex = 0;
-            uint64_t witnessIds[WITNESS_PER_MASTER];
-            string witnessLocators[WITNESS_PER_MASTER];
-            uint64_t witnessBufferPtrs[WITNESS_PER_MASTER];
+            uint64_t witnessIds[WITNESS_PER_MASTER] = {};
+            string witnessLocators[WITNESS_PER_MASTER] = {};
+            uint64_t witnessBufferPtrs[WITNESS_PER_MASTER] = {};
             for (const ProtoBuf::TableConfig::Tablet::Witness& witness :
                     tablet.witness()) {
                 witnessIds[witnessIndex] = witness.server_id();
