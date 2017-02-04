@@ -54,9 +54,9 @@ AbstractLog::AbstractLog(LogEntryHandlers* entryHandlers,
       maxLiveBytes(0),
       metrics()
 {
-    // This is a placeholder value; the real value will get computed
-    // shortly by allocNewWritableHead.
-    maxLiveBytes = 10000000;
+    SegletAllocator& alloc = segmentManager->getAllocator();
+    maxLiveBytes = static_cast<uint64_t>(0.95 * alloc.getSegletSize() *
+            static_cast<double>(alloc.getTotalCount(SegletAllocator::DEFAULT)));
 }
 
 /**
