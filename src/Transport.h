@@ -24,6 +24,7 @@
 #include "Buffer.h"
 #include "CodeLocation.h"
 #include "Exception.h"
+#include "Atomic.h"
 
 namespace RAMCloud {
 class ServiceLocator;
@@ -75,6 +76,7 @@ class Transport {
             , epoch(0)
             , activities(~0)
             , id(0)
+            , finished(0)
             , outstandingRpcListHook()
         {}
 
@@ -158,6 +160,12 @@ class Transport {
          * the worker threads and back.
          */
         uint32_t id;
+
+        /**
+          * A flag which the dispatch thread checks to determine if this Rpc
+          * has finished being handled by the worker thread.
+          */
+        Atomic<int> finished;
 
         /**
          * Hook for the list of active server RPCs that the ServerRpcPool class

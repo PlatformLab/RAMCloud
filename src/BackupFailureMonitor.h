@@ -20,6 +20,7 @@
 
 #include "ServerTracker.h"
 #include "Tub.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 
@@ -68,12 +69,12 @@ class BackupFailureMonitor
      * Protects all fields in this class so methods can safely communicate
      * with the loop running in main().
      */
-    std::mutex mutex;
+    Arachne::SpinLock mutex;
 
     /**
      * Convenience type for acquiring the mutex above.
      */
-    typedef std::unique_lock<std::mutex> Lock;
+    typedef std::unique_lock<Arachne::SpinLock> Lock;
 
     typedef ServerTracker<void> FailureTracker;
     /**

@@ -14,6 +14,7 @@
  */
 
 #include <new>
+#include <typeinfo>
 #include "BitOps.h"
 #include "Cycles.h"
 #include "CycleCounter.h"
@@ -40,7 +41,7 @@
 namespace RAMCloud {
 // Uncomment the following line (or specify -D SMTT on the make command line)
 // to enable a bunch of time tracing in this module.
-// #define SMTT 1
+//#define SMTT 1
 
 // Provides a shorthand way of invoking TimeTrace::record, compiled in or out
 // by the SMTT #ifdef.
@@ -86,8 +87,7 @@ WorkerManager::WorkerManager(Context* context, uint32_t maxCores)
     : Dispatch::Poller(context->dispatch, "WorkerManager")
     , context(context)
     , waitingRpcs()
-    , completedRpcsMutex()
-    , completedRpcs()
+    , outstandingRpcs()
     , numOutstandingRpcs(0)
     , testingSaveRpcs(0)
     , testRpcs()
@@ -160,6 +160,9 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     // that requests are serviced in FIFO order.
     if (!waitingRpcs.empty()) {
         waitingRpcs.push(rpc);
+        // This abort never happens, but we still manage to register a
+        // non-empty status in waitingRpcs
+        abort();
         timeTrace("RPC deferred; threads busy");
         return;
     }
@@ -172,7 +175,10 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
             Arachne::NullThread) {
         // On failure, enqueue the rpc.
         waitingRpcs.push(rpc);
+        abort();
         timeTrace("RPC deferred; threads busy");
+    } else {
+        outstandingRpcs.push_back(rpc);
     }
 }
 
@@ -198,26 +204,35 @@ int
 WorkerManager::poll()
 {
     int foundWork = 0;
-    std::unique_lock<Arachne::SpinLock> lock(completedRpcsMutex);
 
-    while (!completedRpcs.empty()) {
-        Transport::ServerRpc* rpc = completedRpcs.front();
-        completedRpcs.pop();
+    for (int i = downCast<int>(outstandingRpcs.size()) - 1; i >= 0; i--) {
+        Transport::ServerRpc* rpc = outstandingRpcs[i];
+        if (!rpc->finished) continue;
+
+        // If we are not the last rpc, store the last Rpc here so that pop-back
+        // doesn't lose data and we do not iterate here again.
+        if (rpc != outstandingRpcs.back())
+            outstandingRpcs[i] = outstandingRpcs.back();
+        outstandingRpcs.pop_back();
+
+
+        foundWork = 1;
+        Fence::enter();
         timeTrace("dispatch thread starting cleanup for opcode %d",
                 *(rpc->requestPayload.getStart<uint16_t>()));
-
-        // No need to hold the queue's lock while we post-process
-        lock.unlock();
-        foundWork = 1;
 
         // Highest priority: if there are pending requests that are waiting
         // for cores, create a new thread to handle it.
         if (!waitingRpcs.empty()) {
             // Create a new thread to handle the RPC.
+            if (waitingRpcs.size() == 0) abort();
             if (Arachne::createThread(&WorkerManager::workerMain, this, waitingRpcs.front()) !=
-                    Arachne::NullThread)
+                    Arachne::NullThread) {
+            if (waitingRpcs.size() == 0) abort();
                 // Only dequeue on success.
+                outstandingRpcs.push_back(waitingRpcs.front());
                 waitingRpcs.pop();
+            }
         }
 
 #ifdef LOG_RPCS
@@ -230,7 +245,6 @@ WorkerManager::poll()
             timeTrace("sent reply for opcode %d, id = %u",
                 *(rpc->requestPayload.getStart<uint16_t>()), rpc->id);
         numOutstandingRpcs--;
-        lock.lock();
     }
     return foundWork;
 }
@@ -321,9 +335,8 @@ void
 Worker::sendReply()
 {
     if (!replySent) {
-        context->workerManager->completedRpcsMutex.lock(); 
-        context->workerManager->completedRpcs.push(rpc);
-        context->workerManager->completedRpcsMutex.unlock();
+        Fence::leave();
+        rpc->finished.store(1);
         WorkerManager::timeTrace("worker thread postprocesing opcode %d; "
                 "reply signaled to dispatch", opcode);
         replySent = true;

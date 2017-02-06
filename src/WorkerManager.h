@@ -63,10 +63,10 @@ class WorkerManager : Dispatch::Poller {
     /// Requests that cannot execute until / a thread becomes available.
     std::queue<Transport::ServerRpc*> waitingRpcs;
 
-    // For now, we will use this locked queue to pass completed Rpc's back to
-    // the WorkerManager.
-    Arachne::SpinLock completedRpcsMutex;
-    std::queue<Transport::ServerRpc*> completedRpcs;
+
+    // Use this collection to track Rpcs that we have handed to a worker thread
+    // but have not yet sent replies for.
+    std::vector<Transport::ServerRpc*> outstandingRpcs;
 
     // Track the current number of Rpcs that have entered the system and not
     // yet exited.

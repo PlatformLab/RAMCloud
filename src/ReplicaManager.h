@@ -29,6 +29,7 @@
 #include "ServerTracker.h"
 #include "TaskQueue.h"
 #include "Tub.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 
@@ -62,7 +63,7 @@ class ReplicaManager
     : public ReplicatedSegment::Deleter
 {
   PUBLIC:
-    typedef std::lock_guard<std::mutex> Lock;
+    typedef std::lock_guard<Arachne::SpinLock> Lock;
 
     ReplicaManager(Context* context,
                    const ServerId* masterId,
@@ -133,7 +134,7 @@ class ReplicaManager
      *    BackupFailureMonitor where it is safe to do so.
      */
 
-    std::mutex dataMutex;
+    Arachne::SpinLock dataMutex;
 
     /// Id of master that this will be managing replicas for.
     const ServerId* masterId;
