@@ -498,17 +498,17 @@ TEST_F(MasterServiceTest, takeIndexletOwnership) {
 TEST_F(MasterServiceTest, echo_basics) {
     Buffer echo;
     ramcloud->echo("mock:host=master", "abcdef", 6, 6, &echo);
-    EXPECT_EQ("abcdef", TestUtil::toString(&echo));
+    EXPECT_EQ("      ", TestUtil::toString(&echo));
     EXPECT_EQ(6U, echo.size());
 
     ramcloud->echo("mock:host=master", "abcdef", 6, 3, &echo);
-    EXPECT_EQ("abc", TestUtil::toString(&echo));
+    EXPECT_EQ("   ", TestUtil::toString(&echo));
     EXPECT_EQ(3U, echo.size());
 
     ramcloud->echo("mock:host=master", "abcdef", 6, 9, &echo);
     EXPECT_EQ(9U, echo.size());
     echo.truncate(6);
-    EXPECT_EQ("abcdef", TestUtil::toString(&echo));
+    EXPECT_EQ("      ", TestUtil::toString(&echo));
 }
 
 TEST_F(MasterServiceTest, enumerate_basics) {

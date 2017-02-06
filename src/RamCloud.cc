@@ -459,10 +459,8 @@ DropIndexRpc::DropIndexRpc(RamCloud* ramcloud, uint64_t tableId,
  * \param echoLength
  *      Size of the message to be echoed, in bytes.
  * \param[out] echo
- *      After a successful return, this Buffer will hold the echoed message.
- *      The first min{length, echoLength} bytes of the echoed message are
- *      guaranteed to be the same as the original message, while the rest, if
- *      any, are undefined.
+ *      After a successful return, this Buffer will hold the echoed message,
+ *      which contains all whitespaces.
  */
 void
 RamCloud::echo(const char* serviceLocator, const void* message,
@@ -489,10 +487,8 @@ RamCloud::echo(const char* serviceLocator, const void* message,
  * \param echoLength
  *      Size of the message to be echoed, in bytes.
  * \param[out] echo
- *      After a successful return, this Buffer will hold the echoed message.
- *      The first min{length, echoLength} bytes of the echoed message are
- *      guaranteed to be the same as the original message, while the rest, if
- *      any, are undefined.
+ *      After a successful return, this Buffer will hold the echoed message,
+ *      which contains all whitespaces.
  */
 EchoRpc::EchoRpc(RamCloud* ramcloud, const char* serviceLocator,
         const void* message, uint32_t length, uint32_t echoLength,
