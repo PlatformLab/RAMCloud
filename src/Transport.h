@@ -19,12 +19,12 @@
 #include <atomic>
 #include <string>
 #include <boost/intrusive_ptr.hpp>
+#include <atomic>
 
 #include "BoostIntrusive.h"
 #include "Buffer.h"
 #include "CodeLocation.h"
 #include "Exception.h"
-#include "Atomic.h"
 #include "WireFormat.h"
 
 namespace RAMCloud {
@@ -167,7 +167,7 @@ class Transport {
           * A flag which the dispatch thread checks to determine if this Rpc
           * has finished being handled by the worker thread.
           */
-        Atomic<int> finished;
+        std::atomic<bool> finished;
 
         /**
           * Cache the header so that we don't have to pay 100 ns to extract it

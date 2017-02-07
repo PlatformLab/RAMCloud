@@ -18,7 +18,6 @@
 #include "BitOps.h"
 #include "Cycles.h"
 #include "CycleCounter.h"
-#include "Fence.h"
 #include "Initialize.h"
 #include "LogProtector.h"
 #include "PerfStats.h"
@@ -41,7 +40,7 @@
 namespace RAMCloud {
 // Uncomment the following line (or specify -D SMTT on the make command line)
 // to enable a bunch of time tracing in this module.
-//#define SMTT 1
+#define SMTT 1
 
 // Provides a shorthand way of invoking TimeTrace::record, compiled in or out
 // by the SMTT #ifdef.
@@ -204,7 +203,7 @@ WorkerManager::poll()
 
     for (int i = downCast<int>(outstandingRpcs.size()) - 1; i >= 0; i--) {
         Transport::ServerRpc* rpc = outstandingRpcs[i];
-        if (!rpc->finished) continue;
+        if (!rpc->finished.load(std::memory_order_acquire)) continue;
 
         // If we are not the last rpc, store the last Rpc here so that pop-back
         // doesn't lose data and we do not iterate here again.
@@ -214,7 +213,6 @@ WorkerManager::poll()
 
 
         foundWork = 1;
-        Fence::enter();
 
         timeTrace("dispatch thread starting cleanup for opcode %d",
                 *(rpc->requestPayload.getStart<uint16_t>()));
@@ -328,8 +326,7 @@ void
 Worker::sendReply()
 {
     if (!replySent) {
-        Fence::leave();
-        rpc->finished.store(1);
+        rpc->finished.store(1, std::memory_order_release);
         replySent = true;
     }
 }
