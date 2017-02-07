@@ -1733,7 +1733,7 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
     using RAMCloud::Perf::ReadRPC_MetricSet;
     ReadRPC_MetricSet::Interval _(&ReadRPC_MetricSet::readRpcTime);
 
-    TimeTrace::record("Top of MasterService::read");
+//    TimeTrace::record("Top of MasterService::read");
 
     uint32_t reqOffset = sizeof32(*reqHdr);
     const void* stringKey = rpc->requestPayload->getRange(
@@ -1750,10 +1750,10 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
     RejectRules rejectRules = reqHdr->rejectRules;
     bool valueOnly = true;
     uint32_t initialLength = rpc->replyPayload->size();
-    TimeTrace::record("Constructed key");
+//    TimeTrace::record("Constructed key");
     respHdr->common.status = objectManager.readObject(
             key, rpc->replyPayload, &rejectRules, &respHdr->version, valueOnly);
-    TimeTrace::record("Finished ObjectManager::readObject");
+//    TimeTrace::record("Finished ObjectManager::readObject");
 
     if (respHdr->common.status != STATUS_OK)
         return;
@@ -3161,7 +3161,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         WireFormat::Write::Response* respHdr,
         Rpc* rpc)
 {
-    TimeTrace::record("Top of MasterService::write");
+//    TimeTrace::record("Top of MasterService::write");
     assert(reqHdr->rpcId > 0);
     UnackedRpcHandle rh(&unackedRpcResults,
                         reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
@@ -3199,7 +3199,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
             respHdr, sizeof(*respHdr));
 
-    TimeTrace::record("Prepared linearizability information");
+//    TimeTrace::record("Prepared linearizability information");
     // Write the object.
     respHdr->common.status = objectManager.writeObject(
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
@@ -3232,7 +3232,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             requestRemoveIndexEntries(oldObject);
         }
     }
-    TimeTrace::record("Bottom of MasterService::write");
+//    TimeTrace::record("Bottom of MasterService::write");
 }
 
 ///////////////////////////////////////////////////////////////////////////////

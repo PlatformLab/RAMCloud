@@ -40,7 +40,7 @@
 namespace RAMCloud {
 // Uncomment the following line (or specify -D SMTT on the make command line)
 // to enable a bunch of time tracing in this module.
-#define SMTT 1
+//#define SMTT 1
 
 // Provides a shorthand way of invoking TimeTrace::record, compiled in or out
 // by the SMTT #ifdef.
