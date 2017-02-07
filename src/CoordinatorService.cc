@@ -52,7 +52,7 @@ CoordinatorService::CoordinatorService(Context* context,
     , updateManager(context->externalStorage)
     , serverList(context)
     , tableManager(context, &updateManager)
-    , witnessManager(context, &serverList)
+    , witnessManager(context)
     , leaseAuthority(context)
     , runtimeOptions()
     , recoveryManager(context, tableManager, &runtimeOptions)
@@ -378,8 +378,6 @@ CoordinatorService::enlistServer(
                                                    readSpeed,
                                                    serviceLocator);
     respHdr->serverId = newServerId.getId();
-    rpc->sendReply();
-    witnessManager.allocWitness(newServerId); // Caution..
 }
 
 /**
@@ -480,6 +478,8 @@ CoordinatorService::getTableConfig(
         WireFormat::GetTableConfig::Response* respHdr,
         Rpc* rpc)
 {
+    witnessManager.poll(); // Caution.. it may take long long time..
+                           // deadlock prone.. as well?
     ProtoBuf::TableConfig tableConfig;
     tableManager.serializeTableConfig(&tableConfig,
                                       reqHdr->tableId,

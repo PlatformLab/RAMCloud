@@ -33,7 +33,8 @@ namespace RAMCloud {
  * of recent unsynced requests and to facilitate the recovery of object data
  * when masters crash.
  */
-class WitnessService : public Service {
+class WitnessService : public Service
+                     , ServerTracker<void>::Callback {
   PUBLIC:
     WitnessService(Context* context, const ServerConfig* config);
     virtual ~WitnessService();
@@ -57,6 +58,8 @@ class WitnessService : public Service {
                 const WireFormat::WitnessGetRecoveryData::Request* reqHdr,
                 WireFormat::WitnessGetRecoveryData::Response* respHdr,
                 Rpc* rpc);
+
+    void trackerChangesEnqueued();
 
     /**
      * Holds information to recover an RPC request in case of the master's crash
@@ -93,11 +96,12 @@ class WitnessService : public Service {
     /// Settings passed to the constructor
     const ServerConfig* config;
 
+    /// Used to track serverList changes and GC useless witness buffers.
+    ServerTracker<void> gcTracker;
+
     /**
-     * Master recoveries this backup is participating in; maps a crashed master
-     * id to the most recent recovery that was started for it. Entries
-     * added in startReadingData and removed by garbage collection tasks when
-     * the crashed master is marked as down in the server list.
+     * All witness buffers for masters this witness is recording for;
+     * Maps a masterId to witness info for that master.
      */
     std::unordered_map<uint64_t, Master*> buffers;
 

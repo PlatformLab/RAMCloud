@@ -101,6 +101,7 @@ class ObjectManager : public LogEntryHandlers,
     Status prepareReadOnly(PreparedOp& newOp, RejectRules* rejectRules,
                 bool* isCommitVote);
     Status tryGrabTxLock(Object& objToLock, Log::Reference& ref);
+    void releaseTxLock(Object& objToLock, Log::Reference& ref);
     Status writeTxDecisionRecord(TxDecisionRecord& record);
     Status commitRead(PreparedOp& op, Log::Reference& refToPreparedOp);
     Status commitRemove(PreparedOp& op, Log::Reference& refToPreparedOp,

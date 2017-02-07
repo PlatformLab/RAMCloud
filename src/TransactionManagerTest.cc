@@ -586,8 +586,7 @@ TEST_F(TransactionManagerTest, removeOrphanedOps) {
         transactionManager.markOpDeleted(txId.clientLeaseId, rpcId);
     }
     EXPECT_EQ(3U, transactionManager.items.size());
-
-    transactionManager.removeOrphanedOps();
+    transactionManager.removeOrphanedOps(&objectManager);
 
     EXPECT_EQ(2U, transactionManager.items.size());
     EXPECT_TRUE(transactionManager.items.end() ==

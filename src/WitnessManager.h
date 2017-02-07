@@ -54,27 +54,20 @@ class WitnessManager {
         bool isActive;
     };
 
-    WitnessManager(Context* context, CoordinatorServerList* serverList);
+    explicit WitnessManager(Context* context);
     ~WitnessManager();
-
-    void allocWitness(ServerId newMaster);
-    void stopWitnesses(ServerId targetMaster, ServerId witnessId = ServerId());
-    void freeWitnesses(ServerId targetMaster, ServerId witnessId = ServerId());
     vector<Witness> getWitness(ServerId master);
+    void poll();
 
     /**
      * Indicates how many witnesses are maintained per master.
      */
     static const int witnessFactor = WITNESS_PER_MASTER;
 
-    /**
-     * If TRUE, no server will service as a witness for more than witnessFactor.
-     */
-    static const bool perfectLoadBalance = true;
-
   PRIVATE:
-    ServerId witnessCandidate(ServerId master);
-    void assignWitness(ServerId master, ServerId witnessId);
+    bool consumeServerTracker();
+    void persist();
+    void scanAndAssignWitness();
 
     /**
      * Provides monitor-style protection for all operations on the tablet map.
@@ -87,25 +80,33 @@ class WitnessManager {
     /// Shared information about the server.
     Context* context;
 
-    /// Pointer to ServerList that is used for iterating through servers while
-    /// assigning witnesses.
-    CoordinatorServerList* serverList;
+    /// Used to track serverList changes.
+    ServerTracker<void> serverTracker;
 
-    /// Identifies the server which we assigned as witness most recently;
-    /// used to rotate among the servers when assigning the witness role.
-    ServerId lastWitnessId;
+    bool scanScheduled;
 
-    /// Queue for masters who couldn't get witness during its enlistment.
-    std::vector<ServerId> mastersInNeedOfWitness;
+    struct Master {
+        Master()
+            : crashed(false)
+            , initialized(false)
+            , witnesses()
+        {}
+
+        bool crashed;
+        bool initialized;
+        vector<Witness> witnesses;
+    };
 
     /// Maps from a serialized 64-bit serverId of master to the list of
     /// witness information.
-    typedef std::unordered_map<uint64_t, vector<Witness>> IdMap;
+    typedef std::unordered_map<uint64_t, Master> IdMap;
     IdMap idMap;
 
     /// Maps from serverId of witness server to the number of masters it is
     /// watching.
-    std::unordered_map<uint64_t, int> serviceCount;
+    /// This list only contains "available" (up & running) witness servers.
+    typedef std::unordered_map<uint64_t, int> CountMap;
+    CountMap serviceCount;
 
     DISALLOW_COPY_AND_ASSIGN(WitnessManager);
 };

@@ -92,7 +92,7 @@ ObjectRpcWrapper::checkStatus()
     if (responseHeader->status == STATUS_UNKNOWN_TABLET) {
         // The object isn't where we thought it should be. Refresh our
         // configuration cache and try again.
-        LOG(NOTICE, "Server %s doesn't store <%lu, 0x%lx>; "
+        RAMCLOUD_CLOG(NOTICE, "Server %s doesn't store <%lu, 0x%lx>; "
                 "refreshing object map",
                 session->serviceLocator.c_str(),
                 tableId, keyHash);

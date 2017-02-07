@@ -427,7 +427,7 @@ TransactionManager::isOpDeleted(uint64_t leaseId,
  * or aborted recovery.
  */
 void
-TransactionManager::removeOrphanedOps()
+TransactionManager::removeOrphanedOps(ObjectManager* objectManager)
 {
     Lock lock(mutex);
     std::map<std::pair<uint64_t, uint64_t>, PreparedItem*>::iterator it;
@@ -446,6 +446,7 @@ TransactionManager::removeOrphanedOps()
             if (!tabletManager->getTablet(op.object.getTableId(),
                                           op.object.getPKHash())) {
                 log->free(ref);
+                objectManager->releaseTxLock(op.object, ref);
                 delete item;
                 it = items.erase(it);
                 continue;

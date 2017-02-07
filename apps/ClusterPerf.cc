@@ -6506,12 +6506,22 @@ witnessConsistency()
 
     sendCommand("run", "running", 1, numClients-1);
     Cycles::sleep(1000000);
+
     KillRpc rpc(cluster, dataTable, keys[0], keyLength);
     RAMCLOUD_LOG(NOTICE, "Killed the master holding dataTable.");
-    // Wait for recovery...
+    Cycles::sleep(100000); // Delay to make sure server is down before read.
     Buffer dummyValue;
+    // Wait for recovery...
     cluster->read(dataTable, keys[0], keyLength, &dummyValue);
-    Cycles::sleep(500000);
+    Cycles::sleep(1000000);
+
+    KillRpc rpc2(cluster, dataTable, keys[0], keyLength);
+    RAMCLOUD_LOG(NOTICE, "Killed the master holding dataTable.");
+    Cycles::sleep(100000); // Delay to make sure server is down before read.
+    dummyValue.reset();
+    // Wait for recovery...
+    cluster->read(dataTable, keys[0], keyLength, &dummyValue);
+    Cycles::sleep(1000000);
 
     sendCommand("done", NULL, 1, numClients-1);
     for (int i = 1; i < numClients; i++) {

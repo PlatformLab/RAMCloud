@@ -1737,6 +1737,24 @@ ObjectManager::tryGrabTxLock(Object& objToLock, Log::Reference& ref)
 }
 
 /**
+ * Release transaction lock for an object.
+ * This function is used while aborting recovery.
+ *
+ * \param objToLock
+ *      Object which contains tableId and key which we lock for.
+ * \param ref
+ *      Log reference to the PrepareOp object that represents the lock.
+ */
+void
+ObjectManager::releaseTxLock(Object& objToLock, Log::Reference& ref)
+{
+    uint16_t keyLength = 0;
+    const void *keyString = objToLock.getKey(0, &keyLength);
+    Key key(objToLock.getTableId(), keyString, keyLength);
+    lockTable.releaseLock(key, ref);
+}
+
+/**
  * Write a persistent transaction decision record to the log.
  *
  * \param record

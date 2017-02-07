@@ -36,6 +36,7 @@ WitnessService::WitnessService(Context* context,
     : context(context)
     , mutex()
     , config(config)
+    , gcTracker(context, this)
     , buffers()
 {
     context->services[WireFormat::WITNESS_SERVICE] = this;
@@ -151,6 +152,32 @@ WitnessService::getRecoveryData(
     respHdr->numOps = numEntry;
     respHdr->continuation = 0;
     respHdr->common.status = STATUS_OK;
+}
+
+/**
+ * Garbage collect witness buffers for any server that gets removed
+ * from the cluster. Called when changes to the server wide server list
+ * are enqueued.
+ */
+void
+WitnessService::trackerChangesEnqueued()
+{
+    ServerDetails server;
+    ServerChangeEvent event;
+    while (gcTracker.getChange(server, event)) {
+        if (event == SERVER_REMOVED) {
+            Lock _(mutex);
+            auto it = buffers.find(server.serverId.getId());
+            if (it != buffers.end()) {
+                Master* buffer = it->second;
+                assert(buffer->id == server.serverId.getId());
+//                free(buffer);
+                // TODO: Schedule this in dispatch thread...
+                LOG(NOTICE, "Deleted witness buffer for master <%" PRIu64 ">",
+                        server.serverId.getId());
+            }
+        }
+    }
 }
 
 } // namespace RAMCloud

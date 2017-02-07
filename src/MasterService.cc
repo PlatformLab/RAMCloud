@@ -346,7 +346,7 @@ MasterService::dropTabletOwnership(
     objectManager.removeOrphanedObjects();
 
     // Removed unnecessary prepared transaction operations.
-    transactionManager.removeOrphanedOps();
+    transactionManager.removeOrphanedOps(&objectManager);
 
     LOG(NOTICE, "Dropped ownership of (or did not own) tablet [0x%lx,0x%lx] "
                 "in tableId %lu",
@@ -1235,7 +1235,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     objectManager.removeOrphanedObjects();
 
     // Removed unnecessary prepared transaction operations.
-    transactionManager.removeOrphanedOps();
+    transactionManager.removeOrphanedOps(&objectManager);
 #endif
 }
 
@@ -3986,31 +3986,52 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
         indexlet.set_server_id(serverId.getId());
     }
 
+    // Re-grab all transaction locks.
+    transactionManager.regrabLocksAfterRecovery(&objectManager);
+
+    // Almost done. We should wait for retries of unsynced RPCs until
+    // serving normal requests.
+    foreach (const ProtoBuf::Tablets::Tablet& tablet,
+            recoveryPartition.tablet()) {
+        bool changed = tabletManager.changeState(
+                tablet.table_id(),
+                tablet.start_key_hash(), tablet.end_key_hash(),
+                TabletManager::NOT_READY,
+                TabletManager::LOCKED_FOR_RETRIES);
+        if (!changed) {
+            throw FatalError(HERE, format("Could not change recovering "
+                    "tablet's state to LOCKED_FOR_RETRIES "
+                    "(%lu range [%lu,%lu])",
+                    tablet.table_id(),
+                    tablet.start_key_hash(), tablet.end_key_hash()));
+        }
+    }
+    // TODO(seojin): support indexing for witness retries...?? should change
+    //              indexlet's state.
+
+    // Now fetch requests from Witness & replay.
+    bool recoveredFromWitness = true;
+    foreach (const ProtoBuf::Tablets::Tablet& tablet,
+             recoveryPartition.tablet()) {
+        bool succeedTablet = false; // No witness, no success.
+        foreach (const ProtoBuf::Tablets::Tablet::Witness& witness,
+                tablet.witness()) {
+            succeedTablet = recoverFromWitness(crashedServerId, tablet,
+                                               witness);
+            if (succeedTablet) {
+                break;
+            }
+        }
+        if (!succeedTablet) {
+            recoveredFromWitness = false;
+        }
+    }
+
+
     LOG(NOTICE, "Reporting completion of recovery %lu", reqHdr->recoveryId);
     bool cancelRecovery = CoordinatorClient::recoveryMasterFinished(
             context, recoveryId, serverId, &recoveryPartition, successful);
     if (!cancelRecovery) {
-        // Re-grab all transaction locks.
-        transactionManager.regrabLocksAfterRecovery(&objectManager);
-
-        // Almost done. We should wait for retries of unsynced RPCs until
-        // serving normal requests.
-        foreach (const ProtoBuf::Tablets::Tablet& tablet,
-                recoveryPartition.tablet()) {
-            bool changed = tabletManager.changeState(
-                    tablet.table_id(),
-                    tablet.start_key_hash(), tablet.end_key_hash(),
-                    TabletManager::NOT_READY,
-                    TabletManager::LOCKED_FOR_RETRIES);
-            if (!changed) {
-                throw FatalError(HERE, format("Could not change recovering "
-                        "tablet's state to LOCKED_FOR_RETRIES "
-                        "(%lu range [%lu,%lu])",
-                        tablet.table_id(),
-                        tablet.start_key_hash(), tablet.end_key_hash()));
-            }
-        }
-
         foreach (ProtoBuf::Indexlet& indexlet,
             *recoveryPartition.mutable_indexlet()) {
             bool changed = indexletManager.changeState(
@@ -4032,22 +4053,12 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
             }
         }
 
-        // Now fetch requests from Witness & replay.
-        foreach (const ProtoBuf::Tablets::Tablet& tablet,
-                 recoveryPartition.tablet()) {
-            foreach (const ProtoBuf::Tablets::Tablet::Witness& witness,
-                    tablet.witness()) {
-                bool succeed = recoverFromWitness(crashedServerId, tablet,
-                                                  witness);
-                if (succeed) {
-                    break;
-                }
-            }
+        // If recovery from witness failed, wait for some time to let clients
+        // retry unsynced RPCs before starting to serve normal requests.
+        if (!recoveredFromWitness) {
+            sleep(2);
         }
 
-        // After 2 seconds of waiting for retries of unsynced RPCs, start
-        // serving normal requests. Mark recovered tablets as normal.
-        sleep(2);
         foreach (const ProtoBuf::Tablets::Tablet& tablet,
                 recoveryPartition.tablet()) {
             bool changed = tabletManager.changeState(
@@ -4094,7 +4105,7 @@ MasterService::recover(const WireFormat::Recover::Request* reqHdr,
                     (uint16_t)indexlet.first_not_owned_key().length());
         }
         objectManager.removeOrphanedObjects();
-        transactionManager.removeOrphanedOps();
+        transactionManager.removeOrphanedOps(&objectManager);
     }
 }
 
