@@ -85,7 +85,6 @@ int WorkerManager::pollMicros = 10000;
 WorkerManager::WorkerManager(Context* context, uint32_t maxCores)
     : Dispatch::Poller(context->dispatch, "WorkerManager")
     , context(context)
-    , waitingRpcs()
     , outstandingRpcs()
     , numOutstandingRpcs(0)
     , testingSaveRpcs(0)
@@ -154,14 +153,6 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 #endif
 
     numOutstandingRpcs++;
-    // See if we should start executing this request. If there are already
-    // requests waiting to be serviced, then we should enqueue behind them so
-    // that requests are serviced in FIFO order.
-    if (!waitingRpcs.empty()) {
-        waitingRpcs.push(rpc);
-        timeTrace("RPC deferred; threads busy");
-        return;
-    }
 
     // Create a new thread to handle the RPC.
     rpc->id = nextRpcId++;
@@ -170,9 +161,12 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
             header->opcode, rpc->id);
     if (Arachne::createThread(&WorkerManager::workerMain, this, rpc) ==
             Arachne::NullThread) {
-        // On failure, enqueue the rpc.
-        waitingRpcs.push(rpc);
-        timeTrace("RPC deferred; threads busy");
+        // On failure, send STATUS_RETRY
+        LOG(WARNING, "Incoming RPC with opcode %d failed to find a core",
+                header->opcode);
+        Service::prepareErrorResponse(&rpc->replyPayload,
+                STATUS_RETRY);
+        rpc->sendReply();
     } else {
         outstandingRpcs.push_back(rpc);
     }
@@ -205,30 +199,10 @@ WorkerManager::poll()
         Transport::ServerRpc* rpc = outstandingRpcs[i];
         if (!rpc->finished.load(std::memory_order_acquire)) continue;
 
-        // If we are not the last rpc, store the last Rpc here so that pop-back
-        // doesn't lose data and we do not iterate here again.
-        if (rpc != outstandingRpcs.back())
-            outstandingRpcs[i] = outstandingRpcs.back();
-        outstandingRpcs.pop_back();
-
-
         foundWork = 1;
 
         timeTrace("dispatch thread starting cleanup for opcode %d",
                 *(rpc->requestPayload.getStart<uint16_t>()));
-
-        // Highest priority: if there are pending requests that are waiting
-        // for cores, create a new thread to handle it.
-        if (!waitingRpcs.empty()) {
-            // Create a new thread to handle the RPC.
-            Transport::ServerRpc* waitingRpc = waitingRpcs.front();
-            if (Arachne::createThread(&WorkerManager::workerMain, this,
-                        waitingRpc) != Arachne::NullThread) {
-                // Only dequeue on success.
-                outstandingRpcs.push_back(waitingRpc);
-                waitingRpcs.pop();
-            }
-        }
 
 #ifdef LOG_RPCS
             LOG(NOTICE, "Sending reply for %s at %u with %u bytes",
@@ -240,6 +214,12 @@ WorkerManager::poll()
             timeTrace("sent reply for opcode %d, id = %u",
                 *(rpc->requestPayload.getStart<uint16_t>()), rpc->id);
         numOutstandingRpcs--;
+
+        // If we are not the last rpc, store the last Rpc here so that pop-back
+        // doesn't lose data and we do not iterate here again.
+        if (rpc != outstandingRpcs.back())
+            outstandingRpcs[i] = outstandingRpcs.back();
+        outstandingRpcs.pop_back();
     }
     return foundWork;
 }

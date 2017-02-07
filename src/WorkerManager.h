@@ -60,10 +60,6 @@ class WorkerManager : Dispatch::Poller {
     /// Shared RAMCloud information.
     Context* context;
 
-    /// Requests that cannot execute until / a thread becomes available.
-    std::queue<Transport::ServerRpc*> waitingRpcs;
-
-
     // Use this collection to track Rpcs that we have handed to a worker thread
     // but have not yet sent replies for.
     std::vector<Transport::ServerRpc*> outstandingRpcs;
