@@ -41,7 +41,7 @@
 namespace RAMCloud {
 // Uncomment the following line (or specify -D SMTT on the make command line)
 // to enable a bunch of time tracing in this module.
-#define SMTT 1
+//#define SMTT 1
 
 // Provides a shorthand way of invoking TimeTrace::record, compiled in or out
 // by the SMTT #ifdef.
@@ -286,8 +286,6 @@ WorkerManager::waitForRpc(double timeoutSeconds) {
 void
 WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
 {
-    timeTrace("Top of workermain");
-
     // Cycles::rdtsc time that's updated continuously when this thread is idle.
     // Used to keep track of how much time this thread spends doing useful
     // work.
@@ -301,7 +299,6 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
         serverRpc->epoch = LogProtector::getCurrentEpoch();
         Service::Rpc rpc(&worker, &serverRpc->requestPayload,
                 &serverRpc->replyPayload);
-        timeTrace("Constructed Worker and Service::Rpc");
         Service::handleRpc(context, &rpc);
 
         // Pass the RPC back to the dispatch thread for completion.
