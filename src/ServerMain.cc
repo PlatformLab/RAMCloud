@@ -33,6 +33,7 @@
 #include "WorkerTimer.h"
 #include "Arachne.h"
 #include "FileLogger.h"
+#include "PerfStats.h"
 #include "../PerfUtils/Util.h"
 
 using namespace RAMCloud;
@@ -371,6 +372,9 @@ main(int argc, const char *argv[]) {
 
     Arachne::numCores = 1;
     Arachne::maxNumCores = 2;
+    Arachne::initCore = [] () {
+        PerfStats::registerStats(&PerfStats::threadStats);
+    };
     Arachne::init(&argc, argv);
     PerfUtils::Util::pinAvailableCore();
     // Invoke realMain outside of Arachne for now so we can defer handling of

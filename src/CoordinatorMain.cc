@@ -165,17 +165,20 @@ realMain(int argc, char *argv[])
     }
 }
 int
-main(int argc, char *argv[]) {
+main(int argc, const char *argv[]) {
     FileLogger arachneLogger(NOTICE, "ARACHNE: ");
     Arachne::setErrorStream(arachneLogger.getFile());
 
     Arachne::numCores = 1;
     Arachne::maxNumCores = 2;
-    Arachne::init();
+    Arachne::initCore = [] () {
+        PerfStats::registerStats(&PerfStats::threadStats);
+    };
+    Arachne::init(&argc, argv);
     // Invoke realMain outside of Arachne for now so we can defer handling of
     // the fact that the dispatch thread does not yield or terminate until we
     // are ready to do that experiment.
     PerfUtils::Util::pinAvailableCore();
-    realMain(argc, argv);
+    realMain(argc, const_cast<char**>(argv));
     Arachne::waitForTermination();
 }

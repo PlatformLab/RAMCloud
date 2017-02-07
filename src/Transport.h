@@ -25,6 +25,7 @@
 #include "CodeLocation.h"
 #include "Exception.h"
 #include "Atomic.h"
+#include "WireFormat.h"
 
 namespace RAMCloud {
 class ServiceLocator;
@@ -77,6 +78,7 @@ class Transport {
             , activities(~0)
             , id(0)
             , finished(0)
+            , header(NULL)
             , outstandingRpcListHook()
         {}
 
@@ -166,6 +168,12 @@ class Transport {
           * has finished being handled by the worker thread.
           */
         Atomic<int> finished;
+
+        /**
+          * Cache the header so that we don't have to pay 100 ns to extract it
+          * multiple times.
+          */
+        const WireFormat::RequestCommon* header;
 
         /**
          * Hook for the list of active server RPCs that the ServerRpcPool class

@@ -160,22 +160,19 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     // that requests are serviced in FIFO order.
     if (!waitingRpcs.empty()) {
         waitingRpcs.push(rpc);
-        // This abort never happens, but we still manage to register a
-        // non-empty status in waitingRpcs
-        abort();
         timeTrace("RPC deferred; threads busy");
         return;
     }
 
     // Create a new thread to handle the RPC.
     rpc->id = nextRpcId++;
+    rpc->header = header;
     timeTrace("handing off opcode %d with ID %u to worker thread",
             header->opcode, rpc->id);
     if (Arachne::createThread(&WorkerManager::workerMain, this, rpc) ==
             Arachne::NullThread) {
         // On failure, enqueue the rpc.
         waitingRpcs.push(rpc);
-        abort();
         timeTrace("RPC deferred; threads busy");
     } else {
         outstandingRpcs.push_back(rpc);
@@ -218,6 +215,7 @@ WorkerManager::poll()
 
         foundWork = 1;
         Fence::enter();
+
         timeTrace("dispatch thread starting cleanup for opcode %d",
                 *(rpc->requestPayload.getStart<uint16_t>()));
 
@@ -225,12 +223,11 @@ WorkerManager::poll()
         // for cores, create a new thread to handle it.
         if (!waitingRpcs.empty()) {
             // Create a new thread to handle the RPC.
-            if (waitingRpcs.size() == 0) abort();
-            if (Arachne::createThread(&WorkerManager::workerMain, this, waitingRpcs.front()) !=
-                    Arachne::NullThread) {
-            if (waitingRpcs.size() == 0) abort();
+            Transport::ServerRpc* waitingRpc = waitingRpcs.front();
+            if (Arachne::createThread(&WorkerManager::workerMain, this,
+                        waitingRpc) != Arachne::NullThread) {
                 // Only dequeue on success.
-                outstandingRpcs.push_back(waitingRpcs.front());
+                outstandingRpcs.push_back(waitingRpc);
                 waitingRpcs.pop();
             }
         }
@@ -289,7 +286,7 @@ WorkerManager::waitForRpc(double timeoutSeconds) {
 void
 WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
 {
-    PerfStats::registerStats(&PerfStats::threadStats);
+    timeTrace("Top of workermain");
 
     // Cycles::rdtsc time that's updated continuously when this thread is idle.
     // Used to keep track of how much time this thread spends doing useful
@@ -297,15 +294,14 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
     uint64_t lastIdle = Cycles::rdtsc();
 
     try {
-        const WireFormat::RequestCommon* header;
-        header = serverRpc->requestPayload.getStart<WireFormat::RequestCommon>();
         timeTrace("worker thread received opcode %d with id = %u",
-                header->opcode, serverRpc->id);
-        Worker worker(context, serverRpc, WireFormat::Opcode(header->opcode));
+                serverRpc->header->opcode, serverRpc->id);
+        Worker worker(context, serverRpc, WireFormat::Opcode(serverRpc->header->opcode));
 
         serverRpc->epoch = LogProtector::getCurrentEpoch();
         Service::Rpc rpc(&worker, &serverRpc->requestPayload,
                 &serverRpc->replyPayload);
+        timeTrace("Constructed Worker and Service::Rpc");
         Service::handleRpc(context, &rpc);
 
         // Pass the RPC back to the dispatch thread for completion.

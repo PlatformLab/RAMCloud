@@ -311,6 +311,9 @@ struct PerfStats {
     /// for the current thread.
     static __thread PerfStats threadStats;
 
+    // This is default initialized to 0
+    static __thread bool initialized;
+
   PRIVATE:
     static void parseStats(Buffer* rawData, std::vector<PerfStats>* results);
 

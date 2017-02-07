@@ -25,6 +25,7 @@ SpinLock PerfStats::mutex("PerfStats");
 std::vector<PerfStats*> PerfStats::registeredStats;
 int PerfStats::nextThreadId = 1;
 __thread PerfStats PerfStats::threadStats;
+__thread bool PerfStats::initialized;
 
 /**
  * This method must be called to make a PerfStats structure "known" so that
