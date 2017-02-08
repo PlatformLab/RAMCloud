@@ -102,11 +102,11 @@ else:
 
 # Command-line argument specifying where the server should store the segment
 # replicas when one device is used.
-default_disk1 = '-f /dev/sda2'
+default_disk1 = '-f /dev/sdb'
 
 # Command-line argument specifying where the server should store the segment
 # replicas when two devices are used.
-default_disk2 = '-f /dev/sda2,/dev/sda3'
+default_disk2 = '-f /dev/sdb,/dev/sdc'
 
 class EmulabClusterHooks:
     def __init__(self, makeflags=''):
@@ -162,7 +162,9 @@ class EmulabClusterHooks:
 
     def kill_procs(self):
         log("Killing existing processes")
-        self.remote_func('sudo pkill -f RAMCloud')
+        self.remote_func('sudo pkill -9 server')
+        self.remote_func('sudo pkill -9 coordinator')
+        self.remote_func('sudo pkill -9 ClusterPerf')
 
     def create_log_dir(self):
         log("creating log directories")
@@ -182,7 +184,7 @@ class EmulabClusterHooks:
     def cluster_enter(self, cluster):
         self.cluster = cluster
         log('== Connecting to Emulab via %s ==' % self.hosts[0][0])
-        #self.kill_procs()
+        self.kill_procs()
         self.send_code()
         self.compile_code(clean=False)
         self.create_log_dir()
