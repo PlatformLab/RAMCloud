@@ -125,7 +125,7 @@ WitnessManager::scanAndAssignWitness()
     auto cmp = [this](ServerId left, ServerId right) {
         return serviceCount[left.getId()] < serviceCount[right.getId()];
     };
-    std::vector<ServerId> witnessCandidates(serviceCount.size());
+    std::vector<ServerId> witnessCandidates;
     CountMap::iterator it;
     for (it = serviceCount.begin(); it != serviceCount.end(); ++it) {
         witnessCandidates.push_back(ServerId(it->first));
@@ -192,7 +192,7 @@ WitnessManager::scanAndAssignWitness()
                     serviceCount[candidate.getId()]++;
                     LOG(NOTICE, "Assigned witness <%" PRIu64 "> for master <%"
                             PRIu64 ">", candidate.getId(), masterId);
-                    break;
+                    continue;
                 } catch (ServerNotUpException&) {
                     // Let it try next candidate.
                 } catch (ClientException&) {

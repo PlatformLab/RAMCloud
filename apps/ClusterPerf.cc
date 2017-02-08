@@ -6768,13 +6768,7 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
         PerfStats startStats = *statsBuffer.getStart<PerfStats>();
-        if (numSlaves == 5) {
-            Cycles::sleep(500000);
-            KillRpc rpc(cluster, dataTable, "abc", 3);
-            Cycles::sleep(500000);
-        } else {
-            Cycles::sleep(1000000);
-        }
+        Cycles::sleep(1000000);
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
