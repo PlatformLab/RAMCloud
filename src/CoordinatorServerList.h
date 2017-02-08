@@ -376,7 +376,7 @@ class CoordinatorServerList : public AbstractServerList{
      * Triggered when the server list is detected to be out of date or
      * when the stop is toggled (to start/stop the updater thread).
      */
-    std::condition_variable hasUpdatesOrStop;
+    Arachne::ConditionVariable hasUpdatesOrStop;
 
     /**
      * Triggered when all the servers (that can accept updates) in the
@@ -384,10 +384,10 @@ class CoordinatorServerList : public AbstractServerList{
      * used to notify entities that want to know when all the server list
      * updates have been pushed to the entire cluster.
      */
-    std::condition_variable listUpToDate;
+    Arachne::ConditionVariable listUpToDate;
 
     /// Runs the asynchronous server list updater (updateLoop())
-    Tub<std::thread> updaterThread;
+    Arachne::ThreadId updaterThread;
 
     /**
      * RPC objects for updates that are currently outstanding. These are

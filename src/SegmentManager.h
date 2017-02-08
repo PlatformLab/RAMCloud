@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <unordered_map>
 #include <vector>
+#include <mutex>
 
 #include "BoostIntrusive.h"
 #include "LargeBlockOfMemory.h"
@@ -32,8 +33,8 @@
 #include "Histogram.h"
 #include "ReplicaManager.h"
 #include "ServerId.h"
-#include "SpinLock.h"
 #include "Tub.h"
+#include "Arachne.h"
 
 #include "LogMetrics.pb.h"
 
@@ -86,6 +87,7 @@ enum : SegmentSlot { INVALID_SEGMENT_SLOT = -1U };
  * run in parallel.
  */
 class SegmentManager {
+    typedef std::lock_guard<Arachne::SpinLock> Guard;
   public:
     // Defined after this class.
     class Allocator;
@@ -258,9 +260,9 @@ class SegmentManager {
                       uint64_t segmentId,
                       uint32_t creationTimestamp);
     void injectSideSegment(LogSegment* segment, State nextState,
-                           const SpinLock::Guard& lock);
+                           const Guard& lock);
     void freeSegment(LogSegment* segment, bool waitForDigest,
-                     const SpinLock::Guard& lock);
+                     const Guard& lock);
     void writeHeader(LogSegment* segment);
     void writeDigest(LogSegment* newHead, LogSegment* prevHead);
     void writeSafeVersion(LogSegment* head);
@@ -356,7 +358,7 @@ class SegmentManager {
     /// Monitor lock protecting the SegmentManager from multiple calling
     /// threads. At a minimum, the log and log cleaner modules may operate
     /// simultaneously.
-    SpinLock lock;
+    Arachne::SpinLock lock;
 
     /// Number of segments currently on backup disks. This is exactly the number
     /// of ReplicatedSegments that exist.

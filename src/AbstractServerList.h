@@ -24,6 +24,7 @@
 #include "ServerList.pb.h"
 #include "Transport.h"
 #include "Tub.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 /**
@@ -313,9 +314,9 @@ class AbstractServerList {
     /// are being handled. Provides monitor-style protection for all operations
     /// on the ServerId map. A Lock for this mutex MUST be held to read or
     /// modify any state in the server list.
-    mutable std::mutex mutex;
+    mutable Arachne::SpinLock mutex;
 
-    typedef std::unique_lock<std::mutex> Lock;
+    typedef std::unique_lock<Arachne::SpinLock> Lock;
 
     /**
      * The following variable is set to true during unit tests to skip
