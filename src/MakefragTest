@@ -247,10 +247,12 @@ $(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(OBJDIR)/gtest.a
 
 # The unit tests don't actually call all of these programs, but
 # they are included here to make sure they continue to build.
-test: $(OBJDIR)/test \
-      $(OBJDIR)/zooTest \
+test: $(OBJDIR)/zooTest \
       $(OBJDIR)/libramcloudtest.so \
-      testInstall
+      testInstall \
+      unit-test
+
+unit-test: $(OBJDIR)/test
 	$(OBJDIR)/test
 
 # This target is intended for running a subset of tests, such as those
