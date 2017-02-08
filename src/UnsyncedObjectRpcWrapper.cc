@@ -168,18 +168,6 @@ bool
 UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
                                        uint64_t abortTime)
 {
-//    TimeTrace::record("UnsyncedObjectRpcWrapper waitInternal start.");
-    if (!LinearizableObjectRpcWrapper::waitInternal(dispatch, abortTime)) {
-        return false; // Aborted by timeout. Shouldn't process RPC's response.
-    }
-//    TimeTrace::record("LinearizableObjectRpcWrapper waitInternal done.");
-
-    auto respCommon = reinterpret_cast<const WireFormat::MasterResponseCommon*>(
-            responseHeader);
-    if (respCommon->status != STATUS_OK) {
-        ClientException::throwException(HERE, respCommon->status);
-    }
-
     bool shouldSync = false;
     if (async == ASYNC_DURABLE) {
         assert(WITNESS_PER_MASTER);
@@ -196,6 +184,17 @@ UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
         }
     }
 //    TimeTrace::record("LinearizableObjectRpcWrapper witness waiting done.");
+
+    if (!LinearizableObjectRpcWrapper::waitInternal(dispatch, abortTime)) {
+        return false; // Aborted by timeout. Shouldn't process RPC's response.
+    }
+//    TimeTrace::record("LinearizableObjectRpcWrapper waitInternal done.");
+
+    auto respCommon = reinterpret_cast<const WireFormat::MasterResponseCommon*>(
+            responseHeader);
+    if (respCommon->status != STATUS_OK) {
+        ClientException::throwException(HERE, respCommon->status);
+    }
 
     if (shouldSync) {
         UnsyncedRpcTracker::SyncRpc rpc(context, session, respCommon->logState);
