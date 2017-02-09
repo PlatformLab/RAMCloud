@@ -33,6 +33,8 @@ class RecoverSegmentBenchmark {
     ServerList serverList;
     MasterService* service;
     size_t numSegments;
+    bool hwThreadsBeforeCores;
+
     std::atomic<size_t> next;
     std::vector<Segment*> segments;
     std::atomic<size_t> nReady;
@@ -42,12 +44,14 @@ class RecoverSegmentBenchmark {
     RecoverSegmentBenchmark(
         string logSize,
         string hashTableSize,
-        size_t numSegments)
+        size_t numSegments,
+        bool hwThreadsBeforeCores)
         : context()
         , config(ServerConfig::forTesting())
         , serverList(&context)
         , service(NULL)
         , numSegments{numSegments}
+        , hwThreadsBeforeCores{hwThreadsBeforeCores}
         , next{}
         , segments{}
         , nReady{}
@@ -85,11 +89,14 @@ class RecoverSegmentBenchmark {
     void
     doReplay(int threadId)
     {
-        // Prefer Linux's core enumeration order: core-to-core, then across
-        // sockets, then loop back over hyperthreads.
-        Util::pinThreadToCore(threadId);
-        // Can also hack to e.g. prefer colocated hyperthreads to more cores.
-        //Util::pinThreadToCore(((threadId % 2) * 4) + (threadId / 2));
+        if (!hwThreadsBeforeCores) {
+            // Prefer Linux's core enumeration order: core-to-core, then across
+            // sockets, then loop back over hyperthreads.
+            Util::pinThreadToCore(threadId);
+        } else {
+            // Can also hack to prefer colocated hyperthreads to more cores.
+            Util::pinThreadToCore(((threadId % 2) * 8) + (threadId / 2));
+        }
 
         SideLog sideLog(service->objectManager.getLog());
 
@@ -259,16 +266,36 @@ if (metrics->temp.count##i.load()) { \
 }  // namespace RAMCloud
 
 int
-main()
+main(int argc, char* argv[])
 {
-    size_t numSegments = 5 * 600 / 8;
-    uint32_t dataLen[] = { 64, 128, 256, 512, 1024, 2048, 8192 };
-    size_t nThreads[] = { 1, 2, 4, 8 };
+    size_t numSegments = 4096 / 8;
+    std::vector<uint32_t> dataLen{ 64, 128, 256, 512, 1024, 2048, 8192 };
+    std::vector<size_t> nThreads{ 1, 2, 4, 8, 16 };
+    bool hwThreadsBeforeCores = false;
+
+    int c;
+    while ((c = getopt(argc, argv, "t:s:h")) != -1) {
+      switch (c) {
+        case 't':
+          nThreads.clear();
+          nThreads.emplace_back(atol(optarg));
+          break;
+        case 's':
+          dataLen.clear();
+          dataLen.emplace_back(atol(optarg));
+          break;
+        case 'h':
+          hwThreadsBeforeCores = true;
+          break;
+      }
+    }
 
     for (size_t threads : nThreads) {
         for (uint32_t len : dataLen) {
             printf("==========================\n");
-            RAMCloud::RecoverSegmentBenchmark rsb("4096", "10%", numSegments);
+            RAMCloud::RecoverSegmentBenchmark rsb{"8192", "10%",
+                                                  numSegments,
+                                                  hwThreadsBeforeCores};;
             rsb.run(len, threads);
         }
     }
