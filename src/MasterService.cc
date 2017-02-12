@@ -3308,6 +3308,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     if (asyncReplication) {
         if (reqHdr->common.witnessListVersion < witnessTracker.getVersion()) {
             respHdr->common.status = STATUS_UNKNOWN_TABLET;
+            LOG(WARNING, "RPC with old witness version is detected.");
         }
         witnessTracker.registerRpcAndSyncBatch(object.getPKHash(),
                 reqHdr->common.lease.leaseId, reqHdr->common.rpcId);

@@ -50,7 +50,8 @@ class WitnessService : public Service
     static inline void prepRecovery(Context* context, uint64_t crashedMasterId);
 
     static const int MAX_REQUEST_SIZE = 2048;
-    static const int NUM_ENTRIES_PER_TABLE = 512; // Must be power of 2.
+//    static const int NUM_ENTRIES_PER_TABLE = 512; // Must be power of 2.
+    static const int NUM_ENTRIES_PER_TABLE = 4096; // Must be power of 2.
     static const int HASH_BITMASK = NUM_ENTRIES_PER_TABLE - 1;
 
   PRIVATE:

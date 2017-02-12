@@ -31,7 +31,7 @@ WitnessTracker::WitnessTracker(Context* context, ObjectManager* objectManager)
     , listVersion(0)
     , witnesses()
     , unsyncedRpcs()
-    , mutex()
+    , mutex("WitnessTracker::mutex")
 {
 }
 
@@ -110,6 +110,7 @@ WitnessTracker::registerRpcAndSyncBatch(uint64_t keyHash,
         Buffer reqPayload;
         Buffer replyPayload;
         for (ClientRequest clientReq : blockingRequests) {
+            LOG(WARNING, "BUG. this is not yet implemented.");
             reqPayload.reset();
             replyPayload.reset();
             reqPayload.appendExternal(clientReq.data, clientReq.size);
