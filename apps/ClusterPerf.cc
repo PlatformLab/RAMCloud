@@ -6907,6 +6907,11 @@ writeThroughput()
                 } while (Cycles::rdtsc() < checkTime);
             } else if (strcmp(command, "done") == 0) {
                 setSlaveState("done");
+                LOG(NOTICE, "Witness reject rate: %2.2f%%",
+                        static_cast<double>(
+                                UnsyncedObjectRpcWrapper::rejectCount) /
+                        static_cast<double>(
+                                UnsyncedObjectRpcWrapper::totalCount) * 100);
                 RAMCLOUD_LOG(NOTICE,
                              "Ending writeThroughput benchmark");
                 return;

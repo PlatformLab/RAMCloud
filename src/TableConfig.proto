@@ -59,6 +59,10 @@ message TableConfig {
     /// earlier in that segment cannot contain data belonging to this tablet.
     required uint32 ctime_log_head_offset = 9;
 
+    /// Version number of witness list. Should be shipped with async update
+    /// requests
+    optional int32 witness_list_version = 10;
+
     /// Information of a Witness server for the master that owns this tablet.
     message Witness {
         required fixed64 server_id = 1;
@@ -66,7 +70,7 @@ message TableConfig {
         optional fixed64 buffer_base_ptr = 3;
     }
 
-    repeated Witness witness = 10;
+    repeated Witness witness = 11;
   }
 
   message Index {

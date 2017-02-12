@@ -130,6 +130,8 @@ UnsyncedObjectRpcWrapper::send()
         session = sessions.toMaster;
         if (session) {
             state = IN_PROGRESS;
+            auto header = request.getStart<WireFormat::AsyncRequestCommon>();
+            header->witnessListVersion = sessions.witnessListVersion;
             session->sendRequest(&request, response, this);
             session->lastUseTime = Cycles::rdtsc();
         } else {

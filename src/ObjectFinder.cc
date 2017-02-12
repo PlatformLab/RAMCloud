@@ -97,7 +97,7 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
                              Tablet::Status(tablet.state()),
                              LogPosition(tablet.ctime_log_head_id(),
                                          tablet.ctime_log_head_offset()));
-
+            int witnessListVersion = tablet.witness_list_version();
             int witnessIndex = 0;
             uint64_t witnessIds[WITNESS_PER_MASTER] = {};
             string witnessLocators[WITNESS_PER_MASTER] = {};
@@ -113,7 +113,8 @@ class RealTableConfigFetcher : public ObjectFinder::TableConfigFetcher {
             tableMap->emplace(
                     TabletKey{*tableId, tablet.start_key_hash()},
                     TabletWithLocator(rawTablet, tablet.service_locator(),
-                            witnessIds, witnessLocators, witnessBufferPtrs));
+                            witnessListVersion, witnessIds, witnessLocators,
+                            witnessBufferPtrs));
         }
 
         for (const ProtoBuf::TableConfig::Index& index : tableConfig.index()) {
@@ -604,13 +605,15 @@ ObjectFinder::tryLookupWithWitness(uint64_t tableId, KeyHash keyHash)
     // No lock needed: doesn't access ObjectFinder object.
     TabletWithLocator* tabletWithLocator = tryLookupTablet(tableId, keyHash);
     if (tabletWithLocator == NULL) {
-        return {Transport::SessionRef(), ServerId(), {NULL, }, {0, }, {0, }};
+        return {Transport::SessionRef(), ServerId(), 0, {NULL, }, {0, }, {0, }};
     }
 
     SessionWithWitness& cachedSessions = tabletWithLocator->sessionsWithWitness;
     if (!cachedSessions.toMaster) {
         cachedSessions.toMaster = ObjectFinder::tryLookup(tableId, keyHash);
         cachedSessions.masterId = tabletWithLocator->tablet.serverId;
+        cachedSessions.witnessListVersion =
+                tabletWithLocator->witnessListVersion;
         for (int i = 0; i < WITNESS_PER_MASTER; ++i) {
             if (tabletWithLocator->witnessLocators[i].empty()) {
                 RAMCLOUD_CLOG(WARNING, "Witness(es) are not fully assigned to "
@@ -619,6 +622,7 @@ ObjectFinder::tryLookupWithWitness(uint64_t tableId, KeyHash keyHash)
                 cachedSessions.toMaster = NULL;
                 return {tabletWithLocator->session,
                         tabletWithLocator->tablet.serverId,
+                        tabletWithLocator->witnessListVersion,
                         {NULL, },
                         {0, },
                         {0, }};

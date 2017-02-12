@@ -45,10 +45,14 @@ WitnessManager::~WitnessManager()
 }
 
 vector<WitnessManager::Witness>
-WitnessManager::getWitness(ServerId master)
+WitnessManager::getWitness(ServerId masterId, int* listVersion)
 {
     Lock _(mutex);
-    return idMap[master.getId()].witnesses;
+    Master& master = idMap[masterId.getId()];
+    if (listVersion) {
+        *listVersion = master.listVersion;
+    }
+    return master.witnesses;
 }
 
 /**

@@ -197,7 +197,8 @@ TEST_F(CoordinatorServiceTest, getTableConfig_tabletInfo) {
               "end_key_hash: 18446744073709551615 "
               "state: NORMAL server_id: 1 "
               "service_locator: \"mock:host=master\" "
-              "ctime_log_head_id: 0 ctime_log_head_offset: 0 }",
+              "ctime_log_head_id: 0 ctime_log_head_offset: 0 "
+              "witness_list_version: 1 }",
               tableConfigProtoBuf.ShortDebugString());
     // test case to make sure that a nonexistent table id
     // returns a ProtoBuf with no entries

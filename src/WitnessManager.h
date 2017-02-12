@@ -51,7 +51,8 @@ class WitnessManager {
 
     explicit WitnessManager(Context* context);
     ~WitnessManager();
-    vector<Witness> getWitness(ServerId master); //TODO: option for active only
+    //TODO: option for active only
+    vector<Witness> getWitness(ServerId masterId, int* listVersion = NULL);
     void poll();
 
     /**

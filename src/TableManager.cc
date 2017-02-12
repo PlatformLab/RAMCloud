@@ -804,8 +804,10 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
         }
 
         if (witnessManager != NULL) {
+            int listVersion;
             vector<WitnessManager::Witness> witnessesForTablet =
-                    witnessManager->getWitness(tablet->serverId);
+                    witnessManager->getWitness(tablet->serverId, &listVersion);
+            entry.set_witness_list_version(listVersion);
             for (WitnessManager::Witness witness : witnessesForTablet) {
                 ProtoBuf::TableConfig::Tablet::Witness& protoWitness(
                     *entry.add_witness());

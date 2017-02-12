@@ -82,6 +82,7 @@ struct IndexletWithLocator {
 struct SessionWithWitness {
     Transport::SessionRef toMaster;
     ServerId masterId;
+    int witnessListVersion;
     Transport::SessionRef toWitness[WITNESS_PER_MASTER];
     uint64_t witnessBufferBasePtr[WITNESS_PER_MASTER];
     uint64_t witnessServerIds[WITNESS_PER_MASTER];
@@ -102,6 +103,8 @@ struct TabletWithLocator {
     /// yet fetched the session from TransportManager.
     Transport::SessionRef session;
 
+    int witnessListVersion;
+
     /// Used to track entries written to witnesses.
     uint64_t witnessServerIds[WITNESS_PER_MASTER];
 
@@ -121,16 +124,18 @@ struct TabletWithLocator {
     /// NORMAL, it is simply set to 0.
     const uint64_t nextFetchTime;
 
-    TabletWithLocator(Tablet tablet, string serviceLocator,
+    TabletWithLocator(Tablet tablet, string serviceLocator, int witnessVersion,
             uint64_t witnessIds[], string witnessServiceLocators[],
             uint64_t witnessBasePtr[])
         : tablet(tablet)
         , serviceLocator(serviceLocator)
         , session(NULL)
+        , witnessListVersion(witnessVersion)
         , witnessServerIds()
         , witnessLocators()
         , witnessBufferBasePtr()
-        , sessionsWithWitness({NULL, ServerId(), {NULL, }, {0, }, {0, }})
+        , sessionsWithWitness({NULL, ServerId(), witnessVersion,
+                              {NULL, }, {0, }, {0, }})
         , nextFetchTime(tablet.status == Tablet::Status::RECOVERING ?
                         Cycles::rdtsc() + Cycles::fromMicroseconds(10000) : 0)
     {
@@ -146,10 +151,11 @@ struct TabletWithLocator {
         : tablet(tablet)
         , serviceLocator(serviceLocator)
         , session(NULL)
+        , witnessListVersion(0)
         , witnessServerIds()
         , witnessLocators()
         , witnessBufferBasePtr()
-        , sessionsWithWitness({NULL, ServerId(), {NULL, }, {0, }, {0, }})
+        , sessionsWithWitness({NULL, ServerId(), 0, {NULL, }, {0, }, {0, }})
         , nextFetchTime(tablet.status == Tablet::Status::RECOVERING ?
                         Cycles::rdtsc() + Cycles::fromMicroseconds(10000) : 0)
     { }
