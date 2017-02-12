@@ -41,11 +41,13 @@ class UnsyncedObjectRpcWrapper : public LinearizableObjectRpcWrapper {
     void cancel();
     virtual bool isReady();
 
+    static uint64_t rejectCount;
+    static uint64_t totalCount;
+
   PROTECTED:
     virtual void send();
     bool waitInternal(Dispatch* dispatch, uint64_t abortTime = ~0UL);
     void clearAndRetry(uint32_t minDelayMicros, uint32_t maxDelayMicros);
-    std::function<void()> getWitnessFreeFunc();
 
     // General client information.
     RamCloud* ramcloud;
@@ -64,8 +66,8 @@ class UnsyncedObjectRpcWrapper : public LinearizableObjectRpcWrapper {
         WitnessRecordRpc(Context* context,
                 Transport::SessionRef& sessionToWitness, uint64_t witnessId,
                 uint64_t targetMasterId, uint64_t bufferBasePtr,
-                int16_t clearHashIndices[], int16_t hashIndex,
-                uint64_t tableId, uint64_t keyHash, ClientRequest request);
+                int16_t hashIndex, uint64_t tableId, uint64_t keyHash,
+                ClientRequest request);
         bool wait();
 
       PROTECTED:

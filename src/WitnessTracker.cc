@@ -14,16 +14,23 @@
  */
 
 #include "WitnessTracker.h"
-#include "RamCloud.h"
+#include "ObjectManager.h"
 #include "ShortMacros.h"
+#include "Service.h"
+#include "WitnessClient.h"
+#include "WitnessService.h"
 
 namespace RAMCloud {
 
 /**
  * Default constructor
  */
-WitnessTracker::WitnessTracker()
-    : deletable()
+WitnessTracker::WitnessTracker(Context* context, ObjectManager* objectManager)
+    : context(context)
+    , objectManager(objectManager)
+    , listVersion(0)
+    , witnesses()
+    , unsyncedRpcs()
     , mutex()
 {
 }
@@ -35,55 +42,100 @@ WitnessTracker::~WitnessTracker()
 {
 }
 
-/**
- * Notify an entry at hashIndex in Witness table can now be deleted since master
- * replicated the outcome of the main RPC to backups.
- *
- * \param witnessServerId
- *      ServerId of witness server.
- * \param targetMasterId
- *      ServerId of the master that is main RPC's target.
- * \param hashIndex
- *      HashIndex of witness table that can be reset.
- */
 void
-WitnessTracker::free(uint64_t witnessServerId,
-                     uint64_t targetMasterId,
-                     int16_t hashIndex)
+WitnessTracker::listChanged(uint32_t newListVersion, int numWitnesses,
+        WireFormat::NotifyWitnessChange::WitnessInfo witnessList[])
 {
-    Lock lock(mutex);
-    WitnessTableId key = {witnessServerId, targetMasterId};
-    deletable[key].push(hashIndex);
+    Lock _(mutex);
+    listVersion = newListVersion;
+    witnesses.clear();
+
+    char msg[200] = "Witness list is changed. New witnessIds:";
+    for (int i = 0; i < numWitnesses; ++i) {
+        Witness witness { ServerId(witnessList[i].witnessServerId),
+                          witnessList[i].bufferBasePtr };
+        witnesses.push_back(witness);
+        snprintf(msg + strlen(msg), 200, " %lu",
+                 witnessList[i].witnessServerId);
+    }
+    LOG(NOTICE, "%s", msg);
 }
 
-/**
- * Provides the hashIndices that can be reset in Witness table.
- *
- * \param witnessServerId
- *      ServerId of witness server.
- * \param targetMasterId
- *      ServerId of the master that is main RPC's target.
- * \param[out] deletableIndices
- *      HashIndices of witness table that can be reset. Up to three indices at
- *      a time (the max number that can be piggybacked by WitnessRecordRpc.)
- *      Invoker must provide the array of size 3.
- *      If we have less than three deletable indices, rest of array will be
- *      populated with -1.
- */
 void
-WitnessTracker::getDeletable(uint64_t witnessServerId,
-                             uint64_t targetMasterId,
-                             int16_t deletableIndices[])
+WitnessTracker::registerRpcAndSyncBatch(uint64_t keyHash,
+                                        uint64_t clientLeaseId,
+                                        uint64_t rpcId)
 {
-    Lock lock(mutex);
-    WitnessTableId key = {witnessServerId, targetMasterId};
-    for (int i = 0; i < 3; ++i) {
-        if (deletable[key].empty()) {
-            deletableIndices[i] = -1;
-        } else {
-            deletableIndices[i] = deletable[key].top();
-            deletable[key].pop();
+    Tub<Lock> lock;
+    lock.construct(mutex);
+    int16_t hashIndex = static_cast<int16_t>(
+            keyHash & WitnessService::HASH_BITMASK);
+    GcInfo info { hashIndex, clientLeaseId, rpcId };
+    unsyncedRpcs.push_back(info);
+
+    // If batch count is met, sync and GC synced entries in Witnesses.
+    if (unsyncedRpcs.size() >= syncBatchSize) {
+        std::vector<GcInfo> syncedEntries;
+        syncedEntries.swap(unsyncedRpcs);
+        lock.destroy();
+
+        // 1. Sync
+        objectManager->syncChanges();
+
+        // 2. Reset synced entries. [Mutex required]
+        lock.construct(mutex);
+        size_t numWitness = witnesses.size();
+        Tub<WitnessGcRpc>* gcRpcs = new Tub<WitnessGcRpc>[numWitness];
+        Buffer* respBuffers = new Buffer[numWitness];
+        ServerId serverId =
+                context->services[WireFormat::MASTER_SERVICE]->serverId;
+        for (uint i = 0; i < numWitness; ++i) {
+            Witness witness = witnesses[i];
+            gcRpcs[i].construct(context, witness.witnessId,
+                    &respBuffers[i], serverId, witness.bufferBasePtr,
+                    syncedEntries);
         }
+        lock.destroy();
+
+        // 3. wait for responses & process..
+        std::vector<ClientRequest> blockingRequests;
+        for (uint i = 0; i < numWitness; ++i) {
+            try {
+                gcRpcs[i]->wait(&blockingRequests);
+            } catch (ServerNotUpException&) {
+            }
+        }
+        // Retry the blocking requests & push_back RPC info to unsyncedRpcs
+        // again.
+        Buffer reqPayload;
+        Buffer replyPayload;
+        for (ClientRequest clientReq : blockingRequests) {
+            reqPayload.reset();
+            replyPayload.reset();
+            reqPayload.appendExternal(clientReq.data, clientReq.size);
+
+            WireFormat::AsyncRequestCommon* header =
+                    reqPayload.getStart<WireFormat::AsyncRequestCommon>();
+            assert(header);
+            assert(header->service == WireFormat::MASTER_SERVICE);
+            Service::Rpc retryRpc(NULL, &reqPayload, &replyPayload);
+            WireFormat::Opcode opcode = WireFormat::Opcode(header->opcode);
+
+            try {
+                context->services[WireFormat::MASTER_SERVICE]->
+                        dispatch(opcode, &retryRpc);
+            } catch (StaleRpcException& e) {
+            } catch (RetryException& e) {
+                LOG(WARNING, "Retry exception thrown while unblocking witness"
+                        " entry witness for %s RPC",
+                        WireFormat::opcodeSymbol(opcode));
+            } catch (ClientException& e) {
+            }
+        }
+        // TODO: add leasId and rpcIds into the queue again.
+
+        delete[] respBuffers;
+        delete[] gcRpcs;
     }
 }
 

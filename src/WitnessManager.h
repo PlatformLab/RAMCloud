@@ -20,7 +20,7 @@
 
 #include "Common.h"
 #include "ServerId.h"
-#include "ServerList.h"
+#include "ServerTracker.h"
 
 namespace RAMCloud {
 
@@ -39,7 +39,6 @@ class WitnessManager {
         Witness(ServerId id, uint64_t bufferBasePtr)
             : id(id)
             , bufferBasePtr(bufferBasePtr)
-            , isActive(true)
         {}
         ~Witness() {};
 
@@ -48,15 +47,11 @@ class WitnessManager {
 
         /// Base pointer to temporary request buffer in witness server.
         uint64_t bufferBasePtr;
-
-        /// Indicates whether this witness is deactivated now. (for recovery
-        /// or migration) Once it is set to false, should not go back to active.
-        bool isActive;
     };
 
     explicit WitnessManager(Context* context);
     ~WitnessManager();
-    vector<Witness> getWitness(ServerId master);
+    vector<Witness> getWitness(ServerId master); //TODO: option for active only
     void poll();
 
     /**
@@ -89,11 +84,14 @@ class WitnessManager {
         Master()
             : crashed(false)
             , initialized(false)
+            , listVersion(1)
             , witnesses()
         {}
 
         bool crashed;
         bool initialized;
+        int listVersion;            // Version gets bumped when Witness get
+                                    // deallocated. (to protect consistency)
         vector<Witness> witnesses;
     };
 

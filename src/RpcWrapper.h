@@ -108,6 +108,8 @@ class RpcWrapper : public Transport::RpcNotifier {
         static_assert(sizeof(reqHdr->common) ==
                 sizeof(WireFormat::RequestCommon) ||
                 sizeof(reqHdr->common) ==
+                sizeof(WireFormat::LinearizableRequestCommon)||
+                sizeof(reqHdr->common) ==
                 sizeof(WireFormat::AsyncRequestCommon),
                 "must pass targetId to allocHeader");
         memset(reqHdr, 0, sizeof(*reqHdr));

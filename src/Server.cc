@@ -212,6 +212,8 @@ Server::enlist(ServerId replacingId)
         master->setServerId(serverId);
     if (backup)
         backup->setServerId(serverId);
+    if (witness)
+        witness->setServerId(serverId);
 
     if (config.detectFailures) {
         failureDetector.construct(context, serverId);

@@ -98,7 +98,6 @@ TEST_F(WitnessServiceTest, record) {
 
     Transport::SessionRef sessionToWitness =
             context.transportManager->getSession("mock:host=witness1");
-    int16_t clearHashIndices[3] = {-1, -1, -1};
     int16_t hashIndex = 1;
     uint64_t tableId = 5;
     uint64_t keyHash = 999;
@@ -109,8 +108,7 @@ TEST_F(WitnessServiceTest, record) {
 
     UnsyncedObjectRpcWrapper::WitnessRecordRpc rpc(&context,
                 sessionToWitness, witnessId.getId(), masterId.getId(),
-                bufferBasePtr, clearHashIndices, hashIndex,
-                tableId, keyHash, request);
+                bufferBasePtr, hashIndex, tableId, keyHash, request);
     bool accepted = rpc.wait();
     EXPECT_TRUE(accepted);
 
@@ -130,8 +128,7 @@ TEST_F(WitnessServiceTest, record) {
 
     UnsyncedObjectRpcWrapper::WitnessRecordRpc rpc2(&context,
                 sessionToWitness, witnessId.getId(), masterId.getId(),
-                bufferBasePtr, clearHashIndices, hashIndex,
-                tableId, 888, request2);
+                bufferBasePtr, hashIndex, tableId, 888, request2);
     EXPECT_FALSE(rpc2.wait());
     EXPECT_TRUE(buffer->table[hashIndex].occupied);
     EXPECT_EQ(tableId, buffer->table[hashIndex].header.tableId);
@@ -149,7 +146,6 @@ TEST_F(WitnessServiceTest, record_badRequest) {
 
     Transport::SessionRef sessionToWitness =
             context.transportManager->getSession("mock:host=witness1");
-    int16_t clearHashIndices[3] = {-1, -1, -1};
     int16_t hashIndex = 1;
     uint64_t tableId = 5;
     uint64_t keyHash = 999;
@@ -162,26 +158,13 @@ TEST_F(WitnessServiceTest, record_badRequest) {
     {
         UnsyncedObjectRpcWrapper::WitnessRecordRpc rpc(&context,
                     sessionToWitness, witnessId.getId(), masterId.getId() + 1,
-                    bufferBasePtr, clearHashIndices, hashIndex,
-                    tableId, keyHash, request);
+                    bufferBasePtr, hashIndex, tableId, keyHash, request);
         bool accepted = rpc.wait();
         EXPECT_FALSE(accepted);
         EXPECT_FALSE(buffer->table[hashIndex].occupied);
     }
 
     // Bad bufferBasePtr test caused segfault... Cannot test it.
-
-    // Bad hashIndex.
-    {
-        UnsyncedObjectRpcWrapper::WitnessRecordRpc rpc(&context,
-                    sessionToWitness, witnessId.getId(), masterId.getId(),
-                    bufferBasePtr, clearHashIndices,
-                    WitnessService::NUM_ENTRIES_PER_TABLE,
-                    tableId, keyHash, request);
-        bool accepted = rpc.wait();
-        EXPECT_FALSE(accepted);
-        EXPECT_FALSE(buffer->table[hashIndex].occupied);
-    }
 }
 
 } // namespace RAMCloud

@@ -6697,6 +6697,9 @@ writeDistRandom()
             break;
         }
     }
+    LOG(NOTICE, "Witness reject rate: %2.2f%%",
+            static_cast<double>(UnsyncedObjectRpcWrapper::rejectCount) /
+            static_cast<double>(UnsyncedObjectRpcWrapper::totalCount) * 100);
 
     // Output the times (several comma-separated values on each line).
     Logger::get().sync();

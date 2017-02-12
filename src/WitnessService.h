@@ -41,6 +41,9 @@ class WitnessService : public Service
 
     void dispatch(WireFormat::Opcode opcode, Rpc* rpc);
 
+    static inline void gc(const WireFormat::WitnessGc::Request* reqHdr,
+                          WireFormat::WitnessGc::Response* respHdr,
+                          Buffer* requestPayload);
     static inline void record(const WireFormat::WitnessRecord::Request* reqHdr,
                               WireFormat::WitnessRecord::Response* respHdr,
                               Buffer* requestPayload);
@@ -109,27 +112,53 @@ class WitnessService : public Service
 };
 
 inline void
+WitnessService::gc(const WireFormat::WitnessGc::Request* reqHdr,
+                   WireFormat::WitnessGc::Response* respHdr,
+                   Buffer* requestPayload)
+{
+    Master* buffer = reinterpret_cast<Master*>(reqHdr->bufferBasePtr);
+
+    // Sanity check.
+    if (buffer->id != reqHdr->targetMasterId || !buffer->writable) {
+        respHdr->common.status = Status::STATUS_OK; // TODO: Something wrong...
+        return;
+    }
+
+    WireFormat::WitnessGc::GcEntry* entries =
+            reinterpret_cast<WireFormat::WitnessGc::GcEntry*>(
+            requestPayload->getRange(sizeof32(*reqHdr),
+                                     sizeof32(WireFormat::WitnessGc::GcEntry)
+                                        * reqHdr->numEntries));
+    for (int i = 0; i < reqHdr->numEntries; ++i) {
+        auto common = reinterpret_cast<WireFormat::AsyncRequestCommon*>(
+                buffer->table[entries[i].hashIndex].request);
+        if (buffer->table[entries[i].hashIndex].occupied &&
+                common->lease.leaseId == entries[i].clientLeaseId &&
+                common->rpcId == entries[i].rpcId) {
+            buffer->table[entries[i].hashIndex].occupied = false;
+        }
+    }
+
+    respHdr->common.status = Status::STATUS_OK;
+    // TODO: respond blocking requests in workerThread.
+    respHdr->numOps = 0;
+}
+
+
+inline void
 WitnessService::record(const WireFormat::WitnessRecord::Request* reqHdr,
                        WireFormat::WitnessRecord::Response* respHdr,
                        Buffer* requestPayload)
 {
     Master* buffer = reinterpret_cast<Master*>(reqHdr->bufferBasePtr);
     assert(reqHdr->entryHeader.requestSize <= MAX_REQUEST_SIZE);
+    assert(reqHdr->hashIndex < NUM_ENTRIES_PER_TABLE);
 
     // Sanity check.
-    if (buffer->id != reqHdr->targetMasterId || !buffer->writable ||
-            reqHdr->hashIndex >= NUM_ENTRIES_PER_TABLE) {
+    if (buffer->id != reqHdr->targetMasterId || !buffer->writable) {
         respHdr->accepted = false;
         respHdr->common.status = Status::STATUS_OK;
         return;
-    }
-
-    // Garbage collection
-    for (int i = 0; i < 3; ++i) {
-        if (reqHdr->clearHashIndices[i] != -1) { //Optimize by set 0 and use
-            // 0th index as no-op index.
-            buffer->table[reqHdr->clearHashIndices[i]].occupied = false;
-        }
     }
 
     if (!buffer->table[reqHdr->hashIndex].occupied) {

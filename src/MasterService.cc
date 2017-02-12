@@ -100,6 +100,7 @@ MasterService::MasterService(Context* context, const ServerConfig* config)
                          objectManager.getLog(),
                          &unackedRpcResults,
                          &tabletManager)
+    , witnessTracker(context, &objectManager)
     , disableCount(0)
     , initCalled(false)
     , logEverSynced(false)
@@ -194,6 +195,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::MultiOp::opcode:
             callHandler<WireFormat::MultiOp, MasterService,
                         &MasterService::multiOp>(rpc);
+            break;
+        case WireFormat::NotifyWitnessChange::opcode:
+            callHandler<WireFormat::NotifyWitnessChange, MasterService,
+                        &MasterService::notifyWitnessChange>(rpc);
             break;
         case WireFormat::PrepForIndexletMigration::opcode:
             callHandler<WireFormat::PrepForIndexletMigration, MasterService,
@@ -620,9 +625,9 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
         WireFormat::Increment::Response* respHdr,
         Rpc* rpc)
 {
-    assert(reqHdr->rpcId > 0);
+    assert(reqHdr->common.rpcId > 0);
     UnackedRpcHandle rh(&unackedRpcResults,
-                        reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
+            reqHdr->common.lease, reqHdr->common.rpcId, reqHdr->common.ackId);
     if (rh.isDuplicate()) {
         *respHdr = parseRpcResult<WireFormat::Increment>(rh.resultLoc());
         rpc->sendReply();
@@ -654,8 +659,8 @@ MasterService::increment(const WireFormat::Increment::Request* reqHdr,
 
         // Write RpcResult with failed (by RejectRule) status.
         RpcResult rpcResult(reqHdr->tableId, key.getHash(),
-                            reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
-                            respHdr, sizeof(*respHdr));
+                            reqHdr->common.lease.leaseId, reqHdr->common.rpcId,
+                            reqHdr->common.ackId, respHdr, sizeof(*respHdr));
         objectManager.writeRpcResultOnly(&rpcResult, &rpcResultPtr);
         rh.recordCompletion(rpcResultPtr);
     }
@@ -785,8 +790,8 @@ MasterService::incrementObject(Key *key,
             RpcResult rpcResult(
                     reqHdr->tableId,
                     Key::getHash(reqHdr->tableId, pKey, pKeyLen),
-                    reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
-                    respHdr, sizeof(*respHdr));
+                    reqHdr->common.lease.leaseId, reqHdr->common.rpcId,
+                    reqHdr->common.ackId, respHdr, sizeof(*respHdr));
             *status = objectManager.writeObject(newObject, &updateRejectRules,
                                                 newVersion, NULL,
                                                 &rpcResult, rpcResultPtr);
@@ -1616,6 +1621,36 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
 }
 
 /**
+ * Top-level server method to handle the NOTIFY_WITNESS_CHANGE request.
+ *
+ * This is used when coordinator changes the witness assignments for this
+ * master.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::notifyWitnessChange(
+        const WireFormat::NotifyWitnessChange::Request* reqHdr,
+        WireFormat::NotifyWitnessChange::Response* respHdr,
+        Rpc* rpc)
+{
+    auto witnesses = reinterpret_cast<
+            WireFormat::NotifyWitnessChange::WitnessInfo*>(
+                rpc->requestPayload->getRange(sizeof32(*reqHdr),
+                    sizeof32(WireFormat::NotifyWitnessChange::WitnessInfo)
+                    * reqHdr->numWitness));
+    uint32_t oldVersion = witnessTracker.getVersion();
+    witnessTracker.listChanged(reqHdr->listVersion, reqHdr->numWitness,
+            witnesses);
+
+    // If version was bumped, sync log to backups since new recoveries will not
+    // refer to old witnesses.
+    if (oldVersion < reqHdr->listVersion) {
+        objectManager.syncChanges();
+    }
+}
+
+/**
  * Top-level server method to handle the PREP_FOR_INDEXLET_MIGRATION request.
  *
  * This is used during indexlet migration to request that a destination
@@ -1902,9 +1937,9 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
         WireFormat::Remove::Response* respHdr,
         Rpc* rpc)
 {
-    assert(reqHdr->rpcId > 0);
+    assert(reqHdr->common.rpcId > 0);
     UnackedRpcHandle rh(&unackedRpcResults,
-                        reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
+            reqHdr->common.lease, reqHdr->common.rpcId, reqHdr->common.ackId);
     if (rh.isDuplicate()) {
         *respHdr = parseRpcResult<WireFormat::Remove>(rh.resultLoc());
         rpc->sendReply();
@@ -1932,8 +1967,8 @@ MasterService::remove(const WireFormat::Remove::Request* reqHdr,
     RpcResult rpcResult(
             reqHdr->tableId,
             Key::getHash(reqHdr->tableId, stringKey, reqHdr->keyLength),
-            reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
-            respHdr, sizeof(*respHdr));
+            reqHdr->common.lease.leaseId, reqHdr->common.rpcId,
+            reqHdr->common.ackId, respHdr, sizeof(*respHdr));
 
     // Remove the object.
     respHdr->common.status = objectManager.removeObject(
@@ -3196,14 +3231,14 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         WireFormat::Write::Response* respHdr,
         Rpc* rpc)
 {
-    assert(reqHdr->rpcId > 0);
+    assert(reqHdr->common.rpcId > 0);
     // TODO(seojin): remove this hack after discussion...
-    uint64_t ackId = reqHdr->ackId;
+    uint64_t ackId = reqHdr->common.ackId;
     if (reqHdr->common.asyncType == WireFormat::Asynchrony::RETRY) {
         ackId = 0;
     }
     UnackedRpcHandle rh(&unackedRpcResults,
-                        reqHdr->lease, reqHdr->rpcId, ackId);
+                        reqHdr->common.lease, reqHdr->common.rpcId, ackId);
     if (rh.isDuplicate()) {
         *respHdr = parseRpcResult<WireFormat::Write>(rh.resultLoc());
         rpc->sendReply();
@@ -3235,8 +3270,8 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     respHdr->common.status = STATUS_OK;
     RpcResult rpcResult(
             reqHdr->tableId, Key::getHash(reqHdr->tableId, pKey, pKeyLen),
-            reqHdr->lease.leaseId, reqHdr->rpcId, reqHdr->ackId,
-            respHdr, sizeof(*respHdr));
+            reqHdr->common.lease.leaseId, reqHdr->common.rpcId,
+            reqHdr->common.ackId, respHdr, sizeof(*respHdr));
 
     // Write the object.
     respHdr->common.status = objectManager.writeObject(
@@ -3271,7 +3306,11 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
 
     // TODO(seojin): remove this to dedicated replication thread.
     if (asyncReplication) {
-        objectManager.syncChanges();
+        if (reqHdr->common.witnessListVersion < witnessTracker.getVersion()) {
+            respHdr->common.status = STATUS_UNKNOWN_TABLET;
+        }
+        witnessTracker.registerRpcAndSyncBatch(object.getPKHash(),
+                reqHdr->common.lease.leaseId, reqHdr->common.rpcId);
     }
 
     // If this is a overwrite, delete old index entries if any (this can
@@ -4129,7 +4168,7 @@ printRpcInfo(Service::Rpc* rpc, const char* msg) {
             "leaseId %lu | rpcId %lu | ackId %lu | exp Ver. %lu | "
             "key: %s | hash %lu | value %d",
         msg, WireFormat::opcodeSymbol(opcode), common->asyncType,
-        hdr->lease.leaseId, hdr->rpcId, hdr->ackId,
+        hdr->common.lease.leaseId, hdr->common.rpcId, hdr->common.ackId,
         hdr->rejectRules.givenVersion, pKeyStr, hash, value);
 }
 

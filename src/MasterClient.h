@@ -28,6 +28,7 @@
 #include "ServerStatistics.pb.h"
 #include "Transport.h"
 #include "Tub.h"
+#include "WitnessManager.h"
 
 namespace RAMCloud {
 
@@ -56,6 +57,8 @@ class MasterClient {
             uint64_t primaryKeyHash);
     static bool isReplicaNeeded(Context* context, ServerId serverId,
             ServerId backupServerId, uint64_t segmentId);
+    static void notifyWitnessChange(Context* context, ServerId serverId,
+            int listVersion, vector<WitnessManager::Witness>& witnesses);
     static void prepForIndexletMigration(Context* context, ServerId serverId,
             uint64_t tableId, uint8_t indexId, uint64_t backingTableId,
             const void* firstKey, uint16_t firstKeyLength,
@@ -177,6 +180,18 @@ class IsReplicaNeededRpc : public ServerIdRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(IsReplicaNeededRpc);
+};
+
+class NotifyWitnessChangeRpc : public ServerIdRpcWrapper {
+  public:
+    NotifyWitnessChangeRpc(Context* context, ServerId serverId,
+            int listVersion, vector<WitnessManager::Witness>& witnesses);
+    ~NotifyWitnessChangeRpc() {}
+    /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
+    void wait() {waitAndCheckErrors();}
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(NotifyWitnessChangeRpc);
 };
 
 /**

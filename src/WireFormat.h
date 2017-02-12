@@ -135,7 +135,9 @@ enum Opcode {
     WITNESS_START               = 82,
     WITNESS_RECORD              = 83,
     WITNESS_GETRECOVERYDATA     = 84,
-    ILLEGAL_RPC_TYPE            = 85, // 1 + the highest legitimate Opcode
+    WITNESS_GC                  = 85,
+    NOTIFY_WITNESS_CHANGE       = 86,
+    ILLEGAL_RPC_TYPE            = 87, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -227,11 +229,18 @@ struct RequestCommon {
     uint16_t service;             /// ServiceType to invoke for this rpc.
 } __attribute__((packed));
 
+struct LinearizableRequestCommon : public RequestCommon {
+    ClientLease lease;
+    uint64_t rpcId;
+    uint64_t ackId;
+} __attribute__((packed));
+
 /**
  * Each RPC request with asynchronous replication option starts with this.
  */
-struct AsyncRequestCommon : public RequestCommon {
+struct AsyncRequestCommon : public LinearizableRequestCommon {
     Asynchrony asyncType;
+    uint32_t witnessListVersion;
 } __attribute__((packed));
 
 /**
@@ -929,11 +938,8 @@ struct Increment {
     static const Opcode opcode = INCREMENT;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        LinearizableRequestCommon common;
         uint64_t tableId;
-        ClientLease lease;
-        uint64_t rpcId;
-        uint64_t ackId;
         uint16_t keyLength;           // Length of the key in bytes.
                                       // The actual bytes of the key follow
                                       // immediately after this header.
@@ -1239,6 +1245,26 @@ struct MultiOp {
     } __attribute__((packed));
 };
 
+struct NotifyWitnessChange {
+    static const Opcode opcode = NOTIFY_WITNESS_CHANGE;
+    static const ServiceType service = MASTER_SERVICE;
+
+    struct WitnessInfo {
+        uint64_t witnessServerId;
+        uint64_t bufferBasePtr;
+    } __attribute__((packed));
+
+    struct Request {
+        RequestCommonWithId common;
+        uint32_t listVersion;
+        int numWitness;
+        // The array of WitnessInfo follows.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
 struct Ping {
     static const Opcode opcode = Opcode::PING;
     static const ServiceType service = ADMIN_SERVICE;
@@ -1470,11 +1496,8 @@ struct Remove {
     static const Opcode opcode = REMOVE;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
-        RequestCommon common;
+        LinearizableRequestCommon common;
         uint64_t tableId;
-        ClientLease lease;
-        uint64_t rpcId;
-        uint64_t ackId;
         uint16_t keyLength;           // Length of the key in bytes.
                                       // The actual key follows
                                       // immediately after this header.
@@ -2004,9 +2027,6 @@ struct Write {
     struct Request {
         AsyncRequestCommon common;
         uint64_t tableId;
-        ClientLease lease;
-        uint64_t rpcId;
-        uint64_t ackId;
         uint32_t length;              // Includes the total size of the
                                       // keysAndValue blob in bytes.These
                                       // follow immediately after this header
@@ -2045,6 +2065,29 @@ struct WitnessGetRecoveryData {
     } __attribute__((packed));
 };
 
+struct WitnessGc {
+    static const Opcode opcode = WITNESS_GC;
+    static const ServiceType service = WITNESS_SERVICE;
+
+    struct GcEntry {
+        int16_t hashIndex;
+        uint64_t clientLeaseId;
+        uint64_t rpcId;
+    };
+
+    struct Request {
+        RequestCommonWithId common;
+        uint64_t targetMasterId;
+        uint64_t bufferBasePtr;
+        int numEntries;
+        // Entries follows here.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        int numOps;
+    } __attribute__((packed));
+};
+
 struct WitnessRecord {
     static const Opcode opcode = WITNESS_RECORD;
     static const ServiceType service = WITNESS_SERVICE;
@@ -2060,7 +2103,6 @@ struct WitnessRecord {
         RequestCommon common;
         uint64_t targetMasterId;
         uint64_t bufferBasePtr;
-        int16_t clearHashIndices[3]; // Value 0 means not available.
         int16_t hashIndex;
         // Below this goes directly into buffer in witness.
         RecordEntryHeader entryHeader;

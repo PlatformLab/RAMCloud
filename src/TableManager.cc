@@ -810,9 +810,6 @@ TableManager::serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
                 ProtoBuf::TableConfig::Tablet::Witness& protoWitness(
                     *entry.add_witness());
 
-                if (!witness.isActive) {
-                    continue;
-                }
                 protoWitness.set_server_id(witness.id.getId());
                 try {
                     string locator = context->serverList->getLocator(

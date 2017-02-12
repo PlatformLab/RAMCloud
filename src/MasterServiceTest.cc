@@ -4025,7 +4025,7 @@ TEST_F(MasterServiceTest, write_linearizable_statusOkAndExceptions) {
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
 
     // Lease may expired. Contacts coordinator and realize it is not expired.
-    reqHdr->lease.leaseExpiration = reqHdr->lease.timestamp - 1;
+    reqHdr->common.lease.leaseExpiration = reqHdr->common.lease.timestamp - 1;
     service->write(reqHdr, &respHdr, &rpc);
     EXPECT_EQ(2U, respHdr.version);
     EXPECT_EQ(STATUS_OK, respHdr.common.status);
@@ -4036,9 +4036,9 @@ TEST_F(MasterServiceTest, write_linearizable_statusOkAndExceptions) {
                  StaleRpcException);
 
     // Lease timed out.
-    reqHdr->lease.leaseId = reqHdr->lease.leaseId + 1;
-    reqHdr->lease.timestamp = 1;
-    reqHdr->lease.leaseExpiration = 0;
+    reqHdr->common.lease.leaseId = reqHdr->common.lease.leaseId + 1;
+    reqHdr->common.lease.timestamp = 1;
+    reqHdr->common.lease.leaseExpiration = 0;
     EXPECT_THROW(service->write(reqHdr, &respHdr, &rpc), ExpiredLeaseException);
 }
 

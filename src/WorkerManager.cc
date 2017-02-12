@@ -221,7 +221,6 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
         assert(rpc->replyPayload.size() == 0);
         const WireFormat::WitnessRecord::Request* reqHdr =
             rpc->requestPayload.getStart<WireFormat::WitnessRecord::Request>();
-        assert(reqHdr != NULL);
 
         WireFormat::WitnessRecord::Response* respHdr =
             rpc->replyPayload.emplaceAppend<
@@ -230,6 +229,22 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
         // Skipped memset to zeros for faster performance.
 
         WitnessService::record(reqHdr, respHdr, &rpc->requestPayload);
+//        TimeTrace::record("WitnessRecord check end.");
+        rpc->sendReply();
+        return;
+    }
+
+    if (header->opcode == WireFormat::WITNESS_GC) {
+//        TimeTrace::record("WitnessRecord check start.");
+        assert(header->service == WireFormat::WITNESS_SERVICE);
+        assert(rpc->replyPayload.size() == 0);
+        const WireFormat::WitnessGc::Request* reqHdr =
+            rpc->requestPayload.getStart<WireFormat::WitnessGc::Request>();
+        WireFormat::WitnessGc::Response* respHdr =
+            rpc->replyPayload.emplaceAppend<WireFormat::WitnessGc::Response>();
+
+        // Skipped memset to zeros for faster performance.
+        WitnessService::gc(reqHdr, respHdr, &rpc->requestPayload);
 //        TimeTrace::record("WitnessRecord check end.");
         rpc->sendReply();
         return;

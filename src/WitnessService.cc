@@ -54,15 +54,6 @@ WitnessService::~WitnessService()
 void
 WitnessService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
 {
-//
-//    if (!initCalled) {
-//        LOG(WARNING, "%s invoked before initialization complete; "
-//                "returning STATUS_RETRY", WireFormat::opcodeSymbol(opcode));
-//        throw RetryException(HERE, 100, 100,
-//                "backup service not yet initialized");
-//    }
-//    CycleCounter<RawMetric> serviceTicks(&metrics->backup.serviceTicks);
-
     switch (opcode) {
         case WireFormat::WitnessStart::opcode:
             callHandler<WireFormat::WitnessStart, WitnessService,
@@ -71,6 +62,17 @@ WitnessService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::WitnessGetRecoveryData::opcode:
             callHandler<WireFormat::WitnessGetRecoveryData, WitnessService,
                         &WitnessService::getRecoveryData>(rpc);
+            break;
+        case WireFormat::WitnessGc::opcode:
+            // Only used by unit tests using MockCluster. The real version of
+            // this invoker is in WorkerManager::handleRpc().
+            WitnessService::gc(
+                    rpc->requestPayload->getStart<
+                            WireFormat::WitnessGc::Request>(),
+                    rpc->replyPayload->emplaceAppend<
+                            WireFormat::WitnessGc::Response>(),
+                    rpc->requestPayload);
+            rpc->sendReply();
             break;
         case WireFormat::WitnessRecord::opcode:
             // Only used by unit tests using MockCluster. The real version of
@@ -171,7 +173,10 @@ WitnessService::trackerChangesEnqueued()
             if (it != buffers.end()) {
                 Master* buffer = it->second;
                 assert(buffer->id == server.serverId.getId());
+                buffers.erase(it);
 //                free(buffer);
+                // TODO: use pool instead of alloc & free everytime to avoid
+                //      random segfault.
                 // TODO: Schedule this in dispatch thread...
                 LOG(NOTICE, "Deleted witness buffer for master <%" PRIu64 ">",
                         server.serverId.getId());

@@ -115,7 +115,6 @@ CLIENT_SRCFILES := \
 		   src/UnsyncedObjectRpcWrapper.cc \
 		   src/UnsyncedRpcTracker.cc \
 		   src/Util.cc \
-		   src/WitnessTracker.cc \
 		   src/WireFormat.cc \
 		   src/WorkerManager.cc \
 		   src/WorkerSession.cc \

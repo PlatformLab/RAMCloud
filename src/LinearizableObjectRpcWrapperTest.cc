@@ -60,13 +60,13 @@ TEST_F(LinearizableObjectRpcWrapperTest, fillLinearizabilityHeader_writeRpc) {
     LinearizableObjectRpcWrapper wrapper(&ramcloud, true, 10, "abc", 3, 4);
     WireFormat::Write::Request reqHdr;
     wrapper.fillLinearizabilityHeader<WireFormat::Write::Request>(&reqHdr);
-    EXPECT_EQ(1UL, reqHdr.rpcId);
-    EXPECT_EQ(0UL, reqHdr.ackId);
+    EXPECT_EQ(1UL, reqHdr.common.rpcId);
+    EXPECT_EQ(0UL, reqHdr.common.ackId);
 
     LinearizableObjectRpcWrapper wrapper2(&ramcloud, false, 10, "abc", 3, 4);
     wrapper2.fillLinearizabilityHeader<WireFormat::Write::Request>(&reqHdr);
-    EXPECT_EQ(0UL, reqHdr.rpcId);
-    EXPECT_EQ(0UL, reqHdr.ackId);
+    EXPECT_EQ(0UL, reqHdr.common.rpcId);
+    EXPECT_EQ(0UL, reqHdr.common.ackId);
 }
 
 TEST_F(LinearizableObjectRpcWrapperTest, waitInternal) {
@@ -83,8 +83,8 @@ TEST_F(LinearizableObjectRpcWrapperTest, waitInternal) {
     resp->common.status = STATUS_OK;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
 
-    EXPECT_EQ(1UL, reqHdr->rpcId);
-    EXPECT_EQ(0UL, reqHdr->ackId);
+    EXPECT_EQ(1UL, reqHdr->common.rpcId);
+    EXPECT_EQ(0UL, reqHdr->common.ackId);
 
     EXPECT_EQ(0UL, ramcloud.rpcTracker->ackId());
     wrapper.waitInternal(ramcloud.clientContext->dispatch);
@@ -98,8 +98,8 @@ TEST_F(LinearizableObjectRpcWrapperTest, waitInternal) {
     resp = wrapper2.response->emplaceAppend<WireFormat::Write::Response>();
     memset(resp, 0, sizeof(*resp));
 
-    EXPECT_EQ(2UL, reqHdr->rpcId);
-    EXPECT_EQ(1UL, reqHdr->ackId);
+    EXPECT_EQ(2UL, reqHdr->common.rpcId);
+    EXPECT_EQ(1UL, reqHdr->common.ackId);
 
     EXPECT_EQ(1UL, ramcloud.rpcTracker->ackId());
     wrapper2.cancel();
@@ -119,8 +119,8 @@ TEST_F(LinearizableObjectRpcWrapperTest, tryFinish) {
     resp->common.status = STATUS_OK;
     wrapper.state = RpcWrapper::RpcState::FINISHED;
 
-    EXPECT_EQ(1UL, reqHdr->rpcId);
-    EXPECT_EQ(0UL, reqHdr->ackId);
+    EXPECT_EQ(1UL, reqHdr->common.rpcId);
+    EXPECT_EQ(0UL, reqHdr->common.ackId);
 
     TestLog::reset();
     EXPECT_EQ(0UL, ramcloud.rpcTracker->ackId());

@@ -379,6 +379,48 @@ IsReplicaNeededRpc::wait()
 }
 
 /**
+ * Tell master the changes of its witnesses. Master should reject async updates
+ * from client with old witness list version, and should send GC requests to
+ * witnesses in this RPC.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param serverId
+ *      Identifier for a master whose witnesses are reassigned.
+ * \param listVersion
+ *      Version of witness list change. Master should reject client requests
+ *      with an old version.
+ * \param witnesses
+ *      List of up-to-date witness info.
+ */
+void
+MasterClient::notifyWitnessChange(Context* context, ServerId serverId,
+        int listVersion, vector<WitnessManager::Witness>& witnesses)
+{
+    NotifyWitnessChangeRpc rpc(context, serverId, listVersion, witnesses);
+    rpc.wait();
+}
+
+NotifyWitnessChangeRpc::NotifyWitnessChangeRpc(Context* context,
+        ServerId serverId, int listVersion,
+        vector<WitnessManager::Witness>& witnesses)
+    : ServerIdRpcWrapper(context, serverId,
+            sizeof(WireFormat::NotifyWitnessChange::Response))
+{
+    WireFormat::NotifyWitnessChange::Request* reqHdr(
+            allocHeader<WireFormat::NotifyWitnessChange>(serverId));
+    reqHdr->listVersion = listVersion;
+    reqHdr->numWitness = downCast<int>(witnesses.size());
+    for (WitnessManager::Witness& witness : witnesses) {
+        WireFormat::NotifyWitnessChange::WitnessInfo info;
+        info.witnessServerId = witness.id.getId();
+        info.bufferBasePtr = witness.bufferBasePtr;
+        request.appendCopy(&info, sizeof32(info));
+    }
+    send();
+}
+
+/**
  * Request that a master decide whether it will accept a migrated indexlet
  * and set up any necessary state to begin receiving indexlet data from the
  * original master.

@@ -44,6 +44,7 @@
 #include "IndexletManager.h"
 #include "WireFormat.h"
 #include "UnackedRpcResults.h"
+#include "WitnessTracker.h"
 
 namespace RAMCloud {
 
@@ -134,6 +135,12 @@ class MasterService : public Service {
      * transactions.
      */
     TransactionManager transactionManager;
+
+    /**
+     * Keeps track of witnesses of this master. This should be checked for
+     * every unsyncedRpcs.
+     */
+    WitnessTracker witnessTracker;
 
 #ifdef TESTING
     /// Used to pause the read-increment-write cycle in incrementObject
@@ -238,6 +245,10 @@ class MasterService : public Service {
                 Rpc* rpc);
     void multiWrite(const WireFormat::MultiOp::Request* reqHdr,
                 WireFormat::MultiOp::Response* respHdr,
+                Rpc* rpc);
+    void notifyWitnessChange(
+                const WireFormat::NotifyWitnessChange::Request* reqHdr,
+                WireFormat::NotifyWitnessChange::Response* respHdr,
                 Rpc* rpc);
     void prepForIndexletMigration(
                 const WireFormat::PrepForIndexletMigration::Request* reqHdr,

@@ -63,6 +63,22 @@ class WitnessStartRpc : public ServerIdRpcWrapper {
 };
 
 /**
+ * Encapsulates the state of a MasterClient::witnessGc
+ * request, allowing it to execute asynchronously.
+ */
+class WitnessGcRpc : public ServerIdRpcWrapper {
+  public:
+    WitnessGcRpc(Context* context, ServerId witnessId, Buffer* response,
+            ServerId targetMasterId, uint64_t bufferBasePtr,
+            std::vector<WireFormat::WitnessGc::GcEntry>& gcEntries);
+    ~WitnessGcRpc() {}
+    void wait(std::vector<ClientRequest>* blockingRequests);
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(WitnessGcRpc);
+};
+
+/**
  * Encapsulates the state of a MasterClient::witnessGetData
  * request, allowing it to execute asynchronously.
  */

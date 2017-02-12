@@ -26,6 +26,9 @@
 
 namespace RAMCloud {
 
+uint64_t UnsyncedObjectRpcWrapper::rejectCount = 0;
+uint64_t UnsyncedObjectRpcWrapper::totalCount = 0;
+
 /**
  * Constructor for UnsyncedObjectRpcWrapper objects.
  * \param ramcloud
@@ -143,17 +146,12 @@ UnsyncedObjectRpcWrapper::send()
                     // WitnessRecordRpc was already constructed before.
                     continue;
                 }
-                int16_t clearHashIndices[3];
-                ramcloud->witnessTracker->getDeletable(
-                        sessions.witnessServerIds[i],
-                        sessions.masterId.getId(),
-                        clearHashIndices);
                 int16_t hashIndex = static_cast<int16_t>(
                         keyHash & WitnessService::HASH_BITMASK);
                 witnessRecordRpcs[i].construct(context,
                     sessions.toWitness[i], sessions.witnessServerIds[i],
                     sessions.masterId.getId(), sessions.witnessBufferBasePtr[i],
-                    clearHashIndices, hashIndex, tableId, keyHash, rawRequest);
+                    hashIndex, tableId, keyHash, rawRequest);
             }
         }
     } catch (TableDoesntExistException& e) {
@@ -168,6 +166,7 @@ bool
 UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
                                        uint64_t abortTime)
 {
+    ++totalCount;
     bool shouldSync = false;
     if (async == ASYNC_DURABLE) {
         assert(WITNESS_PER_MASTER);
@@ -197,6 +196,7 @@ UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
     }
 
     if (shouldSync) {
+        ++rejectCount;
         UnsyncedRpcTracker::SyncRpc rpc(context, session, respCommon->logState);
         LogState newLogState;
         if (!rpc.wait(&newLogState)) {
@@ -224,53 +224,9 @@ void
 UnsyncedObjectRpcWrapper::clearAndRetry(uint32_t minDelayMicros,
                                         uint32_t maxDelayMicros)
 {
-    (getWitnessFreeFunc())();
-//    for (int i = 0; i < WITNESS_PER_MASTER; ++i) {
-//        if (witnessRecordRpcs[i]) {
-//            witnessRecordRpcs[i].destroy();
-//        }
-//    }
     response->reset();
     responseHeader = NULL;
     retry(minDelayMicros, maxDelayMicros);
-}
-
-/**
- * Fabricate a UnsyncedRpcTracker callback that frees witness entries written
- * by this RPC.
- *
- * \return
- *      Callback to be registered in UnsyncedRpcTracker.
- */
-std::function<void()>
-UnsyncedObjectRpcWrapper::getWitnessFreeFunc()
-{
-    uint64_t witnessServerId[WITNESS_PER_MASTER];
-    uint64_t targetMasterId[WITNESS_PER_MASTER];
-    int16_t hashIndex[WITNESS_PER_MASTER];
-    for (int i = 0; i < WITNESS_PER_MASTER; ++i) {
-        if (witnessRecordRpcs[i]) {
-            witnessServerId[i] = witnessRecordRpcs[i]->witnessServerId;
-            targetMasterId[i] = witnessRecordRpcs[i]->targetMasterId;
-            hashIndex[i] = witnessRecordRpcs[i]->hashIndex;
-        } else {
-            witnessServerId[i] = 0;
-            targetMasterId[i] = 0;
-            hashIndex[i] = -1;
-        }
-    }
-    WitnessTracker* witnessTracker = ramcloud->witnessTracker;
-    assert(witnessTracker);
-    return [witnessServerId, targetMasterId, hashIndex, witnessTracker](){
-        assert(witnessTracker);
-        for (int i = 0; i < WITNESS_PER_MASTER; ++i) {
-            if (hashIndex[i] != -1) {
-                witnessTracker->free(witnessServerId[i],
-                                     targetMasterId[i],
-                                     hashIndex[i]);
-            }
-        }
-    };
 }
 
 ///////////////////////////////////
@@ -278,8 +234,7 @@ UnsyncedObjectRpcWrapper::getWitnessFreeFunc()
 ///////////////////////////////////
 UnsyncedObjectRpcWrapper::WitnessRecordRpc::WitnessRecordRpc(Context* context,
         Transport::SessionRef& sessionToWitness, uint64_t witnessId,
-        uint64_t targetMasterId, uint64_t bufferBasePtr,
-        int16_t clearHashIndices[], int16_t hashIndex,
+        uint64_t targetMasterId, uint64_t bufferBasePtr, int16_t hashIndex,
         uint64_t tableId, uint64_t keyHash, ClientRequest clientRequest)
     : RpcWrapper(sizeof(WireFormat::WitnessRecord::Response), NULL)
     , context(context)
@@ -293,8 +248,6 @@ UnsyncedObjectRpcWrapper::WitnessRecordRpc::WitnessRecordRpc(Context* context,
             allocHeader<WireFormat::WitnessRecord>());
     reqHdr->targetMasterId = targetMasterId;
     reqHdr->bufferBasePtr = bufferBasePtr;
-    memcpy(reqHdr->clearHashIndices, clearHashIndices,
-           sizeof(reqHdr->clearHashIndices));
     reqHdr->hashIndex = hashIndex; //Think... do we need this arg? or calc here?
     reqHdr->entryHeader = {clientRequest.size, tableId, keyHash};
     // Now append request..

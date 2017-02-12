@@ -19,53 +19,52 @@
 #include <stack>
 #include <unordered_map>
 #include "Common.h"
-#include "RamCloud.h"
+#include "ObjectManager.h"
 
 namespace RAMCloud {
 
 /**
- * Used in RAMCloud client. Trackes all witness entries this client has recorded
- * and provides garbage collectable entries.
+ * Used in RAMCloud master.
  */
 class WitnessTracker {
   PUBLIC:
-    explicit WitnessTracker();
+    explicit WitnessTracker(Context* context, ObjectManager* objectManager);
     ~WitnessTracker();
 
-    void free(uint64_t witnessServerId,
-              uint64_t targetMasterId,
-              int16_t hashIndex);
-    void getDeletable(uint64_t witnessServerId,
-                      uint64_t targetMasterId,
-                      int16_t deletableIndices[]);
+    void listChanged(uint32_t newListVersion, int numWitnesses,
+            WireFormat::NotifyWitnessChange::WitnessInfo witnessList[]);
+    uint32_t getVersion() { return listVersion; }
+
+    void registerRpcAndSyncBatch(uint64_t keyHash, // int16_t hashIndex ?
+                                 uint64_t clientLeaseId,
+                                 uint64_t rpcId);
 
   PRIVATE:
-
-    struct WitnessTableId {
-        uint64_t witnessServerId;
-        uint64_t targetMasterId;
-
-
-        bool operator==(const WitnessTableId& other) const
-        {
-            return witnessServerId == other.witnessServerId &&
-                    targetMasterId == other.targetMasterId;
-        }
-    };
+    /// Shared RAMCloud information.
+    Context* context;
 
     /**
-     * This class computes a hash of an WitnessTableId, so that WitnessTableId
-     * can be used as keys in unordered_maps.
+     * Used for occasional syncChanges call.
      */
-    struct Hasher {
-        std::size_t operator()(const WitnessTableId& id) const {
-            std::size_t h1 = std::hash<uint64_t>()(id.witnessServerId);
-            std::size_t h2 = std::hash<uint64_t>()(id.targetMasterId);
-            return h1 ^ (h2 << 1);
-        }
-    };
+    ObjectManager* objectManager;
 
-    std::unordered_map<WitnessTableId, std::stack<int16_t>, Hasher> deletable;
+    // Version of witness list Master should reject client requests with
+    // an old version.
+    uint32_t listVersion;
+
+    struct Witness {
+        ServerId witnessId;
+        uint64_t bufferBasePtr;
+    };
+    std::vector<Witness> witnesses;
+
+    typedef WireFormat::WitnessGc::GcEntry GcInfo;
+    std::vector<GcInfo> unsyncedRpcs;
+
+    /**
+     * SyncChanges every "syncBatchSize" unsynced updates.
+     */
+    static const uint syncBatchSize = 20;
 
     /**
      * Monitor-style lock. Any operation on internal data structure should

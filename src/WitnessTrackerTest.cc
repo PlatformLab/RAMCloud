@@ -25,64 +25,10 @@ class WitnessTrackerTest : public ::testing::Test {
 
     WitnessTrackerTest()
         : logEnabler()
-        , tracker()
+        , tracker(NULL, NULL)
     {}
 
     DISALLOW_COPY_AND_ASSIGN(WitnessTrackerTest);
 };
-
-TEST_F(WitnessTrackerTest, free) {
-    tracker.free(1, 22, 33);
-    WitnessTracker::WitnessTableId key = {1, 22};
-    EXPECT_EQ(33, tracker.deletable[key].top());
-    tracker.free(1, 22, 34);
-    EXPECT_EQ(34, tracker.deletable[key].top());
-    tracker.free(1, 23, 35);
-    EXPECT_EQ(34, tracker.deletable[key].top());
-    WitnessTracker::WitnessTableId key2 = {1, 23};
-    EXPECT_EQ(35, tracker.deletable[key2].top());
-}
-
-TEST_F(WitnessTrackerTest, getDeletable) {
-    // Enough deletables to entirely populate deletableIndices array
-    tracker.free(1, 22, 33);
-    tracker.free(1, 22, 34);
-    tracker.free(1, 22, 35);
-    int16_t deletableIndices[3];
-    tracker.getDeletable(1, 22, deletableIndices);
-
-    WitnessTracker::WitnessTableId key = {1, 22};
-    EXPECT_TRUE(tracker.deletable[key].empty());
-    EXPECT_EQ(35, deletableIndices[0]);
-    EXPECT_EQ(34, deletableIndices[1]);
-    EXPECT_EQ(33, deletableIndices[2]);
-
-
-    // Not enough deletables to entirely populate deletableIndices array.
-    tracker.free(1, 22, 33);
-    tracker.free(1, 22, 34);
-    tracker.getDeletable(1, 22, deletableIndices);
-
-    EXPECT_TRUE(tracker.deletable[key].empty());
-    EXPECT_EQ(34, deletableIndices[0]);
-    EXPECT_EQ(33, deletableIndices[1]);
-    EXPECT_EQ(-1, deletableIndices[2]);
-
-    // No deletables.
-    tracker.getDeletable(1, 22, deletableIndices);
-
-    EXPECT_TRUE(tracker.deletable[key].empty());
-    EXPECT_EQ(-1, deletableIndices[0]);
-    EXPECT_EQ(-1, deletableIndices[1]);
-    EXPECT_EQ(-1, deletableIndices[2]);
-
-    tracker.getDeletable(1, 27, deletableIndices);
-
-    WitnessTracker::WitnessTableId key2 = {1, 27};
-    EXPECT_TRUE(tracker.deletable[key2].empty());
-    EXPECT_EQ(-1, deletableIndices[0]);
-    EXPECT_EQ(-1, deletableIndices[1]);
-    EXPECT_EQ(-1, deletableIndices[2]);
-}
 
 }

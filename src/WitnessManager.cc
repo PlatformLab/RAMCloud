@@ -17,6 +17,7 @@
 #include "ShortMacros.h"
 #include "WitnessClient.h"
 #include "WitnessManager.h"
+#include "MasterClient.h"
 
 namespace RAMCloud {
 
@@ -138,32 +139,31 @@ WitnessManager::scanAndAssignWitness()
         if (master.crashed) {
             continue;
         }
+        bool listChanged = false;
 
         // If a master had been fully assigned with witnesses, we must sync
         // before assigning additional witness for that master.
         // The reason is during recovery, master will complete recovery after
         // successfully retrying from one witness. And client may have
         // succeeded witnessRecord with the crashed witness.
-        bool needSyncMaster;
+        bool needBumpVersion;
         if (master.initialized) {
             vector<Witness> upAndRunning;
             for (Witness& witness : master.witnesses) {
                 uint64_t witnessId = witness.id.getId();
                 if (serviceCount.find(witnessId) == serviceCount.end()) {
-                    needSyncMaster = true;
+                    needBumpVersion = true;
                     LOG(NOTICE, "Detected crashed witness <%" PRIu64 "> for "
                             "master <%" PRIu64 ">", witnessId, masterId);
                 } else {
                     upAndRunning.push_back(witness);
                 }
             }
-            if (needSyncMaster) {
+            if (needBumpVersion) {
                 master.witnesses.swap(upAndRunning);
+                ++master.listVersion;
+                listChanged = true;
             }
-        }
-
-        if (needSyncMaster) {
-            // TODO: ask master to sync...
         }
 
         sort(witnessCandidates.begin(), witnessCandidates.end(), cmp);
@@ -192,6 +192,7 @@ WitnessManager::scanAndAssignWitness()
                     serviceCount[candidate.getId()]++;
                     LOG(NOTICE, "Assigned witness <%" PRIu64 "> for master <%"
                             PRIu64 ">", candidate.getId(), masterId);
+                    listChanged = true;
                     continue;
                 } catch (ServerNotUpException&) {
                     // Let it try next candidate.
@@ -202,6 +203,14 @@ WitnessManager::scanAndAssignWitness()
         }
         if (master.witnesses.size() == witnessFactor) {
             master.initialized = true;
+        }
+        if (listChanged) {
+            try {
+                MasterClient::notifyWitnessChange(context, ServerId(masterId),
+                        master.listVersion, master.witnesses);
+            } catch (ServerNotUpException&) {
+                // Ignore if master was crashed.
+            }
         }
     }
 }

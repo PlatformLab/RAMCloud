@@ -147,12 +147,12 @@ LinearizableObjectRpcWrapper::fillLinearizabilityHeader(RpcRequest* reqHdr)
     if (linearizabilityOn) {
         assignedRpcId = ramcloud->rpcTracker->newRpcId(this);
         assert(assignedRpcId);
-        reqHdr->lease = ramcloud->clientLeaseAgent->getLease();
-        reqHdr->rpcId = assignedRpcId;
-        reqHdr->ackId = ramcloud->rpcTracker->ackId();
+        reqHdr->common.lease = ramcloud->clientLeaseAgent->getLease();
+        reqHdr->common.rpcId = assignedRpcId;
+        reqHdr->common.ackId = ramcloud->rpcTracker->ackId();
     } else {
-        reqHdr->rpcId = 0; // rpcId starts from 1. 0 means non-linearizable
-        reqHdr->ackId = 0;
+        reqHdr->common.rpcId = 0; // rpcId starts from 1.
+        reqHdr->common.ackId = 0;
     }
 }
 

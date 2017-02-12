@@ -95,6 +95,57 @@ WitnessStartRpc::wait()
  *      Overall information about this RAMCloud server or client.
  * \param witnessId
  *      Identifier for the witness server who have recorded RPC requests
+ *      for this master.
+ * \param response
+ *      Buffer for RPC response. The lifetime of buffer should be longer than
+ *      returned vectors. The return value will have pointers to this buffer.
+ * \param targetMasterId
+ *      Identifier for this master.
+ * \param bufferBasePtr
+ *      Pointer to the witness buffer for this master.
+ * \param gcEntries
+ *      Witness entries to reset.
+ */
+WitnessGcRpc::WitnessGcRpc(Context* context, ServerId witnessId,
+        Buffer* response, ServerId targetMasterId, uint64_t bufferBasePtr,
+        std::vector<WireFormat::WitnessGc::GcEntry>& gcEntries)
+    : ServerIdRpcWrapper(context, witnessId,
+            sizeof(WireFormat::WitnessGc::Response), response)
+{
+    WireFormat::WitnessGc::Request* reqHdr(
+            allocHeader<WireFormat::WitnessGc>(witnessId));
+    reqHdr->targetMasterId = targetMasterId.getId();
+    reqHdr->bufferBasePtr = bufferBasePtr;
+    reqHdr->numEntries = downCast<int>(gcEntries.size());
+    for (WireFormat::WitnessGc::GcEntry& gcInfo : gcEntries) {
+        request.appendCopy(&gcInfo, sizeof32(gcInfo));
+    }
+    send();
+}
+
+void
+WitnessGcRpc::wait(std::vector<ClientRequest>* blockingRequests)
+{
+    waitAndCheckErrors();
+    const WireFormat::WitnessGc::Response* respHdr(
+            getResponseHeader<WireFormat::WitnessGc>());
+    uint32_t offset = sizeof32(WireFormat::WitnessGc::Response);
+    for (int i = 0; i < respHdr->numOps; ++i) {
+        ClientRequest request;
+        request.size = *(response->getOffset<int16_t>(offset));
+        request.data = response->getRange(offset + 2, request.size);
+        offset += 2 + request.size;
+        blockingRequests->push_back(request);
+    }
+}
+
+/**
+ * Ask witness for recorded RPC requests for a tablet.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server or client.
+ * \param witnessId
+ *      Identifier for the witness server who have recorded RPC requests
  *      for the crashed master.
  * \param response
  *      Buffer for RPC response. The lifetime of buffer should be longer than
