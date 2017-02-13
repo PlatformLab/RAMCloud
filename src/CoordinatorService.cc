@@ -478,8 +478,7 @@ CoordinatorService::getTableConfig(
         WireFormat::GetTableConfig::Response* respHdr,
         Rpc* rpc)
 {
-    witnessManager.poll(); // Caution.. it may take long long time..
-                           // deadlock prone.. as well?
+    witnessManager.updateWitnessAssignments(); // it may take long long time..
     ProtoBuf::TableConfig tableConfig;
     tableManager.serializeTableConfig(&tableConfig,
                                       reqHdr->tableId,

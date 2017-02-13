@@ -59,7 +59,7 @@ WitnessManager::getWitness(ServerId masterId, int* listVersion)
  * Perform all managing work. This method may take long time to return.
  */
 void
-WitnessManager::poll()
+WitnessManager::updateWitnessAssignments()
 {
     Lock _(mutex);
     bool stateChanged = consumeServerTracker();

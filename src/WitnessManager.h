@@ -53,7 +53,7 @@ class WitnessManager {
     ~WitnessManager();
     //TODO: option for active only
     vector<Witness> getWitness(ServerId masterId, int* listVersion = NULL);
-    void poll();
+    void updateWitnessAssignments();
 
     /**
      * Indicates how many witnesses are maintained per master.

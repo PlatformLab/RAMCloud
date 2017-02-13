@@ -6671,6 +6671,13 @@ writeDistRandom()
 
     fillTable(dataTable, numKeys, keyLength, objectSize);
 
+    Cycles::sleep(100000);
+
+    makeKey(downCast<int>(generateRandom() % numKeys), keyLength, key);
+    Util::genRandomString(value, objectSize);
+    cluster->write(dataTable, key, keyLength, value, objectSize,
+                   NULL, NULL, asyncReplication);
+
     // The following variable is used to stop the test after 10 seconds
     // if we haven't read count keys by then.
     uint64_t stop = Cycles::rdtsc() + Cycles::fromSeconds(10.0);
