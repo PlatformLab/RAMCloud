@@ -266,6 +266,12 @@ def run_test(
     if cluster_args['num_servers'] == None:
         # Make sure there are enough servers to meet replica requirements.
         cluster_args['num_servers'] = options.replicas+1
+    if options.num_masters != None:
+        cluster_args['num_masters'] = options.num_masters
+    if options.num_backups != None:
+        cluster_args['num_backups'] = options.num_backups
+    if options.num_witnesses != None:
+        cluster_args['num_witnesses'] = options.num_witnesses
     if options.num_clients != None:
         cluster_args['num_clients'] = options.num_clients
     if options.master_args != None:
@@ -906,6 +912,15 @@ if __name__ == '__main__':
     parser.add_option('--servers', type=int,
             metavar='N', dest='num_servers',
             help='Number of hosts on which to run servers')
+    parser.add_option('--masters', type=int, default=0,
+            metavar='N', dest='num_masters',
+            help='Number of hosts on which to run master-only servers')
+    parser.add_option('--backups', type=int, default=0,
+            metavar='N', dest='num_backups',
+            help='Number of hosts on which to run backup-only servers')
+    parser.add_option('--witnesses', type=int, default=0,
+            metavar='N', dest='num_witnesses',
+            help='Number of hosts on which to run witness-only servers')
     parser.add_option('-s', '--size', type=int, default=100,
             help='Object size in bytes')
     parser.add_option('--numObjects', type=int,

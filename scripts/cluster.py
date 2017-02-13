@@ -195,6 +195,7 @@ class Cluster(object):
         self.next_client_id = 1
         self.masters_started = 0
         self.backups_started = 0
+        self.witnesses_started = 0
 
         self.coordinator_host= getHosts()[0]
         self.coordinator_locator = coord_locator(self.transport,
@@ -293,6 +294,7 @@ class Cluster(object):
                      args='',
                      master=True,
                      backup=True,
+                     witness=True,
                      disk=None,
                      port=server_port,
                      kill_on_exit=True
@@ -332,12 +334,14 @@ class Cluster(object):
                     args))
 
         self.next_server_id += 1
-        if master and backup:
+        if master and backup and witness:
             pass
         elif master:
             command += ' --masterOnly'
         elif backup:
             command += ' --backupOnly'
+        elif witness:
+            command += ' --witnessOnly'
         else:
             raise Exception('Cannot start a server that is neither a master '
                             'nor backup')
@@ -350,6 +354,8 @@ class Cluster(object):
 
         if master:
             self.masters_started += 1
+        if witness:
+            self.witnesses_started += 1
 
         # Adding redirection for stdout and stderr.
         stdout = open(log_prefix + '.out', 'w')
@@ -424,6 +430,7 @@ class Cluster(object):
             numMasters = self.masters_started
         if not numBackups:
             numBackups = self.backups_started
+
         self.sandbox.checkFailures()
         try:
             ensureCommand = ('%s -C %s -m %d -b %d -l 1 --wait %d '
@@ -522,6 +529,9 @@ class Cluster(object):
 def run(
         num_servers=4,             # Number of hosts on which to start
                                    # servers (not including coordinator).
+        num_masters=0,             # Number of master-only servers
+        num_backups=0,             # Number of backup-only servers
+        num_witnesses=0,           # Number of witness-only servers
         backup_disks_per_server=2, # Number of backup disks to use on each
                                    # server host (0, 1, or 2).
         replicas=3,                # Replication factor to use for each
@@ -617,6 +627,7 @@ def run(
 
     masters_started = 0
     backups_started = 0
+    witnesses_started = 0
 
     global valgrind_command
     if valgrind:
@@ -659,10 +670,36 @@ def run(
                 disk_args = disk1 if backup_disks_per_server == 1 else disk2
             cluster.start_server(host, args, backup=backup, disk=disk_args)
             masters_started += 1
-
-        if disjunct:
-            cluster.hosts = cluster.hosts[num_servers:]
-
+        cluster.hosts = cluster.hosts[num_servers:]
+#        print(num_servers, ' Servers started. Now hosts:', cluster.hosts, '\n')
+        
+        for host in cluster.hosts[:num_masters]:
+            args = master_args
+            cluster.start_server(host, args, master=True, backup=False, witness=False)
+            masters_started += 1
+        cluster.hosts = cluster.hosts[num_masters:]
+#        print(num_masters, ' Masters started. Now hosts:', cluster.hosts, '\n')
+        
+        for host in cluster.hosts[:num_backups]:
+            args = master_args
+            disk_args = None
+            if backup_disks_per_server > 0:
+                args += ' %s' % backup_args
+                backups_started += 1
+                disk_args = disk1 if backup_disks_per_server == 1 else disk2
+            cluster.start_server(host, args, master=False, backup=True, witness=False, disk=disk_args)
+        cluster.hosts = cluster.hosts[num_backups:]
+#        print(num_backups, ' Backups started. Now hosts:', cluster.hosts, '\n')
+        
+        for host in cluster.hosts[:num_witnesses]:
+            args = master_args
+            cluster.start_server(host, args, master=False, backup=False, witness=True)
+            witnesses_started += 1
+            masters_started += 1    # Temporary hack. ServerMain assigns master role for witness-only.
+                                    # This hack avoids lots of problem (witness not in serverList or ensureServer)
+        cluster.hosts = cluster.hosts[num_witnesses:]
+#        print(num_witnesses, ' Witnesses started. Now hosts:', cluster.hosts, '\n')
+        
         if masters_started > 0 or backups_started > 0:
             cluster.ensure_servers()
             if verbose:
@@ -679,12 +716,9 @@ def run(
             # Note: even if it's OK to share hosts between clients and servers,
             # don't do it unless necessary.
             if not client_hosts:
-                if disjunct:
-                    host_list = cluster.hosts[:]
-                else:
-                    host_list = cluster.hosts[num_servers:]
-                    if share_hosts:
-                        host_list.extend(cluster.hosts[:num_servers])
+                host_list = cluster.hosts[:]
+                if share_hosts:
+                    host_list.extend(cluster.hosts[:num_servers])
 
                 client_hosts = [host_list[i % len(host_list)]
                                 for i in range(num_clients)]

@@ -267,7 +267,8 @@ main(int argc, char *argv[])
             config.services = {WireFormat::BACKUP_SERVICE,
                                WireFormat::ADMIN_SERVICE};
         } else if (witnessOnly) {
-            config.services = {WireFormat::WITNESS_SERVICE,
+            config.services = {WireFormat::MASTER_SERVICE,
+                               WireFormat::WITNESS_SERVICE,
                                WireFormat::ADMIN_SERVICE};
         } else {
             config.services = {WireFormat::MASTER_SERVICE,
