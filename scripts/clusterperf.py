@@ -256,9 +256,9 @@ def run_test(
         'share_hosts': True,
         'transport':   options.transport,
         'disjunct':    options.disjunct,
-        'verbose':     options.verbose
+        'verbose':     options.verbose,
+        'superuser':   options.superuser
     }
-    client_args = {}
     # Provide a default value for num_servers here.  This is better
     # than defaulting it in the OptionParser below, because tests can
     # see whether or not an actual value was specified and provide a
@@ -270,6 +270,10 @@ def run_test(
         cluster_args['num_clients'] = options.num_clients
     if options.master_args != None:
         cluster_args['master_args'] = options.master_args
+    if options.dpdk_port != None:
+        cluster_args['dpdk_port'] = options.dpdk_port
+
+    client_args = {}
     if options.count != None:
         client_args['--count'] = options.count
     if options.size != None:
@@ -896,6 +900,8 @@ if __name__ == '__main__':
             dest='master_args',
             help='Additional command-line arguments to pass to '
                  'each master')
+    parser.add_option('--dpdkPort', type=int, dest='dpdk_port',
+            help='Ethernet port that the DPDK driver should use')
     parser.add_option('-T', '--transport', default='basic+infud',
             help='Transport to use for communication with servers')
     parser.add_option('-v', '--verbose', action='store_true', default=False,
@@ -949,6 +955,8 @@ if __name__ == '__main__':
             action='store_true', default=False, dest='fullSamples',
             help='Run with alternate sample format that includes sample '
                  'timestamps along with their durations.')
+    parser.add_option('--superuser', action='store_true', default=False,
+            help='Start the cluster and clients as superuser')
     (options, args) = parser.parse_args()
 
     if options.parse:

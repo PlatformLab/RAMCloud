@@ -12,7 +12,7 @@ while true; do
         then
                 echo 'Running' > /dev/null
     else
-            echo 'Restarting coordinator, SUCESS' >> $1
+            echo 'Restarting coordinator, SUCCESS' >> $1
             sleep 2 # wait for old process to be cleaned up
             $2/coordinator -C $3 -l NOTICE -z $4 >> $1 2>&1 &
             echo $! > /dev/shm/$USER.new_coord.pid
