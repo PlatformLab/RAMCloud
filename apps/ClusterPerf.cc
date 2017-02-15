@@ -1114,17 +1114,22 @@ echoMessages(const vector<string>& receivers, uint32_t length,
     uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(timeLimit);
     uint64_t count;
     for (count = 0; count < iteration; count++) {
-        uint64_t start = Cycles::rdtsc();
-        if (start >= stopTime) {
+        uint64_t now = Cycles::rdtsc();
+        if (now >= stopTime) {
             LOG(NOTICE, "time expired after %lu iterations", count);
             break;
         }
 
         const char* receiver = receivers[count % numReceivers].c_str();
-        cluster->echo(receiver, message.c_str(), length, echoLength, &buffer);
-        uint64_t interval = Cycles::rdtsc() - start;
-        totalCycles += interval;
-        times[count % MAX_NUM_SAMPLE] = interval;
+        EchoRpc rpc(cluster, receiver, message.c_str(), length, echoLength,
+                &buffer);
+        try {
+            rpc.wait();
+            totalCycles += rpc.getCompletionTime();
+            times[count % MAX_NUM_SAMPLE] = rpc.getCompletionTime();
+        } catch (ClientException& ex) {
+            LOG(NOTICE, "Echo RPC failed with exception %s", ex.toString());
+        }
     }
     if (count <= MAX_NUM_SAMPLE) {
         times.resize(count);

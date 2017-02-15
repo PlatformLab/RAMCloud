@@ -446,6 +446,7 @@ TEST_F(RamCloudTest, incrementInt64) {
 }
 
 TEST_F(RamCloudTest, indexServerControl) {
+    TimeTrace::reset();
     Buffer output;
     TestLog::Enable _("createIndex");
     ramcloud->createIndex(tableId1, 2, 0);
@@ -565,6 +566,7 @@ TEST_F(RamCloudTest, objectServerControl) {
 }
 
 TEST_F(RamCloudTest, serverControlAll) {
+    TimeTrace::reset();
     Buffer output;
     ramcloud->serverControlAll(WireFormat::GET_TIME_TRACE, "abc", 3, &output);
     EXPECT_EQ(151U, output.size());

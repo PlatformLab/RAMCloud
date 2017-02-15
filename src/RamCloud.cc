@@ -495,6 +495,8 @@ EchoRpc::EchoRpc(RamCloud* ramcloud, const char* serviceLocator,
         Buffer* echo)
     : RpcWrapper(sizeof(WireFormat::Echo::Response), echo)
     , ramcloud(ramcloud)
+    , startTime(0)
+    , endTime(~0u)
 {
     echo->reset();
     try {
@@ -507,7 +509,24 @@ EchoRpc::EchoRpc(RamCloud* ramcloud, const char* serviceLocator,
     reqHdr->length = length;
     reqHdr->echoLength = echoLength;
     request.append(message, length);
+    startTime = Cycles::rdtsc();
     send();
+}
+
+// See Transport::Notifier for documentation.
+void
+EchoRpc::completed() {
+    RpcWrapper::completed();
+    endTime = Cycles::rdtsc();
+}
+
+/**
+ * Return the time elapsed, in cycles, since RpcWrapper::send is called till
+ * RpcWrapper::completed is called. ~0u means the RPC failed.
+ */
+uint64_t
+EchoRpc::getCompletionTime() {
+    return endTime == ~0u ? ~0u : endTime - startTime;
 }
 
 /**

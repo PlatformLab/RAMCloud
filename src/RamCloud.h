@@ -289,11 +289,17 @@ class EchoRpc : public RpcWrapper {
             const void* message, uint32_t length, uint32_t echoLength,
             Buffer* echo);
     ~EchoRpc() {}
+    virtual void completed();
+    uint64_t getCompletionTime();
     /// \copydoc RpcWrapper::docForWait
     void wait();
 
   PRIVATE:
     RamCloud* ramcloud;
+    /// TSC value when the RPC is sent.
+    uint64_t startTime;
+    /// TSC value when the RPC is completed.
+    uint64_t endTime;
     DISALLOW_COPY_AND_ASSIGN(EchoRpc);
 };
 
