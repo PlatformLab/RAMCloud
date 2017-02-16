@@ -402,11 +402,15 @@ ReplicatedSegment::sync(uint32_t offset, SegmentCertificate* certificate)
     if (!recoveringFromLostOpenReplicas) {
         if (!normalLogSegment || precedingSegmentCloseCommitted) {
             if (offset == ~0u) {
-                if (getCommitted().close)
+                if (getCommitted().close) {
+                    isSyncing = false;
                     return;
+                }
             } else {
-                if (getCommitted().bytes >= offset)
+                if (getCommitted().bytes >= offset) {
+                    isSyncing = false;
                     return;
+                }
             }
         }
     }
