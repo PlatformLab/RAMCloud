@@ -340,7 +340,7 @@ SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
         }
 
         // Reduce monitor lock contention.
-        usleep(100);
+        Arachne::sleep(100000);
     }
     assert(guard);
 
