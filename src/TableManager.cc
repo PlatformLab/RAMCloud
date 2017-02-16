@@ -34,7 +34,7 @@ namespace RAMCloud {
  */
 TableManager::TableManager(Context* context,
         CoordinatorUpdateManager* updateManager)
-    : mutex()
+    : mutex("TableManager::mutex")
     , context(context)
     , updateManager(updateManager)
     , nextTableId(1)

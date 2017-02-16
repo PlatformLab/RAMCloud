@@ -25,6 +25,7 @@
 #include "Tablet.h"
 #include "TableConfig.pb.h"
 #include "Indexlet.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 
@@ -209,8 +210,8 @@ class TableManager {
      * A Lock for this mutex must be held to read or modify any state in
      * the tablet map.
      */
-    mutable std::mutex mutex;
-    typedef std::unique_lock<std::mutex> Lock;
+    mutable Arachne::SpinLock mutex;
+    typedef std::unique_lock<Arachne::SpinLock> Lock;
 
     /// Shared information about the server.
     Context* context;
