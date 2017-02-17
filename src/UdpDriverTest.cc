@@ -158,7 +158,7 @@ TEST_F(UdpDriverTest, constructor_errorInServerSocketBind) {
         exceptionMessage = e.message;
     }
     EXPECT_EQ("UdpDriver couldn't bind to locator "
-            "'basic+udp:host=localhost,port=8101': Operation not permitted",
+            "'udp:host=localhost,port=8101': Operation not permitted",
             exceptionMessage);
 }
 TEST_F(UdpDriverTest, constructor_errorInClientSocketBind) {

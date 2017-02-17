@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015 Stanford University
+/* Copyright (c) 2014-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,10 +34,9 @@ namespace NetUtil {
 // This enum define various ethernet payload types as it must be specified
 // in EthernetHeader field `etherType'.
 enum EthPayloadType {
-    IP_V4 = 0x0800, // Standard ethernet type when the payload is an ip packet.
-#ifdef DPDK
-    RAMCLOUD = 0x88b5  // Used by RAMCloud raw-Ethernet drivers.
-#endif
+    IP_V4       = 0x0800,   // Standard ethernet type when the payload is an
+                            // ip packet.
+    RAMCLOUD    = 0x88b5    // Used by RAMCloud raw-Ethernet drivers.
 };
 
 // Standard size of an Ethernet frame (not including Ethernet header).

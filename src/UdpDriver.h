@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -45,13 +45,14 @@ class UdpDriver : public Driver {
     void close();
     virtual uint32_t getMaxPacketSize();
     virtual int getTransmitQueueSpace(uint64_t currentTime);
-    virtual void receivePackets(int maxPackets,
+    virtual void receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets);
     virtual void release(char *payload);
-    virtual void sendPacket(const Address *addr,
-                            const void *header,
+    virtual void sendPacket(const Address* addr,
+                            const void* header,
                             uint32_t headerLen,
-                            Buffer::Iterator *payload);
+                            Buffer::Iterator* payload,
+                            int priority = 0);
     virtual string getServiceLocator();
 
     virtual Address* newAddress(const ServiceLocator* serviceLocator) {

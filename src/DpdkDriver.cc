@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2016 Stanford University
+/* Copyright (c) 2015-2017 Stanford University
  * Copyright (c) 2014-2015 Huawei Technologies Co. Ltd.
  * Copyright (c) 2014-2016 NEC Corporation
  * The original version of this module was contributed by Anthony Iliopoulos
@@ -42,7 +42,7 @@
 #include "ShortMacros.h"
 #include "DpdkDriver.h"
 #include "NetUtil.h"
-#include "ServiceLocator.h"
+#include "PerfStats.h"
 #include "StringUtil.h"
 #include "TimeTrace.h"
 #include "Util.h"
@@ -51,7 +51,7 @@ namespace RAMCloud
 {
 
 // Change 0 -> 1 in the following line to compile detailed time tracing in
-// this transport.
+// this driver.
 #define TIME_TRACE 0
 
 // Provides a cleaner way of invoking TimeTrace::record, with the code
@@ -67,6 +67,42 @@ namespace {
 #endif
     }
 }
+
+constexpr uint16_t DpdkDriver::PRIORITY_TO_PCP[8];
+
+#if TESTING
+/*
+ * Construct a mock DpdkDriver, used for testing only.
+ */
+DpdkDriver::DpdkDriver()
+    : context(NULL)
+    , packetBufPool()
+    , packetBufsUtilized(0)
+    , locatorString()
+    , localMac()
+    , portId(0)
+    , packetPool(NULL)
+    , loopbackRing(NULL)
+    , hasHardwareFilter(true)
+    , bandwidthMbps(10000)
+    , highestPriorityAvail(7)
+    , lowestPriorityAvail(0)
+    , queueEstimator(0)
+    , maxTransmitQueueSize(0)
+    , fileLogger(NOTICE, "DPDK: ")
+{
+    localMac.construct("01:23:45:67:89:ab");
+    queueEstimator.setBandwidth(bandwidthMbps);
+    maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthMbps)
+            * MAX_DRAIN_TIME / 8000.0);
+    uint32_t maxPacketSize = getMaxPacketSize();
+    if (maxTransmitQueueSize < 2*maxPacketSize) {
+        // Make sure that we advertise enough space in the transmit queue to
+        // prepare the next packet while the current one is transmitting.
+        maxTransmitQueueSize = 2*maxPacketSize;
+    }
+}
+#endif
 
 /*
  * Construct a DpdkDriver.
@@ -86,8 +122,11 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     , portId(0)
     , packetPool(NULL)
     , loopbackRing(NULL)
-    , hasHardwareFilter(true) // Cleared if not applicable at NIC initialization
+    , hasHardwareFilter(true)             // Cleared later if not applicable
     , bandwidthMbps(10000)                // Default bandwidth = 10 gbs
+    // Assume we are allowed to use all 8 ethernet priorities.
+    , highestPriorityAvail(7)
+    , lowestPriorityAvail(0)
     , queueEstimator(0)
     , maxTransmitQueueSize(0)
     , fileLogger(NOTICE, "DPDK: ")
@@ -117,14 +156,17 @@ DpdkDriver::DpdkDriver(Context* context, int port)
 
     rte_openlog_stream(fileLogger.getFile());
     ret = rte_eal_init(argc, const_cast<char**>(argv));
+    if (ret < 0) {
+        throw DriverException(HERE, "rte_eal_init failed");
+    }
 
     // create an memory pool for accommodating packet buffers
     packetPool = rte_mempool_create("mbuf_pool", NB_MBUF,
-                                      MBUF_SIZE, 32,
-              static_cast<uint32_t>(sizeof(struct rte_pktmbuf_pool_private)),
-                                      rte_pktmbuf_pool_init, NULL,
-                                      rte_pktmbuf_init, NULL,
-                                      rte_socket_id(), 0);
+                                    MBUF_SIZE, 32,
+                                    sizeof32(struct rte_pktmbuf_pool_private),
+                                    rte_pktmbuf_pool_init, NULL,
+                                    rte_pktmbuf_init, NULL,
+                                    rte_socket_id(), 0);
 
     if (!packetPool) {
         throw DriverException(HERE, format(
@@ -141,36 +183,31 @@ DpdkDriver::DpdkDriver(Context* context, int port)
                 portId, numPorts));
     }
 
-    // if the locator string specified an all-zeroes MAC address,
-    // use the default one by reading it from the NIC via DPDK.
-    // Fix-up the locator string to reflect the real MAC address.
+    // Read the MAC address from the NIC via DPDK.
     rte_eth_macaddr_get(portId, &mac);
     localMac.construct(mac.addr_bytes);
-    locatorString = format("basic+dpdk:mac=%s",
-            localMac->toString().c_str());
+    locatorString = format("dpdk:mac=%s", localMac->toString().c_str());
 
     // configure some default NIC port parameters
     memset(&portConf, 0, sizeof(portConf));
-    portConf.rxmode.max_rx_pkt_len = MAX_PAYLOAD_SIZE +
-            static_cast<uint32_t>(sizeof(NetUtil::EthernetHeader));
+    portConf.rxmode.max_rx_pkt_len = ETHER_MAX_VLAN_FRAME_LEN;
     rte_eth_dev_configure(portId, 1, 1, &portConf);
 
     // Set up a NIC/HW-based filter on the ethernet type so that only
-    // only traffic to a particular port is received by this driver.
+    // traffic to a particular port is received by this driver.
     struct rte_eth_ethertype_filter filter;
-    ret = rte_eth_dev_filter_supported(portId,
-                                       RTE_ETH_FILTER_ETHERTYPE);
+    ret = rte_eth_dev_filter_supported(portId, RTE_ETH_FILTER_ETHERTYPE);
     if (ret < 0) {
-      LOG(NOTICE, "ethertype filter is not supported on port %u.", portId);
-      hasHardwareFilter = false;
-    } else {
-      memset(&filter, 0, sizeof(filter));
-      ret = rte_eth_dev_filter_ctrl(portId, RTE_ETH_FILTER_ETHERTYPE,
-                                    RTE_ETH_FILTER_ADD, &filter);
-      if (ret < 0) {
-        LOG(WARNING, "failed to add ethertype filter\n");
+        LOG(NOTICE, "ethertype filter is not supported on port %u.", portId);
         hasHardwareFilter = false;
-      }
+    } else {
+        memset(&filter, 0, sizeof(filter));
+        ret = rte_eth_dev_filter_ctrl(portId, RTE_ETH_FILTER_ETHERTYPE,
+                RTE_ETH_FILTER_ADD, &filter);
+        if (ret < 0) {
+            LOG(WARNING, "failed to add ethertype filter\n");
+            hasHardwareFilter = false;
+          }
     }
 
     // setup and initialize the receive and transmit NIC queues,
@@ -208,8 +245,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     }
 
     // set the MTU that the NIC port should support
-    ret = rte_eth_dev_set_mtu(portId, static_cast<uint16_t>(MAX_PAYLOAD_SIZE +
-            static_cast<uint32_t>(sizeof(NetUtil::EthernetHeader))));
+    ret = rte_eth_dev_set_mtu(portId, MAX_PAYLOAD_SIZE);
     if (ret != 0) {
         throw DriverException(HERE, format(
                 "Failed to set the MTU on Ethernet port  %u: %s",
@@ -249,21 +285,25 @@ DpdkDriver::~DpdkDriver()
         LOG(ERROR, "DpdkDriver deleted with %d packets still in use",
             packetBufsUtilized);
 
-    // Currently DPDK does not provide methods for freeing the various
-    // allocated resources (e.g. ring, mempool) and releasing the NIC.
-    // All we can do at this point is stop the packet reception
-    // by disabling the activated NIC port.
+    // Free the various allocated resources (e.g. ring, mempool) and close
+    // the NIC.
     rte_eth_dev_stop(portId);
+    rte_eth_dev_close(portId);
     rte_openlog_stream(NULL);
 }
 
 // See docs in Driver class.
+int
+DpdkDriver::getHighestPacketPriority()
+{
+    return highestPriorityAvail - lowestPriorityAvail;
+}
 
+// See docs in Driver class.
 uint32_t
 DpdkDriver::getMaxPacketSize()
 {
-    return MAX_PAYLOAD_SIZE
-            - static_cast<uint32_t>(sizeof(NetUtil::EthernetHeader));
+    return MAX_PAYLOAD_SIZE;
 }
 
 // See docs in Driver class.
@@ -275,7 +315,7 @@ DpdkDriver::getTransmitQueueSpace(uint64_t currentTime)
 
 // See docs in Driver class.
 void
-DpdkDriver::receivePackets(int maxPackets,
+DpdkDriver::receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets)
 {
 #define MAX_PACKETS_AT_ONCE 32
@@ -287,13 +327,14 @@ DpdkDriver::receivePackets(int maxPackets,
     // attempt to dequeue a batch of received packets from the NIC
     // as well as from the loopback ring.
     uint32_t incomingPkts = rte_eth_rx_burst(portId, 0, mPkts,
-            MAX_PACKETS_AT_ONCE/2);
+            downCast<uint16_t>(maxPackets));
+
     if (incomingPkts > 0) {
         timeTrace("DpdkDriver received %u packets", incomingPkts);
     }
     uint32_t loopbackPkts = rte_ring_count(loopbackRing);
-    if (incomingPkts + loopbackPkts > MAX_PACKETS_AT_ONCE) {
-        loopbackPkts = MAX_PACKETS_AT_ONCE - incomingPkts;
+    if (incomingPkts + loopbackPkts > maxPackets) {
+        loopbackPkts = maxPackets - incomingPkts;
     }
     for (uint32_t i = 0; i < loopbackPkts; i++) {
         rte_ring_dequeue(loopbackRing,
@@ -313,28 +354,35 @@ DpdkDriver::receivePackets(int maxPackets,
             rte_pktmbuf_free(m);
             continue;
         }
-        PacketBuf* buffer = packetBufPool.construct();
 
+        struct ether_hdr* ethHdr = rte_pktmbuf_mtod(m, struct ether_hdr*);
+        uint16_t ether_type = ethHdr->ether_type;
+        uint32_t headerLength = ETHER_HDR_LEN;
+        char* payload = reinterpret_cast<char *>(ethHdr + 1);
+        if (ether_type == rte_cpu_to_be_16(ETHER_TYPE_VLAN)) {
+            struct vlan_hdr* vlanHdr =
+                    reinterpret_cast<struct vlan_hdr*>(payload);
+            ether_type = vlanHdr->eth_proto;
+            headerLength += VLAN_TAG_LEN;
+            payload += VLAN_TAG_LEN;
+        }
         if (!hasHardwareFilter) {
             // Perform packet filtering by software to skip irrelevant
             // packets such as ipmi or kernel TCP/IP traffics.
-            char *data = rte_pktmbuf_mtod(m, char *);
-            auto& eth_header = *reinterpret_cast<EthernetHeader*>(data);
-            if (eth_header.etherType !=
-                    HTONS(NetUtil::EthPayloadType::RAMCLOUD)) {
-                packetBufPool.destroy(buffer);
+            if (ether_type !=
+                    rte_cpu_to_be_16(NetUtil::EthPayloadType::RAMCLOUD)) {
                 rte_pktmbuf_free(m);
                 continue;
             }
         }
+
+        PerfStats::threadStats.networkInputBytes += rte_pktmbuf_pkt_len(m);
+        PacketBuf* buffer = packetBufPool.construct();
         packetBufsUtilized++;
-        buffer->sender.construct(
-                rte_pktmbuf_mtod(m, uint8_t *) + sizeof(struct ether_addr));
-        uint32_t length = rte_pktmbuf_pkt_len(m) -
-                sizeof32(NetUtil::EthernetHeader);
-        rte_memcpy(buffer->payload,
-                static_cast<char*>(rte_pktmbuf_mtod(m, void *))
-                + sizeof(NetUtil::EthernetHeader), length);
+        buffer->sender.construct(ethHdr->s_addr.addr_bytes);
+        uint32_t length = rte_pktmbuf_pkt_len(m) - headerLength;
+        assert(length <= MAX_PAYLOAD_SIZE);
+        rte_memcpy(buffer->payload, payload, length);
         receivedPackets->emplace_back(buffer->sender.get(), this,
                 length, buffer->payload);
         rte_pktmbuf_free(m);
@@ -359,32 +407,38 @@ DpdkDriver::release(char *payload)
 
 // See docs in Driver class.
 void
-DpdkDriver::sendPacket(const Address *addr,
-                       const void *header,
+DpdkDriver::sendPacket(const Address* addr,
+                       const void* header,
                        uint32_t headerLen,
-                       Buffer::Iterator *payload)
+                       Buffer::Iterator* payload,
+                       int priority)
 {
-    struct rte_mbuf *mbuf = NULL;
-    char *data = NULL;
+    // Convert transport-level packet priority to Ethernet priority.
+    assert(priority >= 0 && priority <= getHighestPacketPriority());
+    priority += lowestPriorityAvail;
 
-    uint32_t totalLength = headerLen +
-            (payload ? payload->size() : 0);
-    uint32_t datagramLength = totalLength + sizeof32(NetUtil::EthernetHeader);
+    uint32_t etherPayloadLength = headerLen + (payload ? payload->size() : 0);
+    uint32_t frameLength = etherPayloadLength + ETHER_VLAN_HDR_LEN;
+    assert(etherPayloadLength <= MAX_PAYLOAD_SIZE);
 
-    assert(totalLength <= MAX_PAYLOAD_SIZE);
-
-    mbuf = rte_pktmbuf_alloc(packetPool);
-
+#if TESTING
+    struct rte_mbuf mockMbuf;
+    struct rte_mbuf* mbuf = &mockMbuf;
+#else
+    struct rte_mbuf* mbuf = rte_pktmbuf_alloc(packetPool);
+#endif
     if (NULL == mbuf) {
         RAMCLOUD_CLOG(NOTICE,
                 "Failed to allocate a packet buffer; dropping packet");
         return;
     }
 
-    data = rte_pktmbuf_append(mbuf, downCast<uint16_t>(datagramLength));
-
-    char *p = data;
-
+#if TESTING
+    uint8_t mockEtherFrame[ETHER_MAX_VLAN_FRAME_LEN] = {};
+    char* data = reinterpret_cast<char*>(mockEtherFrame);
+#else
+    char* data = rte_pktmbuf_append(mbuf, downCast<uint16_t>(frameLength));
+#endif
     if (NULL == data) {
         RAMCLOUD_CLOG(NOTICE,
                 "rte_pktmbuf_append call failed; dropping packet");
@@ -392,14 +446,24 @@ DpdkDriver::sendPacket(const Address *addr,
         return;
     }
 
-    NetUtil::EthernetHeader* ethHdr = reinterpret_cast<
-            NetUtil::EthernetHeader*>(p);
+    // Fill out the destination and source MAC addresses plus the Ethernet
+    // frame type (i.e., IEEE 802.1Q VLAN tagging).
+    char *p = data;
+    struct ether_hdr* ethHdr = reinterpret_cast<struct ether_hdr*>(p);
+    rte_memcpy(&ethHdr->d_addr, static_cast<const MacAddress*>(addr)->address,
+            ETHER_ADDR_LEN);
+    rte_memcpy(&ethHdr->s_addr, localMac->address, ETHER_ADDR_LEN);
+    ethHdr->ether_type = rte_cpu_to_be_16(ETHER_TYPE_VLAN);
+    p += ETHER_HDR_LEN;
 
-    rte_memcpy(&ethHdr->destAddress,
-            static_cast<const MacAddress*>(addr)->address, 6);
-    rte_memcpy(&ethHdr->srcAddress, localMac->address, 6);
-    ethHdr->etherType = HTONS(NetUtil::EthPayloadType::RAMCLOUD);
-    p += sizeof(*ethHdr);
+    // Fill out the PCP field and the Ethernet frame type of the encapsulated
+    // frame (DEI and VLAN ID are not relevant and trivially set to 0).
+    struct vlan_hdr* vlanHdr = reinterpret_cast<struct vlan_hdr*>(p);
+    vlanHdr->vlan_tci = rte_cpu_to_be_16(PRIORITY_TO_PCP[priority]);
+    vlanHdr->eth_proto = rte_cpu_to_be_16(NetUtil::EthPayloadType::RAMCLOUD);
+    p += VLAN_TAG_LEN;
+
+    // Copy `header` and `payload`.
     rte_memcpy(p, header, headerLen);
     p += headerLen;
     while (payload && !payload->isDone())
@@ -410,19 +474,40 @@ DpdkDriver::sendPacket(const Address *addr,
     }
     timeTrace("about to enqueue outgoing packet");
 
+#if TESTING
+    string hexEtherHeader;
+    for (unsigned i = 0; i < ETHER_VLAN_HDR_LEN; i++) {
+        char hex[3];
+        snprintf(hex, sizeof(hex), "%02x", mockEtherFrame[i]);
+        hexEtherHeader += hex;
+    }
+    LOG(NOTICE, "Ethernet frame header %s, payload %s", hexEtherHeader.c_str(),
+            &mockEtherFrame[ETHER_VLAN_HDR_LEN]);
+#else
     // loopback if src mac == dst mac
     if (!memcmp(static_cast<const MacAddress*>(addr)->address,
             localMac->address, 6)) {
-        rte_ring_enqueue(loopbackRing, mbuf);
+        int ret = rte_ring_enqueue(loopbackRing, mbuf);
+        if (ret != 0) {
+            LOG(WARNING, "rte_ring_enqueue returned %d; packet may be lost?",
+                    ret);
+            rte_pktmbuf_free(mbuf);
+            return;
+        }
     } else {
         uint32_t ret = rte_eth_tx_burst(portId, 0, &mbuf, 1);
         if (ret != 1) {
             LOG(WARNING, "rte_eth_tx_burst returned %u; packet may be lost?",
                     ret);
+            rte_pktmbuf_free(mbuf);
+            queueEstimator.setQueueSize(maxTransmitQueueSize, Cycles::rdtsc());
+            return;
         }
     }
+#endif
     timeTrace("outgoing packet enqueued");
-    queueEstimator.packetQueued(totalLength, Cycles::rdtsc());
+    queueEstimator.packetQueued(frameLength, Cycles::rdtsc());
+    PerfStats::threadStats.networkOutputBytes += frameLength;
 }
 
 // See docs in Driver class.
@@ -433,7 +518,7 @@ DpdkDriver::getServiceLocator()
 }
 
 // See docs in Driver class.
-int
+uint32_t
 DpdkDriver::getBandwidth()
 {
     return bandwidthMbps;

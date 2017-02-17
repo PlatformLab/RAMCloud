@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -135,10 +135,10 @@ insertBefore(List& list, Node& newNode, const Node& nextNode) {
     list.insert(list.iterator_to(nextNode), newNode);
 }
 
-template<typename List, typename Node>
+template<typename Container, typename Node>
 void
-erase(List& list, Node& node) {
-    list.erase(list.iterator_to(node));
+erase(Container& container, Node& node) {
+    container.erase(container.iterator_to(node));
 }
 
 } // end RAMCloud

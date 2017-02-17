@@ -174,6 +174,13 @@ TEST_F(ServiceLocatorTest, init_escapingData) {
     EXPECT_EQ("\\x", sl.getOption("b"));
 }
 
+TEST_F(ServiceLocatorTest, getDriverLocatorString) {
+    string s("fast+udp: host=example.org, port=8081, port=8082");
+    ServiceLocator sl(s);
+    EXPECT_EQ("udp: host=example.org, port=8081, port=8082",
+            sl.getDriverLocatorString());
+}
+
 TEST_F(ServiceLocatorTest, getOptionCastNoDefault) {
     ServiceLocator sl("fast: host=example.org, port=8081");
     EXPECT_THROW(sl.getOption<uint8_t>("foo"),

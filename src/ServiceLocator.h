@@ -116,6 +116,23 @@ class ServiceLocator {
     }
 
     /**
+     * Return the service locator string for the driver by dropping the
+     * transport information (i.e., dropping anything before "+" in the
+     * original locator string).
+     * \return
+     *      See above.
+     */
+    const string getDriverLocatorString() const {
+        // Drop the transport information.
+        size_t pos = originalString.find_first_of('+');
+        if (pos != string::npos) {
+            return originalString.substr(pos+1);
+        } else {
+            return originalString;
+        }
+    }
+
+    /**
      * Return the part of the ServiceLocator string that generally specifies
      * the transport protocol.
      * For example, in "tcp: host=example.org, port=8081", this will return

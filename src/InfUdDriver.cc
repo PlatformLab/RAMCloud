@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -91,7 +91,7 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
     bool macAddressProvided = false;
 
     if (sl != NULL) {
-        locatorString = sl->getOriginalString();
+        locatorString = sl->getDriverLocatorString();
 
         if (ethernet) {
             try {
@@ -340,10 +340,11 @@ InfUdDriver::release(char *payload)
  * See docs in the ``Driver'' class.
  */
 void
-InfUdDriver::sendPacket(const Driver::Address *addr,
-                        const void *header,
+InfUdDriver::sendPacket(const Driver::Address* addr,
+                        const void* header,
                         uint32_t headerLen,
-                        Buffer::Iterator *payload)
+                        Buffer::Iterator* payload,
+                        int priority)
 {
     uint32_t totalLength = headerLen +
                            (payload ? payload->size() : 0);
@@ -452,7 +453,7 @@ InfUdDriver::sendPacket(const Driver::Address *addr,
  * See docs in the ``Driver'' class.
  */
 void
-InfUdDriver::receivePackets(int maxPackets,
+InfUdDriver::receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets)
 {
     static const int MAX_COMPLETIONS = 50;
@@ -553,7 +554,7 @@ InfUdDriver::getServiceLocator()
 }
 
 // See docs in Driver class.
-int
+uint32_t
 InfUdDriver::getBandwidth()
 {
     return bandwidthGbps*1000;
@@ -651,11 +652,12 @@ InfUdDriver::BufferPool::~BufferPool()
     if (memoryRegion != NULL) {
         ibv_dereg_mr(memoryRegion);
     }
-    delete bufferMemory;
+    // `bufferMemory` and `descriptors` are allocated using malloc.
+    free(bufferMemory);
     for (uint32_t i = 0; i < numBuffers; i++) {
         descriptors[i].~BufferDescriptor();
     }
-    delete descriptors;
+    free(descriptors);
 }
 
 } // namespace RAMCloud

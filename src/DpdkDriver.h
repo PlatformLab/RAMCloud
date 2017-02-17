@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2016 Stanford University
+/* Copyright (c) 2015-2017 Stanford University
  * Copyright (c) 2014-2015 Huawei Technologies Co. Ltd.
  * Copyright (c) 2014-2016 NEC Corporation
  *
@@ -24,7 +24,6 @@
 #include "Driver.h"
 #include "FileLogger.h"
 #include "MacAddress.h"
-#include "NetUtil.h"
 #include "ObjectPool.h"
 #include "QueueEstimator.h"
 #include "ServiceLocator.h"
@@ -32,8 +31,10 @@
 
 // Number of descriptors to allocate for the tx/rx rings
 #define NDESC 256
-// Maximum number of packet buffers that the memory pool can hold
-#define NB_MBUF 8192
+// Maximum number of packet buffers that the memory pool can hold. The
+// documentation of `rte_mempool_create` suggests that the optimum value
+// (in terms of memory usage) of this number is a power of two minus one.
+#define NB_MBUF 8191
 // per-element size for the packet buffer memory pool
 #define MBUF_SIZE (2048 + static_cast<uint32_t>(sizeof(struct rte_mbuf)) \
                    + RTE_PKTMBUF_HEADROOM)
@@ -46,36 +47,57 @@ namespace RAMCloud
 {
 
 /**
- * A Driver for  DPDK communication.  Simple packet send/receive
+ * A Driver for DPDK communication. Simple packet send/receive
  * style interface. See Driver.h for more detail.
  */
 
 class DpdkDriver : public Driver
 {
   public:
-    static const uint32_t MAX_PAYLOAD_SIZE = 1400;
-
+#if TESTING
+    explicit DpdkDriver();
+#endif
     explicit DpdkDriver(Context* context, int port = 0);
     virtual ~DpdkDriver();
-    void close();
+    virtual int getHighestPacketPriority();
     virtual uint32_t getMaxPacketSize();
-    virtual int getBandwidth();
+    virtual uint32_t getBandwidth();
     virtual int getTransmitQueueSpace(uint64_t currentTime);
-    virtual void receivePackets(int maxPackets,
+    virtual void receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets);
     virtual void release(char *payload);
-    virtual void sendPacket(const Address *addr,
-                            const void *header,
+    virtual void sendPacket(const Address* addr,
+                            const void* header,
                             uint32_t headerLen,
-                            Buffer::Iterator *payload);
+                            Buffer::Iterator* payload,
+                            int priority = 0);
     virtual string getServiceLocator();
-
-    typedef Driver::PacketBuf<MacAddress, MAX_PAYLOAD_SIZE> PacketBuf;
 
     virtual Address* newAddress(const ServiceLocator* serviceLocator)
     {
         return new MacAddress(serviceLocator->getOption<const char*>("mac"));
     }
+
+  PRIVATE:
+    // The MTU (Maximum Transmission Unit) size of an Ethernet frame, which
+    // is the maximum size of the packet an Ethernet frame can carry in its
+    // payload.
+    static const uint32_t MAX_PAYLOAD_SIZE = 1500;
+
+    /// Size of VLAN tag, in bytes. We are using the PCP (Priority Code Point)
+    /// field defined in the VLAN tag to specify the packet priority.
+    static const uint32_t VLAN_TAG_LEN = 4;
+
+    /// Size of Ethernet header including VLAN tag, in bytes.
+    static const uint32_t ETHER_VLAN_HDR_LEN = 14 + VLAN_TAG_LEN;
+
+    /// Map from priority levels to values of the PCP field. Note that PCP = 1
+    /// is actually the lowest priority, while PCP = 0 is the second lowest.
+    static constexpr uint16_t PRIORITY_TO_PCP[8] =
+            {1 << 13, 0 << 13, 2 << 13, 3 << 13, 4 << 13, 5 << 13, 6 << 13,
+             7 << 13};
+
+    typedef Driver::PacketBuf<MacAddress, MAX_PAYLOAD_SIZE> PacketBuf;
 
     Context* context;
 
@@ -107,16 +129,18 @@ class DpdkDriver : public Driver
     /// Hardware packet filter is provided by the NIC
     bool hasHardwareFilter;
 
-    /// Ethernet Header struct used in software packet filter
-    struct EthernetHeader {
-        uint8_t destAddress[6];
-        uint8_t sourceAddress[6];
-        uint16_t etherType; // network order
-        uint16_t length;    // host order, length of payload
-    } __attribute__((packed));
+    /// Effective network bandwidth, in Mbits/second.
+    uint32_t bandwidthMbps;
 
-    // Effective network bandwidth, in Mbits/second.
-    int bandwidthMbps;
+    /// Highest ethernet priority level the driver is allowed to use. Must be
+    /// less than or equal to 7.
+    int highestPriorityAvail;
+
+    /// Lowest ethernet priority level the driver is allowed to use. Must be
+    /// greater than or equal to 0.
+    /// Note: the highest packet priority presented to the transport level will
+    /// be `highestPriorityAvail - lowestPriorityAvail + 1`.
+    int lowestPriorityAvail;
 
     /// Used to estimate # bytes outstanding in the NIC's transmit queue.
     QueueEstimator queueEstimator;

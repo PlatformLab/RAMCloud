@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016 Stanford University
+/* Copyright (c) 2014-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -51,13 +51,14 @@ class SolarFlareDriver : public Driver {
     virtual ~SolarFlareDriver();
     virtual uint32_t getMaxPacketSize();
     virtual int getTransmitQueueSpace(uint64_t currentTime);
-    virtual void receivePackets(int maxPackets,
+    virtual void receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets);
     virtual void release(char* payload);
     virtual void sendPacket(const Driver::Address* recipient,
                             const void* header,
-                            const uint32_t headerLen,
-                            Buffer::Iterator *payload);
+                            uint32_t headerLen,
+                            Buffer::Iterator* payload,
+                            int priority = 0);
     virtual string getServiceLocator();
     virtual Driver::Address* newAddress(const ServiceLocator& serviceLocator);
 

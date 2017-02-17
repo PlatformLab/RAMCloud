@@ -1,4 +1,4 @@
-/** Copyright (c) 2014-2016 Stanford University
+/** Copyright (c) 2014-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -402,7 +402,7 @@ SolarFlareDriver::getTransmitQueueSpace(uint64_t currentTime)
 
 // See docs in Driver class.
 void
-SolarFlareDriver::receivePackets(int maxPackets,
+SolarFlareDriver::receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets)
 {
     assert(driver->context->dispatch->isDispatchThread());
@@ -534,8 +534,9 @@ SolarFlareDriver::newAddress(const ServiceLocator& serviceLocator) {
 void
 SolarFlareDriver::sendPacket(const Driver::Address* recipient,
                              const void* header,
-                             const uint32_t headerLen,
-                             Buffer::Iterator *payload)
+                             uint32_t headerLen,
+                             Buffer::Iterator* payload,
+                             int priority)
 {
 
     uint32_t udpPayloadLen = downCast<uint32_t>(headerLen

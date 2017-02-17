@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -70,7 +70,7 @@ UdpDriver::UdpDriver(Context* context,
     , readerThreadExit(false)
 {
     if (localServiceLocator != NULL) {
-        locatorString = localServiceLocator->getOriginalString();
+        locatorString = localServiceLocator->getDriverLocatorString();
         try {
             bandwidthGbps = localServiceLocator->getOption<int>("gbs");
         } catch (ServiceLocator::NoSuchKeyException& e) {}
@@ -101,7 +101,7 @@ UdpDriver::UdpDriver(Context* context,
             sys->close(fd);
             throw DriverException(HERE,
                     format("UdpDriver couldn't bind to locator '%s'",
-                    localServiceLocator->getOriginalString().c_str()), e);
+                    locatorString.c_str()), e);
         }
     } else {
         struct sockaddr_in address;
@@ -120,8 +120,9 @@ UdpDriver::UdpDriver(Context* context,
     }
 
     socketFd = fd;
-
     readerThread.construct(readerThreadMain, this);
+
+    LOG(NOTICE, "Locator for UdpDriver: %s", locatorString.c_str());
 }
 
 /**
@@ -174,7 +175,7 @@ UdpDriver::getTransmitQueueSpace(uint64_t currentTime)
 
 // See docs in Driver class.
 void
-UdpDriver::receivePackets(int maxPackets,
+UdpDriver::receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets)
 {
     PacketBatch* batch = &packetBatches[currentBatch];
@@ -221,10 +222,11 @@ UdpDriver::release(char *payload)
 
 // See docs in Driver class.
 void
-UdpDriver::sendPacket(const Address *addr,
-                      const void *header,
+UdpDriver::sendPacket(const Address* addr,
+                      const void* header,
                       uint32_t headerLen,
-                      Buffer::Iterator *payload)
+                      Buffer::Iterator* payload,
+                      int priority)
 {
     if (socketFd == -1)
         return;

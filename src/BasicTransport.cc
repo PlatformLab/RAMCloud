@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2016 Stanford University
+/* Copyright (c) 2015-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -59,6 +59,7 @@ BasicTransport::BasicTransport(Context* context, const ServiceLocator* locator,
         Driver* driver, uint64_t clientId)
     : context(context)
     , driver(driver)
+    , locatorString("basic+"+driver->getServiceLocator())
     , poller(context, this)
     , maxDataPerPacket(driver->getMaxPacketSize() - sizeof32(DataHeader))
     , clientId(clientId)
@@ -132,7 +133,7 @@ BasicTransport::~BasicTransport()
 string
 BasicTransport::getServiceLocator()
 {
-    return driver->getServiceLocator();
+    return locatorString;
 }
 
 /*
