@@ -470,9 +470,7 @@ class ReplicatedSegment : public Task {
      * See ReplicaManager::dataMutex; there are many subtleties to the locking
      * in this module.
      */
-    Arachne::SpinLock syncMutex;
-    Arachne::ConditionVariable syncCV;
-    bool isSyncing;
+    Arachne::SleepLock syncMutex;
     typedef std::unique_lock<Arachne::SpinLock> SpinLockGuard;
 
     /**
