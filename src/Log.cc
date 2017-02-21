@@ -66,7 +66,7 @@ Log::Log(Context* context,
                   config->segmentSize),
       context(context),
       cleaner(NULL),
-      syncLock("Log::syncLock"),
+      syncLock(),
       metrics()
 {
     cleaner = new LogCleaner(context,

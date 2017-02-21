@@ -24,7 +24,6 @@
 #include "BoostIntrusive.h"
 #include "LogEntryTypes.h"
 #include "Segment.h"
-#include "SpinLock.h"
 #include "ReplicaManager.h"
 #include "HashTable.h"
 
@@ -172,7 +171,7 @@ class AbstractLog {
   PROTECTED:
     LogSegment* getSegment(Reference reference);
 
-    typedef std::lock_guard<Arachne::SpinLock> Lock;
+    typedef std::lock_guard<Arachne::SleepLock> Lock;
 
     /**
      * This virtual method is used to allocate the next segment to append
@@ -248,7 +247,7 @@ class AbstractLog {
     /// writers do not modify the head segment concurrently. The sync()
     /// method also uses this lock to get a consistent view of the head
     /// segment in the presence of multiple appending threads.
-    Arachne::SpinLock appendLock;
+    Arachne::SleepLock appendLock;
 
     // Total amount of log space occupied by long-term data such as
     // objects. Excludes data that can eventually be cleaned, such

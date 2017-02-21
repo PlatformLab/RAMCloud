@@ -107,7 +107,7 @@ class Log : public AbstractLog {
     ///
     /// If both this lock and the AbstractLog::appendLock need to be taken,
     /// this one must be acquired first to avoid deadlock.
-    Arachne::SpinLock syncLock;
+    Arachne::SleepLock syncLock;
 
     /// Various event counters and performance measurements taken during log
     /// operation.

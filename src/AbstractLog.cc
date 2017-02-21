@@ -49,7 +49,7 @@ AbstractLog::AbstractLog(LogEntryHandlers* entryHandlers,
       replicaManager(replicaManager),
       segmentSize(segmentSize),
       head(NULL),
-      appendLock("AbstractLog::appendLock"),
+      appendLock(),
       totalLiveBytes(0),
       maxLiveBytes(0),
       metrics()
