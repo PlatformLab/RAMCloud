@@ -405,23 +405,23 @@ tags-clean:
 print-%:
 	@echo $* = $($*)
 
-# Rebuild the Java bindings
-java: $(OBJDIR)/libramcloud.a
-	bindings/java/gradlew --project-dir bindings/java
-java-clean:
-	bindings/java/gradlew --project-dir bindings/java clean
-
 INSTALL_BINS := \
     $(APPOBJDIR)/client \
     $(OBJDIR)/coordinator \
     $(APPOBJDIR)/ensureServers \
-    $(OBJDIR)/libramcloud.so \
     $(OBJDIR)/server \
     $(NULL)
 
 INSTALL_LIBS := \
+    $(OBJDIR)/libramcloud.so \
     $(OBJDIR)/libramcloud.a \
     $(NULL)
+
+# Rebuild the Java bindings
+java: $(INSTALL_LIBS)
+	bindings/java/gradlew --project-dir bindings/java
+java-clean:
+	bindings/java/gradlew --project-dir bindings/java clean
 
 # The header files below are those that must be installed in order to
 # compile RAMCloud applications. Please try to keep this list as short
