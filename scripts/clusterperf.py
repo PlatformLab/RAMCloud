@@ -253,7 +253,7 @@ def run_test(
         'num_servers': options.num_servers,
         'replicas':    options.replicas,
         'timeout':     options.timeout,
-        'share_hosts': True,
+        'share_hosts': False,
         'transport':   options.transport,
         'disjunct':    options.disjunct,
         'verbose':     options.verbose,
