@@ -245,13 +245,17 @@ $(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(OBJDIR)/gtest.a
 	@mkdir -p $(@D)
 	$(CXX) $(LDFLAGS) -o $@ $^ $(TESTS_LIB)
 
-# The unit tests don't actually call all of these programs, but
+# When building targets that involve unit tests, the TESTING flag must be
+# set to 1. This is done using the target-specific variable mechanism.
+test: CXXFLAGS_TARGET := -DTESTING=1 -Wno-unused-result
+# The smoke test don't actually call all of these programs, but
 # they are included here to make sure they continue to build.
-test: $(OBJDIR)/zooTest \
+test: unit-test \
+      $(OBJDIR)/zooTest \
       $(OBJDIR)/libramcloudtest.so \
-      testInstall \
-      unit-test
+      testInstall
 
+unit-test: CXXFLAGS_TARGET := -DTESTING=1 -Wno-unused-result
 unit-test: $(OBJDIR)/test
 	$(OBJDIR)/test
 

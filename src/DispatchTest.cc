@@ -362,7 +362,7 @@ TEST_F(DispatchTest, poll_fileHandling) {
     usleep(5000);
     EXPECT_EQ(0, dispatch.poll());
     EXPECT_EQ("", *localLog);
-    write(pipeFds[1], "0123456789abcdefghijklmnop", 26);
+    EXPECT_EQ(26, write(pipeFds[1], "0123456789abcdefghijklmnop", 26));
 
     // File ready.
     EXPECT_EQ(1, waitForPollSuccess(1.0));
@@ -384,7 +384,7 @@ TEST_F(DispatchTest, poll_fileHandling) {
 
 TEST_F(DispatchTest, poll_fileDeletedDuringInvocation) {
     int fds[2];
-    pipe(fds);
+    EXPECT_EQ(0,  pipe(fds));
     DummyFile *f = new DummyFile("f1", false, fds[1],
             Dispatch::FileEvent::WRITABLE, &dispatch);
     f->deleteThis = true;
