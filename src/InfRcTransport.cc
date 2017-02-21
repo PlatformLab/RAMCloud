@@ -1151,7 +1151,9 @@ InfRcTransport::sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp,
         pendingOutputBytes += bd->messageBytes;
     } else {
         for (int i = 0; i < txWorkRequest.num_sge; ++i) {
+#if TESTING
             const ibv_sge& sge = txWorkRequest.sg_list[i];
+#endif
             TEST_LOG("isge[%d]: %u bytes %s", i, sge.length,
                      (logMemoryRegion && sge.lkey ==
                         logMemoryRegion->lkey) ?
