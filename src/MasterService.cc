@@ -3205,10 +3205,10 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
             &rpcResult, &rpcResultPtr);
 
-    TimeTrace::record("id %u: just wrote object to log, about to sync object",
+    TimeTrace::record("ID %u: Wrote object, waiting for sync",
             rpc->worker->rpc->id);
     if (respHdr->common.status == STATUS_OK) {
-        objectManager.syncChanges();
+        objectManager.syncChanges(rpc->worker->rpc->id);
         rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is
                                            // written.
                                            // Otherwise, RPC state should reset

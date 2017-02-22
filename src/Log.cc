@@ -21,6 +21,7 @@
 #include "PerfStats.h"
 #include "ServerConfig.h"
 #include "ShortMacros.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -151,7 +152,7 @@ Log::getHead() {
  * large ones anyway.
  */
 void
-Log::sync()
+Log::sync(uint32_t rpcId)
 {
     CycleCounter<uint64_t> __(&PerfStats::threadStats.logSyncCycles);
 
@@ -189,6 +190,7 @@ Log::sync()
     lock.destroy();
     Lock _(syncLock);
     lock.construct(appendLock);
+    if (rpcId) TimeTrace::record("ID %u: Starting replication", rpcId);
 
     // See if we still have work to do. It's possible that another thread
     // already did the syncing we needed for us.
@@ -208,6 +210,7 @@ Log::sync()
     } else {
         TEST_LOG("sync not needed: already fully replicated");
     }
+    if (rpcId) TimeTrace::record("ID %u: Finished replication", rpcId);
 }
 
 /**

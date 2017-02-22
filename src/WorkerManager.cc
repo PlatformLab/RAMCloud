@@ -106,7 +106,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 {
     // Since this method should only run in the dispatch thread, there is no
     // need to synchronize this state.
-    static uint32_t nextRpcId = 0;
+    static uint32_t nextRpcId = 1;
 
     // Find the service for this RPC.
     const WireFormat::RequestCommon* header;
@@ -157,8 +157,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     // Create a new thread to handle the RPC.
     rpc->id = nextRpcId++;
     rpc->header = header;
-    timeTrace("handing off opcode %d with ID %u to worker thread",
-            header->opcode, rpc->id);
+    timeTrace("ID %u: Dispatching opcode %d", rpc->id, header->opcode);
     if (Arachne::createThread(&WorkerManager::workerMain, this, rpc) ==
             Arachne::NullThread) {
         // On failure, send STATUS_RETRY
@@ -201,8 +200,8 @@ WorkerManager::poll()
 
         foundWork = 1;
 
-        timeTrace("dispatch thread starting cleanup for opcode %d, id = %u",
-                *(rpc->requestPayload.getStart<uint16_t>()), rpc->id);
+        timeTrace("ID %u: dispatch sending response",
+                rpc->id, *(rpc->requestPayload.getStart<uint16_t>()));
 
 #ifdef LOG_RPCS
             LOG(NOTICE, "Sending reply for %s at %u with %u bytes",
@@ -211,8 +210,7 @@ WorkerManager::poll()
                     rpc->replyPayload.size());
 #endif
             rpc->sendReply();
-            timeTrace("sent reply for opcode %d, id = %u",
-                *(rpc->requestPayload.getStart<uint16_t>()), rpc->id);
+            timeTrace("ID %u: reply sent", rpc->id);
         numOutstandingRpcs--;
 
         // If we are not the last rpc, store the last Rpc here so that pop-back
@@ -270,8 +268,8 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
     uint64_t lastIdle = Cycles::rdtsc();
 
     try {
-        timeTrace("worker thread received opcode %d with id = %u",
-                serverRpc->header->opcode, serverRpc->id);
+        timeTrace("ID %u: Starting processing on core %d",
+                serverRpc->id, Arachne::kernelThreadId);
         Worker worker(context, serverRpc, WireFormat::Opcode(serverRpc->header->opcode));
 
         serverRpc->epoch = LogProtector::getCurrentEpoch();
@@ -280,9 +278,8 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
         Service::handleRpc(context, &rpc);
 
         // Pass the RPC back to the dispatch thread for completion.
+        timeTrace("ID %u: Finished processing; signal dispatch", serverRpc->id);
         worker.sendReply();
-        timeTrace("worker thread completed opcode %d with id = %u; "
-                "dispatch thread signaled", worker.opcode, serverRpc->id);
 
         // Update performance statistics.
         uint64_t current = Cycles::rdtsc();
