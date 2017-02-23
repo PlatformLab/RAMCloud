@@ -190,7 +190,8 @@ Log::sync(uint32_t rpcId)
     lock.destroy();
     Lock _(syncLock);
     lock.construct(appendLock);
-    if (rpcId) TimeTrace::record("ID %u: Starting replication", rpcId);
+    if (rpcId) TimeTrace::record("ID %u: Starting replication on Core %d",
+            rpcId, Arachne::kernelThreadId);
 
     // See if we still have work to do. It's possible that another thread
     // already did the syncing we needed for us.
@@ -210,7 +211,8 @@ Log::sync(uint32_t rpcId)
     } else {
         TEST_LOG("sync not needed: already fully replicated");
     }
-    if (rpcId) TimeTrace::record("ID %u: Finished replication", rpcId);
+    if (rpcId) TimeTrace::record("ID %u: Finished replication on Core %d",
+            rpcId, Arachne::kernelThreadId);
 }
 
 /**

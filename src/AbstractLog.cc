@@ -21,6 +21,7 @@
 #include "PerfStats.h"
 #include "ServerConfig.h"
 #include "ShortMacros.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -79,10 +80,13 @@ AbstractLog::AbstractLog(LogEntryHandlers* entryHandlers,
  *      to complete the operation.
  */
 bool
-AbstractLog::append(AppendVector* appends, uint32_t numAppends)
+AbstractLog::append(AppendVector* appends, uint32_t numAppends, uint32_t rpcId)
 {
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
     Lock lock(appendLock);
+    if (rpcId)
+        TimeTrace::record("ID %u: Acquired appendLock on Core %d",
+                rpcId, Arachne::kernelThreadId);
     metrics.totalAppendCalls++;
 
     uint32_t lengths[numAppends];

@@ -1179,7 +1179,7 @@ ObjectManager::syncChanges(uint32_t rpcId)
 Status
 ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer,
-                RpcResult* rpcResult, uint64_t* rpcResultPtr)
+                RpcResult* rpcResult, uint64_t* rpcResultPtr, uint32_t rpcId)
 {
     uint16_t keyLength = 0;
     const void *keyString = newObject.getKey(0, &keyLength);
@@ -1292,7 +1292,9 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         appends[rpcResultIndex].type = LOG_ENTRY_TYPE_RPCRESULT;
     }
 
-    if (!log.append(appends, (tombstone ? 2 : 1) + (rpcResult ? 1 : 0))) {
+    if (rpcId)
+        TimeTrace::record("ID %u: Before append on Core %d", rpcId, Arachne::kernelThreadId);
+    if (!log.append(appends, (tombstone ? 2 : 1) + (rpcResult ? 1 : 0), rpcId)) {
         // The log is out of space. Tell the client to retry and hope
         // that the cleaner makes space soon.
         throw RetryException(HERE, 1000, 2000, "Must wait for cleaner");

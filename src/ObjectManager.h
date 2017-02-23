@@ -87,7 +87,8 @@ class ObjectManager : public LogEntryHandlers,
     void syncChanges(uint32_t rpcId = 0);
     Status writeObject(Object& newObject, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer = NULL,
-                RpcResult* rpcResult = NULL, uint64_t* rpcResultPtr = NULL);
+                RpcResult* rpcResult = NULL, uint64_t* rpcResultPtr = NULL,
+                uint32_t rpcId = 0);
     bool keyPointsAtReference(Key& k, AbstractLog::Reference oldReference);
     void writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr);
     void writeRpcResultOnly(RpcResult* rpcResult, uint64_t* rpcResultPtr);

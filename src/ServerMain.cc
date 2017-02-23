@@ -371,7 +371,7 @@ main(int argc, const char *argv[]) {
     Arachne::setErrorStream(arachneLogger.getFile());
 
     Arachne::numCores = 1;
-    Arachne::maxNumCores = 1;
+    Arachne::maxNumCores = 2;
     Arachne::initCore = [] () {
         PerfStats::registerStats(&PerfStats::threadStats);
     };

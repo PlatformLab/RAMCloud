@@ -107,7 +107,7 @@ class AbstractLog {
                 uint32_t segmentSize);
     virtual ~AbstractLog() { }
 
-    bool append(AppendVector* appends, uint32_t numAppends);
+    bool append(AppendVector* appends, uint32_t numAppends, uint32_t rpcId = 0);
     bool append(Buffer* logBuffer, Reference *references, uint32_t numEntries);
     void free(Reference reference);
     void getMetrics(ProtoBuf::LogMetrics& m);
