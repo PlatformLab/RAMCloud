@@ -58,7 +58,7 @@ ifeq ($(DEBUG),yes)
 ifeq ($(DEBUG_OPT),yes)
 OPTFLAG := -Og
 endif
-DEBUGFLAGS := -fno-builtin
+DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
 OPTFLAG := -O3
 DEBUGFLAGS := -DNDEBUG -Wno-unused-variable

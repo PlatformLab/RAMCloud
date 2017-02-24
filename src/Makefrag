@@ -200,13 +200,13 @@ $(TOP)/$(OBJDIR)/RpcLevelData.h: $(TOP)/scripts/genLevels.py $(TOP)/src/WireForm
 
 $(OBJDIR)/%.o: $(TOP)/src/%.cc $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)
-	$(call run-cxx,$@,$<, -fPIC $(CXXFLAGS_TARGET))
+	$(call run-cxx,$@,$<, -fPIC)
 
 # If there's a cc file in the object dir, build it.
 # This is for auto-generated source code.
 $(OBJDIR)/%.o: $(OBJDIR)/%.cc $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)
-	$(call run-cxx,$@,$<, -fPIC $(CXXFLAGS_TARGET))
+	$(call run-cxx,$@,$<, -fPIC)
 
 # rawmetrics.py needs to be run whenever it changes, or any of its input
 # files change (currently only WireFormat.h).

@@ -800,7 +800,7 @@ test_forEach_callback(uint64_t ref, void *cookie)
  */
 TEST_F(HashTableTest, forEach) {
     HashTable ht(2);
-    const uint32_t arrayLen = 256;
+    uint32_t arrayLen = 256;
     TestObject checkoff[arrayLen] = {};
 
     for (uint32_t i = 0; i < arrayLen; i++) {

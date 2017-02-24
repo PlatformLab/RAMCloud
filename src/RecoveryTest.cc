@@ -190,7 +190,6 @@ TEST_F(RecoveryTest, splitTablets_multi_tablet) {
     digest->header.entryCount = 3;
     digest->header.otherBytesPerKeyHash = 0;
     digest->header.otherRecordsPerKeyHash = 0;
-#pragma GCC diagnostic ignored "-Warray-bounds"
     digest->entries[0].tableId = 1;
     digest->entries[0].bytesPerKeyHash = Recovery::PARTITION_MAX_BYTES / 10;
     digest->entries[0].recordsPerKeyHash = Recovery::PARTITION_MAX_RECORDS / 10;
@@ -202,7 +201,6 @@ TEST_F(RecoveryTest, splitTablets_multi_tablet) {
     digest->entries[2].tableId = 3;
     digest->entries[2].bytesPerKeyHash = Recovery::PARTITION_MAX_BYTES / 10;
     digest->entries[2].recordsPerKeyHash = Recovery::PARTITION_MAX_RECORDS / 10;
-#pragma GCC diagnostic warning "-Warray-bounds"
 
     TableStats::Estimator e(digest);
 
@@ -233,7 +231,6 @@ TEST_F(RecoveryTest, splitTablets_indexlet) {
     digest->header.entryCount = 3;
     digest->header.otherBytesPerKeyHash = 0;
     digest->header.otherRecordsPerKeyHash = 0;
-#pragma GCC diagnostic ignored "-Warray-bounds"
     digest->entries[0].tableId = 1;
     digest->entries[0].bytesPerKeyHash = Recovery::PARTITION_MAX_BYTES / 10;
     digest->entries[0].recordsPerKeyHash = Recovery::PARTITION_MAX_RECORDS / 10;
@@ -241,7 +238,6 @@ TEST_F(RecoveryTest, splitTablets_indexlet) {
     digest->entries[1].tableId = 2;
     digest->entries[1].bytesPerKeyHash = Recovery::PARTITION_MAX_BYTES / 10;
     digest->entries[1].recordsPerKeyHash = Recovery::PARTITION_MAX_RECORDS / 10;
-#pragma GCC diagnostic warning "-Warray-bounds"
 
     TableStats::Estimator e(digest);
 
@@ -594,7 +590,6 @@ TEST_F(RecoveryTest, partitionTablets_splits) {
     digest->header.entryCount = 2;
     digest->header.otherBytesPerKeyHash = 0;
     digest->header.otherRecordsPerKeyHash = 0;
-#pragma GCC diagnostic ignored "-Warray-bounds"
     digest->entries[0].tableId = 1;
     digest->entries[0].bytesPerKeyHash = (10.0 / 100)
                                          * Recovery::PARTITION_MAX_BYTES;
@@ -605,7 +600,6 @@ TEST_F(RecoveryTest, partitionTablets_splits) {
                                          * Recovery::PARTITION_MAX_BYTES;
     digest->entries[1].recordsPerKeyHash = (10.0 / 100)
                                            * Recovery::PARTITION_MAX_RECORDS;
-#pragma GCC diagnostic warning "-Warray-bounds"
 
     TableStats::Estimator e(digest);
 

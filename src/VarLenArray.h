@@ -19,7 +19,6 @@
 #include "Common.h"
 
 namespace RAMCloud {
-#pragma GCC diagnostic ignored "-Warray-bounds"
 
 /**
  * Manages an array of dynamic size in a convenient and exception-safe way.
@@ -205,7 +204,6 @@ struct VarLenArray {
      */
     ElementType start[0];
 };
-#pragma GCC diagnostic warning "-Warray-bounds"
 
 } // namespace RAMCloud
 
