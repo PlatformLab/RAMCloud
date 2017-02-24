@@ -283,7 +283,7 @@ endif
 # info to be available.
 testInstall: install
 	$(CXX) --std=c++11 $(GLIBCXX_ABI) -g -DNDEBUG -Iinstall/include -I. \
-	        src/TestClient.cc -o $(OBJDIR)/TestClient -Linstall/bin \
+	        src/TestClient.cc -o $(OBJDIR)/TestClient -Linstall/lib/ramcloud/ \
 	        -lramcloud -Wl,-rpath=install/bin $(TEST_INSTALL_FLAGS)
 
 TESTS_ONLY_OBJFILES := $(TESTS_SRCFILES)
