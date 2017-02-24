@@ -343,7 +343,7 @@ class ReplicatedSegment : public Task {
     bool isSynced() const;
     void close();
     void handleBackupFailure(ServerId failedId, bool useMinCopysets);
-    void sync(uint32_t offset = ~0u, SegmentCertificate* certificate = NULL);
+    void sync(uint32_t offset = ~0u, SegmentCertificate* certificate = NULL, uint32_t rpcId = 0);
     const Segment* swapSegment(const Segment* newSegment);
 
     /**
@@ -611,6 +611,11 @@ class ReplicatedSegment : public Task {
      * was constructed.
      */
     uint64_t unopenedStartCycles;
+
+    /**
+     * Track the rpcId of the Rpc that currently holds the syncLock.
+     */
+    uint32_t syncingRpcId;
 
     /**
      * An array of #ReplicaManager::replica backups on which the segment is

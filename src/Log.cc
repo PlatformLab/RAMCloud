@@ -205,7 +205,7 @@ Log::sync(uint32_t rpcId)
         // while we sync.
         lock.destroy();
 
-        originalHead->replicatedSegment->sync(appendedLength, &certificate);
+        originalHead->replicatedSegment->sync(appendedLength, &certificate, rpcId);
         originalHead->syncedLength = appendedLength;
         TEST_LOG("log synced");
     } else {

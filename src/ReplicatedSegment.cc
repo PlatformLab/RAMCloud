@@ -18,6 +18,7 @@
 #include "ReplicatedSegment.h"
 #include "Segment.h"
 #include "ShortMacros.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -123,6 +124,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , listEntries()
     , replicationCounter(replicationCounter)
     , unopenedStartCycles(Cycles::rdtsc())
+    , syncingRpcId(0)
     , replicas(numReplicas)
 {
     openLen = segment->getAppendedLength(&openingWriteCertificate);
@@ -375,7 +377,8 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId, bool useMinCopysets)
  *      appending to it.
  */
 void
-ReplicatedSegment::sync(uint32_t offset, SegmentCertificate* certificate)
+ReplicatedSegment::sync(
+        uint32_t offset, SegmentCertificate* certificate, uint32_t rpcId)
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     TEST_LOG("syncing segment %lu to offset %u", segmentId, offset);
@@ -384,6 +387,8 @@ ReplicatedSegment::sync(uint32_t offset, SegmentCertificate* certificate)
 
     Tub<Lock> lock;
     lock.construct(dataMutex);
+
+    syncingRpcId = rpcId;
 
     // Definition of synced changes if this segment isn't durably closed
     // and is recovering from a lost replica.  In that case the data
@@ -750,6 +755,9 @@ ReplicatedSegment::performWrite(Replica& replica)
             // Wait for it to complete if it is ready.
             try {
                 replica.writeRpc->wait();
+                if (syncingRpcId)
+                    TimeTrace::record("ID %u: Completed replication Rpc on Core %d",
+                        syncingRpcId, Arachne::kernelThreadId);
                 TEST_LOG("Write RPC finished for replica slot %ld",
                          &replica - &replicas[0]);
                 if (replica.acked.open && !replica.sent.open) {
@@ -940,6 +948,9 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending write to backup %s",
                      replica.backupId.toString().c_str());
+            if (syncingRpcId)
+                TimeTrace::record("ID %u: Sent replication Rpc on Core %d",
+                    syncingRpcId, Arachne::kernelThreadId);
             replica.writeRpc.construct(context, replica.backupId, masterId,
                                        segmentId, queued.epoch,
                                        segment, offset, length,
