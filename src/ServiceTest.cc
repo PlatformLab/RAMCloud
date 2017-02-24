@@ -285,7 +285,7 @@ TEST_F(ServiceTest, sendReply) {
     MockTransport transport(&context);
     context.services[WireFormat::BACKUP_SERVICE] = &service;
     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
-            &transport, "0x10007 3 4");
+            &transport, "0x10008 3 4");
     manager->handleRpc(rpc);
 
     // Verify that the reply has been sent even though the worker has not
@@ -299,7 +299,7 @@ TEST_F(ServiceTest, sendReply) {
     }
     EXPECT_EQ((Transport::ServerRpc*) NULL, manager->busyThreads[0]->rpc);
     EXPECT_EQ(Worker::POSTPROCESSING, manager->busyThreads[0]->state.load());
-    EXPECT_EQ("serverReply: 0x10008 4 5", transport.outputLog);
+    EXPECT_EQ("serverReply: 0x10009 4 5", transport.outputLog);
     service.gate = 3;
 }
 
