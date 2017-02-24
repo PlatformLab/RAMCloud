@@ -138,7 +138,8 @@ Service::handleRpc(Context* context, Rpc* rpc) {
     // This method takes care of things that are the same in all services,
     // such as keeping statistics. It then calls a service-specific dispatch
     // method to handle the details of performing the RPC.
-    const WireFormat::RequestCommon* header = rpc->worker->rpc->header;
+    const WireFormat::RequestCommon* header;
+    header = rpc->requestPayload->getStart<WireFormat::RequestCommon>();
     if (header == NULL) {
         prepareErrorResponse(rpc->replyPayload, STATUS_MESSAGE_TOO_SHORT);
         return;
