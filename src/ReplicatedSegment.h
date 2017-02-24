@@ -618,6 +618,14 @@ class ReplicatedSegment : public Task {
     uint32_t syncingRpcId;
 
     /**
+      * A flag indicating whether it is safe for the DCFT loop to block()
+      * instead of yield(). This flag should be cleared whenever it is read, so
+      * that blocking does not happen again when there is a risk of not waking
+      * up.
+      */
+    bool shouldBlock;
+
+    /**
      * An array of #ReplicaManager::replica backups on which the segment is
      * (being) replicated.
      */

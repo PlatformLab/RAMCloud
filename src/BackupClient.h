@@ -26,6 +26,7 @@
 #include "ServerList.pb.h"
 #include "RecoveryPartition.pb.h"
 #include "Transport.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 
@@ -36,7 +37,8 @@ namespace RAMCloud {
 class FreeSegmentRpc : public ServerIdRpcWrapper {
   public:
     FreeSegmentRpc(Context* context, ServerId backupId, ServerId masterId,
-            uint64_t segmentId);
+            uint64_t segmentId,
+            Arachne::ThreadId owningId = Arachne::NullThread);
     ~FreeSegmentRpc() {}
     /// \copydoc ServerIdRpcWrapper::waitAndCheckErrors
     void wait() {waitAndCheckErrors();}
@@ -191,7 +193,8 @@ class WriteSegmentRpc : public ServerIdRpcWrapper {
                     uint64_t segmentId, uint64_t segmentEpoch,
                     const Segment* segment, uint32_t offset, uint32_t length,
                     const SegmentCertificate* certificate,
-                    bool open, bool close, bool primary);
+                    bool open, bool close, bool primary,
+                    Arachne::ThreadId owningId = Arachne::NullThread);
     ~WriteSegmentRpc() {}
     void wait();
 

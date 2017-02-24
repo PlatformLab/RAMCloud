@@ -47,6 +47,7 @@ RpcWrapper::RpcWrapper(uint32_t responseHeaderLength, Buffer* response)
     , retryTime(0)
     , responseHeaderLength(responseHeaderLength)
     , responseHeader(NULL)
+    , ownerThreadId()
 {
     if (response == NULL) {
         defaultResponse.construct();
@@ -110,6 +111,8 @@ RpcWrapper::completed() {
     // properties of RpcWrappers!
     Fence::sfence();
     state = FINISHED;
+    if (ownerThreadId != Arachne::NullThread)
+        Arachne::signal(ownerThreadId);
 }
 
 
@@ -119,6 +122,8 @@ RpcWrapper::failed() {
     // See comment in completed: the same warning applies here.
     Fence::sfence();
     state = FAILED;
+    if (ownerThreadId != Arachne::NullThread)
+        Arachne::signal(ownerThreadId);
 }
 
 

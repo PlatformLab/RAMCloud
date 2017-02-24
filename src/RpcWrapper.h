@@ -21,6 +21,7 @@
 #include "ServerId.h"
 #include "Transport.h"
 #include "WireFormat.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 class Context;
@@ -241,6 +242,9 @@ class RpcWrapper : public Transport::RpcNotifier {
     /// don't have to recompute it.  Guaranteed to actually refer to at
     /// least responseHeaderLength bytes if the RPC succeeds.
     const WireFormat::ResponseCommon* responseHeader;
+
+    /// The owning ThreadId, when this Rpc is started by an Arachne thread.
+    Arachne::ThreadId ownerThreadId;
 
     DISALLOW_COPY_AND_ASSIGN(RpcWrapper);
 };

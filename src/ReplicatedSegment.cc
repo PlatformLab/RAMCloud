@@ -125,6 +125,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , replicationCounter(replicationCounter)
     , unopenedStartCycles(Cycles::rdtsc())
     , syncingRpcId(0)
+    , shouldBlock(false)
     , replicas(numReplicas)
 {
     openLen = segment->getAppendedLength(&openingWriteCertificate);
@@ -389,6 +390,7 @@ ReplicatedSegment::sync(
     lock.construct(dataMutex);
 
     syncingRpcId = rpcId;
+    shouldBlock = false;
 
     // Definition of synced changes if this segment isn't durably closed
     // and is recovering from a lost replica.  In that case the data
@@ -447,7 +449,12 @@ ReplicatedSegment::sync(
         }
 
         lock.destroy();
-        Arachne::yield();
+        if (shouldBlock) {
+            shouldBlock = false;
+            Arachne::block();
+        } else {
+            Arachne::yield();
+        }
         lock.construct(dataMutex);
     }
 }
@@ -686,7 +693,9 @@ ReplicatedSegment::performFree(Replica& replica)
         } else {
             // Issue a free rpc for this replica, reschedule to wait on it.
             replica.freeRpc.construct(context, replica.backupId,
-                                      masterId, segmentId);
+                                      masterId, segmentId,
+                                      Arachne::getThreadId());
+            shouldBlock = true;
             ++freeRpcsInFlight;
             schedule();
             return;
@@ -871,7 +880,9 @@ ReplicatedSegment::performWrite(Replica& replica)
             replica.writeRpc.construct(context, replica.backupId,
                                        masterId, segmentId, queued.epoch,
                                        segment, 0, length, certificateToSend,
-                                       true, false, replicaIsPrimary(replica));
+                                       true, false, replicaIsPrimary(replica),
+                                       Arachne::getThreadId());
+            shouldBlock = true;
             if (replicaIsPrimary(replica)) {
                 PerfStats::threadStats.replicationRpcs++;
             }
@@ -948,15 +959,17 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending write to backup %s",
                      replica.backupId.toString().c_str());
-            if (syncingRpcId)
-                TimeTrace::record("ID %u: Sent replication Rpc on Core %d",
-                    syncingRpcId, Arachne::kernelThreadId);
             replica.writeRpc.construct(context, replica.backupId, masterId,
                                        segmentId, queued.epoch,
                                        segment, offset, length,
                                        certificateToSend,
                                        false, sendClose,
-                                       replicaIsPrimary(replica));
+                                       replicaIsPrimary(replica),
+                                       Arachne::getThreadId());
+            shouldBlock = true;
+            if (syncingRpcId)
+                TimeTrace::record("ID %u: Sent replication Rpc on Core %d",
+                    syncingRpcId, Arachne::kernelThreadId);
             if (replicaIsPrimary(replica)) {
                 PerfStats::threadStats.replicationRpcs++;
             }

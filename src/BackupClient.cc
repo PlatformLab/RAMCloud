@@ -59,7 +59,7 @@ BackupClient::freeSegment(Context* context, ServerId backupId,
  *      The id of the segment to be freed.
  */
 FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
-        ServerId masterId, uint64_t segmentId)
+        ServerId masterId, uint64_t segmentId, Arachne::ThreadId ownerThreadId)
     : ServerIdRpcWrapper(context, backupId,
             sizeof(WireFormat::BackupFree::Response))
 {
@@ -67,6 +67,7 @@ FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
             allocHeader<WireFormat::BackupFree>(backupId));
     reqHdr->masterId = masterId.getId();
     reqHdr->segmentId = segmentId;
+    this->ownerThreadId = ownerThreadId;
     send();
 }
 
@@ -614,7 +615,8 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  const SegmentCertificate* certificate,
                                  bool open,
                                  bool close,
-                                 bool primary)
+                                 bool primary,
+                                 Arachne::ThreadId ownerThreadId)
     : ServerIdRpcWrapper(context, backupId,
                          sizeof(WireFormat::BackupWrite::Response))
 {
@@ -636,6 +638,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
     if (segment)
         segment->appendToBuffer(request, offset, length);
     CycleCounter<RawMetric> _(&metrics->master.replicationPostingWriteRpcTicks);
+    this->ownerThreadId = ownerThreadId;
     send();
 }
 
