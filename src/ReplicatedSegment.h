@@ -377,7 +377,7 @@ class ReplicatedSegment : public Task {
                       uint32_t& writeRpcsInFlight,
                       uint32_t& freeRpcsInFlight,
                       UpdateReplicationEpochTask& replicationEpoch,
-                      Arachne::SpinLock& dataMutex,
+                      Arachne::SleepLock& dataMutex,
                       uint64_t segmentId,
                       const Segment* segment,
                       bool normalLogSegment,
@@ -457,8 +457,8 @@ class ReplicatedSegment : public Task {
      * ReplicaManager::dataMutex; there are many subtleties to the locking
      * in this module.
      */
-    Arachne::SpinLock& dataMutex;
-    typedef std::lock_guard<Arachne::SpinLock> Lock;
+    Arachne::SleepLock& dataMutex;
+    typedef std::lock_guard<Arachne::SleepLock> Lock;
 
     /**
      * Used to select a "winner" thread that is allowed to sync. Once some
@@ -471,7 +471,6 @@ class ReplicatedSegment : public Task {
      * in this module.
      */
     Arachne::SleepLock syncMutex;
-    typedef std::unique_lock<Arachne::SpinLock> SpinLockGuard;
 
     /**
      * Segment to be replicated.

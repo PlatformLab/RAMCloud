@@ -89,7 +89,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
                                      uint32_t& freeRpcsInFlight,
                                      UpdateReplicationEpochTask&
                                                             replicationEpoch,
-                                     Arachne::SpinLock& dataMutex,
+                                     Arachne::SleepLock& dataMutex,
                                      uint64_t segmentId,
                                      const Segment* segment,
                                      bool normalLogSegment,

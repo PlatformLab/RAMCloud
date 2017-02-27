@@ -63,7 +63,7 @@ class ReplicaManager
     : public ReplicatedSegment::Deleter
 {
   PUBLIC:
-    typedef std::lock_guard<Arachne::SpinLock> Lock;
+    typedef std::lock_guard<Arachne::SleepLock> Lock;
 
     ReplicaManager(Context* context,
                    const ServerId* masterId,
@@ -134,7 +134,7 @@ class ReplicaManager
      *    BackupFailureMonitor where it is safe to do so.
      */
 
-    Arachne::SpinLock dataMutex;
+    Arachne::SleepLock dataMutex;
 
     /// Id of master that this will be managing replicas for.
     const ServerId* masterId;
