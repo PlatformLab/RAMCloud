@@ -267,8 +267,8 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
     uint64_t lastIdle = Cycles::rdtsc();
 
     try {
-        timeTrace("ID %u: Starting processing on Core %d",
-                serverRpc->id, Arachne::kernelThreadId);
+        timeTrace("ID %u: Starting processing on Core %d, idInCore %d",
+                serverRpc->id, Arachne::kernelThreadId, Arachne::loadedContext->idInCore);
         Worker worker(context, serverRpc, WireFormat::Opcode(serverRpc->header->opcode));
 
         serverRpc->epoch = LogProtector::getCurrentEpoch();

@@ -22,6 +22,7 @@
 #include "ShortMacros.h"
 #include "WireFormat.h"
 #include "Arachne.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -111,8 +112,12 @@ RpcWrapper::completed() {
     // properties of RpcWrappers!
     Fence::sfence();
     state = FINISHED;
-    if (ownerThreadId != Arachne::NullThread)
+    if (ownerThreadId != Arachne::NullThread) {
         Arachne::signal(ownerThreadId);
+        TimeTrace::record("Signaled for Core %d, IdInCore %d",
+                ownerThreadId.context->coreId,
+                ownerThreadId.context->idInCore);
+    }
 }
 
 
