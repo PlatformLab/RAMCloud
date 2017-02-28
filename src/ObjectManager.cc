@@ -1299,6 +1299,9 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         // that the cleaner makes space soon.
         throw RetryException(HERE, 1000, 2000, "Must wait for cleaner");
     }
+    if (rpcId)
+        TimeTrace::record("ID %u: Finished log append on Core %d",
+                rpcId, Arachne::kernelThreadId);
 
     if (tombstone) {
         currentHashTableEntry.setReference(appends[0].reference.toInteger());
@@ -1306,6 +1309,9 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     } else {
         objectMap.insert(key.getHash(), appends[0].reference.toInteger());
     }
+    if (rpcId)
+        TimeTrace::record("ID %u: Finished updating hash table Core %d",
+                rpcId, Arachne::kernelThreadId);
 
     if (rpcResult && rpcResultPtr)
         *rpcResultPtr = appends[rpcResultIndex].reference.toInteger();

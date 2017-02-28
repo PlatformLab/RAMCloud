@@ -23,6 +23,7 @@
 #include "SpinLock.h"
 #include "TabletManager.h"
 #include "WorkerTimer.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 
@@ -252,8 +253,8 @@ class UnackedRpcResults {
      * Monitor-style lock. Any operation on internal data structure should
      * hold this lock.
      */
-    std::mutex mutex;
-    typedef std::lock_guard<std::mutex> Lock;
+    Arachne::SpinLock mutex;
+    typedef std::lock_guard<Arachne::SpinLock> Lock;
 
     /**
      * This value is used as initial array size of each Client instance.

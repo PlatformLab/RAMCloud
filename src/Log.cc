@@ -158,6 +158,8 @@ Log::sync(uint32_t rpcId)
 
     Tub<Lock> lock;
     lock.construct(appendLock);
+    if (rpcId) TimeTrace::record("ID %u: Log::sync acquired appendLock on Core %d",
+            rpcId, Arachne::kernelThreadId);
     metrics.totalSyncCalls++;
 
     // The only time 'head' should be NULL is after construction and before the
@@ -189,13 +191,15 @@ Log::sync(uint32_t rpcId)
     // to ensure our new view of the head is consistent.
     lock.destroy();
     Lock _(syncLock);
-    lock.construct(appendLock);
     if (rpcId) TimeTrace::record("ID %u: Starting replication on Core %d",
             rpcId, Arachne::kernelThreadId);
-
     // See if we still have work to do. It's possible that another thread
     // already did the syncing we needed for us.
     if (appendedLength > originalHead->syncedLength) {
+        lock.construct(appendLock);
+        if (rpcId) TimeTrace::record("ID %u: Log::sync reacquired appendLock on Core %d",
+                rpcId, Arachne::kernelThreadId);
+
         // Get the latest segment length and certificate. This allows us to
         // batch up other appends that came in while we were waiting.
         SegmentCertificate certificate;

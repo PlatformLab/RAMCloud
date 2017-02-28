@@ -163,7 +163,7 @@ UnackedRpcResults::UnackedRpcResults(Context* context,
                                      ClientLeaseValidator* leaseValidator,
                                      TabletManager* tabletManager)
     : clients(20)
-    , mutex()
+    , mutex("UnackedRpcResult::mutex", false)
     , default_rpclist_size(50)
     , context(context)
     , leaseValidator(leaseValidator)
