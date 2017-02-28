@@ -97,10 +97,7 @@ ObjectManager::ObjectManager(Context* context, ServerId* serverId,
     , mutex("ObjectManager::mutex")
     , tombstoneRemover(this, &objectMap)
     , tombstoneProtectorCount(0)
-{
-    for (size_t i = 0; i < arrayLength(hashTableBucketLocks); i++)
-        hashTableBucketLocks[i].setName("hashTableBucketLock");
-}
+{ }
 
 /**
  * The destructor does nothing particularly interesting right now.

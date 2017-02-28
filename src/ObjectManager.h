@@ -230,7 +230,7 @@ class ObjectManager : public LogEntryHandlers,
 
         /// The hash table bucket spinlock this object acquired in the
         /// constructor and will release in the destructor.
-        Arachne::SpinLock* lock;
+        Arachne::SleepLock* lock;
 
         DISALLOW_COPY_AND_ASSIGN(HashTableBucketLock);
     };
@@ -393,7 +393,7 @@ class ObjectManager : public LogEntryHandlers,
      * regular, parallel RPC operations from one another and from the log
      * cleaner.
      */
-    Arachne::SpinLock hashTableBucketLocks[1024];
+    Arachne::SleepLock hashTableBucketLocks[1024];
 
     /**
      * Locks objects during transactions.
