@@ -6612,8 +6612,8 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
     fillTable(dataTable, numObjects, keyLength, size);
     Cycles::sleep(2000000);
     string stats[5];
-    for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
-        sendCommand("run", "running", numSlaves, 1);
+    for (int numSlaves = numClients - 1; numSlaves < numClients; numSlaves++) {
+        sendCommand("run", "running", 1, numSlaves);
         Buffer statsBuffer;
         Buffer beforeStats;
         cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS,
@@ -6622,7 +6622,7 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
         PerfStats startStats = *statsBuffer.getStart<PerfStats>();
-        Cycles::sleep(1000000);
+        Cycles::sleep(5000000);
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
