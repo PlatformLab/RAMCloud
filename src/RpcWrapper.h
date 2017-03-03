@@ -243,9 +243,11 @@ class RpcWrapper : public Transport::RpcNotifier {
     /// least responseHeaderLength bytes if the RPC succeeds.
     const WireFormat::ResponseCommon* responseHeader;
 
+  public:
     /// The owning ThreadId, when this Rpc is started by an Arachne thread.
     Arachne::ThreadId ownerThreadId;
 
+  PROTECTED:
     DISALLOW_COPY_AND_ASSIGN(RpcWrapper);
 };
 
