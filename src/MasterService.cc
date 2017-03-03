@@ -3196,14 +3196,15 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             respHdr, sizeof(*respHdr));
 
     // Write the object.
+    Log::Reference logReference;
     respHdr->common.status = objectManager.writeObject(
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
-            &rpcResult, &rpcResultPtr, rpc->worker->rpc->id);
+            &rpcResult, &rpcResultPtr, &logReference, rpc->worker->rpc->id);
 
     TimeTrace::record("ID %u: Wrote object, waiting for sync on Core %d",
             rpc->worker->rpc->id, Arachne::kernelThreadId);
     if (respHdr->common.status == STATUS_OK) {
-        objectManager.syncChanges(rpc->worker->rpc->id);
+        objectManager.syncChanges(logReference, rpc->worker->rpc->id);
         TimeTrace::record("ID %u: Finished syncing on Core %d",
                 rpc->worker->rpc->id, Arachne::kernelThreadId);
         rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is

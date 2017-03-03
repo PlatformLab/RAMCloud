@@ -248,7 +248,7 @@ Log::sync(uint32_t rpcId)
  * Like sync(), this method is also thread-safe.
  */
 void
-Log::syncTo(Log::Reference reference)
+Log::syncTo(Log::Reference reference, uint32_t rpcId)
 {
     CycleCounter<uint64_t> __(&PerfStats::threadStats.logSyncCycles);
     metrics.totalSyncCalls++;
@@ -269,32 +269,56 @@ Log::syncTo(Log::Reference reference)
     segment->getEntry(offset, NULL, &lengthWithMetadata);
     uint32_t desiredSyncedLength = offset + lengthWithMetadata;
 
-    std::lock_guard<Arachne::SpinLock> _(syncLock);
+    if (rpcId) TimeTrace::record("ID %u: Log::sync computed desires on Core %d",
+            rpcId, Arachne::kernelThreadId);
 
-    // See if we still have work to do. It's possible that another thread
-    // already did the syncing we needed for us.
-    if (desiredSyncedLength > segment->syncedLength) {
-        Tub<Lock> lock;
-        lock.construct(appendLock);
+    do {
+        // Do this check without the lock, since appendedLength is atomic.
+        if (desiredSyncedLength <= segment->syncedLength)
+            break;
+        if (syncLock.try_lock()) {
+            // Won the leader election for syncing
+            if (rpcId) TimeTrace::record("ID %u: Starting replication on Core %d",
+                    rpcId, Arachne::kernelThreadId);
+            // See if we still have work to do. It's possible that another thread
+            // already did the syncing we needed for us.
+            Tub<Lock> lock;
+            lock.construct(appendLock);
+            if (rpcId) TimeTrace::record("ID %u: Log::sync reacquired appendLock on Core %d",
+                    rpcId, Arachne::kernelThreadId);
 
-        // Get the latest segment length and certificate. This allows us to
-        // batch up other appends that came in while we were waiting.
-        SegmentCertificate certificate;
-        // If segment != head, segment must have been closed and its replication
-        // is queued already. Forcing sync of head segment will also make sure
-        // that the closed segment is fully replicated.
-        uint32_t appendedLength = head->getAppendedLength(&certificate);
+            // Get the latest segment length and certificate. This allows us to
+            // batch up other appends that came in while we were waiting.
+            SegmentCertificate certificate;
+            uint32_t appendedLength = segment->getAppendedLength(&certificate);
 
-        // Drop the append lock. We don't want to block other appending
-        // threads while we sync.
-        lock.destroy();
+            // Drop the append lock. We don't want to block other appending threads
+            // while we sync.
+            lock.destroy();
 
-        head->replicatedSegment->sync(appendedLength, &certificate);
-        head->syncedLength = appendedLength;
-        TEST_LOG("log synced");
-        return;
-    }
-    TEST_LOG("sync not needed: entry is already replicated");
+            segment->replicatedSegment->sync(appendedLength, &certificate, rpcId);
+            segment->syncedLength = appendedLength;
+            TEST_LOG("log synced");
+            if (rpcId) TimeTrace::record("ID %u: Finished replication on Core %d",
+                    rpcId, Arachne::kernelThreadId);
+            syncLock.unlock();
+            // Now notify all the other threads waiting. At this point, this
+            // lock should not be contended, since all the threads that would
+            // be taking this lock would be peacefully blocked.
+            std::lock_guard<Arachne::SpinLock> _(waitingThreadLock);
+            for (size_t i = 0; i < waitingThreads.size(); i++) {
+                Arachne::signal(waitingThreads[i]);
+            }
+            waitingThreads.clear();
+        } else {
+            // Lost the leader election for syncing, so we wait until the next
+            // sync finishes without serializing.
+            waitingThreadLock.lock();
+            waitingThreads.push_back(Arachne::getThreadId());
+            waitingThreadLock.unlock();
+            Arachne::block();
+        }
+    } while (true);
 }
 
 /**

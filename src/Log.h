@@ -82,7 +82,7 @@ class Log : public AbstractLog {
     LogPosition getHead();
     void getMetrics(ProtoBuf::LogMetrics& m);
     void sync(uint32_t rpcId = 0);
-    void syncTo(Log::Reference reference);
+    void syncTo(Log::Reference reference, uint32_t rpcId = 0);
     LogPosition rollHeadOver();
 
   PRIVATE:
