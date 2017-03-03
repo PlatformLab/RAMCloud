@@ -193,8 +193,9 @@ Log::sync(uint32_t rpcId)
     // to ensure our new view of the head is consistent.
     lock.destroy();
     do {
-        // Do this check without the lock, since appendedLength is atomic.
-        if (appendedLength <= originalHead->syncedLength)
+        // Do this check without the lock, since syncedLength is atomic.
+        uint32_t syncedLength = originalHead->syncedLength;
+        if (appendedLength <= syncedLength)
             break;
         // Won the leader election for syncing
         if (syncLock.try_lock()) {
@@ -232,9 +233,17 @@ Log::sync(uint32_t rpcId)
         } else {
             // Lost the leader election for syncing, so we wait until the next
             // sync finishes without serializing.
-            waitingThreadLock.lock();
-            waitingThreads.push_back(Arachne::getThreadId());
-            waitingThreadLock.unlock();
+            {
+                std::lock_guard<Arachne::SpinLock> _(waitingThreadLock);
+                // If segment->syncedLength has been updated since we took this
+                // lock, it is possible that the syncing thread has already
+                // released the syncLock, so we should once again attempt to
+                // acquire the syncLock before blocking.
+                if (syncedLength != originalHead->syncedLength) {
+                    continue;
+                }
+                waitingThreads.push_back(Arachne::getThreadId());
+            }
             Arachne::block();
         }
     } while (true);
@@ -274,7 +283,8 @@ Log::syncTo(Log::Reference reference, uint32_t rpcId)
 
     do {
         // Do this check without the lock, since appendedLength is atomic.
-        if (desiredSyncedLength <= segment->syncedLength)
+        uint32_t syncedLength = segment->syncedLength;
+        if (desiredSyncedLength <= syncedLength)
             break;
         if (syncLock.try_lock()) {
             // Won the leader election for syncing
@@ -313,9 +323,18 @@ Log::syncTo(Log::Reference reference, uint32_t rpcId)
         } else {
             // Lost the leader election for syncing, so we wait until the next
             // sync finishes without serializing.
-            waitingThreadLock.lock();
-            waitingThreads.push_back(Arachne::getThreadId());
-            waitingThreadLock.unlock();
+            {
+                std::lock_guard<Arachne::SpinLock> _(waitingThreadLock);
+                // If segment->syncedLength has been updated since we took this
+                // lock, it is possible that the syncing thread has already
+                // released the syncLock, so we should once again attempt to
+                // acquire the syncLock before blocking.
+                if (syncedLength != segment->syncedLength) {
+                    continue;
+                }
+                waitingThreads.push_back(Arachne::getThreadId());
+            }
+
             Arachne::block();
         }
     } while (true);
