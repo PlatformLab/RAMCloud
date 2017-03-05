@@ -111,13 +111,16 @@ RpcWrapper::completed() {
     // unless you carefully review all of the synchronization
     // properties of RpcWrappers!
     Fence::sfence();
-    state = FINISHED;
+    // Not all clients block, so we must signal before setting the state to
+    // avoid a race where the entire Rpc gets cleaned up before we read the
+    // ThreadId for signaling.
     if (ownerThreadId != Arachne::NullThread) {
         Arachne::signal(ownerThreadId);
         TimeTrace::record("Signaled for Core %d, IdInCore %d",
                 ownerThreadId.context->coreId,
                 ownerThreadId.context->idInCore);
     }
+    state = FINISHED;
 }
 
 
@@ -126,9 +129,9 @@ void
 RpcWrapper::failed() {
     // See comment in completed: the same warning applies here.
     Fence::sfence();
-    state = FAILED;
     if (ownerThreadId != Arachne::NullThread)
         Arachne::signal(ownerThreadId);
+    state = FAILED;
 }
 
 

@@ -21,13 +21,13 @@
 #include "btreeRamCloud/Btree.h"
 #include "Common.h"
 #include "HashTable.h"
-#include "SpinLock.h"
 #include "Object.h"
 #include "Indexlet.h"
 #include "IndexKey.h"
 #include "ObjectManager.h"
 #include "Service.h"
 #include "WireFormat.h"
+#include "Arachne.h"
 
 namespace RAMCloud {
 
@@ -112,7 +112,7 @@ class IndexletManager {
         /// Mutex to protect the indexlet from concurrent access.
         /// A lock for this mutex MUST be held to read or modify any state in
         /// the indexlet.
-        SpinLock indexletMutex;
+        Arachne::SpinLock indexletMutex;
     };
 
     /////////////////////////// Meta-data related functions //////////////////
@@ -165,7 +165,7 @@ class IndexletManager {
     /// Lock type used to hold the mutex.
     /// This lock can be released explicitly in the code, but will be
     /// automatically released at the end of a function if not done explicitly.
-    typedef std::unique_lock<SpinLock> Lock;
+    typedef std::unique_lock<Arachne::SpinLock> Lock;
 
   PRIVATE:
     /// Shared RAMCloud information.
@@ -212,7 +212,7 @@ class IndexletManager {
     /// Mutex to protect the indexletMap from concurrent access.
     /// A lock for this mutex MUST be held to read or modify any state in
     /// the indexletMap.
-    SpinLock mutex;
+    Arachne::SpinLock mutex;
 
     /// Object Manager to handle mapping of index as objects
     ObjectManager* objectManager;
