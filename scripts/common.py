@@ -310,7 +310,7 @@ def getHosts():
     rcresFailed = re.match(".*not found.*", rcresOutput)
 
     # If hosts overridden in localconfig.py, check that all servers are locked
-    if hosts is not None and'hosts' in globals():
+    if hosts is not None and 'hosts' in globals():
         requstedUnlockedHosts = []
         for host in hosts:
             if str("%02d" % host[2]) not in rcresOutput.split():
@@ -320,7 +320,7 @@ def getHosts():
             raise Exception ("Manually defined hosts list in localconfig.py includes the "
                 "following servers not locked by user in rcres:\r\n\t%s" % requstedUnlockedHosts)
 
-        return hosts
+        return hosts[:]
     # hosts has not been overridden, check that rcres has some servers for us
     else:
         if rcresFailed:
