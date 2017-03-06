@@ -85,8 +85,8 @@ class BackupService : public Service
      * Provides mutual exclusion between handling RPCs and garbage collector.
      * Locked once for all RPCs in dispatch().
      */
-    std::mutex mutex;
-    typedef std::mutex Mutex;
+    Arachne::SleepLock mutex;
+    typedef Arachne::SleepLock Mutex;
     typedef std::unique_lock<Mutex> Lock;
 
     /// Settings passed to the constructor
