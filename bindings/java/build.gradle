@@ -21,6 +21,14 @@ model {
             gtest {
                 headers.srcDir("$ramcloudDir/gtest/include")
             }
+            arachne {
+                headers.srcDirs("$ramcloudDir/Arachne",
+                                "$ramcloudDir/Arachne")
+                binaries.withType(StaticLibraryBinary) {
+                    staticLibraryFile = file(
+                            "$ramcloudDir/Arachne/libArachne.a")
+                }
+            }
             ramcloud {
                 headers.srcDirs("$ramcloudDir/$ramcloudSrc",
                                 "$ramcloudDir/$ramcloudBin")
@@ -54,6 +62,7 @@ model {
             }
             sources {
                 cpp.lib library: 'jni', linkage: 'api'
+                cpp.lib library: 'arachne', linkage: 'static'
                 cpp.lib library: 'ramcloud', linkage: 'shared'
                 cpp.lib library: 'bindings', linkage: 'api'
             }
@@ -70,6 +79,7 @@ model {
             sources {
                 cpp.lib library: 'jni', linkage: 'api'
                 cpp.lib library: 'gtest', linkage: 'api'
+                cpp.lib library: 'arachne', linkage: 'static'
                 cpp.lib library: 'ramcloud', linkage: 'shared'
                 cpp.lib library: 'ramcloudtest', linkage: 'shared'
                 cpp.lib library: 'bindings', linkage: 'api'
