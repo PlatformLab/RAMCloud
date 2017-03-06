@@ -345,9 +345,6 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
             return status;
     }
 
-    // Ensure the object being read is replicated durably.
-    log.syncTo(reference);
-
     Object object(buffer);
     if (valueOnly) {
         object.appendValueToBuffer(outBuffer);
