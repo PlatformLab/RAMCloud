@@ -417,6 +417,7 @@ INSTALL_BINS := \
 INSTALL_LIBS := \
     $(OBJDIR)/libramcloud.so \
     $(OBJDIR)/libramcloud.a \
+    $(OBJDIR)/libramcloud.so \
     $(NULL)
 
 # Rebuild the Java bindings
@@ -479,6 +480,7 @@ INSTALL_INCLUDES := \
     $(OBJDIR)/SpinLockStatistics.pb.h \
     $(OBJDIR)/TableConfig.pb.h \
     $(OBJDIR)/Tablets.pb.h \
+    Arachne/Arachne.h \
     $(NULL)
 
 INSTALLED_BINS := $(patsubst $(OBJDIR)/%, $(INSTALL_DIR)/bin/%, $(INSTALL_BINS))
