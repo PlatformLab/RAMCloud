@@ -324,13 +324,19 @@ DpdkDriver::receivePackets(uint32_t maxPackets,
     }
     struct rte_mbuf* mPkts[MAX_PACKETS_AT_ONCE];
 
+#if TIME_TRACE
+    uint64_t timestamp = Cycles::rdtsc();
+#endif
     // attempt to dequeue a batch of received packets from the NIC
     // as well as from the loopback ring.
     uint32_t incomingPkts = rte_eth_rx_burst(portId, 0, mPkts,
             downCast<uint16_t>(maxPackets));
 
     if (incomingPkts > 0) {
-        timeTrace("DpdkDriver received %u packets", incomingPkts);
+#if TIME_TRACE
+        TimeTrace::record(timestamp, "DpdkDriver about to receive packets");
+        TimeTrace::record("DpdkDriver received %u packets", incomingPkts);
+#endif
     }
     uint32_t loopbackPkts = rte_ring_count(loopbackRing);
     if (incomingPkts + loopbackPkts > maxPackets) {

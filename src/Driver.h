@@ -75,7 +75,7 @@ class Driver {
     struct PacketBuf {
         PacketBuf()
             : sender()
-            , payload()
+            // No need to initialize payload
         {}
 
         virtual ~PacketBuf() {}
