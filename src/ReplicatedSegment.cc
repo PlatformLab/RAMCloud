@@ -125,7 +125,6 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , replicationCounter(replicationCounter)
     , unopenedStartCycles(Cycles::rdtsc())
     , syncingRpcId(0)
-    , shouldBlock(false)
     , replicas(numReplicas)
 {
     openLen = segment->getAppendedLength(&openingWriteCertificate);
@@ -390,7 +389,6 @@ ReplicatedSegment::sync(
     lock.construct(dataMutex);
 
     syncingRpcId = rpcId;
-    shouldBlock = false;
 
     // Definition of synced changes if this segment isn't durably closed
     // and is recovering from a lost replica.  In that case the data
@@ -449,12 +447,7 @@ ReplicatedSegment::sync(
         }
 
         lock.destroy();
-        if (shouldBlock) {
-            shouldBlock = false;
-            Arachne::block();
-        } else {
-            Arachne::yield();
-        }
+        Arachne::yield();
         lock.construct(dataMutex);
     }
 }
@@ -695,7 +688,6 @@ ReplicatedSegment::performFree(Replica& replica)
             replica.freeRpc.construct(context, replica.backupId,
                                       masterId, segmentId,
                                       Arachne::getThreadId());
-            shouldBlock = true;
             ++freeRpcsInFlight;
             schedule();
             return;
@@ -882,7 +874,6 @@ ReplicatedSegment::performWrite(Replica& replica)
                                        segment, 0, length, certificateToSend,
                                        true, false, replicaIsPrimary(replica),
                                        Arachne::getThreadId());
-            shouldBlock = true;
             if (replicaIsPrimary(replica)) {
                 PerfStats::threadStats.replicationRpcs++;
             }
@@ -966,7 +957,6 @@ ReplicatedSegment::performWrite(Replica& replica)
                                        false, sendClose,
                                        replicaIsPrimary(replica),
                                        Arachne::getThreadId());
-            shouldBlock = true;
             if (syncingRpcId)
                 TimeTrace::record("ID %u: Sent replication Rpc on Core %d",
                     syncingRpcId, Arachne::kernelThreadId);
