@@ -235,14 +235,17 @@ Log::sync(uint32_t rpcId)
             // sync finishes without serializing.
             {
                 std::lock_guard<Arachne::SpinLock> _(waitingThreadLock);
-                // If segment->syncedLength has been updated since we took this
-                // lock, it is possible that the syncing thread has already
-                // released the syncLock, so we should once again attempt to
-                // acquire the syncLock before blocking.
-                if (syncedLength != originalHead->syncedLength) {
-                    continue;
-                }
                 waitingThreads.push_back(Arachne::getThreadId());
+            }
+            // If the syncLock is available here, then it is possible that the
+            // current holder has already.exited, so it is not safe to block.
+            // If the syncLock is not available, then we successfully beat the
+            // current holder of the syncLock to the waitingThreadLock, since
+            // it must release the syncLock before acquiring the
+            // waitingThreadLock.
+            if (syncLock.try_lock()) {
+                syncLock.unlock();
+                continue;
             }
             Arachne::block();
         }
@@ -325,16 +328,18 @@ Log::syncTo(Log::Reference reference, uint32_t rpcId)
             // sync finishes without serializing.
             {
                 std::lock_guard<Arachne::SpinLock> _(waitingThreadLock);
-                // If segment->syncedLength has been updated since we took this
-                // lock, it is possible that the syncing thread has already
-                // released the syncLock, so we should once again attempt to
-                // acquire the syncLock before blocking.
-                if (syncedLength != segment->syncedLength) {
-                    continue;
-                }
                 waitingThreads.push_back(Arachne::getThreadId());
             }
-
+            // If the syncLock is available here, then it is possible that the
+            // current holder has already.exited, so it is not safe to block.
+            // If the syncLock is not available, then we successfully beat the
+            // current holder of the syncLock to the waitingThreadLock, since
+            // it must release the syncLock before acquiring the
+            // waitingThreadLock.
+            if (syncLock.try_lock()) {
+                syncLock.unlock();
+                continue;
+            }
             Arachne::block();
         }
     } while (true);
