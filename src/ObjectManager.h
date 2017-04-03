@@ -76,7 +76,8 @@ class ObjectManager : public LogEntryHandlers,
     void prefetchHashTableBucket(SegmentIterator* it);
     Status readObject(Key& key, Buffer* outBuffer,
                 RejectRules* rejectRules, uint64_t* outVersion,
-                bool valueOnly = false);
+                bool valueOnly = false, LogPosition* synced = NULL,
+                bool* didSync = NULL);
     Status removeObject(Key& key, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer = NULL,
                 RpcResult* rpcResult = NULL, uint64_t* rpcResultPtr = NULL);
@@ -89,7 +90,8 @@ class ObjectManager : public LogEntryHandlers,
                 uint64_t* outVersion, Buffer* removedObjBuffer = NULL,
                 RpcResult* rpcResult = NULL, uint64_t* rpcResultPtr = NULL,
                 WireFormat::LogState* objPos = NULL,
-                bool isRetryUnsynced = false);
+                bool isRetryUnsynced = false,
+                Log::Reference* removedObjReference = NULL);
     bool keyPointsAtReference(Key& k, AbstractLog::Reference oldReference);
     void writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr);
     void writeRpcResultOnly(RpcResult* rpcResult, uint64_t* rpcResultPtr);

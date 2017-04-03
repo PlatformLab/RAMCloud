@@ -134,17 +134,19 @@ WitnessService::getRecoveryData(
     int numEntry = 0;
     for (int i = reqHdr->continuation; i < NUM_ENTRIES_PER_TABLE; ++i) {
         Entry& entry = master->table[i];
-        if (entry.occupied &&
-                entry.header.tableId == reqHdr->tableId &&
-                entry.header.keyHash >= reqHdr->firstKeyHash &&
-                entry.header.keyHash <= reqHdr->lastKeyHash) {
-            numEntry++;
-            rpc->replyPayload->emplaceAppend<int16_t>(
-                    downCast<int16_t>(entry.header.requestSize));
-            rpc->replyPayload->append(entry.request,
-                    downCast<uint32_t>(entry.header.requestSize));
-            //TODO: need a mechanism to check we are over RPC reply limit.
-            // Now, 2KB * 512 = 1MB, should be okay.
+        for (int slot = 0; slot < ASSOCIATIVITY; ++slot) {
+            if (entry.occupied[slot] &&
+                    entry.header[slot].tableId == reqHdr->tableId &&
+                    entry.header[slot].keyHash >= reqHdr->firstKeyHash &&
+                    entry.header[slot].keyHash <= reqHdr->lastKeyHash) {
+                numEntry++;
+                rpc->replyPayload->emplaceAppend<int16_t>(
+                        downCast<int16_t>(entry.header[slot].requestSize));
+                rpc->replyPayload->append(entry.request[slot],
+                        downCast<uint32_t>(entry.header[slot].requestSize));
+                //TODO: need a mechanism to check we are over RPC reply limit.
+                // Now, 2KB * 512 = 1MB, should be okay.
+            }
         }
     }
     LOG(NOTICE, "found %d requests for tablet %lu %lu %lu (scanned indices from"

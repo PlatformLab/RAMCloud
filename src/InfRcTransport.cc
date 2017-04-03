@@ -1339,6 +1339,7 @@ InfRcTransport::ClientRpc::sendOrQueue()
 int
 InfRcTransport::Poller::poll()
 {
+    uint64_t pollStartTime = Cycles::rdtsc();
     InfRcTransport* t = transport;
     static const int MAX_COMPLETIONS = 10;
     ibv_wc wc[MAX_COMPLETIONS];
@@ -1434,7 +1435,11 @@ InfRcTransport::Poller::poll()
         for (int i = 0; i < numRequests; i++) {
             foundWork = 1;
             ibv_wc* request = &wc[i];
-            TimeTrace::record("Infrc transport found RPC request.");
+            if (pollStartTime) {
+                TimeTrace::record(pollStartTime, "Infrc transport poll for incoming RPC.");
+                pollStartTime = 0;
+            }
+
             ReadRequestHandle_MetricSet::Interval interval
                 (&ReadRequestHandle_MetricSet::requestToHandleRpc);
 
@@ -1513,6 +1518,13 @@ InfRcTransport::Poller::poll()
             foundWork = 1;
         }
     }
+  if (foundWork) {
+      if (pollStartTime) {
+          TimeTrace::record(pollStartTime, "Infrc poller started");
+      }
+      TimeTrace::record("Infrc poller finished");
+  }
+
     return foundWork;
 }
 

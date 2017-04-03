@@ -108,7 +108,7 @@ WitnessStartRpc::wait()
  */
 WitnessGcRpc::WitnessGcRpc(Context* context, ServerId witnessId,
         Buffer* response, ServerId targetMasterId, uint64_t bufferBasePtr,
-        std::vector<WireFormat::WitnessGc::GcEntry>& gcEntries)
+        std::vector<WitnessTracker::GcInfo>& gcEntries)
     : ServerIdRpcWrapper(context, witnessId,
             sizeof(WireFormat::WitnessGc::Response), response)
 {
@@ -117,8 +117,8 @@ WitnessGcRpc::WitnessGcRpc(Context* context, ServerId witnessId,
     reqHdr->targetMasterId = targetMasterId.getId();
     reqHdr->bufferBasePtr = bufferBasePtr;
     reqHdr->numEntries = downCast<int>(gcEntries.size());
-    for (WireFormat::WitnessGc::GcEntry& gcInfo : gcEntries) {
-        request.appendCopy(&gcInfo, sizeof32(gcInfo));
+    for (WitnessTracker::GcInfo& gcInfo : gcEntries) {
+        request.appendCopy(&gcInfo.gcEntry, sizeof32(gcInfo.gcEntry));
     }
     send();
 }

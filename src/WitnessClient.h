@@ -21,6 +21,7 @@
 #include "ServerIdRpcWrapper.h"
 #include "ServerMetrics.h"
 #include "Transport.h"
+#include "WitnessTracker.h"
 
 namespace RAMCloud {
 
@@ -70,7 +71,7 @@ class WitnessGcRpc : public ServerIdRpcWrapper {
   public:
     WitnessGcRpc(Context* context, ServerId witnessId, Buffer* response,
             ServerId targetMasterId, uint64_t bufferBasePtr,
-            std::vector<WireFormat::WitnessGc::GcEntry>& gcEntries);
+            std::vector<WitnessTracker::GcInfo>& gcEntries);
     ~WitnessGcRpc() {}
     void wait(std::vector<ClientRequest>* blockingRequests);
 

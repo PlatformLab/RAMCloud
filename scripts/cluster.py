@@ -671,14 +671,14 @@ def run(
             cluster.start_server(host, args, backup=backup, disk=disk_args)
             masters_started += 1
         cluster.hosts = cluster.hosts[num_servers:]
-#        print(num_servers, ' Servers started. Now hosts:', cluster.hosts, '\n')
+        #print(num_servers, ' Servers started. Now hosts:', cluster.hosts, '\n')
         
         for host in cluster.hosts[:num_masters]:
             args = master_args
             cluster.start_server(host, args, master=True, backup=False, witness=False)
             masters_started += 1
         cluster.hosts = cluster.hosts[num_masters:]
-#        print(num_masters, ' Masters started. Now hosts:', cluster.hosts, '\n')
+        #print(num_masters, ' Masters started. Now hosts:', cluster.hosts, '\n')
         
         for host in cluster.hosts[:num_backups]:
             args = master_args
@@ -689,7 +689,7 @@ def run(
                 disk_args = disk1 if backup_disks_per_server == 1 else disk2
             cluster.start_server(host, args, master=False, backup=True, witness=False, disk=disk_args)
         cluster.hosts = cluster.hosts[num_backups:]
-#        print(num_backups, ' Backups started. Now hosts:', cluster.hosts, '\n')
+        #print(num_backups, ' Backups started. Now hosts:', cluster.hosts, '\n')
         
         for host in cluster.hosts[:num_witnesses]:
             args = master_args
@@ -698,7 +698,7 @@ def run(
             masters_started += 1    # Temporary hack. ServerMain assigns master role for witness-only.
                                     # This hack avoids lots of problem (witness not in serverList or ensureServer)
         cluster.hosts = cluster.hosts[num_witnesses:]
-#        print(num_witnesses, ' Witnesses started. Now hosts:', cluster.hosts, '\n')
+        #print(num_witnesses, ' Witnesses started. Now hosts:', cluster.hosts, '\n')
         
         if masters_started > 0 or backups_started > 0:
             cluster.ensure_servers()

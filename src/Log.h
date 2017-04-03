@@ -81,9 +81,10 @@ class Log : public AbstractLog {
     void disableCleaner();
     LogPosition getHead();
     void getMetrics(ProtoBuf::LogMetrics& m);
-    void sync();
-    void syncTo(Log::Reference reference);
+    void sync(LogPosition* synced = NULL);
+    bool syncTo(Log::Reference reference, LogPosition* synced = NULL);
     void syncTo(LogPosition target, LogPosition* synced = NULL);
+    bool writtenRecently(Log::Reference reference, uint32_t bytesThresold);
     LogPosition rollHeadOver();
 
   PRIVATE:

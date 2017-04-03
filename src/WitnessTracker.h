@@ -36,9 +36,21 @@ class WitnessTracker {
             WireFormat::NotifyWitnessChange::WitnessInfo witnessList[]);
     uint32_t getVersion() { return listVersion; }
 
-    void registerRpcAndSyncBatch(uint64_t keyHash, // int16_t hashIndex ?
+    void registerRpcAndSyncBatch(bool syncEarly,
+                                 uint64_t keyHash, // int16_t hashIndex ?
                                  uint64_t clientLeaseId,
-                                 uint64_t rpcId);
+                                 uint64_t rpcId,
+                                 LogPosition logPos);
+    void freeWitnessEntries(LogPosition& synced);
+
+    struct GcInfo {
+        GcInfo()
+            : gcEntry({0, 0, 0})
+            , logPos() {
+        }
+        WireFormat::WitnessGc::GcEntry gcEntry;
+        LogPosition logPos;
+    };
 
   PRIVATE:
     /// Shared RAMCloud information.
@@ -59,14 +71,18 @@ class WitnessTracker {
     };
     std::vector<Witness> witnesses;
 
-    typedef WireFormat::WitnessGc::GcEntry GcInfo;
     std::vector<GcInfo> unsyncedRpcs;
 
+  PUBLIC:
     /**
      * SyncChanges every "syncBatchSize" unsynced updates.
      */
-    static const uint syncBatchSize = 20;
+    static uint syncBatchSize;
+//    static const uint syncBatchSize = 20;
+//    static const uint syncBatchSize = 50;
+//    static const uint syncBatchSize = 100;
 
+  PRIVATE:
     /**
      * Monitor-style lock. Any operation on internal data structure should
      * hold this lock.

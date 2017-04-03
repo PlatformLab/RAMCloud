@@ -320,7 +320,7 @@ ObjectManager::prefetchHashTableBucket(SegmentIterator* it)
 Status
 ObjectManager::readObject(Key& key, Buffer* outBuffer,
                 RejectRules* rejectRules, uint64_t* outVersion,
-                bool valueOnly)
+                bool valueOnly, LogPosition* synced, bool* didSync)
 {
     objectMap.prefetchBucket(key.getHash());
     HashTableBucketLock lock(*this, key);
@@ -347,7 +347,11 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
     }
 
     // Ensure the object being read is replicated durably.
-    log.syncTo(reference);
+    // TODO: move this outside... Don't hold bucket lock while sync.
+    bool syncHappened = log.syncTo(reference, synced);
+    if (didSync) {
+        *didSync = syncHappened;
+    }
 
     Object object(buffer);
     if (valueOnly) {
@@ -1183,7 +1187,8 @@ Status
 ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
                 uint64_t* outVersion, Buffer* removedObjBuffer,
                 RpcResult* rpcResult, uint64_t* rpcResultPtr,
-                WireFormat::LogState* objPos, bool isRetryUnsynced)
+                WireFormat::LogState* objPos, bool isRetryUnsynced,
+                Log::Reference* removedObjReference)
 {
     uint16_t keyLength = 0;
     const void *keyString = newObject.getKey(0, &keyLength);
@@ -1320,6 +1325,14 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
 
     if (rpcResult && rpcResultPtr)
         *rpcResultPtr = appends[rpcResultIndex].reference.toInteger();
+
+    if (removedObjReference) {
+        if (tombstone) {
+            *removedObjReference = currentReference;
+        } else {
+            *removedObjReference = Log::Reference();
+        }
+    }
 
     tabletManager->incrementWriteCount(key);
     ++PerfStats::threadStats.writeCount;

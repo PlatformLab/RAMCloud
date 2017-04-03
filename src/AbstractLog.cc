@@ -22,6 +22,7 @@
 #include "ServerConfig.h"
 #include "ShortMacros.h"
 #include "WireFormat.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -121,6 +122,7 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends,
         appendedPos->synced = head->syncedLength;
     }
 
+    TimeTrace::record("AppendLock exits");
     return true;
 }
 

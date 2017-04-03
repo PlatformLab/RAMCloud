@@ -56,7 +56,8 @@ using std::vector;
 namespace RAMCloud {
 
 /// Temporary hack for setting witness factor.. Should be clusterConfig later.
-#define WITNESS_PER_MASTER 2
+#define WITNESS_PER_MASTER 1
+//#define CGARC_ONLY
 
 /**
  * Cast one size of int down to another one.

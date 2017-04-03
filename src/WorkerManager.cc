@@ -148,6 +148,7 @@ WorkerManager::~WorkerManager()
 void
 WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 {
+    TimeTrace::record("hadleRpc starts new RPC");
     // Find the service for this RPC.
     const WireFormat::RequestCommon* header;
     header = rpc->requestPayload.getStart<WireFormat::RequestCommon>();
@@ -198,6 +199,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
                 levels[level].waitingRpcs.push(rpc);
                 rpcsWaiting++;
                 timeTrace("RPC deferred; threads busy");
+                TimeTrace::record("RPC deferred; threads busy. level: %d, queued: %d", level, (uint32_t)levels[level].waitingRpcs.size());
                 return;
             }
         }
@@ -235,7 +237,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     }
 
     if (header->opcode == WireFormat::WITNESS_GC) {
-//        TimeTrace::record("WitnessRecord check start.");
+        TimeTrace::record("WitnessRecord GC start.");
         assert(header->service == WireFormat::WITNESS_SERVICE);
         assert(rpc->replyPayload.size() == 0);
         const WireFormat::WitnessGc::Request* reqHdr =
@@ -245,7 +247,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 
         // Skipped memset to zeros for faster performance.
         WitnessService::gc(reqHdr, respHdr, &rpc->requestPayload);
-//        TimeTrace::record("WitnessRecord check end.");
+        TimeTrace::record("WitnessRecord GC end.");
         rpc->sendReply();
         return;
     }
@@ -271,6 +273,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     idleThreads.pop_back();
     worker->opcode = WireFormat::Opcode(header->opcode);
     worker->level = level;
+    TimeTrace::record("TID: %d Dispatch handoff RPC to worker.", worker->threadId);
     worker->handoff(rpc);
     worker->busyIndex = downCast<int>(busyThreads.size());
     busyThreads.push_back(worker);
@@ -296,6 +299,9 @@ int
 WorkerManager::poll()
 {
     int foundWork = 0;
+    uint64_t startTime = Cycles::rdtsc();
+
+    std::vector<Transport::ServerRpc*> rpcs;
 
     // Each iteration of the following loop checks the status of one active
     // worker. The order of iteration is crucial, since it allows us to
@@ -316,7 +322,14 @@ WorkerManager::poll()
         // The worker is either post-processing or idle; in either case,
         // there may be an RPC that we have to respond to. Save the RPC
         // information for now.
-        Transport::ServerRpc* rpc = worker->rpc;
+
+        // TODO(seojin): remove hack later!?! This hack is to reduce the idle
+        // time of worker thread. We just collect all rpcs to send reply and
+        // send after done with dispatching requests.
+        if (worker->rpc) {
+            rpcs.push_back(worker->rpc);
+        }
+        //Transport::ServerRpc* rpc = worker->rpc;
         worker->rpc = NULL;
 
         // Highest priority: if there are pending requests that are waiting
@@ -351,27 +364,39 @@ WorkerManager::poll()
                     rpcsWaiting--;
                     level->requestsRunning++;
                     worker->level = i;
+                    if (startTime) {
+                        TimeTrace::record(startTime, "WorkerManager::poll() invoked");
+                        startTime = 0;
+                    }
+                    TimeTrace::record("TID: %d Dispatch handoff RPC to worker from queue. level: %d, queued: %d", worker->threadId, i, (uint32_t)level->waitingRpcs.size());
                     worker->handoff(level->waitingRpcs.front());
                     level->waitingRpcs.pop();
+                    if (level->waitingRpcs.empty()) {
+                        TimeTrace::record("TID: %d Dispatch waiting queue is depleted! level: %d", worker->threadId, i);
+                    }
                     startedNewRpc = true;
                     break;
                 }
             }
         }
 
-        // Now send the response, if any.
-        if (rpc != NULL) {
-#ifdef LOG_RPCS
-            LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
-                    WireFormat::opcodeSymbol(&rpc->requestPayload),
-                    reinterpret_cast<uint64_t>(rpc),
-                    rpc->replyPayload.size());
-#endif
-            rpc->sendReply();
-            timeTrace("sent reply for opcode %d, thread %d",
-                    worker->threadId, worker->opcode);
-
-        }
+//        // Now send the response, if any.
+//        if (rpc != NULL) {
+//#ifdef LOG_RPCS
+//            LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
+//                    WireFormat::opcodeSymbol(&rpc->requestPayload),
+//                    reinterpret_cast<uint64_t>(rpc),
+//                    rpc->replyPayload.size());
+//#endif
+//            if (startTime) {
+//                TimeTrace::record(startTime, "WorkerManager::poll() invoked");
+//                startTime = 0;
+//            }
+//            rpc->sendReply();
+//            timeTrace("sent reply for opcode %d, thread %d",
+//                    worker->threadId, worker->opcode);
+//
+//        }
 
         // If the worker is idle, remove it from busyThreads (fill its
         // slot with the worker in the last slot).
@@ -386,6 +411,27 @@ WorkerManager::poll()
             idleThreads.push_back(worker);
         }
     }
+
+    for (Transport::ServerRpc* rpc : rpcs) {
+        if (startTime) {
+            TimeTrace::record(startTime, "WorkerManager::poll() invoked");
+            startTime = 0;
+        }
+        // Now send the response, if any.
+        assert(rpc != NULL);
+#ifdef LOG_RPCS
+            LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
+                    WireFormat::opcodeSymbol(&rpc->requestPayload),
+                    reinterpret_cast<uint64_t>(rpc),
+                    rpc->replyPayload.size());
+#endif
+        if (startTime) {
+            TimeTrace::record(startTime, "WorkerManager::poll() invoked");
+            startTime = 0;
+        }
+        rpc->sendReply();
+    }
+
     return foundWork;
 }
 
@@ -478,6 +524,7 @@ WorkerManager::workerMain(Worker* worker)
                 break;
             timeTrace("worker thread %d received opcode %d", worker->threadId,
                     worker->opcode);
+            TimeTrace::record("TID: %d Worker thread received RPC.", worker->threadId);
 
             worker->rpc->epoch = LogProtector::getCurrentEpoch();
             Service::Rpc rpc(worker, &worker->rpc->requestPayload,
@@ -490,6 +537,7 @@ WorkerManager::workerMain(Worker* worker)
             timeTrace("worker thread %d completed opcode %d; "
                     "dispatch thread signaled",
                     worker->threadId, worker->opcode);
+            TimeTrace::record("TID: %d Worker thread finished RPC.", worker->threadId);
 
             // Update performance statistics.
             uint64_t current = Cycles::rdtsc();

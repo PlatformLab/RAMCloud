@@ -52,7 +52,9 @@ class WitnessService : public Service
 
     static const int MAX_REQUEST_SIZE = 2048;
 //    static const int NUM_ENTRIES_PER_TABLE = 512; // Must be power of 2.
-    static const int NUM_ENTRIES_PER_TABLE = 4096; // Must be power of 2.
+    static const int NUM_TOTAL_SLOT = 4096; // TODO: add assert on "Must be power of 2."
+    static const int ASSOCIATIVITY = 4; // TODO: add assert on "Must be power of 2."
+    static const int NUM_ENTRIES_PER_TABLE = NUM_TOTAL_SLOT / ASSOCIATIVITY; // TODO: add assert on "Must be power of 2."
     static const int HASH_BITMASK = NUM_ENTRIES_PER_TABLE - 1;
 
   PRIVATE:
@@ -70,9 +72,9 @@ class WitnessService : public Service
      * Holds information to recover an RPC request in case of the master's crash
      */
     struct Entry {
-        bool occupied; // TODO(seojin): check padding to 64-bit improves perf?
-        WireFormat::WitnessRecord::RecordEntryHeader header;
-        char request[MAX_REQUEST_SIZE];
+        bool occupied[ASSOCIATIVITY]; // TODO(seojin): check padding to 64-bit improves perf?
+        WireFormat::WitnessRecord::RecordEntryHeader header[ASSOCIATIVITY];
+        char request[ASSOCIATIVITY][MAX_REQUEST_SIZE];
     };
 
     /**
@@ -132,12 +134,15 @@ WitnessService::gc(const WireFormat::WitnessGc::Request* reqHdr,
                                      sizeof32(WireFormat::WitnessGc::GcEntry)
                                         * reqHdr->numEntries));
     for (int i = 0; i < reqHdr->numEntries; ++i) {
-        auto common = reinterpret_cast<WireFormat::AsyncRequestCommon*>(
-                buffer->table[entries[i].hashIndex].request);
-        if (buffer->table[entries[i].hashIndex].occupied &&
-                common->lease.leaseId == entries[i].clientLeaseId &&
-                common->rpcId == entries[i].rpcId) {
-            buffer->table[entries[i].hashIndex].occupied = false;
+        for (int slot = 0; slot < ASSOCIATIVITY; ++slot) {
+            auto common = reinterpret_cast<WireFormat::AsyncRequestCommon*>(
+                    buffer->table[entries[i].hashIndex].request[slot]);
+            if (buffer->table[entries[i].hashIndex].occupied[slot] &&
+                    common->lease.leaseId == entries[i].clientLeaseId &&
+                    common->rpcId == entries[i].rpcId) {
+                buffer->table[entries[i].hashIndex].occupied[slot] = false;
+                break;
+            }
         }
     }
 
@@ -163,13 +168,27 @@ WitnessService::record(const WireFormat::WitnessRecord::Request* reqHdr,
         return;
     }
 
-    if (!buffer->table[reqHdr->hashIndex].occupied) {
-        buffer->table[reqHdr->hashIndex].occupied = true;
-        buffer->table[reqHdr->hashIndex].header = reqHdr->entryHeader;
+    int slot = ASSOCIATIVITY;
+    for (int i = 0; i < ASSOCIATIVITY; ++i) {
+        if (buffer->table[reqHdr->hashIndex].occupied[i]) {
+            if (buffer->table[reqHdr->hashIndex].header[i].keyHash ==
+                    reqHdr->entryHeader.keyHash) {
+                // KeyHash collision with existing request.
+                slot = ASSOCIATIVITY;
+                break;
+            }
+        } else {
+            slot = i;
+        }
+    }
+//    if (!buffer->table[reqHdr->hashIndex].occupied) {
+    if (slot < ASSOCIATIVITY) {
+        buffer->table[reqHdr->hashIndex].occupied[slot] = true;
+        buffer->table[reqHdr->hashIndex].header[slot] = reqHdr->entryHeader;
         requestPayload->copy(
                 sizeof32(*reqHdr),
                 static_cast<uint32_t>(reqHdr->entryHeader.requestSize),
-                buffer->table[reqHdr->hashIndex].request);
+                buffer->table[reqHdr->hashIndex].request[slot]);
         respHdr->accepted = true;
         PerfStats::threadStats.temp1++;
     } else {

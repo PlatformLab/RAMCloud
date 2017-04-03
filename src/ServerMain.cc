@@ -214,6 +214,9 @@ main(int argc, char *argv[])
              ProgramOptions::bool_switch(&config.backup.sync),
              "Make all updates completely synchronous all the way down to "
              "stable storage.")
+            ("syncBatchSize",
+             ProgramOptions::value<uint32_t>(&WitnessTracker::syncBatchSize),
+             "Number of writes before sync to backup and clear witness")
             ("totalMasterMemory,t",
 
              // Note: we have tried changing the default value below to

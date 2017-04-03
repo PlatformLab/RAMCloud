@@ -21,6 +21,7 @@
 #include "PerfStats.h"
 #include "ServerConfig.h"
 #include "ShortMacros.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -149,9 +150,13 @@ Log::getHead() {
  * that may arrive out-of-order). The log also currently operates strictly
  * in-order, so there'd be no opportunity for small writes to skip ahead of
  * large ones anyway.
+ *
+ * \param synced
+ *      If not NULL, it will return the log position up until which all logs
+ *      are replicated.
  */
 void
-Log::sync()
+Log::sync(LogPosition* synced)
 {
     CycleCounter<uint64_t> __(&PerfStats::threadStats.logSyncCycles);
 
@@ -188,11 +193,13 @@ Log::sync()
     // to ensure our new view of the head is consistent.
     lock.destroy();
     SpinLock::Guard _(syncLock);
-    lock.construct(appendLock);
 
     // See if we still have work to do. It's possible that another thread
     // already did the syncing we needed for us.
     if (appendedLength > originalHead->syncedLength) {
+        TimeTrace::record("AppendLock entering");
+        lock.construct(appendLock);
+
         // Get the latest segment length and certificate. This allows us to
         // batch up other appends that came in while we were waiting.
         SegmentCertificate certificate;
@@ -201,6 +208,7 @@ Log::sync()
         // Drop the append lock. We don't want to block other appending threads
         // while we sync.
         lock.destroy();
+        TimeTrace::record("AppendLock destroyed in sync(). Total sync size: %lu bytes", appendedLength - originalHead->syncedLength);
 
         originalHead->replicatedSegment->sync(appendedLength, &certificate);
         originalHead->syncedLength = appendedLength;
@@ -208,6 +216,14 @@ Log::sync()
     } else {
         TEST_LOG("sync not needed: already fully replicated");
     }
+
+    if (synced != NULL) {
+        LogPosition newlySynced(originalHead->id, originalHead->syncedLength);
+        if (*synced < newlySynced) {
+            *synced = newlySynced;
+        }
+    }
+    TimeTrace::record("SyncLock exits");
 }
 
 /**
@@ -216,9 +232,17 @@ Log::sync()
  * yet replicated, we sync all log appends in current head segment with backups.
  *
  * Like sync(), this method is also thread-safe.
+ *
+ * \param reference
+ *      Desired object to which log will be replicated.
+ * \param synced
+ *      If not NULL, it will return the log position up until which all logs
+ *      are replicated.
+ *
+ * \return true if sync happened. False if the entry was already synced before.
  */
-void
-Log::syncTo(Log::Reference reference)
+bool
+Log::syncTo(Log::Reference reference, LogPosition* synced)
 {
     CycleCounter<uint64_t> __(&PerfStats::threadStats.logSyncCycles);
     metrics.totalSyncCalls++;
@@ -229,7 +253,7 @@ Log::syncTo(Log::Reference reference)
     //            a segment that is already closed and synced.
     if (segment->closedCommitted.load(std::memory_order_relaxed)) {
         TEST_LOG("sync not needed: entry is already replicated");
-        return;
+        return false;
     }
 
     // Calculate the desired syncedLength, which is the end location of the
@@ -255,16 +279,34 @@ Log::syncTo(Log::Reference reference)
         // that the closed segment is fully replicated.
         uint32_t appendedLength = head->getAppendedLength(&certificate);
 
+        // Concurrent appends may cause the head segment to change while we wait
+        // for another thread to finish syncing, so save the segment associated
+        // with the appendedLength we just acquired.
+        LogSegment* originalHead = head;
+
         // Drop the append lock. We don't want to block other appending
         // threads while we sync.
         lock.destroy();
 
-        head->replicatedSegment->sync(appendedLength, &certificate);
-        head->syncedLength = appendedLength;
+        originalHead->replicatedSegment->sync(appendedLength, &certificate);
+        originalHead->syncedLength = appendedLength;
         TEST_LOG("log synced");
-        return;
+
+        // TODO(seojin): make it happen even for no sync case...??
+        //              Maybe not.. we don't want to hold append lock for reads.
+        if (synced != NULL) {
+            LogPosition newlySynced(originalHead->id,
+                                    originalHead->syncedLength);
+            if (*synced < newlySynced) {
+                *synced = newlySynced;
+            }
+        }
+        TimeTrace::record("SyncLock exits");
+        return true;
     }
     TEST_LOG("sync not needed: entry is already replicated");
+    TimeTrace::record("SyncLock exits");
+    return false;
 }
 
 /**
@@ -335,6 +377,38 @@ Log::syncTo(LogPosition target, LogPosition* synced)
         LogPosition newlySynced(originalHead->id, originalHead->syncedLength);
         *synced = newlySynced;
     }
+    TimeTrace::record("SyncLock exits");
+}
+
+/**
+ * Check the log position of reference to the current log head, and tell the
+ * value at the reference was written recently or not.
+ * \param reference
+ * \param bytesThresold
+ * \return
+ */
+bool
+Log::writtenRecently(Log::Reference reference, uint32_t bytesThresold)
+{
+    LogSegment* segment = getSegment(reference);
+
+    // Fast path: see if the log reference we want to sync is in
+    //            a segment that is already closed and synced.
+    if (segment->closedCommitted.load(std::memory_order_relaxed)) {
+        // if it is in different segment, consider it is far.
+        return false;
+    }
+
+    // Calculate the desired syncedLength, which is the end location of the
+    // given log entry in terms of segment offset.
+    uint32_t offset = segment->getOffset(reference);
+
+    SpinLock::Guard lock(appendLock);
+    if (head->id == segment->id &&
+            head->getAppendedLength() - offset < bytesThresold) {
+        return true;
+    }
+    return false;
 }
 
 /**

@@ -252,8 +252,8 @@ class UnackedRpcResults {
      * Monitor-style lock. Any operation on internal data structure should
      * hold this lock.
      */
-    std::mutex mutex;
-    typedef std::lock_guard<std::mutex> Lock;
+    SpinLock mutex;
+    typedef SpinLock::Guard Lock;
 
     /**
      * This value is used as initial array size of each Client instance.

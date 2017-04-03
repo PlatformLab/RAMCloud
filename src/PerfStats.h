@@ -265,6 +265,14 @@ struct PerfStats {
     uint64_t logUsedBytesInBackups;
 
     //--------------------------------------------------------------------
+    // Statistics for witness follow below.
+    //--------------------------------------------------------------------
+
+    /// Total time (in cycles) spent by worker threads waiting for log
+    /// syncs that happens in batch and waiting for witness GC.
+//    uint64_t witnessGcCycles;
+
+    //--------------------------------------------------------------------
     // Temporary counters. The values below have no pre-defined use;
     // they are intended for temporary use during debugging or performance
     // analysis. Committed code in the repo should not set these counters.

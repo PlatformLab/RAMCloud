@@ -63,6 +63,11 @@ UnsyncedObjectRpcWrapper::UnsyncedObjectRpcWrapper(RamCloud* ramcloud,
     , ramcloud(ramcloud)
     , async(async ? (WITNESS_PER_MASTER ? ASYNC_DURABLE : ASYNC) : SYNC)
 {
+    // Temporary hack for benchmark CGAR-C without witness...
+#ifdef CGARC_ONLY
+    if (this->async == ASYNC_DURABLE)
+        this->async = ASYNC;
+#endif
 }
 
 /**
@@ -96,6 +101,11 @@ UnsyncedObjectRpcWrapper::UnsyncedObjectRpcWrapper(RamCloud* ramcloud,
     , ramcloud(ramcloud)
     , async(async ? (WITNESS_PER_MASTER ? ASYNC_DURABLE : ASYNC) : SYNC)
 {
+    // Temporary hack for benchmark CGAR-C without witness...
+#ifdef CGARC_ONLY
+    if (this->async == ASYNC_DURABLE)
+        this->async = ASYNC;
+#endif
 }
 
 void
@@ -199,8 +209,15 @@ UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
     if (respCommon->status != STATUS_OK) {
         ClientException::throwException(HERE, respCommon->status);
     }
+    // This is also called in register unsynced... WTH.. remove one in
+    // registerUnsynced. I am keeping this here to benefit for synchronous RPC's
+    // result as well.
+    ramcloud->unsyncedRpcTracker->updateLogState(session.get(),
+                                                 respCommon->logState);
 
-    if (shouldSync) {
+    // Skip sync if it was already synced by master.
+    if (shouldSync &&
+            respCommon->logState.appended > respCommon->logState.synced) {
         ++rejectCount;
         UnsyncedRpcTracker::SyncRpc rpc(context, session, respCommon->logState);
 //        TimeTrace::record("syncRpc send.");

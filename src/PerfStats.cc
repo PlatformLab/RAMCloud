@@ -117,6 +117,7 @@ PerfStats::collectStats(PerfStats* total)
         total->migrationPhase1Cycles += stats->migrationPhase1Cycles;
         total->networkInputBytes += stats->networkInputBytes;
         total->networkOutputBytes += stats->networkOutputBytes;
+//        total->witnessGcCycles += stats->witnessGcCycles;
         total->temp1 += stats->temp1;
         total->temp2 += stats->temp2;
         total->temp3 += stats->temp3;
