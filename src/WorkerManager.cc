@@ -301,7 +301,7 @@ WorkerManager::poll()
     int foundWork = 0;
     uint64_t startTime = Cycles::rdtsc();
 
-    std::vector<Transport::ServerRpc*> rpcs;
+//    std::vector<Transport::ServerRpc*> rpcs;
 
     // Each iteration of the following loop checks the status of one active
     // worker. The order of iteration is crucial, since it allows us to
@@ -323,13 +323,13 @@ WorkerManager::poll()
         // there may be an RPC that we have to respond to. Save the RPC
         // information for now.
 
-        // TODO(seojin): remove hack later!?! This hack is to reduce the idle
-        // time of worker thread. We just collect all rpcs to send reply and
-        // send after done with dispatching requests.
-        if (worker->rpc) {
-            rpcs.push_back(worker->rpc);
-        }
-        //Transport::ServerRpc* rpc = worker->rpc;
+//        // TODO(seojin): remove hack later!?! This hack is to reduce the idle
+//        // time of worker thread. We just collect all rpcs to send reply and
+//        // send after done with dispatching requests.
+//        if (worker->rpc) {
+//            rpcs.push_back(worker->rpc);
+//        }
+        Transport::ServerRpc* rpc = worker->rpc;
         worker->rpc = NULL;
 
         // Highest priority: if there are pending requests that are waiting
@@ -380,23 +380,23 @@ WorkerManager::poll()
             }
         }
 
-//        // Now send the response, if any.
-//        if (rpc != NULL) {
-//#ifdef LOG_RPCS
-//            LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
-//                    WireFormat::opcodeSymbol(&rpc->requestPayload),
-//                    reinterpret_cast<uint64_t>(rpc),
-//                    rpc->replyPayload.size());
-//#endif
-//            if (startTime) {
-//                TimeTrace::record(startTime, "WorkerManager::poll() invoked");
-//                startTime = 0;
-//            }
-//            rpc->sendReply();
-//            timeTrace("sent reply for opcode %d, thread %d",
-//                    worker->threadId, worker->opcode);
-//
-//        }
+        // Now send the response, if any.
+        if (rpc != NULL) {
+#ifdef LOG_RPCS
+            LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
+                    WireFormat::opcodeSymbol(&rpc->requestPayload),
+                    reinterpret_cast<uint64_t>(rpc),
+                    rpc->replyPayload.size());
+#endif
+            if (startTime) {
+                TimeTrace::record(startTime, "WorkerManager::poll() invoked");
+                startTime = 0;
+            }
+            rpc->sendReply();
+            timeTrace("sent reply for opcode %d, thread %d",
+                    worker->threadId, worker->opcode);
+
+        }
 
         // If the worker is idle, remove it from busyThreads (fill its
         // slot with the worker in the last slot).
@@ -411,26 +411,26 @@ WorkerManager::poll()
             idleThreads.push_back(worker);
         }
     }
-
-    for (Transport::ServerRpc* rpc : rpcs) {
-        if (startTime) {
-            TimeTrace::record(startTime, "WorkerManager::poll() invoked");
-            startTime = 0;
-        }
-        // Now send the response, if any.
-        assert(rpc != NULL);
-#ifdef LOG_RPCS
-            LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
-                    WireFormat::opcodeSymbol(&rpc->requestPayload),
-                    reinterpret_cast<uint64_t>(rpc),
-                    rpc->replyPayload.size());
-#endif
-        if (startTime) {
-            TimeTrace::record(startTime, "WorkerManager::poll() invoked");
-            startTime = 0;
-        }
-        rpc->sendReply();
-    }
+//
+//    for (Transport::ServerRpc* rpc : rpcs) {
+//        if (startTime) {
+//            TimeTrace::record(startTime, "WorkerManager::poll() invoked");
+//            startTime = 0;
+//        }
+//        // Now send the response, if any.
+//        assert(rpc != NULL);
+//#ifdef LOG_RPCS
+//            LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
+//                    WireFormat::opcodeSymbol(&rpc->requestPayload),
+//                    reinterpret_cast<uint64_t>(rpc),
+//                    rpc->replyPayload.size());
+//#endif
+//        if (startTime) {
+//            TimeTrace::record(startTime, "WorkerManager::poll() invoked");
+//            startTime = 0;
+//        }
+//        rpc->sendReply();
+//    }
 
     return foundWork;
 }

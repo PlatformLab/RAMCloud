@@ -2413,11 +2413,17 @@ SplitTabletRpc::SplitTabletRpc(RamCloud* ramcloud,
 
 /**
  * Wait for backup replication of all changes made by this client up to now.
+ * \param dispatchedSynchronousRpc
+ *      syncRpc is skipped for the session used by this RPC.
  */
 void
-RamCloud::sync()
+RamCloud::sync(UnsyncedObjectRpcWrapper* dispatchedSynchronousRpc)
 {
-    unsyncedRpcTracker->sync();
+    if (dispatchedSynchronousRpc) {
+        unsyncedRpcTracker->efficientSync(dispatchedSynchronousRpc);
+    } else {
+        unsyncedRpcTracker->sync();
+    }
 }
 
 /**

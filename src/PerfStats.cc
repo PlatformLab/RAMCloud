@@ -410,6 +410,100 @@ PerfStats::clusterDiff(Buffer* before, Buffer* after,
     }
 }
 
+
+/**
+ * Given the raw response data returned by two calls to
+ * CoordinatorClient::serverControlAll, return information about
+ * how much each individual metric change between the two calls,
+ * for each server.
+ *
+ * \param before
+ *      Response buffer from a call to CoordinatorClient::serverControlAll.
+ * \param after
+ *      Response buffer from a later call to
+ *      CoordinatorClient::serverControlAll.
+ * \param[out] diff
+ *      Contents are replaced with information about how much each
+ *      performance metric changed between the before and after
+ *      measurements. See the declaration of Diff for details
+ *      on the format of this information.
+ * \param[out] cyclesPerSecond
+ */
+void
+PerfStats::clusterDiffInt64(Buffer* before, Buffer* after,
+        PerfStats::Int64Diff* diff, std::vector<double>* cyclesPerSecond)
+{
+    // First, parse each of the two readings.
+    std::vector<PerfStats> firstStats, secondStats;
+    parseStats(before, &firstStats);
+    parseStats(after, &secondStats);
+
+    // Each iteration of the following loop processes one server, appending
+    // information to the response.
+    for (size_t i = 0; i < firstStats.size(); i++) {
+        // Make sure we have data from both readings.
+        if (i >= secondStats.size()) {
+            break;
+        }
+        PerfStats& p1 = firstStats[i];
+        PerfStats& p2 = secondStats[i];
+        if ((p1.collectionTime == 0) || (p2.collectionTime == 0)){
+            continue;
+        }
+
+#define ADD_METRIC2(metric) \
+        (*diff)[#metric].push_back(p2.metric - p1.metric)
+
+        // Collect data for each of the metrics. The order below should
+        // match the declaration order in PerfStats.h.
+        (*diff)["serverId"].push_back(static_cast<uint64_t>(i));
+        (*cyclesPerSecond).push_back(p1.cyclesPerSecond);
+        ADD_METRIC2(collectionTime);
+        ADD_METRIC2(readCount);
+        ADD_METRIC2(readObjectBytes);
+        ADD_METRIC2(readKeyBytes);
+        ADD_METRIC2(writeCount);
+        ADD_METRIC2(writeObjectBytes);
+        ADD_METRIC2(writeKeyBytes);
+        ADD_METRIC2(dispatchActiveCycles);
+        ADD_METRIC2(workerActiveCycles);
+        ADD_METRIC2(btreeNodeReads);
+        ADD_METRIC2(btreeNodeWrites);
+        ADD_METRIC2(btreeBytesRead);
+        ADD_METRIC2(btreeBytesWritten);
+        ADD_METRIC2(btreeNodeSplits);
+        ADD_METRIC2(btreeNodeCoalesces);
+        ADD_METRIC2(btreeRebalances);
+        ADD_METRIC2(logBytesAppended);
+        ADD_METRIC2(replicationRpcs);
+        ADD_METRIC2(logSyncCycles);
+        ADD_METRIC2(segmentUnopenedCycles);
+        ADD_METRIC2(compactorInputBytes);
+        ADD_METRIC2(compactorSurvivorBytes);
+        ADD_METRIC2(compactorActiveCycles);
+        ADD_METRIC2(cleanerInputMemoryBytes);
+        ADD_METRIC2(cleanerInputDiskBytes);
+        ADD_METRIC2(cleanerSurvivorBytes);
+        ADD_METRIC2(cleanerActiveCycles);
+        ADD_METRIC2(backupReadOps);
+        ADD_METRIC2(backupReadBytes);
+        ADD_METRIC2(backupReadActiveCycles);
+        ADD_METRIC2(backupBytesReceived);
+        ADD_METRIC2(backupWriteOps);
+        ADD_METRIC2(backupWriteBytes);
+        ADD_METRIC2(backupWriteActiveCycles);
+        ADD_METRIC2(migrationPhase1Bytes);
+        ADD_METRIC2(migrationPhase1Cycles);
+        ADD_METRIC2(networkInputBytes);
+        ADD_METRIC2(networkOutputBytes);
+        ADD_METRIC2(temp1);
+        ADD_METRIC2(temp2);
+        ADD_METRIC2(temp3);
+        ADD_METRIC2(temp4);
+        ADD_METRIC2(temp5);
+    }
+}
+
 /**
  * Given the raw response returned by CoordinatorClient::serverControlAll,
  * divide it up into individual PerfStats objects for each server, and

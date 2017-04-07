@@ -40,6 +40,7 @@ class UnsyncedObjectRpcWrapper : public LinearizableObjectRpcWrapper {
     virtual ~UnsyncedObjectRpcWrapper() {/*TODO: implement*/}
     void cancel();
     virtual bool isReady();
+    Transport::Session* getSessionUsed() { return session.get(); }
 
     static uint64_t rejectCount;
     static uint64_t totalCount;

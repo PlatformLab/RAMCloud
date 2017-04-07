@@ -35,6 +35,7 @@ WitnessTracker::WitnessTracker(Context* context, ObjectManager* objectManager)
     , witnesses()
     , unsyncedRpcs()
     , mutex("WitnessTracker::mutex")
+    , syncInProgress(false)
 {
 }
 
@@ -81,7 +82,11 @@ WitnessTracker::registerRpcAndSyncBatch(bool syncEarly,
     unsyncedRpcs.push_back(info);
 
     // If batch count is met, sync and GC synced entries in Witnesses.
-    if (syncEarly || unsyncedRpcs.size() >= syncBatchSize) {
+    if (syncEarly ||
+            (unsyncedRpcs.size() >= syncBatchSize && !syncInProgress)) {
+        syncInProgress = true; // It is double-protected by mutex.
+                               // no two threads can set it true at
+                               // the same time.
         TimeTrace::record("WitnessTracker::registerRpcAndSyncBatch sync start");
 #ifndef CGARC_ONLY
         std::vector<GcInfo> syncedEntries;
@@ -154,6 +159,7 @@ WitnessTracker::registerRpcAndSyncBatch(bool syncEarly,
         delete[] gcRpcs;
 #endif
         TimeTrace::record("WitnessTracker::registerRpcAndSyncBatch sync end");
+        syncInProgress = false;
     }
 }
 

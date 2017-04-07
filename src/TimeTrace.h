@@ -81,14 +81,14 @@ class TimeTrace {
     static inline void record(uint64_t timestamp, const char* format,
             uint32_t arg0 = 0, uint32_t arg1 = 0, uint32_t arg2 = 0,
             uint32_t arg3 = 0) {
-//        if (threadBuffer == NULL) {
-//            createThreadBuffer();
-//        }
-//        threadBuffer->record(timestamp, format, arg0, arg1, arg2, arg3);
+        if (threadBuffer == NULL) {
+            createThreadBuffer();
+        }
+        threadBuffer->record(timestamp, format, arg0, arg1, arg2, arg3);
     }
     static inline void record(const char* format, uint32_t arg0 = 0,
             uint32_t arg1 = 0, uint32_t arg2 = 0, uint32_t arg3 = 0) {
-//        record(Cycles::rdtsc(), format, arg0, arg1, arg2, arg3);
+        record(Cycles::rdtsc(), format, arg0, arg1, arg2, arg3);
     }
 
     static void reset();

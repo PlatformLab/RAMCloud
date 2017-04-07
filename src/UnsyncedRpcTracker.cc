@@ -263,6 +263,39 @@ UnsyncedRpcTracker::pingMasterByTimeout()
 }
 
 /**
+ * Wait for backup replication of all changes made by this client up to now
+ * except the server used by dispatchedSynchronousRpc.
+ * Application can reply on the completion of synchronous RPC for the skipped
+ * server.
+ */
+void
+UnsyncedRpcTracker::efficientSync(
+        UnsyncedObjectRpcWrapper* dispatchedSynchronousRpc)
+{
+    Transport::Session* sessionToSkip =
+            dispatchedSynchronousRpc->getSessionUsed();
+    Lock lock(mutex);
+    for (MasterMap::iterator it = masters.begin(); it != masters.end(); ++it) {
+        Master* master = it->second;
+        if (!master->rpcs.empty() && master->session.get() != sessionToSkip) {
+            master->syncRpcHolder.construct(ramcloud->clientContext,
+                                            master->session,
+                                            master->lastestLogState);
+        }
+    }
+
+    for (MasterMap::iterator it = masters.begin(); it != masters.end(); ++it) {
+        Master* master = it->second;
+        if (master->syncRpcHolder) {
+            WireFormat::LogState newLogState;
+            master->syncRpcHolder->wait(&newLogState);
+            master->syncRpcHolder.destroy();
+            master->updateLogState(ramcloud, newLogState);
+        }
+    }
+}
+
+/**
  * Wait for backup replication of all changes made by this client up to now.
  */
 void

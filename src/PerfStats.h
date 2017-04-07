@@ -302,6 +302,7 @@ struct PerfStats {
     ///   "serverId", whose values are the indexNumbers of the ServerId
     ///   for each of the servers.
     typedef std::unordered_map<string, std::vector<double>> Diff;
+    typedef std::unordered_map<string, std::vector<uint64_t>> Int64Diff;
 
     static string formatMetric(Diff* diff, const char* metric,
             const char* formatString, double scale = 1.0);
@@ -311,6 +312,8 @@ struct PerfStats {
             const char* metric2, const char* formatString, double scale = 1.0);
     static void clusterDiff(Buffer* before, Buffer* after,
             PerfStats::Diff* diff);
+    static void clusterDiffInt64(Buffer* before, Buffer* after,
+            PerfStats::Int64Diff* diff, std::vector<double>* cyclesPerSecond);
     static void collectStats(PerfStats* total);
     static string printClusterStats(Buffer* first, Buffer* second);
     static void registerStats(PerfStats* stats);

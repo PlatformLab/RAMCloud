@@ -73,6 +73,7 @@ class WitnessTracker {
 
     std::vector<GcInfo> unsyncedRpcs;
 
+
   PUBLIC:
     /**
      * SyncChanges every "syncBatchSize" unsynced updates.
@@ -89,6 +90,14 @@ class WitnessTracker {
      */
     SpinLock mutex;
     typedef std::lock_guard<SpinLock> Lock;
+
+    /**
+     * Use this atomic flag to avoid concurrent sync try and ensure only one
+     * worker is performing sync and witnessGc in normal case.
+     * (Additional sync may happen in case of conflict.)
+     * TODO: think... do I really need atomic? can rely on existing mutex.
+     */
+    std::atomic<bool> syncInProgress;
 
     DISALLOW_COPY_AND_ASSIGN(WitnessTracker);
 };

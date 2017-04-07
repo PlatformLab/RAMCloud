@@ -28,6 +28,7 @@ namespace RAMCloud {
 using WireFormat::LogState;
 
 class ClientTransactionTask;
+class UnsyncedObjectRpcWrapper;
 
 /**
  * A temporary storage for RPC requests that have been responded by master but
@@ -57,6 +58,7 @@ class UnsyncedRpcTracker {
     void updateLogState(Transport::Session* session,
                         WireFormat::LogState masterLogState);
     void pingMasterByTimeout();
+    void efficientSync(UnsyncedObjectRpcWrapper* dispatchedSynchronousRpc);
     void sync();
     void sync(std::function<void()> callback);
 

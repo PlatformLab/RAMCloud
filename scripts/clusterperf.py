@@ -308,6 +308,9 @@ def run_test(
         client_args['--fullSamples'] = ''
     if options.seconds:
         client_args['--seconds'] = options.seconds
+    #client_args['--numServers'] = cluster_args['num_servers'] + cluster_args['num_witnesses']
+    client_args['--numMasters'] = cluster_args['num_servers'] + cluster_args['num_masters']
+    client_args['--numWitnesses'] = cluster_args['num_servers'] + cluster_args['num_witnesses']
     test.function(test.name, options, cluster_args, client_args)
 
 #-------------------------------------------------------------------
@@ -703,6 +706,17 @@ def writeDist(name, options, cluster_args, client_args):
     else:
         print_cdf_from_log()
 
+def writeDistSync(name, options, cluster_args, client_args):
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '-t 4000'
+    if cluster_args['timeout'] < 250:
+        cluster_args['timeout'] = 250
+    if 'num_servers' not in cluster_args:
+        cluster_args['num_servers'] = cluster_args['replicas'] + 2;
+    if cluster_args['num_servers'] < client_args['--txSpan']:
+        cluster_args['num_servers'] = client_args['--txSpan']
+    default(name, options, cluster_args, client_args)
+
 def workloadDist(name, options, cluster_args, client_args):
     if not options.extract:
         if 'master_args' not in cluster_args:
@@ -868,8 +882,10 @@ graph_tests = [
     Test("writeDistWorkload", workloadDist),
     Test("writeInterference", default),
     Test("writeThroughput", readThroughput),
+    Test("writeClusterThroughput", readThroughput),
     Test("workloadThroughput", readThroughput),
     Test("migrateLoaded", migrateLoaded),
+    Test("writeRandomMultipleAndSync", writeDistSync),
 ]
 
 if __name__ == '__main__':
