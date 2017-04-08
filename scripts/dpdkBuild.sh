@@ -13,7 +13,7 @@ then
     DPDK_OPTIONS+=" CONFIG_RTE_BUILD_SHARED_LIB=y"
 else
     # Use MLNX_DPDK release.
-    DPDK_VER="2.2_4.2"
+    DPDK_VER="16.11_2.3"
     DPDK="MLNX_DPDK_${DPDK_VER}"
     DPDK_SRC="http://www.mellanox.com/downloads/Drivers/${DPDK}.tar.gz"
     # MLX4 driver seems to have problems working with DPDK shared libraries
