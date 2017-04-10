@@ -370,8 +370,8 @@ main(int argc, const char *argv[]) {
     FileLogger arachneLogger(NOTICE, "ARACHNE: ");
     Arachne::setErrorStream(arachneLogger.getFile());
 
-    Arachne::numCores = 1;
-    Arachne::maxNumCores = 3;
+    Arachne::minNumCores = 2;
+    Arachne::maxNumCores = 4;
     Arachne::initCore = [] () {
         PerfStats::registerStats(&PerfStats::threadStats);
     };

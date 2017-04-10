@@ -6622,7 +6622,7 @@ writeThroughputMaster(int numObjects, int size, uint16_t keyLength)
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);
         PerfStats startStats = *statsBuffer.getStart<PerfStats>();
-        Cycles::sleep(5000000);
+        Cycles::sleep(1000000);
         cluster->objectServerControl(dataTable, "abc", 3,
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
                 &statsBuffer);

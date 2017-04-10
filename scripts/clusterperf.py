@@ -632,7 +632,7 @@ def readRandom(name, options, cluster_args, client_args):
 # linearizableWriteThroughput
 def readThroughput(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
-        cluster_args['master_args'] = '-t 2000'
+        cluster_args['master_args'] = '-t 20000'
     if cluster_args['timeout'] < 250:
         cluster_args['timeout'] = 250
     if 'num_clients' not in cluster_args:
