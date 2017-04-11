@@ -62,6 +62,9 @@
 
 using namespace RAMCloud;
 
+// Holds CPU affinities when application starts.
+cpu_set_t savedAffinities;
+
 /**
  * Ask the operating system to pin the current thread to a given CPU.
  *
@@ -69,12 +72,21 @@ using namespace RAMCloud;
  *      Indicates the desired CPU and hyperthread; low order 2 bits
  *      specify CPU, next bit specifies hyperthread.
  */
-void bindThreadToCpu(int cpu)
+void pinThread(int cpu)
 {
     cpu_set_t set;
     CPU_ZERO(&set);
     CPU_SET(cpu, &set);
     sched_setaffinity((pid_t)syscall(SYS_gettid), sizeof(set), &set);
+}
+
+/**
+ * Reverse the effects of a previous call to pinThread: restore
+ * initial CPU affinity mask.
+ */
+void unpinThread()
+{
+    sched_setaffinity(0, sizeof(savedAffinities), &savedAffinities);
 }
 
 /*
@@ -492,60 +504,130 @@ double bufferExternalIterator5()
     return bufferExternalIterator<5>();
 }
 
-// Implements the condPingPong test.
-class CondPingPong {
-  public:
-    CondPingPong()
-        : mutex()
-        , cond()
-        , prod(0)
-        , cons(0)
-        , count(10000)
-    {
-    }
-
-    double run() {
-        std::thread thread(&CondPingPong::consumer, this);
-        uint64_t start = Cycles::rdtsc();
-        producer();
-        uint64_t stop = Cycles::rdtsc();
-        thread.join();
-        return Cycles::toSeconds(stop - start)/count;
-    }
-
-    void producer() {
-        std::unique_lock<std::mutex> lockGuard(mutex);
-        while (cons < count) {
-            while (cons < prod)
-                cond.wait(lockGuard);
-            ++prod;
-            cond.notify_all();
-        }
-    }
-
-    void consumer() {
-        std::unique_lock<std::mutex> lockGuard(mutex);
-        while (cons < count) {
-            while (cons == prod)
-                cond.wait(lockGuard);
-            ++cons;
-            cond.notify_all();
-        }
-    }
-
-  private:
-    std::mutex mutex;
-    std::condition_variable cond;
-    int prod;
-    int cons;
-    const int count;
-    DISALLOW_COPY_AND_ASSIGN(CondPingPong);
-};
-
-// Measure the cost of coordinating between threads using a condition variable.
-double condPingPong()
+// This function runs the second thread for coherenceInvalidate.
+void coherenceInvalidateWorker(volatile int* value,
+        volatile bool* okToWrite, volatile bool* finished)
 {
-    return CondPingPong().run();
+    pinThread(3);
+    while (true) {
+        while (*okToWrite) {
+            /* Wait for reader to finish its write-invalidate. */
+            if (*finished) {
+                return;
+            }
+        }
+        (*value)++;
+        Fence::sfence();
+        *okToWrite = true;
+    }
+}
+
+// Measure the cost of reading a value from another core's cache and
+// then modifying it, which invalidates the other value.
+double coherenceInvalidate()
+{
+    int count = 1000000;
+    volatile bool finished = false;
+    volatile bool okToWrite = false;
+    // Make sure the shared value is on a cache line with nothing else.
+    int values[1024];
+    volatile int *value = &values[512];
+    *value = 0;
+    uint64_t sum = 0;
+
+    std::thread thread(coherenceInvalidateWorker, value, &okToWrite,
+            &finished);
+    pinThread(2);
+
+    // Now run the test.
+    uint64_t totalTime = 0;
+    uint64_t rdtscTime = 0;
+    for (int i = -10; i < count; i++) {
+        if (i == 0) {
+            // Don't start timing until the test has been running
+            // for a while, so everything is warmed up.
+            totalTime = rdtscTime = 0;
+        }
+        while (!okToWrite) {
+            // Wait for the worker thread to claim exclusive ownership
+            // of the value in its cache.
+        }
+        uint64_t start = Cycles::rdtsc();
+        *value = *value+1;
+        uint64_t t2 = Cycles::rdtsc();
+        uint64_t t3 = Cycles::rdtsc();
+        totalTime += (t2 - start);
+        rdtscTime += (t3 - t2);
+        okToWrite = false;
+    }
+    finished = true;
+    thread.join();
+    unpinThread();
+    // printf("Average rdtsc time: %.1fns\n",
+    //         1e09*Cycles::toSeconds(rdtscTime)/count);
+    return Cycles::toSeconds(totalTime - rdtscTime)/count;
+}
+
+// This function runs the second thread for coherenceReadMiss.
+void coherenceReadMissWorker(volatile int* value, volatile bool* okToRead,
+        volatile bool* finished)
+{
+    pinThread(3);
+    while (true) {
+        while (*okToRead) {
+            /* Wait for reader to finish reading the current value. */
+            if (*finished) {
+                return;
+            }
+        }
+        (*value)++;
+        Fence::sfence();
+        *okToRead = true;
+    }
+}
+
+// Measure the cost of a memory read for which the up-to-date version
+// is in another core's cache.
+double coherenceReadMiss()
+{
+    int count = 1000000;
+    volatile bool finished = false;
+    volatile bool okToRead = false;
+    // Make sure the shared value is on a cache line with nothing else.
+    int values[1024];
+    volatile int *value = &values[512];
+    *value = 0;
+    uint64_t sum = 0;
+
+    std::thread thread(coherenceReadMissWorker, value, &okToRead,
+            &finished);
+    pinThread(2);
+
+    // Now run the test.
+    uint64_t totalTime = 0;
+    uint64_t rdtscTime = 0;
+    for (int i = -10; i < count; i++) {
+        if (i == 0) {
+            // Don't start timing until the test has been running
+            // for a while, so everything is warmed up.
+            totalTime = rdtscTime = 0;
+        }
+        while (!okToRead) {
+            // Wait for the worker thread to claim exclusive ownership
+            // of the value in its cache.
+        }
+        uint64_t start = Cycles::rdtsc();
+        sum += *value;
+        uint64_t t2 = Cycles::rdtsc();
+        uint64_t t3 = Cycles::rdtsc();
+        totalTime += (t2 - start);
+        rdtscTime += (t3 - t2);
+        okToRead = false;
+    }
+    finished = true;
+    thread.join();
+    unpinThread();
+    return Cycles::toSeconds(totalTime - rdtscTime)/count;
 }
 
 // Measure the cost of the exchange method on a C++ atomic_int.
@@ -802,7 +884,7 @@ double lockInDispThrd()
 // pollers).
 void dispatchThread(Dispatch **d, volatile int* flag)
 {
-    bindThreadToCpu(2);
+    pinThread(2);
     Dispatch dispatch(true);
     *d = &dispatch;
     dispatch.poll();
@@ -815,6 +897,7 @@ double lockNonDispThrd()
 {
     int count = 100000;
     volatile int flag = 0;
+    pinThread(3);
 
     // Start a new thread and wait for it to create a dispatcher.
     Dispatch* dispatch;
@@ -830,6 +913,7 @@ double lockNonDispThrd()
     uint64_t stop = Cycles::rdtsc();
     flag = 0;
     thread.join();
+    unpinThread();
     return Cycles::toSeconds(stop - start)/count;
 }
 
@@ -1076,6 +1160,7 @@ void pingConditionVarWorker(std::mutex* mutex,
         std::condition_variable* condition1,
         std::condition_variable* condition2, bool* finished)
 {
+    pinThread(3);
     std::unique_lock<std::mutex> guard(*mutex);
     while (!*finished) {
         condition2->notify_one();
@@ -1087,7 +1172,7 @@ void pingConditionVarWorker(std::mutex* mutex,
 // a pair of condition variables.
 double pingConditionVar()
 {
-    int count = 400000;
+    int count = 100000;
     std::mutex mutex;
     std::condition_variable condition1, condition2;
     bool finished = false;
@@ -1097,11 +1182,17 @@ double pingConditionVar()
     // First get the other thread running and warm up the caches.
     std::thread thread(pingConditionVarWorker, &mutex, &condition1,
             &condition2, &finished);
+    pinThread(2);
     condition2.wait(*guard);
 
     // Now run the test.
-    uint64_t start = Cycles::rdtsc();
-    for (int i = 0; i < count; i++) {
+    uint64_t start = 0;
+    for (int i = -10; i < count; i++) {
+        if (i == 0) {
+            // Don't start timing until the test has been running
+            // for a while, so everything is warmed up.
+            start = Cycles::rdtsc();
+        }
         condition1.notify_one();
         condition2.wait(*guard);
     }
@@ -1110,6 +1201,112 @@ double pingConditionVar()
     condition1.notify_one();
     guard.destroy();
     thread.join();
+    unpinThread();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// This function runs the second thread for pingConditionVar.
+void pingMutexWorker(std::mutex* mutex1, std::mutex* mutex2, bool* finished)
+{
+    pinThread(3);
+    while (!*finished) {
+        mutex1->lock();
+        mutex2->unlock();
+    }
+}
+
+// Measure the round-trip time for two threads to ping each other using
+// a pair of condition variables.
+double pingMutex()
+{
+    int count = 100000;
+    std::mutex mutex1, mutex2;
+    bool finished = false;
+
+    // First get the other thread running and warm up the caches.
+    mutex1.lock();
+    std::thread thread(pingMutexWorker, &mutex1, &mutex2, &finished);
+    pinThread(2);
+
+    // Now run the test.
+    uint64_t start = 0;
+    for (int i = -10; i < count; i++) {
+        if (i == 0) {
+            // Don't start timing until the test has been running
+            // for a while, so everything is warmed up.
+            start = Cycles::rdtsc();
+        }
+        mutex1.unlock();
+        mutex2.lock();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    finished = true;
+    mutex1.unlock();
+    thread.join();
+    unpinThread();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// This function runs the second thread for pingVariable.
+void pingVariableWorker(volatile int* v1, volatile int* v2, volatile int* v3,
+        bool* finished)
+{
+    pinThread(3);
+    while (!*finished) {
+        while (*v1 == 0) {
+            /* Do nothing. */
+        }
+        // Fence::lfence();
+        *v1 = 0;
+        // (*v3)++;
+        // *v3 = 88;
+        Fence::sfence();
+        *v2 = 1;
+    }
+}
+
+// Measure the round-trip time for two threads to ping each other using
+// a pair of variables to pass a "token".
+double pingVariable()
+{
+    int count = 1000000;
+    bool finished = false;
+
+    // Get two integers guaranteed to be on different cache lines.
+    volatile int values[256];
+    volatile int *v1 = &values[63];
+    volatile int *v2 = &values[127];
+    volatile int *v3 = &values[191];
+    *v1 = *v2 = *v3 = 0;
+
+    // First get the other thread running.
+    std::thread thread(pingVariableWorker, v1, v2, v3, &finished);
+    pinThread(2);
+
+    // Now run the test.
+    uint64_t start = 0;
+    for (int i = -10; i < count; i++) {
+        if (i == 0) {
+            // Don't start timing until the test has been running
+            // for a while, so everything is warmed up.
+            start = Cycles::rdtsc();
+        }
+        Fence::sfence();
+        *v1 = 1;
+        while (*v2 == 0) {
+            /* Do nothing. */
+        }
+        // Fence::lfence();
+        *v2 = 0;
+        // (*v3)++;
+        // *v3 = 99;
+    }
+    uint64_t stop = Cycles::rdtsc();
+    finished = true;
+    *v1 = 1;
+    Fence::sfence();
+    thread.join();
+    unpinThread();
     return Cycles::toSeconds(stop - start)/count;
 }
 
@@ -1581,8 +1778,10 @@ TestInfo tests[] = {
      "buffer iterate over 2 external chunks, accessing 1 byte each"},
     {"bufferExternalIterator5", bufferExternalIterator5,
      "buffer iterate over 5 external chunks, accessing 1 byte each"},
-    {"condPingPong", condPingPong,
-     "std::condition_variable round-trip"},
+    {"coherenceInvalidate", coherenceInvalidate,
+     "invalidate remote cache on write"},
+    {"coherenceReadMiss", coherenceReadMiss,
+     "cache read miss from another core's cache"},
     {"cppAtomicExchg", cppAtomicExchange,
      "Exchange method on a C++ atomic_int"},
     {"cppAtomicLoad", cppAtomicLoad,
@@ -1649,6 +1848,10 @@ TestInfo tests[] = {
      "Cost of ObjectPool allocation after destroying an object"},
     {"pingConditionVar", pingConditionVar,
      "Round-trip ping with std::condition_variable"},
+    {"pingMutex", pingMutex,
+     "Round-trip ping with 2 std::mutexes"},
+    {"pingVariable", pingVariable,
+     "Round-trip ping by polling variables"},
     {"prefetch", perfPrefetch,
      "Prefetch instruction"},
     {"queueEstimator", queueEstimator,
@@ -1716,7 +1919,8 @@ void runTest(TestInfo& info)
 int
 main(int argc, char *argv[])
 {
-    bindThreadToCpu(3);
+    CPU_ZERO(&savedAffinities);
+    sched_getaffinity(0, sizeof(savedAffinities), &savedAffinities);
     if (argc == 1) {
         // No test names specified; run all tests.
         foreach (TestInfo& info, tests) {
