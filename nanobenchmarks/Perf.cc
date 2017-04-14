@@ -533,7 +533,6 @@ double coherenceInvalidate()
     int values[1024];
     volatile int *value = &values[512];
     *value = 0;
-    uint64_t sum = 0;
 
     std::thread thread(coherenceInvalidateWorker, value, &okToWrite,
             &finished);
