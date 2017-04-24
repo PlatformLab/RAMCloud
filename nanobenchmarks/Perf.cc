@@ -62,6 +62,11 @@
 
 using namespace RAMCloud;
 
+// For tests involving interactions between cores, these variables
+// specify the two cores to use.
+int core1 = 2;
+int core2 = 3;
+
 // Holds CPU affinities when application starts.
 cpu_set_t savedAffinities;
 
@@ -504,11 +509,78 @@ double bufferExternalIterator5()
     return bufferExternalIterator<5>();
 }
 
+// This function runs the second thread for cacheTransfer.
+void cacheTransferWorker(volatile int* value, volatile uint64_t* startTime,
+        volatile bool* finished)
+{
+    pinThread(core2);
+    int nextValue = *value + 1;
+    while (true) {
+        while (*startTime != 0) {
+            /* The reader is still processing the last update. */
+            if (*finished) {
+                return;
+            }
+        }
+        *startTime = Cycles::rdtsc();
+    }
+}
+
+// Measure the end-to-end latency to transfer a value from one core
+// to another using the cache coherency mechanism.
+double cacheTransfer()
+{
+    int count = 1000000;
+    volatile bool finished = false;
+    // Make sure the shared value is on a cache line with nothing else.
+    int values[1024];
+    volatile int *value = &values[512];
+    volatile uint64_t* startTime =
+            reinterpret_cast<uint64_t*>(&values[800]);
+    *value = 0;
+    *startTime = 12345;
+
+    std::thread thread(cacheTransferWorker, value, startTime, &finished);
+    pinThread(core1);
+
+    // Now run the test.
+    uint64_t totalTime = 0;
+    uint64_t rdtscTime = 0;
+    for (int i = -10; i < count; i++) {
+        if (i == 0) {
+            // Restart the timing after the test has been running
+            // for a while, so everything is warmed up.
+            totalTime = rdtscTime = 0;
+        }
+        *startTime = 0;
+        uint64_t start;
+        while (1) {
+            start = *startTime;
+            if (start != 0) {
+                break;
+            }
+            // Wait for value to change.
+        }
+        // Fence::lfence();
+        uint64_t t1 = Cycles::rdtsc();
+        uint64_t t2 = Cycles::rdtsc();
+        totalTime += (t1 - start);
+        rdtscTime += (t2 - t1);
+        // printf("Value %d, cycles %lu\n", expected, t1 - startTime);
+    }
+    finished = true;
+    thread.join();
+    unpinThread();
+    // printf("Average rdtsc time: %.1fns\n",
+    //         1e09*Cycles::toSeconds(rdtscTime)/count);
+    return Cycles::toSeconds(totalTime - rdtscTime)/count;
+}
+
 // This function runs the second thread for coherenceInvalidate.
 void coherenceInvalidateWorker(volatile int* value,
         volatile bool* okToWrite, volatile bool* finished)
 {
-    pinThread(3);
+    pinThread(core2);
     while (true) {
         while (*okToWrite) {
             /* Wait for reader to finish its write-invalidate. */
@@ -536,14 +608,14 @@ double coherenceInvalidate()
 
     std::thread thread(coherenceInvalidateWorker, value, &okToWrite,
             &finished);
-    pinThread(2);
+    pinThread(core1);
 
     // Now run the test.
     uint64_t totalTime = 0;
     uint64_t rdtscTime = 0;
     for (int i = -10; i < count; i++) {
         if (i == 0) {
-            // Don't start timing until the test has been running
+            // Restart the timing after the test has been running
             // for a while, so everything is warmed up.
             totalTime = rdtscTime = 0;
         }
@@ -571,7 +643,7 @@ double coherenceInvalidate()
 void coherenceReadMissWorker(volatile int* value, volatile bool* okToRead,
         volatile bool* finished)
 {
-    pinThread(3);
+    pinThread(core2);
     while (true) {
         while (*okToRead) {
             /* Wait for reader to finish reading the current value. */
@@ -600,14 +672,14 @@ double coherenceReadMiss()
 
     std::thread thread(coherenceReadMissWorker, value, &okToRead,
             &finished);
-    pinThread(2);
+    pinThread(core1);
 
     // Now run the test.
     uint64_t totalTime = 0;
     uint64_t rdtscTime = 0;
     for (int i = -10; i < count; i++) {
         if (i == 0) {
-            // Don't start timing until the test has been running
+            // Restart the timing after the test has been running
             // for a while, so everything is warmed up.
             totalTime = rdtscTime = 0;
         }
@@ -883,7 +955,7 @@ double lockInDispThrd()
 // pollers).
 void dispatchThread(Dispatch **d, volatile int* flag)
 {
-    pinThread(2);
+    pinThread(core2);
     Dispatch dispatch(true);
     *d = &dispatch;
     dispatch.poll();
@@ -896,7 +968,7 @@ double lockNonDispThrd()
 {
     int count = 100000;
     volatile int flag = 0;
-    pinThread(3);
+    pinThread(core1);
 
     // Start a new thread and wait for it to create a dispatcher.
     Dispatch* dispatch;
@@ -1159,7 +1231,7 @@ void pingConditionVarWorker(std::mutex* mutex,
         std::condition_variable* condition1,
         std::condition_variable* condition2, bool* finished)
 {
-    pinThread(3);
+    pinThread(core2);
     std::unique_lock<std::mutex> guard(*mutex);
     while (!*finished) {
         condition2->notify_one();
@@ -1181,14 +1253,14 @@ double pingConditionVar()
     // First get the other thread running and warm up the caches.
     std::thread thread(pingConditionVarWorker, &mutex, &condition1,
             &condition2, &finished);
-    pinThread(2);
+    pinThread(core1);
     condition2.wait(*guard);
 
     // Now run the test.
     uint64_t start = 0;
     for (int i = -10; i < count; i++) {
         if (i == 0) {
-            // Don't start timing until the test has been running
+            // Restart the timing after the test has been running
             // for a while, so everything is warmed up.
             start = Cycles::rdtsc();
         }
@@ -1207,7 +1279,7 @@ double pingConditionVar()
 // This function runs the second thread for pingConditionVar.
 void pingMutexWorker(std::mutex* mutex1, std::mutex* mutex2, bool* finished)
 {
-    pinThread(3);
+    pinThread(core2);
     while (!*finished) {
         mutex1->lock();
         mutex2->unlock();
@@ -1225,13 +1297,13 @@ double pingMutex()
     // First get the other thread running and warm up the caches.
     mutex1.lock();
     std::thread thread(pingMutexWorker, &mutex1, &mutex2, &finished);
-    pinThread(2);
+    pinThread(core1);
 
     // Now run the test.
     uint64_t start = 0;
     for (int i = -10; i < count; i++) {
         if (i == 0) {
-            // Don't start timing until the test has been running
+            // Restart the timing after the test has been running
             // for a while, so everything is warmed up.
             start = Cycles::rdtsc();
         }
@@ -1247,62 +1319,57 @@ double pingMutex()
 }
 
 // This function runs the second thread for pingVariable.
-void pingVariableWorker(volatile int* v1, volatile int* v2, volatile int* v3,
-        bool* finished)
+void pingVariableWorker(volatile int* value)
 {
-    pinThread(3);
-    while (!*finished) {
-        while (*v1 == 0) {
-            /* Do nothing. */
+    pinThread(core2);
+    int prev = 0;
+    while (1) {
+        int current = *value;
+        if (current != prev) {
+            prev = current+1;
+            *value = prev;
+            if (current < 0) {
+                break;
+            }
         }
-        // Fence::lfence();
-        *v1 = 0;
-        // (*v3)++;
-        // *v3 = 88;
-        Fence::sfence();
-        *v2 = 1;
     }
 }
 
 // Measure the round-trip time for two threads to ping each other using
-// a pair of variables to pass a "token".
+// a single variable; each round-trip represents two cache misses (one
+// by each thread).
 double pingVariable()
 {
     int count = 1000000;
-    bool finished = false;
 
-    // Get two integers guaranteed to be on different cache lines.
-    volatile int values[256];
-    volatile int *v1 = &values[63];
-    volatile int *v2 = &values[127];
-    volatile int *v3 = &values[191];
-    *v1 = *v2 = *v3 = 0;
+    // Arrange for shared value to be on private cache line.
+    volatile int values[500];
+    volatile int *value = &values[100];
+    int prev = 99;
 
     // First get the other thread running.
-    std::thread thread(pingVariableWorker, v1, v2, v3, &finished);
-    pinThread(2);
+    std::thread thread(pingVariableWorker, value);
+    pinThread(core1);
 
     // Now run the test.
     uint64_t start = 0;
     for (int i = -10; i < count; i++) {
         if (i == 0) {
-            // Don't start timing until the test has been running
+            // Restart the timing after the test has been running
             // for a while, so everything is warmed up.
             start = Cycles::rdtsc();
         }
-        Fence::sfence();
-        *v1 = 1;
-        while (*v2 == 0) {
-            /* Do nothing. */
+        while (1) {
+            int current = *value;
+            if (current != prev) {
+                prev = current+1;
+                *value = prev;
+                break;
+            }
         }
-        // Fence::lfence();
-        *v2 = 0;
-        // (*v3)++;
-        // *v3 = 99;
     }
     uint64_t stop = Cycles::rdtsc();
-    finished = true;
-    *v1 = 1;
+    *value = -1;
     Fence::sfence();
     thread.join();
     unpinThread();
@@ -1777,6 +1844,8 @@ TestInfo tests[] = {
      "buffer iterate over 2 external chunks, accessing 1 byte each"},
     {"bufferExternalIterator5", bufferExternalIterator5,
      "buffer iterate over 5 external chunks, accessing 1 byte each"},
+    {"cacheTransfer", cacheTransfer,
+     "pass value from one core to another"},
     {"coherenceInvalidate", coherenceInvalidate,
      "invalidate remote cache on write"},
     {"coherenceReadMiss", coherenceReadMiss,
