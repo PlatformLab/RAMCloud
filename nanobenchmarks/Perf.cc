@@ -510,36 +510,34 @@ double bufferExternalIterator5()
 }
 
 // This function runs the second thread for cacheTransfer.
-void cacheTransferWorker(volatile int* value, volatile uint64_t* startTime,
-        volatile bool* finished)
+void cacheTransferWorker(volatile uint64_t* startTime)
 {
     pinThread(core2);
     while (true) {
-        while (*startTime != 0) {
+        while (*startTime > 10) {
             /* The reader is still processing the last update. */
-            if (*finished) {
-                return;
-            }
+        }
+        if (*startTime == 0) {
+            return;
         }
         *startTime = Cycles::rdtsc();
     }
 }
 
 // Measure the end-to-end latency to transfer a value from one core
-// to another using the cache coherency mechanism.
+// to another using the cache coherency mechanism. Note: as of 4/2017,
+// the time for this is more than half the time for pingVariable,
+// which doesn't make sense....
 double cacheTransfer()
 {
-    int count = 1000000;
-    volatile bool finished = false;
+    int count = 2000000;
     // Make sure the shared value is on a cache line with nothing else.
     int values[1024];
-    volatile int *value = &values[512];
     volatile uint64_t* startTime =
-            reinterpret_cast<uint64_t*>(&values[800]);
-    *value = 0;
+            reinterpret_cast<uint64_t*>(&values[512]);
     *startTime = 12345;
 
-    std::thread thread(cacheTransferWorker, value, startTime, &finished);
+    std::thread thread(cacheTransferWorker, startTime);
     pinThread(core1);
 
     // Now run the test.
@@ -551,23 +549,22 @@ double cacheTransfer()
             // for a while, so everything is warmed up.
             totalTime = rdtscTime = 0;
         }
-        *startTime = 0;
+        *startTime = 1;
         uint64_t start;
         while (1) {
             start = *startTime;
-            if (start != 0) {
+            if (start > 10) {
                 break;
             }
-            // Wait for value to change.
+            // Retry until the value changes.
         }
-        // Fence::lfence();
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
         totalTime += (t1 - start);
         rdtscTime += (t2 - t1);
         // printf("Value %d, cycles %lu\n", expected, t1 - startTime);
     }
-    finished = true;
+    *startTime = 0;
     thread.join();
     unpinThread();
     // printf("Average rdtsc time: %.1fns\n",
