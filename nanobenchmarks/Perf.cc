@@ -514,7 +514,6 @@ void cacheTransferWorker(volatile int* value, volatile uint64_t* startTime,
         volatile bool* finished)
 {
     pinThread(core2);
-    int nextValue = *value + 1;
     while (true) {
         while (*startTime != 0) {
             /* The reader is still processing the last update. */
