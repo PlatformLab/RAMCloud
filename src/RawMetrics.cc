@@ -97,7 +97,9 @@ RawMetrics::sampleOnDemandMetrics()
     // for consistency with other time counting metrics.
     struct rusage ru;
     int r = getrusage(RUSAGE_SELF, &ru);
-    assert(r == 0);
+    if (r != 0) {
+        RAMCLOUD_DIE("getrusage failed: %s", strerror(errno));
+    }
     uint64_t ticksPerUsec = clockFrequency / 1000000;
     processSystemTicks = timevalToMicroseconds(&ru.ru_stime) * ticksPerUsec;
     processUserTicks = timevalToMicroseconds(&ru.ru_utime) * ticksPerUsec;

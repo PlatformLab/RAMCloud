@@ -85,7 +85,9 @@ void pinThreadToCore(int id) {
     CPU_ZERO(&cpuset);
     CPU_SET(id, &cpuset);
     int r = sched_setaffinity(0, sizeof(cpuset), &cpuset);
-    assert(r == 0);
+    if (r != 0) {
+        RAMCLOUD_DIE("sched_setaffinity failed: %s", strerror(errno));
+    }
 }
 
 /**
@@ -99,7 +101,9 @@ cpu_set_t getCpuAffinity() {
 
     CPU_ZERO(&cpuset);
     int r = sched_getaffinity(0, sizeof(cpuset), &cpuset);
-    assert(r == 0);
+    if (r != 0) {
+        RAMCLOUD_DIE("sched_getaffinity failed: %s", strerror(errno));
+    }
     return cpuset;
 }
 
@@ -115,7 +119,9 @@ cpu_set_t getCpuAffinity() {
 static FORCE_INLINE
 void setCpuAffinity(cpu_set_t cpuset) {
     int r = sched_setaffinity(0, sizeof(cpuset), &cpuset);
-    assert(r == 0);
+    if (r != 0) {
+        RAMCLOUD_DIE("sched_setaffinity failed: %s", strerror(errno));
+    }
 }
 
 /**

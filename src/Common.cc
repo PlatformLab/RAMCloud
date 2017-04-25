@@ -96,7 +96,9 @@ _generateRandom()
         unsigned int seed;
         ssize_t bytesRead = read(fd, &seed, sizeof(seed));
         close(fd);
-        assert(bytesRead == sizeof(seed));
+        if (bytesRead != sizeof(seed)) {
+            assert(bytesRead == sizeof(seed));
+        }
         statebuf = static_cast<char*>(Memory::xmalloc(HERE, STATE_BYTES));
         initstate_r(seed, statebuf, STATE_BYTES, &buf);
     }

@@ -568,8 +568,12 @@ PRIVATE:
             uint32_t metadataSize =
                     (isLeaf() ? sizeof32(LeafNode) : sizeof32(InnerNode));
             void *ptr;
+#ifdef DEBUG
             uint32_t contigSpace = toBuffer->peek(offset, &ptr);
             assert (contigSpace >= metadataSize + keyStorageUsed);
+#else
+            toBuffer->peek(offset, &ptr);
+#endif
 
             // Copy over metadata
             memmove(ptr, this, metadataSize);
@@ -2140,8 +2144,12 @@ PRIVATE:
     freeNode(NodeId nodeId)
     {
         Key key(treeTableId, &nodeId, sizeof(NodeId));
+#ifdef DEBUG
         Status status = objMgr->writeTombstone(key, &logBuffer);
         assert(status == STATUS_OK);
+#else
+        objMgr->writeTombstone(key, &logBuffer);
+#endif
         numEntries++;
         if (nodeId == m_rootId)
             nextNodeId = ROOT_ID;
@@ -2286,7 +2294,9 @@ PRIVATE:
       PerfStats::threadStats.btreeNodeWrites++;
       PerfStats::threadStats.btreeBytesWritten += node->serializedLength();
 
-      assert(status == STATUS_OK);
+      if (status != STATUS_OK) {
+        assert(status == STATUS_OK);
+      }
       return nodeId;
     }
 
@@ -2319,7 +2329,9 @@ PRIVATE:
     inline void
     flush() {
         bool status = objMgr->flushEntriesToLog(&logBuffer, numEntries);
-        assert(status == true);
+        if (status != true) {
+            assert(status == true);
+        }
         cache.clear();
     }
 

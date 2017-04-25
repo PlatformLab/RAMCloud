@@ -109,7 +109,9 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends)
         if (!enoughSpace)
             throw FatalError(HERE, "Guaranteed append managed to fail");
     }
-    assert(head == headBefore);
+    if (head != headBefore) {
+        assert(head == headBefore);
+    }
 
     return true;
 }
@@ -169,7 +171,9 @@ AbstractLog::append(Buffer *logBuffer, Reference *references,
         offset+= entryLength;
     }
 
-    assert(head == headBefore);
+    if (head != headBefore) {
+        assert(head == headBefore);
+    }
 
     return true;
 }

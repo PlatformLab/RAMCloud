@@ -881,7 +881,9 @@ timeIndexedRead(uint64_t tableId, uint8_t indexId, uint64_t expectedFirstPkHash,
                     tableId, numHashes, &(*it), &readObjects, &numObjects);
             readHashTime += Cycles::rdtsc() - start;
 
-            assert(numReturnedHashes == numHashes); // else collision
+            if (numReturnedHashes != numHashes) {
+                assert(numReturnedHashes == numHashes); // else collision
+            }
             totalNumObjects += numObjects;
         }
         if (!warmup)
@@ -3150,7 +3152,9 @@ indexBasic()
             start = Cycles::rdtsc();
             uint32_t numReturnedHashes = cluster->readHashes(
                 dataTable, numHashes, &readHashBuff, &readValBuff, &numObjects);
-            assert(numReturnedHashes == numHashes); // else collision
+            if (numReturnedHashes != numHashes) {
+                assert(numReturnedHashes == numHashes); // else collision
+            }
             stop = Cycles::rdtsc();
             timeLookupAndReads.at(i) = timeHashLookups.at(i) +
                         Cycles::toSeconds(stop - start);
@@ -3593,9 +3597,13 @@ indexRange() {
             hashLookupTimes.at(i) = Cycles::toSeconds(hashLookupTime);
 
             assert(totalNumHashes == lookupRange);
-            assert(expectedFirstPkHash ==
+            if (expectedFirstPkHash !=
                     *pkHashBuffs.front()->getOffset<uint64_t>(
-                            sizeof32(WireFormat::LookupIndexKeys::Response)));
+                    sizeof32(WireFormat::LookupIndexKeys::Response))) {
+                assert(expectedFirstPkHash ==
+                        *pkHashBuffs.front()->getOffset<uint64_t>(
+                        sizeof32(WireFormat::LookupIndexKeys::Response)));
+            }
 
             // Read Hashes
             uint32_t numObjectsInRead;
@@ -3614,7 +3622,9 @@ indexRange() {
                                             &readObject, &numObjectsInRead);
                 readHashTime += Cycles::rdtsc() - start;
 
-                assert(numReturnedHashes == numHashes); // else collision
+                if (numReturnedHashes != numHashes) {
+                    assert(numReturnedHashes == numHashes); // else collision
+                }
                 totalNumObjects += numObjectsInRead;
             }
             assert(totalNumObjects == lookupRange);
@@ -3784,8 +3794,11 @@ indexMultiple()
                         &nextKeyLength, &nextKeyHash);
 
                 assert(1 == numHashes);
-                assert(pkey.getHash()==
-                        *lookupResp.getOffset<uint64_t>(lookupOffset));
+                if (pkey.getHash() !=
+                        *lookupResp.getOffset<uint64_t>(lookupOffset)) {
+                    assert(pkey.getHash()==
+                            *lookupResp.getOffset<uint64_t>(lookupOffset));
+                }
             }
         }
 
@@ -4126,8 +4139,11 @@ indexScalability()
                     &nextKeyHash);
 
             assert(numHashes == 1);
-            assert(pk.getHash() ==
-                    *lookupResp.getOffset<uint64_t>(lookupOffset));
+            if (pk.getHash() !=
+                    *lookupResp.getOffset<uint64_t>(lookupOffset)) {
+                assert(pk.getHash() ==
+                        *lookupResp.getOffset<uint64_t>(lookupOffset));
+            }
         }
     }
 

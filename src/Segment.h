@@ -226,7 +226,9 @@ class Segment {
         {
             const void* p = NULL;
             uint32_t contigBytes = segment->peek(offset, &p);
-            assert(contigBytes > 0);
+            if (contigBytes <= 0) {
+                assert(contigBytes > 0);
+            }
             reference = reinterpret_cast<uint64_t>(p);
         }
 

@@ -186,7 +186,7 @@ LinearizableObjectRpcWrapper::waitInternal(Dispatch* dispatch,
         return true;
     }
 
-#ifdef DEBUG_BUILD
+#ifdef DEBUG
     RpcState state = getState();
     assert(state == FINISHED || state == CANCELED);
 #endif

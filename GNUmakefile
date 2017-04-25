@@ -61,7 +61,7 @@ endif
 DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
 OPTFLAG := -O3
-DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
+DEBUGFLAGS := -DNDEBUG
 endif
 
 # Starting from GCC 5.1, libstdc++ introduced a new library ABI. To maintain

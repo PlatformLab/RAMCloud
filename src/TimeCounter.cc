@@ -43,7 +43,9 @@ TimeCounter::getCurrentTime()
 {
     struct timespec ts;
     int ret = clock_gettime(CLOCK_REALTIME, &ts);
-    assert(ret == 0);
+    if (ret != 0) {
+        RAMCLOUD_DIE("clock_gettime failed: %s", strerror(errno));
+    }
 
     return (uint64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
 }

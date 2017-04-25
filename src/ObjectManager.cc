@@ -2801,7 +2801,9 @@ ObjectManager::removeIfOrphanedObject(uint64_t reference, void *cookie)
     if (!objectManager->tabletManager->getTablet(key)) {
         TEST_LOG("removing orphaned object at ref %lu", reference);
         bool r = objectManager->remove(*params->lock, key);
-        assert(r);
+        if (!r) {
+            assert(r);
+        }
         objectManager->log.free(Log::Reference(reference));
     }
 }
@@ -2844,7 +2846,9 @@ ObjectManager::removeIfTombstone(uint64_t maybeTomb, void *cookie)
         if (discard) {
             TEST_LOG("discarding");
             bool r = objectManager->remove(*params->lock, key);
-            assert(r);
+            if (!r) {
+                assert(r);
+            }
         }
 
         // Tombstones are not explicitly freed in the log. The cleaner will

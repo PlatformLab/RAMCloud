@@ -381,7 +381,9 @@ LogCleaner::doMemoryCleaning()
 
     survivor->close();
     bool r = survivor->freeUnusedSeglets();
-    assert(r);
+    if (!r) {
+        assert(r);
+    }
     assert(segment->getSegletsAllocated() >= survivor->getSegletsAllocated());
 
     uint64_t freeSegletsGained = segment->getSegletsAllocated() -
@@ -467,11 +469,15 @@ LogCleaner::doDiskCleaning()
     // MasterService is issuing a log->free(), but is leaving a reference in
     // the hash table. Or perhaps objects or tombstones which were once
     // considered dead have come to life again.
-    assert(entryBytesAppended <= maxLiveBytes);
+    if (entryBytesAppended > maxLiveBytes) {
+        assert(entryBytesAppended <= maxLiveBytes);
+    }
 
     uint32_t segmentsBefore = downCast<uint32_t>(segmentsToClean.size());
     assert(segletsBefore >= segletsAfter);
-    assert(segmentsBefore >= segmentsAfter);
+    if (segmentsBefore < segletsAfter) {
+        assert(segmentsBefore >= segmentsAfter);
+    }
 
     uint64_t memoryBytesFreed = (segletsBefore - segletsAfter) * segletSize;
     uint64_t diskBytesFreed = (segmentsBefore - segmentsAfter) * segmentSize;
@@ -740,7 +746,9 @@ LogCleaner::closeSurvivor(LogSegment* survivor)
 
     // Immediately free any unused seglets.
     bool r = survivor->freeUnusedSeglets();
-    assert(r);
+    if (!r) {
+        assert(r);
+    }
 }
 
 bool
