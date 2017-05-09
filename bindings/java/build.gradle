@@ -162,6 +162,9 @@ def findRamcloudBin() {
     def proc = "git rev-parse --abbrev-ref HEAD".execute()
     proc.waitFor()
     def currentBranch = proc.in.text.trim()
+    if (currentBranch.equals("HEAD")) {
+      return "obj"
+    }
     return "obj.$currentBranch"
 }
 
