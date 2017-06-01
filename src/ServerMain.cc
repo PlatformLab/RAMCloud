@@ -96,6 +96,7 @@ main(int argc, char *argv[])
 {
     signal(SIGTERM, Perf::terminationHandler);
     Logger::installCrashBacktraceHandlers();
+    Context context(true);
     try {
         ServerConfig config = ServerConfig::forExecution();
         string masterTotalMemory, hashTableMemory;
@@ -191,6 +192,11 @@ main(int argc, char *argv[])
              "value 0 is special: it tells the server to set the "
              "limit equal to the \"segmentFrames\" value, effectively making "
              "buffering unlimited.")
+            ("maxRecoveryReplicas",
+             ProgramOptions::value<uint32_t>(
+               &config.backup.maxRecoveryReplicas)->default_value(20),
+             "Maximum number of replicas any given master recovery will buffer "
+             "in memory.")
             ("preferredIndex",
              ProgramOptions::value<uint32_t>(
                 &config.preferredIndex)->default_value(0),
@@ -250,8 +256,6 @@ main(int argc, char *argv[])
         }
         LOG(NOTICE, "Command line: %s", args.c_str());
         LOG(NOTICE, "Server process id: %u", getpid());
-
-        Context context(true, &optionParser.options);
 
         if (masterOnly && backupOnly)
             DIE("Can't specify both -B and -M options");
@@ -339,15 +343,20 @@ main(int argc, char *argv[])
 
         return 0;
     } catch (const Exception& e) {
-        LOG(ERROR, "Fatal error in server: %s", e.what());
+        LOG(ERROR, "Fatal error in server at %s: %s",
+            context.transportManager->getListeningLocatorsString().c_str(),
+            e.what());
         Logger::get().sync();
         return 1;
     } catch (const std::exception& e) {
-        LOG(ERROR, "Fatal error in server: %s", e.what());
+        LOG(ERROR, "Fatal error in server at %s: %s",
+            context.transportManager->getListeningLocatorsString().c_str(),
+            e.what());
         Logger::get().sync();
         return 1;
     } catch (...) {
-        LOG(ERROR, "Unknown fatal error in server");
+        LOG(ERROR, "Unknown fatal error in server at %s",
+            context.transportManager->getListeningLocatorsString().c_str());
         Logger::get().sync();
         return 1;
     }

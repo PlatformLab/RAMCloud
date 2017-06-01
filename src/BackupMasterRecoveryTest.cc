@@ -30,6 +30,8 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
     TaskQueue taskQueue;
     ProtoBuf::RecoveryPartition partitions;
     uint32_t segmentSize;
+    uint32_t readSpeed;
+    uint32_t maxReplicasInMemory;
     InMemoryStorage storage;
     std::vector<BackupStorage::FrameRef> frames;
     Buffer source;
@@ -39,8 +41,10 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
     BackupMasterRecoveryTest()
         : taskQueue()
         , partitions()
-        , segmentSize()
-        , storage(1024, 6, 0)
+        , segmentSize(1024)
+        , readSpeed(100)
+        , maxReplicasInMemory(4)
+        , storage(segmentSize, 6, 0)
         , frames()
         , source()
         , crashedMasterId(99, 0)
@@ -58,7 +62,8 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
             ProtoBuf::Tablets::Tablet& tablet(*partitions.add_tablet());
             tablet = tablets.tablet(i);
         }
-        recovery.construct(taskQueue, 456lu, ServerId{99, 0}, segmentSize);
+        recovery.construct(taskQueue, 456lu, ServerId{99, 0},
+                           segmentSize, readSpeed, maxReplicasInMemory);
     }
 
     void
@@ -75,6 +80,49 @@ struct BackupMasterRecoveryTest : public ::testing::Test {
         if (screwItUp)
             metadata.checksum = 0;
         frames.back()->append(source, 0, 0, 0, &metadata, sizeof(metadata));
+    }
+
+    /**
+     * Fills the replica buffer with primary replicas, and one primary and one
+     * secondary replica enqueued. If readyToEvict is true, then the first
+     * replica in the buffer will be evicted the next time bufferNext() is
+     * called.
+     */
+    void
+    setupReplicaBuffer(bool readyToEvict) {
+        for (uint32_t i = 0; i < maxReplicasInMemory + 1; i++) {
+            mockMetadata(i, true, true); // primary
+        }
+        mockMetadata(88); // secondary
+
+        // Enqueue the primary replicas
+        recovery->start(frames, NULL, NULL);
+        recovery->setPartitionsAndSchedule(partitions);
+
+        BackupMasterRecovery::CyclicReplicaBuffer* replicaBuffer =
+            &recovery->replicaBuffer;
+
+        // Buffer the primary replicas
+        for (uint32_t i = 0; i < maxReplicasInMemory; i++) {
+            replicaBuffer->bufferNext();
+        }
+        ASSERT_EQ(replicaBuffer->inMemoryReplicas.size(), maxReplicasInMemory);
+        ASSERT_EQ(replicaBuffer->normalPriorityQueuedReplicas.size(), 1u);
+
+        // Enqueue the secondary replica
+        EXPECT_THROW(recovery->getRecoverySegment(456, 88, 0, NULL, NULL),
+                     RetryException);
+        ASSERT_EQ(replicaBuffer->highPriorityQueuedReplicas.size(), 1u);
+
+        if (readyToEvict) {
+            BackupMasterRecovery::Replica* firstReplica =
+                replicaBuffer->inMemoryReplicas[0];
+            firstReplica->built = true;
+            firstReplica->fetchCount = 1;
+            firstReplica->lastAccessTime = 0;
+            Cycles::mockTscValue =
+                Cycles::fromSeconds(replicaBuffer->bufferReadTime / 2 + 1e-9);
+        }
     }
 
     DISALLOW_COPY_AND_ASSIGN(BackupMasterRecoveryTest);
@@ -164,18 +212,16 @@ TEST_F(BackupMasterRecoveryTest, start) {
     EXPECT_EQ(93lu, recovery->replicas[3].metadata->segmentId);
     EXPECT_EQ(92lu, recovery->replicas[4].metadata->segmentId);
 
-    // Primaries have started loading; secondaries have not.
-    // Any open secondaries will still have loads requested because
-    // they should have been scanned for a log digest.
+    // The buffer has not started loading replicas into memory yet, so only
+    // open secondaries will have loads requested because they were scanned
+    // for a log digest.
     typedef InMemoryStorage::Frame* p;
-    EXPECT_TRUE(p(recovery->replicas[0].frame.get())->loadRequested);
-    EXPECT_TRUE(p(recovery->replicas[1].frame.get())->loadRequested);
+    EXPECT_FALSE(p(recovery->replicas[0].frame.get())->loadRequested);
+    EXPECT_FALSE(p(recovery->replicas[1].frame.get())->loadRequested);
     EXPECT_FALSE(p(recovery->replicas[2].frame.get())->loadRequested);
     EXPECT_TRUE(p(recovery->replicas[3].frame.get())->loadRequested);
     EXPECT_TRUE(p(recovery->replicas[4].frame.get())->loadRequested);
 
-    // Iterator set for build recovery segments.
-    EXPECT_EQ(&recovery->replicas.front(), &*recovery->nextToBuild);
     EXPECT_TRUE(recovery->isScheduled());
 
     // Idempotence.
@@ -197,7 +243,8 @@ TEST_F(BackupMasterRecoveryTest, start) {
 }
 
 TEST_F(BackupMasterRecoveryTest, setPartitionsAndSchedule) {
-    recovery.construct(taskQueue, 456lu, ServerId{99, 0}, segmentSize);
+    recovery.construct(taskQueue, 456lu, ServerId{99, 0},
+                       segmentSize, readSpeed, maxReplicasInMemory);
 
     TestLog::Enable _;
     recovery->startCompleted = true;
@@ -251,7 +298,6 @@ TEST_F(BackupMasterRecoveryTest, setPartitionsAndSchedule) {
               TestLog::get());
 
     EXPECT_EQ(2, recovery->numPartitions);
-    EXPECT_EQ(&recovery->replicas.front(), &*recovery->nextToBuild);
     EXPECT_TRUE(recovery->isScheduled());
 }
 
@@ -265,11 +311,14 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
 
     EXPECT_THROW(recovery->getRecoverySegment(456, 89, 0, NULL, NULL),
                  RetryException);
+    EXPECT_THROW(recovery->getRecoverySegment(456, 88, 0, NULL, NULL),
+                 RetryException);
 
     taskQueue.performTask();
-
     Status status = recovery->getRecoverySegment(456, 88, 0, NULL, NULL);
     EXPECT_EQ(STATUS_OK, status);
+
+    taskQueue.performTask();
     Buffer buffer;
     buffer.appendExternal("important", 10);
     ASSERT_TRUE(recovery->replicas[1].recoverySegments[0].append(
@@ -285,19 +334,21 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment) {
 }
 
 TEST_F(BackupMasterRecoveryTest, getRecoverySegment_exceptionDuringBuild) {
-    mockMetadata(88);
+    mockMetadata(89, true, true);
     recovery->start(frames, NULL, NULL);
     recovery->setPartitionsAndSchedule(partitions);
-    EXPECT_THROW(recovery->getRecoverySegment(456, 88, 0, NULL, NULL),
+    taskQueue.performTask();
+    EXPECT_THROW(recovery->getRecoverySegment(456, 89, 0, NULL, NULL),
                  SegmentRecoveryFailedException);
 }
 
 TEST_F(BackupMasterRecoveryTest, getRecoverySegment_badArgs) {
-    mockMetadata(88);
+    mockMetadata(88, true, true);
     recovery->testingExtractDigest = &mockExtractDigest;
     recovery->testingSkipBuild = true;
     recovery->start(frames, NULL, NULL);
     recovery->setPartitionsAndSchedule(partitions);
+    taskQueue.performTask();
     EXPECT_THROW(recovery->getRecoverySegment(455, 88, 0, NULL, NULL),
                  BackupBadSegmentIdException);
     recovery->getRecoverySegment(456, 88, 0, NULL, NULL);
@@ -310,7 +361,7 @@ TEST_F(BackupMasterRecoveryTest, getRecoverySegment_badArgs) {
 TEST_F(BackupMasterRecoveryTest, free) {
     std::unique_ptr<BackupMasterRecovery> recovery(
         new BackupMasterRecovery(taskQueue, 456lu, ServerId{99, 0},
-                                 segmentSize));
+                                 segmentSize, readSpeed, maxReplicasInMemory));
     TestLog::Enable _;
     recovery->free();
     taskQueue.performTask();
@@ -334,49 +385,143 @@ TEST_F(BackupMasterRecoveryTest, performTask) {
     taskQueue.performTask();
     EXPECT_EQ(
         "schedule: scheduled | "
-        "performTask: Starting to build recovery segments for (<99.0,88>) | "
-        "buildRecoverySegments: <99.0,88> recovery segments took 0 ms to "
-            "construct, notifying other threads | "
-        "performTask: Done building recovery segments for (<99.0,88>)",
+        "bufferNext: Added replica <99.0,88> to the recovery buffer | "
+        "buildNext: <99.0,88> recovery segments took 0 ms to "
+            "construct, notifying other threads",
         TestLog::get());
     TestLog::reset();
-    taskQueue.performTask();
-    EXPECT_EQ("performTask: Took 0 ms to filter 1 primary replicas",
-        TestLog::get());
+}
+
+TEST_F(BackupMasterRecoveryTest, CyclicReplicaBuffer_enqueue) {
+    BackupMasterRecovery::CyclicReplicaBuffer* replicaBuffer =
+        &recovery->replicaBuffer;
+
+    // Enqueue two normal priority primary replicas
+    mockMetadata(88, true, true);
+    mockMetadata(89, true, true);
+    recovery->testingSkipBuild = true;
+    recovery->start(frames, NULL, NULL);
+    recovery->setPartitionsAndSchedule(partitions);
+    ASSERT_EQ(replicaBuffer->normalPriorityQueuedReplicas.size(), 2u);
+    ASSERT_EQ(replicaBuffer->highPriorityQueuedReplicas.size(), 0u);
+    ASSERT_EQ(replicaBuffer->inMemoryReplicas.size(), 0u);
+    BackupMasterRecovery::Replica* firstReplica =
+        replicaBuffer->normalPriorityQueuedReplicas.front();
+    // Make sure the replica enqueued first is at the front of the queue
+    ASSERT_EQ(firstReplica->metadata->segmentId, 89u);
+
+    // Try to re-enqueue at high priority, make sure still normal
+    replicaBuffer->enqueue(firstReplica,
+                          BackupMasterRecovery::CyclicReplicaBuffer::HIGH);
+    ASSERT_EQ(replicaBuffer->normalPriorityQueuedReplicas.size(), 2u);
+    ASSERT_EQ(replicaBuffer->highPriorityQueuedReplicas.size(), 0u);
+    ASSERT_EQ(replicaBuffer->inMemoryReplicas.size(), 0u);
+    ASSERT_EQ(replicaBuffer->normalPriorityQueuedReplicas.front(),
+              firstReplica);
+
+    // Make sure we can't enqueue a buffered replica
+    replicaBuffer->bufferNext();
+    ASSERT_EQ(replicaBuffer->normalPriorityQueuedReplicas.size(), 1u);
+    ASSERT_EQ(replicaBuffer->inMemoryReplicas.size(), 1u);
+    replicaBuffer->enqueue(firstReplica,
+                          BackupMasterRecovery::CyclicReplicaBuffer::NORMAL);
+    ASSERT_EQ(replicaBuffer->normalPriorityQueuedReplicas.size(), 1u);
+}
+
+TEST_F(BackupMasterRecoveryTest, CyclicReplicaBuffer_bufferNext_eviction) {
+    recovery->testingSkipBuild = true;
+    BackupMasterRecovery::CyclicReplicaBuffer* replicaBuffer =
+        &recovery->replicaBuffer;
+    setupReplicaBuffer(false);
+
+    BackupMasterRecovery::Replica* firstReplica =
+        replicaBuffer->inMemoryReplicas[0];
+
+    // Replicas should not be evicted before they are built or fetched
+    replicaBuffer->bufferNext();
+    ASSERT_EQ(replicaBuffer->highPriorityQueuedReplicas.size(), 1u);
+    ASSERT_EQ(replicaBuffer->normalPriorityQueuedReplicas.size(), 1u);
+    firstReplica->built = true;
+    firstReplica->fetchCount = 1;
+
+    // Replicas should not be evicted until they've been inactive for half the
+    // time it takes to read the buffer
+    Cycles::mockTscValue =
+        Cycles::fromSeconds(replicaBuffer->bufferReadTime / 2 - 1e-8);
+    firstReplica->lastAccessTime = 0;
+    replicaBuffer->bufferNext();
+    ASSERT_EQ(replicaBuffer->highPriorityQueuedReplicas.size(), 1u);
+    ASSERT_EQ(replicaBuffer->normalPriorityQueuedReplicas.size(), 1u);
+
+    // Check that eviction succeeds if the properties above are met
+    Cycles::mockTscValue =
+        Cycles::fromSeconds(replicaBuffer->bufferReadTime / 2 + 1e-9);
+    replicaBuffer->bufferNext();
+    ASSERT_EQ(replicaBuffer->highPriorityQueuedReplicas.size(), 0u);
+    ASSERT_EQ(replicaBuffer->normalPriorityQueuedReplicas.size(), 1u);
+
+    Cycles::mockTscValue = 0;
+}
+
+TEST_F(BackupMasterRecoveryTest, CyclicReplicaBuffer_bufferNext_priorities) {
+    recovery->testingSkipBuild = true;
+    BackupMasterRecovery::CyclicReplicaBuffer* replicaBuffer =
+        &recovery->replicaBuffer;
+    setupReplicaBuffer(true);
+
+    // Make sure high priority replicas are buffered before normal priority
+    // replicas
+    replicaBuffer->bufferNext();
+    ASSERT_EQ(replicaBuffer->highPriorityQueuedReplicas.size(), 0u);
+    ASSERT_EQ(replicaBuffer->normalPriorityQueuedReplicas.size(), 1u);
+
+    BackupMasterRecovery::Replica* firstReplica =
+        replicaBuffer->inMemoryReplicas[0];
+
+    // Normal priority replicas are buffered when there are no high priority
+    // replicas
+    firstReplica = replicaBuffer->inMemoryReplicas[1];
+    firstReplica->built = true;
+    firstReplica->fetchCount = 1;
+    replicaBuffer->bufferNext();
+    ASSERT_EQ(replicaBuffer->highPriorityQueuedReplicas.size(), 0u);
+    ASSERT_EQ(replicaBuffer->normalPriorityQueuedReplicas.size(), 0u);
+
+    Cycles::mockTscValue = 0;
 }
 
 namespace {
-bool buildRecoverySegmentsFilter(string s) {
-    return s == "buildRecoverySegments";
+bool buildNextFilter(string s) {
+    return s == "buildNext";
 }
 }
 
-TEST_F(BackupMasterRecoveryTest, buildRecoverySegments) {
+TEST_F(BackupMasterRecoveryTest, CyclicReplicaBuffer_buildNext) {
     mockMetadata(88, true, true);
     recovery->testingSkipBuild = true;
     recovery->start(frames, NULL, NULL);
-    TestLog::Enable _(buildRecoverySegmentsFilter);
-    recovery->buildRecoverySegments(recovery->replicas.at(0));
-    EXPECT_EQ("buildRecoverySegments: <99.0,88> recovery segments took 0 ms "
-              "to construct, notifying other threads", TestLog::get());
+    recovery->replicaBuffer.bufferNext();
 
-    TestLog::reset();
-    recovery->buildRecoverySegments(recovery->replicas.at(0));
-    EXPECT_EQ("buildRecoverySegments: Recovery segments already built for "
-              "<99.0,88>", TestLog::get());
+    TestLog::Enable _(buildNextFilter);
+    recovery->replicaBuffer.buildNext();
+    EXPECT_EQ("buildNext: <99.0,88> recovery segments took 0 ms "
+              "to construct, notifying other threads", TestLog::get());
     EXPECT_FALSE(recovery->replicas.at(0).recoveryException);
     EXPECT_TRUE(recovery->replicas.at(0).recoverySegments);
     EXPECT_TRUE(recovery->replicas.at(0).built);
+    TestLog::reset();
 }
 
 TEST_F(BackupMasterRecoveryTest, buildRecoverySegments_buildThrows) {
     mockMetadata(88, true, true);
     recovery->start(frames, NULL, NULL);
     recovery->setPartitionsAndSchedule(partitions);
-    TestLog::Enable _(buildRecoverySegmentsFilter);
-    taskQueue.performTask();
+    recovery->replicaBuffer.bufferNext();
+
+    TestLog::Enable _(buildNextFilter);
+    recovery->replicaBuffer.buildNext();
     EXPECT_TRUE(StringUtil::startsWith(TestLog::get(),
-        "buildRecoverySegments: Couldn't build recovery segments for "
+        "buildNext: Couldn't build recovery segments for "
         "<99.0,88>: RAMCloud::SegmentIteratorException: cannot iterate: "
         "corrupt segment, thrown "));
     EXPECT_TRUE(recovery->replicas.at(0).recoveryException);

@@ -108,6 +108,10 @@ message ServerConfig {
         /// before rejecting new segments until the disk catches up.
         required fixed32 max_non_volatile_buffers = 4;
 
+        /// Maximum number of replicas that any given master recovery will
+        /// keep in memory at any given time.
+        required fixed32 max_recovery_replicas = 20;
+
         /// Path to a file to use for the backing store if inMemory is false.
         optional string file = 5;
 

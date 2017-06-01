@@ -284,6 +284,8 @@ TEST_F(BackupServiceTest, getRecoveryData) {
     EXPECT_EQ(1lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
 
+    std::thread taskQueueThread(&BackupService::gcMain, backup);
+
     Buffer recoverySegment;
     BackupClient::getRecoveryData(&context, backupId,
                                   456lu, {99, 0}, 88, 0,
@@ -292,6 +294,9 @@ TEST_F(BackupServiceTest, getRecoveryData) {
                                                457lu, {99, 0}, 88, 0,
                                                &recoverySegment),
                 BackupBadSegmentIdException);
+
+    backup->taskQueue.halt();
+    taskQueueThread.join();
 }
 
 TEST_F(BackupServiceTest, restartFromStorage)
@@ -424,13 +429,14 @@ TEST_F(BackupServiceTest, startReadingData) {
                                           457lu, {99, 0}, &recoveryPartition);
     EXPECT_EQ(2lu, results.replicas.size());
     EXPECT_EQ(1lu, backup->recoveries.size());
-    EXPECT_EQ(
+    EXPECT_TRUE(TestUtil::matchesPosixRegex(
         "startReadingData: Got startReadingData for recovery 457 for crashed "
             "master 99.0; abandoning existing recovery 456 for that master and "
             "starting anew. | "
         "free: Recovery 456 for crashed master 99.0 is no longer needed; "
             "will clean up as next possible chance. | "
         "schedule: scheduled | "
+        "CyclicReplicaBuffer: .* | "
         "start: Backup preparing for recovery 457 of crashed server 99.0; "
             "loading 0 primary replicas | "
         "populateStartResponse: Crashed master 99.0 had closed secondary "
@@ -444,7 +450,7 @@ TEST_F(BackupServiceTest, startReadingData) {
             "according to the following partitions:\n | "
         "setPartitionsAndSchedule: Kicked off building recovery segments | "
         "schedule: scheduled"
-            , TestLog::get());
+            , TestLog::get()));
 }
 
 TEST_F(BackupServiceTest, writeSegment) {
@@ -584,7 +590,8 @@ TEST_F(BackupServiceTest, GarbageCollectDownServerTask) {
     EXPECT_NE(backup->frames.end(), backup->frames.find({{99, 1}, 88}));
 
     backup->recoveries[ServerId{99, 0}] =
-        new BackupMasterRecovery(backup->taskQueue, 456, {99, 0}, 0);
+        new BackupMasterRecovery(backup->taskQueue, 456, {99, 0},
+                                 config.segmentSize, 450, 20);
     EXPECT_NE(backup->recoveries.end(), backup->recoveries.find({99, 0}));
 
     typedef BackupService::GarbageCollectDownServerTask Task;

@@ -356,6 +356,7 @@ struct ServerConfig {
             , sync(false)
             , numSegmentFrames(4)
             , maxNonVolatileBuffers(0)
+            , maxRecoveryReplicas(20)
             , file()
             , strategy(1)
             , mockSpeed(100)
@@ -373,6 +374,7 @@ struct ServerConfig {
             , sync(false)
             , numSegmentFrames(512)
             , maxNonVolatileBuffers(0)
+            , maxRecoveryReplicas(20)
             , file("/var/tmp/backup.log")
             , strategy(1)
             , mockSpeed(0)
@@ -389,6 +391,7 @@ struct ServerConfig {
             config.set_in_memory(inMemory);
             config.set_num_segment_frames(numSegmentFrames);
             config.set_max_non_volatile_buffers(maxNonVolatileBuffers);
+            config.set_max_recovery_replicas(maxRecoveryReplicas);
             if (!inMemory)
                 config.set_file(file);
             config.set_strategy(strategy);
@@ -407,6 +410,7 @@ struct ServerConfig {
             inMemory = config.in_memory();
             numSegmentFrames = config.num_segment_frames();
             maxNonVolatileBuffers = config.max_non_volatile_buffers();
+            maxRecoveryReplicas = config.max_recovery_replicas();
             if (!inMemory)
                 file = config.file();
             strategy = config.strategy();
@@ -448,6 +452,13 @@ struct ServerConfig {
          * frames on disk (that is, this parameter will equal numSegmentFrames).
          */
         uint32_t maxNonVolatileBuffers;
+
+        /**
+         * The maximum number of replicas that will be kept in memory during any
+         * given recovery. A large number may unnecessarily waste memory, but a
+         * small number will slow down recovery.
+         */
+        uint32_t maxRecoveryReplicas;
 
         /// Path to a file to use for the backing store if inMemory is false.
         string file;

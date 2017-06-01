@@ -21,8 +21,6 @@
 
 namespace RAMCloud {
 
-enum { DISABLE_BACKGROUND_BUILDING = false };
-
 SpinLock BackupMasterRecovery::deletionMutex
     ("BackupMasterRecovery::deletionMutex");
 
@@ -35,7 +33,7 @@ SpinLock BackupMasterRecovery::deletionMutex
  * master recovery which is initiated by the coordinator.
  *
  * \param taskQueue
- *      Task queue which will provide the context to filter loaded replicas in
+ *      Task queue which will provide the context to load and filter replicas in
  *      the background. Not used until just before start() completes. This
  *      instance takes care of all the details of scheduling itself. The user
  *      needn't worry about calling schedule().
@@ -53,11 +51,19 @@ SpinLock BackupMasterRecovery::deletionMutex
  * \param segmentSize
  *      Size of the replicas on storage. Needed for bounds-checking on the
  *      SegmentIterators which walk the stored replicas.
+ * \param readSpeed
+ *      The read speed of this recovery's backup disk, in MB/s.
+ * \param maxReplicasInMemory
+ *     The maximum number of replicas and frames to have in memory at any given
+ *     point during recovery. This number will determine the size of this
+ *     recovery's CyclicReplicaBuffer.
  */
 BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
                                            uint64_t recoveryId,
                                            ServerId crashedMasterId,
-                                           uint32_t segmentSize)
+                                           uint32_t segmentSize,
+                                           uint32_t readSpeed,
+                                           uint32_t maxReplicasInMemory)
     : Task(taskQueue)
     , recoveryId(recoveryId)
     , crashedMasterId(crashedMasterId)
@@ -65,10 +71,8 @@ BackupMasterRecovery::BackupMasterRecovery(TaskQueue& taskQueue,
     , segmentSize(segmentSize)
     , numPartitions()
     , replicas()
-    , nextToBuild()
-    , firstSecondaryReplica()
-    , numPrimaries(0)
     , segmentIdToReplica()
+    , replicaBuffer(maxReplicasInMemory, segmentSize, readSpeed, this)
     , logDigest()
     , logDigestSegmentId(~0lu)
     , logDigestSegmentEpoch()
@@ -92,13 +96,13 @@ BackupMasterRecovery::~BackupMasterRecovery() {
     LOG(NOTICE, "Freeing recovery state on backup for crashed master %s "
             "(recovery %lu), including %lu filtered replicas",
             crashedMasterId.toString().c_str(), recoveryId,
-            numPrimaries);
+            replicaBuffer.size());
 }
 
 /**
  * Extract the details of all the replicas stored for the crashed master,
  * returning them for the coordinator to perform an inventory of the log,
- * and asynchronously start loading primary replicas in the background in
+ * and queue them to be asynchronously loaded by the CyclicReplicaBuffer in
  * preparation of replica data requests from recovery masters. Idempotent
  * but not thread-safe. It is expected that only a single BackupService
  * Worker thread calls this at a time.
@@ -157,19 +161,18 @@ BackupMasterRecovery::start(const std::vector<BackupStorage::FrameRef>& frames,
     // Build the deque and the mapping from segment ids to replicas.
     readingDataTicks.construct(&metrics->backup.readingDataTicks);
 
-    // Arrange for replicas to be processed in reverse chronological order
-    // (most recent replicas first). This improves recovery performance by
-    // avoiding situations where old log entries get inserted in a
-    // recovery master's log only to be overridden by newer ones.
+    // Arrange for replicas to be processed in reverse chronological order (most
+    // recent replicas first) by enqueuing them in #replicaBuffer in reverse
+    // order. This improves recovery performance by ensuring that the buffer
+    // loads replicas in the same order they will be requested by the recovery
+    // masters.
     vector<BackupStorage::FrameRef>::reverse_iterator rit;
     for (rit = primaries.rbegin(); rit != primaries.rend(); ++rit) {
         replicas.emplace_back(*rit);
-        (*rit)->startLoading();
         auto& replica = replicas.back();
+        replicaBuffer.enqueue(&replica, CyclicReplicaBuffer::NORMAL);
         segmentIdToReplica[replica.metadata->segmentId] = &replica;
     }
-    firstSecondaryReplica = replicas.end();
-    numPrimaries = primaries.size();
     foreach (auto& frame, secondaries) {
         replicas.emplace_back(frame);
         auto& replica = replicas.back();
@@ -253,7 +256,6 @@ BackupMasterRecovery::setPartitionsAndSchedule(
             partitions.DebugString().c_str());
 
     LOG(DEBUG, "Kicked off building recovery segments");
-    nextToBuild = replicas.begin();
     buildingStartTicks = Cycles::rdtsc();
     schedule();
 }
@@ -261,13 +263,11 @@ BackupMasterRecovery::setPartitionsAndSchedule(
 /**
  * Append the specified recovery segment to \a buffer along with the
  * certificate needed verify its integrity and iterate it. Used to fulfill
- * GetRecoveryData rpcs from recovery masters. If the requested recovery
- * segment comes from a secondary replica then block while loading and
- * filtering the replica if it hasn't been done yet. If the requested recovery
- * segment comes from a primary replica then do not block; if the recovery
- * segment hasn't been constructed yet the return status indicates the recovery
- * master should try to collect other recovery segments and come back for this
- * one later.
+ * GetRecoveryData rpcs from recovery masters. If the recovery segment hasn't
+ * been constructed yet the return status indicates the recovery master should
+ * try to collect other recovery segments and come back for this one later. This
+ * occurs regardless of whether the requested replica is a primary or secondary
+ * replica.
  *
  * \param recoveryId
  *      Which master recovery this is for. The coordinator may schedule
@@ -313,25 +313,32 @@ BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
     }
     auto replicaIt = segmentIdToReplica.find(segmentId);
     if (replicaIt == segmentIdToReplica.end()) {
-        LOG(WARNING, "Asked for a recovery segment for segment <%s,%lu> "
+        LOG(NOTICE, "Asked for a recovery segment for segment <%s,%lu> "
             "which isn't part of this recovery",
            crashedMasterId.toString().c_str(), segmentId);
         throw BackupBadSegmentIdException(HERE);
     }
     Replica* replica = replicaIt->second;
+    CyclicReplicaBuffer::ActiveReplica activeRecord(replica, &replicaBuffer);
 
-    if (!replica->metadata->primary || DISABLE_BACKGROUND_BUILDING) {
-        LOG(DEBUG, "Requested segment <%s,%lu> is secondary, "
-            "starting build of recovery segments now",
-            crashedMasterId.toString().c_str(), segmentId);
-        replica->frame->load();
-        buildRecoverySegments(*replica);
+    if (!replicaBuffer.contains(replica)) {
+        // This replica isn't loaded into memory, so try to schedule it to be
+        // added to the buffer.
+        replicaBuffer.enqueue(replica, CyclicReplicaBuffer::HIGH);
+        throw RetryException(HERE, 5000, 10000,
+            "desired segment has not yet been loaded into buffer");
     }
 
     Fence::lfence();
     if (!replica->built) {
-        LOG(DEBUG, "Deferring because <%s,%lu> not yet filtered",
-            crashedMasterId.toString().c_str(), segmentId);
+        if (replica->frame->isLoaded()) {
+            LOG(DEBUG, "Deferring because <%s,%lu> not yet filtered: %p",
+                crashedMasterId.toString().c_str(), segmentId, replica);
+        } else {
+            LOG(DEBUG, "Deferring because <%s,%lu> not yet loaded: %p",
+                crashedMasterId.toString().c_str(), segmentId, replica);
+        }
+
         throw RetryException(HERE, 5000, 10000,
                 "desired segment not yet filtered");
     }
@@ -360,6 +367,7 @@ BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
     if (certificate)
         replica->recoverySegments[partitionId].getAppendedLength(certificate);
 
+    replica->fetchCount++;
     return STATUS_OK;
 }
 
@@ -396,45 +404,23 @@ BackupMasterRecovery::getRecoveryId()
 }
 
 /**
- * Check to see if a primary replica is finished loading from disk and, if so,
- * build the recovery segments. Invoked by a task queue in a separate thread
- * from the backup worker thread so building recovery segments for primary
- * replicas is done in the background. Works down #replicas in order starting
- * at the beginning (which #nextToBuild is initially set to in start()) until
- * the end of #replicas or a secondary replica is encountered.
+ * Alternates between attempting to add the next replica to the buffer (see
+ * bufferNext()) and building the next recovery segment from a previously loaded
+ * replica (see buildNext()). Invoked by a task queue in a separate thread from
+ * the backup worker thread so building recovery segments is done in the
+ * background.
  */
 void
 BackupMasterRecovery::performTask()
 {
-    if (DISABLE_BACKGROUND_BUILDING)
-        return;
-
-    if (nextToBuild == firstSecondaryReplica) {
-        readingDataTicks.destroy();
-        uint64_t ns =
-            Cycles::toNanoseconds(Cycles::rdtsc() - buildingStartTicks);
-        LOG(NOTICE, "Took %lu ms to filter %lu primary replicas",
-            ns / 1000 / 1000, numPrimaries);
-        return;
-    }
-
     {
         SpinLock::Guard lock(deletionMutex);
         if (!pendingDeletion)
             schedule();
     }
 
-    if (!nextToBuild->frame->isLoaded()) {
-        // Can't afford to log here at any level; generates tons of logging.
-        return;
-    }
-    LOG(DEBUG, "Starting to build recovery segments for (<%s,%lu>)",
-        crashedMasterId.toString().c_str(), nextToBuild->metadata->segmentId);
-    buildRecoverySegments(*nextToBuild);
-    LOG(DEBUG, "Done building recovery segments for (<%s,%lu>)",
-        crashedMasterId.toString().c_str(), nextToBuild->metadata->segmentId);
-    nextToBuild->frame->unload();
-    ++nextToBuild;
+    replicaBuffer.bufferNext();
+    replicaBuffer.buildNext();
 }
 
 // - private -
@@ -493,88 +479,6 @@ BackupMasterRecovery::populateStartResponse(Buffer* responseBuffer,
     }
 }
 
-/**
- * Construct recovery segments for this replica data splitting data among
- * them according to #partitions. Idempotent; if replicas have already been
- * built the function returns immediately. After recovery segments are
- * constructed replica.built is set after an sfence. getRecoverySegment()
- * performs an lfence and checks replica.built before using the generated
- * recovery segments.
- *
- * After this method completes exactly one of replica.recoverySegments or
- * replica.recoveryException should be set. Notice: both of these are
- * std::unique_ptr so setting/testing them is not atomic. Use replica.built to
- * test to see if the construction of the recovery segments has completed
- * (along with a proper lfence first). This method doesn't throw exceptions;
- * any exceptions are boxed into replica.recoveryException so the exception
- * can be returned to recovery masters which request recovery segments from it
- * (which indicates to them that they need to find the recovery segment on
- * another backup).
- *
- * This method is NOT thread-safe for multiple simulatenous calls for the SAME
- * replica. Multiple invocations for different replicas is OK and expected.
- * BackupMasterRecovery serializes the processing of primary replicas via a
- * TaskQueue; primary replicas are ONLY processed by that task (performTask()).
- * Secondaries are ONLY processed by the backup worker thread. Since the worker
- * thread serializes all rpcs secondary processing is serialized. Since the two
- * sets are disjoint it all works out.
- *
- * If we move to multiple worker threads then replicas will need to be locked
- * for this filtering.
- *
- * \param replica
- *      Replica whose data should be walked and bucketed into recovery segments
- *      according to #partitions.
- */
-void
-BackupMasterRecovery::buildRecoverySegments(Replica& replica)
-{
-    if (replica.built) {
-        LOG(NOTICE, "Recovery segments already built for <%s,%lu>",
-            crashedMasterId.toString().c_str(), replica.metadata->segmentId);
-        return;
-    }
-
-    replica.recoveryException.reset();
-    replica.recoverySegments.reset();
-
-    void* replicaData = replica.frame->load();
-    CycleCounter<RawMetric> _(&metrics->backup.filterTicks);
-
-    std::unique_ptr<Segment[]> recoverySegments(new Segment[numPartitions]);
-    uint64_t start = Cycles::rdtsc();
-    try {
-        if (!testingSkipBuild) {
-            assert(partitions);
-            RecoverySegmentBuilder::build(replicaData, segmentSize,
-                                          replica.metadata->certificate,
-                                          numPartitions,
-                                          *partitions,
-                                          recoverySegments.get());
-        }
-    } catch (const Exception& e) {
-        // Can throw SegmentIteratorException or SegmentRecoveryFailedException.
-        // Exception is a little broad, but it catches them both; hopefully we
-        // don't try to recover from anything else too serious.
-        LOG(NOTICE, "Couldn't build recovery segments for <%s,%lu>: %s",
-            crashedMasterId.toString().c_str(),
-            replica.metadata->segmentId, e.what());
-        replica.recoveryException.reset(
-            new SegmentRecoveryFailedException(HERE));
-        Fence::sfence();
-        replica.built = true;
-        return;
-    }
-
-    LOG(DEBUG, "<%s,%lu> recovery segments took %lu ms to construct, "
-               "notifying other threads",
-        crashedMasterId.toString().c_str(), replica.metadata->segmentId,
-        Cycles::toNanoseconds(Cycles::rdtsc() - start) / 1000 / 1000);
-    replica.recoverySegments = std::move(recoverySegments);
-    Fence::sfence();
-    replica.built = true;
-}
-
 // -- BackupMasterRecovery --
 
 BackupMasterRecovery::Replica::Replica(const BackupStorage::FrameRef& frame)
@@ -583,6 +487,9 @@ BackupMasterRecovery::Replica::Replica(const BackupStorage::FrameRef& frame)
     , recoverySegments()
     , recoveryException()
     , built()
+    , lastAccessTime(0)
+    , refCount(0)
+    , fetchCount(0)
 {
 }
 
@@ -598,6 +505,335 @@ void
 TaskKiller::performTask()
 {
     delete taskToKill;
+}
+
+// -- CyclicReplicaBuffer --
+
+/**
+ * Constructs a cyclic buffer used to manage memory during recovery.
+ *
+ * \param maxReplicasInMemory
+ *      The maximum number of replicas to be kept in memory by this buffer.
+ * \param segmentSize
+ *      Size of the replicas on storage (in MB). Needed for eviction
+ *      calculations.
+ * \param readSpeed
+ *      The read speed of this recovery's backup disk, in MB/s. This is used
+ *      to calculate bufferReadTime, which determines the eviction timeout
+ *      (see bufferNext()).
+ * \param recovery
+ *     A reference to the BackupMasterRecovery that owns this buffer.
+ */
+BackupMasterRecovery::CyclicReplicaBuffer::CyclicReplicaBuffer(
+        uint32_t maxReplicasInMemory, uint32_t segmentSize, uint32_t readSpeed,
+        BackupMasterRecovery* recovery)
+    : mutex("cyclicReplicaBuffeMutex")
+    , maxReplicasInMemory(maxReplicasInMemory)
+    , inMemoryReplicas()
+    , oldestReplicaIdx(0)
+    , normalPriorityQueuedReplicas()
+    , highPriorityQueuedReplicas()
+    , bufferReadTime(static_cast<double>(segmentSize)
+                     * maxReplicasInMemory / readSpeed
+                     / (1 << 20)) // MB to bytes
+    , recovery(recovery)
+{
+    inMemoryReplicas.reserve(maxReplicasInMemory);
+    LOG(NOTICE, "Constructed cyclic recovery buffer with %u replicas and a "
+                "read time of %f s", maxReplicasInMemory, bufferReadTime);
+}
+
+BackupMasterRecovery::CyclicReplicaBuffer::~CyclicReplicaBuffer()
+{
+}
+
+/**
+ * Returns the number of replicas currently in memory in the buffer.
+ */
+size_t
+BackupMasterRecovery::CyclicReplicaBuffer::size() {
+    SpinLock::Guard lock(mutex);
+    return inMemoryReplicas.size();
+}
+
+/**
+ * Returns true if the given replica is currently in the buffer and false
+ * otherwise. A replica is in the buffer when it is either in memory or has
+ * a pending disk read.
+ */
+bool
+BackupMasterRecovery::CyclicReplicaBuffer::contains(Replica* replica)
+{
+    SpinLock::Guard lock(mutex);
+    return std::find(inMemoryReplicas.begin(), inMemoryReplicas.end(), replica)
+        != inMemoryReplicas.end();
+}
+
+/**
+ * Schedules the given replica to be added to the buffer at a later point by
+ * bufferNext(). This method should be called in the order in which replicas
+ * will be requested by recovery masters. See bufferNext() for details on how
+ * priorities impact ordering. If a replica is already enqueued but not yet in
+ * the buffer, it will not be enqueued again, regardless of the priority given
+ * (this is to ensure that we stick to the pre-defined recovery order).
+ * Similarly, a replica curretly in the buffer cannot be enqueued again until it
+ * has been evicted.
+ *
+ * \param replica
+ *      The replica to enqueue.
+ * \param priority
+ *      The priority to give to this replica. HIGH priority should only be given
+ *      to replicas that need to be buffered outside of the standard ordering
+ *      (when a replica was previously evicted by bufferNext() or when it is
+ *      a secondary replica).
+ */
+void
+BackupMasterRecovery::CyclicReplicaBuffer::enqueue(Replica* replica,
+                                                   Priority priority) {
+    SpinLock::Guard lock(mutex);
+
+    // Don't enqueue a replica already in the buffer
+    if (std::find(inMemoryReplicas.begin(), inMemoryReplicas.end(), replica)
+            != inMemoryReplicas.end()) {
+        return;
+    }
+
+    if (std::find(normalPriorityQueuedReplicas.begin(),
+                  normalPriorityQueuedReplicas.end(), replica)
+            != normalPriorityQueuedReplicas.end()) {
+        // This replica was scheduled normally and we just haven't gotten to
+        // it yet.
+        LOG(DEBUG, "A master is ahead, requesting segment %lu",
+            replica->metadata->segmentId);
+        return;
+    } else if (priority == NORMAL) {
+        LOG(DEBUG, "Adding replica for segment %lu to normal priority "
+            "recovery queue", replica->metadata->segmentId);
+        normalPriorityQueuedReplicas.push_back(replica);
+    } else {
+        // Don't schedule a replica as high priority more than once
+        if (std::find(highPriorityQueuedReplicas.begin(),
+                      highPriorityQueuedReplicas.end(), replica)
+                == highPriorityQueuedReplicas.end()) {
+            LOG(WARNING, "Adding replica for segment %lu to high priority "
+                "recovery queue", replica->metadata->segmentId);
+            highPriorityQueuedReplicas.push_back(replica);
+        }
+    }
+}
+
+/**
+ * This method attempts to read the next queued replica into the buffer. It
+ * fails if the buffer is full and there are no replicas eligible for eviction
+ * (see eviction criteria below). This method should be called periodically
+ * during recovery to ensure that the buffer remains up-to-date with requests
+ * from masters.
+ *
+ * \return
+ *     True if a new replica was added to the buffer and false otherwise.
+ */
+bool
+BackupMasterRecovery::CyclicReplicaBuffer::bufferNext()
+{
+    SpinLock::Guard lock(mutex);
+
+    // Get the next replica to read into memory from the high priority list. If
+    // there are no high priority replicas queued, then get one from the normal
+    // priority list.
+    Replica* nextReplica;
+    std::deque<Replica*>* replicaDeque;
+    if (!highPriorityQueuedReplicas.empty()) {
+        nextReplica = highPriorityQueuedReplicas.front();
+        replicaDeque = &highPriorityQueuedReplicas;
+    } else if (!normalPriorityQueuedReplicas.empty()) {
+        nextReplica = normalPriorityQueuedReplicas.front();
+        replicaDeque = &normalPriorityQueuedReplicas;
+    } else {
+        return false;
+    }
+
+    if (inMemoryReplicas.size() < maxReplicasInMemory) {
+        // We haven't filled up the buffer yet.
+        inMemoryReplicas.push_back(nextReplica);
+    } else {
+        /**
+         * The buffer is full, so try to evict something.
+         *
+         * Eviction happens in a cyclic fashion starting with the oldest replica
+         * in the buffer. A replica is eligible for eviction only if all of the
+         * following are true:
+         *     1. It is the oldest replica in the buffer.
+         *     2. It has been partitioned into recovery segments.
+         *     3. It has been fetched by at least one recovery master.
+         *     4. It is not currently being fetched by a recovery master.
+         *     5. It has not been requested for half the time it takes to read
+         *        the whole buffer from disk into memory.
+         *
+         * The final eviction criteria handles cases where some recovery masters
+         * are slower than others. We'd rather not evict a replica until it has
+         * been read by all of the recovery masters, but it's also possible that
+         * a recovery master has crashed, or that no master has been assigned
+         * for a particular partition. Thus, eventually, we must evict a replica
+         * even if it hasn't been read by every master, so the recovery doesn't
+         * stall. If the master is still alive and eventually asks for the
+         * replica, we will have to reread it. The time constant balances the
+         * desire to keep replicas around for slow masters against the desire to
+         * free space for the next replicas that will be needed.
+         */
+        Replica* replicaToRemove = inMemoryReplicas[oldestReplicaIdx];
+
+        if (!replicaToRemove->built || replicaToRemove->fetchCount == 0 ||
+            replicaToRemove->refCount > 0) {
+            // This replica isn't eligible for eviction yet.
+            return false;
+        }
+
+        // Only evict a replica if it's been inactive for half the time it takes
+        // to read the entire bufer from disk.
+        double entryInactiveTime = Cycles::toSeconds(
+            Cycles::rdtsc() - replicaToRemove->lastAccessTime);
+        if (entryInactiveTime <= bufferReadTime / 2) {
+            return false;
+        }
+
+
+        // Evict
+        replicaToRemove->recoverySegments.release();
+        replicaToRemove->built = false;
+        inMemoryReplicas[oldestReplicaIdx] = nextReplica;
+        LOG(DEBUG, "Evicted replica <%s,%lu> from the recovery buffer",
+            recovery->crashedMasterId.toString().c_str(),
+            replicaToRemove->metadata->segmentId);
+
+        oldestReplicaIdx = (oldestReplicaIdx + 1) % maxReplicasInMemory;
+    }
+
+    // Read the next replica from disk.
+    nextReplica->frame->startLoading();
+    replicaDeque->pop_front();
+
+    LOG(DEBUG, "Added replica <%s,%lu> to the recovery buffer",
+        recovery->crashedMasterId.toString().c_str(),
+        nextReplica->metadata->segmentId);
+    return true;
+}
+
+/**
+ * This method constructs recovery segments for the oldest replica in the buffer
+ * that has been read from disk but not already partitioned. It should be called
+ * periodically during recovery to partition the replicas being read into the
+ * buffer by bufferNext().
+ *
+ * After this method completes exactly one of replica.recoverySegments or
+ * replica.recoveryException should be set. Notice: both of these are
+ * std::unique_ptr so setting/testing them is not atomic. Use replica.built to
+ * test to see if the construction of the recovery segments has completed (along
+ * with a proper lfence first). This method doesn't throw exceptions; any
+ * exceptions are boxed into replica.recoveryException so the exception can be
+ * returned to recovery masters which request recovery segments from it (which
+ * indicates to them that they need to find the recovery segment on another
+ * backup).
+ *
+ * \return
+ *     True if a replica was partitioned (or an exception occurred while trying
+ *     to partition a replica), and false if there were no replicas eligible to
+ *     partition.
+ */
+bool
+BackupMasterRecovery::CyclicReplicaBuffer::buildNext()
+{
+    Replica* replicaToBuild = NULL;
+    {
+        // Find the next loaded, unbuilt replica.
+        SpinLock::Guard lock(mutex);
+        for (size_t i = 0; i < inMemoryReplicas.size(); i++) {
+            size_t idx = (i + oldestReplicaIdx) % inMemoryReplicas.size();
+            Replica* candidate = inMemoryReplicas[idx];
+            if (candidate->frame->isLoaded() && !candidate->built) {
+                replicaToBuild = candidate;
+                break;
+            }
+        }
+    }
+
+    if (!replicaToBuild) {
+        return false;
+    }
+
+    replicaToBuild->recoveryException.reset();
+    replicaToBuild->recoverySegments.reset();
+
+    void* replicaData = replicaToBuild->frame->load();
+    CycleCounter<RawMetric> _(&metrics->backup.filterTicks);
+
+    // Recovery segments for this replica data are constructed by splitting data
+    // among them according to #partitions. If we move to multiple worker
+    // threads then replicas will need to be locked for this filtering.
+    std::unique_ptr<Segment[]> recoverySegments(
+        new Segment[recovery->numPartitions]);
+    uint64_t start = Cycles::rdtsc();
+    try {
+        if (!recovery->testingSkipBuild) {
+            assert(recovery->partitions);
+            RecoverySegmentBuilder::build(replicaData, recovery->segmentSize,
+                                          replicaToBuild->metadata->certificate,
+                                          recovery->numPartitions,
+                                          *(recovery->partitions),
+                                          recoverySegments.get());
+        }
+    } catch (const Exception& e) {
+        // Can throw SegmentIteratorException or SegmentRecoveryFailedException.
+        // Exception is a little broad, but it catches them both; hopefully we
+        // don't try to recover from anything else too serious.
+        LOG(NOTICE, "Couldn't build recovery segments for <%s,%lu>: %s",
+            recovery->crashedMasterId.toString().c_str(),
+            replicaToBuild->metadata->segmentId, e.what());
+        replicaToBuild->recoveryException.reset(
+            new SegmentRecoveryFailedException(HERE));
+        Fence::sfence();
+        replicaToBuild->built = true;
+        return true;
+    }
+
+    LOG(DEBUG, "<%s,%lu> recovery segments took %lu ms to construct, "
+               "notifying other threads",
+        recovery->crashedMasterId.toString().c_str(),
+        replicaToBuild->metadata->segmentId,
+        Cycles::toNanoseconds(Cycles::rdtsc() - start) / 1000 / 1000);
+    replicaToBuild->recoverySegments = std::move(recoverySegments);
+    Fence::sfence();
+    replicaToBuild->built = true;
+    replicaToBuild->lastAccessTime = Cycles::rdtsc();
+    replicaToBuild->frame->unload();
+    return true;
+}
+
+/**
+ * Useful for debugging. Prints out the replicas currently in the buffer along
+ * with information about whether it is loaded, built, and/or fetched. An arrow
+ * is printed next to the next replica to be evicted.
+ */
+void
+BackupMasterRecovery::CyclicReplicaBuffer::logState() {
+    SpinLock::Guard lock(mutex);
+    for (size_t i = 0; i < inMemoryReplicas.size(); i++) {
+        Replica* replica = inMemoryReplicas[i];
+        std::string state;
+        if (replica->built) {
+            state = "is built";
+        } else if (replica->frame->isLoaded()) {
+            state = "is loaded but not built";
+        } else {
+            state = "is not loaded";
+        }
+
+        LOG(NOTICE, "%sbuffer entry %lu: segment %lu, %s, fetched %d times",
+            oldestReplicaIdx == i ? "-->" : "",
+            i,
+            replica->metadata->segmentId,
+            state.c_str(),
+            replica->fetchCount.load());
+    }
 }
 
 

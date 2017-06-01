@@ -477,7 +477,9 @@ BackupService::startReadingData(
         recovery = new BackupMasterRecovery(taskQueue,
                                             reqHdr->recoveryId,
                                             crashedMasterId,
-                                            segmentSize);
+                                            segmentSize,
+                                            readSpeed,
+                                            config->backup.maxRecoveryReplicas);
         recoveries[crashedMasterId] = recovery;
     }
     recovery = recoveries[crashedMasterId];

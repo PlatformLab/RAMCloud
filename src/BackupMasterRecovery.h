@@ -48,11 +48,10 @@ class TaskKiller : public Task {
  * All aspects of a single recovery of a crashed master including algorithms
  * and state. This includes both phases of recovery: discovery of log
  * data and replicas by the coordinator and collection of objects by the
- * recovery masters. This class is structed as a Task so that primary
- * replicas can be loaded and filtered in the background.
- * Parts of recovery that must muck with the contents of replicas has been
- * pulled out into RecoverySegmentBuilder for testing convenience as much
- * as anything else.
+ * recovery masters. This class is structed as a Task so that replicas can be
+ * loaded and filtered in the background. Parts of recovery that must muck with
+ * the contents of replicas has been pulled out into RecoverySegmentBuilder for
+ * testing convenience as much as anything else.
  *
  * Notice, if this same master is recovered again by the coordinator
  * (because the original recovery wasn't completely successful) then this
@@ -73,9 +72,16 @@ class TaskKiller : public Task {
  * 2) Calls to performTask() are serialized.
  * 3) FrameRefs delivered to start() remain valid until destruction.
  *
- * Primary replicas are ONLY filtered by the task queue thread serially.
- * Secondary replicas are ONLY filtered by the sole backup worked thread
- * (and, hence, serially, as well).
+ * Both primary and secondary replicas are ONLY filtered by the task queue
+ * thread serially. The only difference between primary and secondary replicas
+ * is that primary replicas are loaded automatically and secondary replicas are
+ * not loaded until they are requested.
+ *
+ * The number of replicas in memory at any given time is limited to prevent
+ * out-of-memory errors. In the case of extreme speed differences between
+ * recovery masters, this can cause longer recovery times, but under normal
+ * circumstances it shouldn't be noticeable.
+ *
  * The only miniscule synchronization it to ensure that all built
  * recovery segment information is flushed to main memory before it is used
  * by getRecoverySegment().
@@ -91,7 +97,9 @@ class BackupMasterRecovery : public Task {
     BackupMasterRecovery(TaskQueue& taskQueue,
                          uint64_t recoveryId,
                          ServerId crashedMasterId,
-                         uint32_t segmentSize);
+                         uint32_t segmentSize,
+                         uint32_t readSpeed,
+                         uint32_t maxReplicasInMemory);
     ~BackupMasterRecovery();
     void start(const std::vector<BackupStorage::FrameRef>& frames,
                Buffer* buffer,
@@ -110,7 +118,6 @@ class BackupMasterRecovery : public Task {
     void populateStartResponse(Buffer* buffer,
                                StartResponse* response);
     struct Replica;
-    void buildRecoverySegments(Replica& replica);
     bool getLogDigest(Replica& replica, Buffer* digestBuffer);
 
     /**
@@ -161,11 +168,11 @@ class BackupMasterRecovery : public Task {
      * used in the recovery as close to what is on storage as possible in
      * an attempt to reduce surprises. Once the replica has been filtered
      * either #recoverySegments or #recoveryException is populated.
-     * Concurrency on these replicas is hairy. Primary replicas are ALWAYS
-     * filtered by the task queue thread; secondary threads are ALWAYS
-     * filtered by the backup service worker thread. There is no
-     * locking; once #built is set the backup worker thread can safely
-     * check #recoverySegments and #recoveryException (after an lfence,
+     * Concurrency on these replicas is hairy. Both primary and secondary
+     * replicas are ALWAYS filtered by the task queue thread. There is only
+     * locking when a replica's access data is being altered by
+     * CyclicReplicaBuffer; once #built is set the backup worker thread can
+     * safely check #recoverySegments and #recoveryException (after an lfence,
      * which it does ONLY in BackupMasterRecovery::getRecoverySegment()).
      */
     struct Replica {
@@ -190,7 +197,7 @@ class BackupMasterRecovery : public Task {
          * Once filtered points to the start of an array of #numPartitions
          * recovery segments. Constructed in buildRecoverySegments() and
          * appended to rpc response buffers in getRecoverySegment().
-         * Because primary replicas are constructed on another thread
+         * Because all replicas are constructed on another thread
          * access to this field must be synchronized through #built
          * (since this isn't a raw pointer setting/testing it is not atomic).
          * An sfence is performed after recovery segments are constructed.
@@ -220,6 +227,27 @@ class BackupMasterRecovery : public Task {
          */
         bool built;
 
+        /**
+         * Used by CyclicReplicaBuffer to keep track of the last time
+         * information from this replica was sent to a recovery master. See
+         * CyclicReplicaBuffer::bufferNext for details.
+         */
+        Atomic<uint64_t> lastAccessTime;
+
+        /**
+         * Used by CyclicReplicaBuffer::ActiveReplica to keep track of how many
+         * getRecoveryData RPCs are currently being served for this replica.
+         */
+        Atomic<int> refCount;
+
+        /**
+         * Used by CyclicReplicaBuffer to keep track of how many times the data
+         * for this replica has been returned to a server. Over the lifetime of
+         * a recovery, we expect the fetchCount for each replica to equal the
+         * number of recovery partitions.
+         */
+        Atomic<int> fetchCount;
+
         DISALLOW_COPY_AND_ASSIGN(Replica);
     };
 
@@ -238,32 +266,145 @@ class BackupMasterRecovery : public Task {
     std::deque<Replica> replicas;
 
     /**
-     * Tracks which primary replica is the next to be filtered in the
-     * background. Set initially in start() when replicas is constructed,
-     * and used/incremented in performTask() as replicas are filtered.
-     */
-    std::deque<Replica>::iterator nextToBuild;
-
-    /**
-     * Points to the first secondary replica in #replicas. Lets background
-     * filtering know where it should stop when pre-loading/filtering replicas.
-     * Set in start() when replicas is constructed.
-     */
-    std::deque<Replica>::iterator firstSecondaryReplica;
-
-    /**
-     * The number of primary replicas in #replicas. This is redundant with
-     * firstSecondaryReplica.
-     */
-    size_t numPrimaries;
-
-    /**
      * Maps segment ids to the corresponding replica in #replicas.
      * Populated in start() along with #replicas. Used by getRecoverySegment()
      * to find the Replica for which a recovery segment is being requested
      * by a recovery master.
      */
     std::unordered_map<uint64_t, Replica*> segmentIdToReplica;
+
+    /**
+     * This class limits the number of replicas stored in memory at any given
+     * point during recovery. It exists for the entire lifetime of a recovery,
+     * and throughout the course of a recovery will store each replica in memory
+     * at least once. The order in which replicas are added to the buffer is the
+     * same order in which they are provided to the recovery (i.e., the order
+     * servers will request them in).
+     *
+     * Under normal operation, the life of a replica in this buffer is as
+     * follows:
+     *   1. The replica is enqueued at NORMAL priority at the start of recovery.
+     *      An enqueued replica is not considered part of the buffer yet because
+     *      it has no data stored in memory.
+     *   2. The enqueued replica is transferred to the buffer via bufferNext().
+     *      At this point, an asynchronous disk read is scheduled for this
+     *      replica. When complete, we can access the replica's frame for data.
+     *   3. After the frame is in memory, the replica is partitioned into
+     *      recovery segments by buildNext() and its frame data is freed.
+     *   4. The replica's partitioned segments are fetched by each of the
+     *      servers performing recovery.
+     *   5. The partitioned data is freed and the replica is replaced by another
+     *      enqueued replica.
+     *
+     * The eviction of replicas in the buffer happens in a cyclic fashion, based
+     * on a timeout. If a replica is evicted before every server has requested
+     * its data, the replica will be enqueued again with HIGH priority when its
+     * data is requested again. For details about eviction policy, see
+     * bufferNext().
+     */
+    class CyclicReplicaBuffer {
+      PUBLIC:
+        CyclicReplicaBuffer(uint32_t maxNumEntries, uint32_t segmentSize,
+                            uint32_t readSpeed, BackupMasterRecovery* recovery);
+        ~CyclicReplicaBuffer();
+
+        size_t size();
+        bool contains(Replica* replica);
+
+        enum Priority { NORMAL, HIGH };
+        void enqueue(Replica* replica, Priority priority);
+        bool bufferNext();
+        bool buildNext();
+
+        void logState();
+
+        /**
+         * This class keeps track of access to replicas. For a given replica,
+         * the number of ActiveReplicas in existence equals the number of
+         * getRecoveryData RPCs currently being served for that replica. The
+         * lastAccessTime for a replica is the last time it had an ActiveReplica
+         * constructed. A replica's refCount is incremented by 1 for the
+         * lifetime of its ActiveReplica.
+         *
+         * This class needs to be in CyclicReplicaBuffer to access the buffer's
+         * private mutex, to prevent a race where a replica is evicted while
+         * active.
+         */
+        class ActiveReplica {
+          PUBLIC:
+            ActiveReplica(Replica* replica, CyclicReplicaBuffer* buffer)
+                : replica(replica)
+                , buffer(buffer)
+            {
+                SpinLock::Guard lock(buffer->mutex);
+                replica->refCount++;
+                replica->lastAccessTime = Cycles::rdtsc();
+            }
+
+            ~ActiveReplica()
+            {
+                replica->refCount--;
+            }
+
+          PRIVATE:
+            Replica* replica;
+            CyclicReplicaBuffer* buffer;
+
+            DISALLOW_COPY_AND_ASSIGN(ActiveReplica);
+        };
+
+      PRIVATE:
+        /**
+         * Used to lock all operations on this buffer.
+         */
+        SpinLock mutex;
+
+        /**
+         * The maximum number of replicas with data in memory at any given time.
+         */
+        uint32_t maxReplicasInMemory;
+
+        /**
+         * A circularly ordered list of replicas either currently in memory or
+         * with a disk read pending. Replicas in this vector are considered in
+         * the buffer.
+         */
+        std::vector<Replica*> inMemoryReplicas;
+
+        /**
+         * The index into replicasInMemory of the oldest replica in the buffer.
+         * The age of the replicas proceeds in descending order starting at this
+         * index and wrapping around.
+         */
+        size_t oldestReplicaIdx;
+
+        /**
+         * A queue containing replias enqueued with normal priority. See
+         * enqueue() for details about normal vs. high priority.
+         */
+        std::deque<Replica*> normalPriorityQueuedReplicas;
+
+        /**
+         * A queue containing replicas enqueued with high priority. See
+         * enqueue() for details about normal vs. high priority.
+         */
+        std::deque<Replica*> highPriorityQueuedReplicas;
+
+        /**
+         * The amount of time (in seconds) it takes to read maxReplicasInMemory
+         * replicas from disk. This is used by bufferNext() to decide on an
+         * eviction timeout.
+         */
+        double bufferReadTime;
+
+        /**
+         * A reference to the recovery that owns this buffer.
+         */
+        BackupMasterRecovery* recovery;
+
+        DISALLOW_COPY_AND_ASSIGN(CyclicReplicaBuffer);
+    };
+    CyclicReplicaBuffer replicaBuffer;
 
     /**
      * Caches the log digest extracted from the replicas for this
@@ -465,9 +606,9 @@ class BackupReplicaMetadata {
     bool closed;
 
     /**
-     * Whether the replica is a primary and should be loaded in at the start
-     * of recovery. Used by the backup to determine which replicas to load
-     * and by the coordinator to order recovery segment requests to try to
+     * Whether the replica is a primary and should be scheduled for loading at
+     * the start of recovery. Used by the backup to determine which replicas to
+     * load and by the coordinator to order recovery segment requests to try to
      * recover entirely from primary replicas.
      */
     bool primary;

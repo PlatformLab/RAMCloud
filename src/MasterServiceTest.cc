@@ -4516,7 +4516,7 @@ TEST_F(MasterServiceTest, recover) {
             TestLog::get()));
     EXPECT_TRUE(TestUtil::matchesPosixRegex(
             "recover: Checking server .\\.0 at mock:host=backup1 off "
-            "the list for 88 | "
+            "the list for 88 | .*"
             "recover: Checking server .\\.0 at mock:host=backup2 off "
             "the list for 88",
             TestLog::get()));
