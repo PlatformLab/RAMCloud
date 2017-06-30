@@ -824,9 +824,9 @@ double cacheReadLines(int numLines)
         volatile char* p = firstByte;
         volatile char* end = firstByte + numLines*stride;
         uint64_t start = Cycles::rdtsc();
-        for ( ; p != end; p += stride) {
-            dummy += *p;
-        }
+            for ( ; p != end; p += stride) {
+                dummy += *p;
+            }
         Fence::lfence();
         // total += p[0] + p[64] + p[128] + p[192];
         uint64_t t1 = Cycles::rdtsc();
@@ -1914,6 +1914,41 @@ double queueEstimator()
     // printf("Result: %u\n", total/count);
     return Cycles::toSeconds(stop - start)/count;
 }
+/**
+  * A random number generator from the Internet that returns 64-bit integers.
+  * It is advertised to be fast.
+  */
+inline uint64_t
+randomUint64(void) {
+    // This function came from the following site.
+    // http://stackoverflow.com/a/1640399/391161
+    thread_local uint64_t x = 123456789, y = 362436069, z = 521288629;
+    uint64_t t;
+    x ^= x << 16;
+    x ^= x >> 5;
+    x ^= x << 1;
+
+    t = x;
+    x = y;
+    y = z;
+    z = t ^ x ^ y;
+
+    return z;
+}
+
+// Measure the cost of generating a random number with the method
+// "randomUint64" above.
+double randomTest()
+{
+    int count = 1000000;
+    uint64_t start = Cycles::rdtsc();
+    uint64_t total = 0;
+    for (int i = 0; i < count; i++) {
+        total += randomUint64();
+    }
+    uint64_t stop = Cycles::rdtsc();
+    return Cycles::toSeconds(stop - start)/count;
+}
 
 // Measure the cost of reading the fine-grain cycle counter.
 double rdtscTest()
@@ -2473,6 +2508,8 @@ TestInfo tests[] = {
      "Prefetch instruction"},
     {"queueEstimator", queueEstimator,
      "Recompute # bytes outstanding in queue"},
+    {"random", randomTest,
+     "Generate 64-bit random number (Arachne version)"},
     {"rdtsc", rdtscTest,
      "Read the fine-grain cycle counter"},
     {"segmentEntrySort", segmentEntrySort,
