@@ -21,15 +21,19 @@
 //
 //     Perf test1 test2 ...
 //
-// test1 and test2 are the names of individual performance measurements to
-// run.  If no test names are provided then all of the performance tests
-// are run.
+// If no test names are provided then all of the performance tests are run.
+// Otherwise, test1 and test2 are substrings that are matched against the
+// names of individual performance measurements; a test is run if its
+// name contains any of the substrings.
 //
 // To add a new test:
 // * Write a function that implements the test.  Use existing test functions
 //   as a guideline, and be sure to generate output in the same form as
 //   other tests.
 // * Create a new entry for the test in the #tests table.
+
+#include <sched.h>
+
 #if (__GNUC__ == 4 && __GNUC_MINOR__ >= 5) || (__GNUC__ > 4)
 #include <atomic>
 #else
@@ -47,6 +51,7 @@
 #include "Dispatch.h"
 #include "Fence.h"
 #include "LockTable.h"
+#include "Logger.h"
 #include "Memory.h"
 #include "MurmurHash3.h"
 #include "Object.h"
@@ -61,6 +66,29 @@
 #include "Util.h"
 
 using namespace RAMCloud;
+
+// Uncomment the following line (or specify -D PERFTT on the make command line)
+// to enable a bunch of time tracing in this module.
+// #define PERFTT 1
+
+// Provides a shorthand way of invoking TimeTrace::record, compiled in or out
+// by the SMTT #ifdef.
+void
+timeTrace(const char* format, uint32_t arg0 = 0,
+        uint32_t arg1 = 0, uint32_t arg2 = 0, uint32_t arg3 = 0)
+{
+#ifdef PERFTT
+    TimeTrace::record(format, arg0, arg1, arg2, arg3);
+#endif
+}
+void
+timeTrace(uint64_t timestamp, const char* format, uint32_t arg0 = 0,
+        uint32_t arg1 = 0, uint32_t arg2 = 0, uint32_t arg3 = 0)
+{
+#ifdef PERFTT
+    TimeTrace::record(timestamp, format, arg0, arg1, arg2, arg3);
+#endif
+}
 
 // For tests involving interactions between cores, these variables
 // specify the two cores to use.
@@ -83,6 +111,11 @@ void pinThread(int cpu)
     CPU_ZERO(&set);
     CPU_SET(cpu, &set);
     sched_setaffinity((pid_t)syscall(SYS_gettid), sizeof(set), &set);
+    int current = sched_getcpu();
+    if (current != cpu) {
+        printf("Thread is on wrong CPU: asked for %d, currently %d\n",
+                cpu, current);
+    }
 }
 
 /**
@@ -112,6 +145,115 @@ void discard(void* value) {
 //----------------------------------------------------------------------
 // Test functions start here
 //----------------------------------------------------------------------
+
+// Simulates the context of an Arachne thread context.
+struct ArachneThreadContext {
+    volatile uint64_t wakeupTimeInCycles;
+    volatile uint64_t startTime;
+    volatile int args[16];
+};
+
+// This function runs the second thread for arachneThreadCreate.
+void arachneThreadCreateWorker(Atomic<uint64_t>* maskAndCount,
+        ArachneThreadContext* threadContext, volatile uint64_t* elapsed)
+{
+    pinThread(core2);
+    int total = 0;
+    uint64_t stopTime;
+    while (1) {
+        while (threadContext->wakeupTimeInCycles != 0) {
+            /* Do nothing */
+        }
+        total += threadContext->args[0] + threadContext->args[1]
+                + threadContext->args[2] + threadContext->args[3];
+        stopTime = Cycles::rdtsc();
+        uint64_t extraRdtsc = Cycles::rdtsc();
+        timeTrace(stopTime, "thread created");
+        if (*maskAndCount > 100) {
+            break;
+        }
+        threadContext->wakeupTimeInCycles = 1000;
+        timeTrace("target reset wakeupTimeInCycles");
+        timeTrace("measure time trace cost");
+        *maskAndCount = 0;              /* Simulate thread exit. */
+        *elapsed = stopTime - threadContext->startTime -
+                (extraRdtsc - stopTime);
+    }
+}
+
+// Simulate the cross-core interactions in Arachne thread creation
+// and measure end-to-end time to "create a thread".
+double arachneThreadCreate()
+{
+    int count = 1000000;
+
+    // Allocated cache-line aligned space for the mock maskAndcount
+    // and mock context values.
+    char memory[2000];
+    char* cacheLine = reinterpret_cast<char*>(
+            (reinterpret_cast<uint64_t>(memory) + 1023) & ~0x3ff);
+    Atomic<uint64_t>* maskAndCount =
+            reinterpret_cast<Atomic<uint64_t>*>(cacheLine);
+    *maskAndCount = 0;
+    ArachneThreadContext* threadContext =
+            reinterpret_cast<ArachneThreadContext*>(cacheLine + 512);
+    threadContext->wakeupTimeInCycles = 12345;
+    volatile uint64_t elapsed = 0;
+    uint64_t totalCycles = 0;
+    // uint64_t dummy = 0;
+
+    // Get the worker thread running.
+    std::thread thread(arachneThreadCreateWorker, maskAndCount, threadContext,
+            &elapsed);
+    pinThread(core1);
+
+    // Now run the test.
+    for (int i = -10; i < count; i++) {
+        if (i == 0) {
+            // Restart the timing after the test has been running
+            // for a while, so everything is warmed up.
+            totalCycles = 0;
+        }
+        elapsed = 0;
+        uint64_t startTime = Cycles::rdtsc();
+        timeTrace(startTime, "about to read maskAndCount");
+        // The following statement prefetches the cache line to avoid
+        // a miss later.
+        __builtin_prefetch(
+                const_cast<uint64_t*>(&threadContext->wakeupTimeInCycles), 1);
+        uint64_t maskCopy = *maskAndCount;
+        // uint64_t maskCopy = maskAndCount->compareExchange(0, 0);
+        if (maskCopy && 8) {
+            printf("Bogus maskAndCount: %lu\n", maskAndCount->load());
+        }
+        // timeTrace("read maskAndCount");
+        while (maskAndCount->compareExchange(maskCopy, maskCopy|4)) {
+            printf("maskAndCount->compareExchange failed!\n");
+        }
+        // timeTrace("updated maskAndCount");
+        threadContext->args[0] = 1;
+        threadContext->args[1] = 2;
+        threadContext->args[2] = 3;
+        threadContext->args[3] = 4;
+        threadContext->startTime = startTime;
+        Fence::sfence();
+        threadContext->wakeupTimeInCycles = 0;
+        // timeTrace("updated wakeupTimeInCycles");
+        while (elapsed == 0) {
+            /* Wait for "thread creation" */
+        }
+        totalCycles += elapsed;
+    }
+    *maskAndCount = 1000;
+    threadContext->wakeupTimeInCycles = 0;
+    Fence::sfence();
+    thread.join();
+    unpinThread();
+#ifdef PERFTT
+    TimeTrace::printToLog();
+#endif
+    return Cycles::toSeconds(totalCycles)/count;
+}
 
 // Measure the cost of Atomic<int>::compareExchange.
 double atomicIntCmpX()
@@ -509,6 +651,322 @@ double bufferExternalIterator5()
     return bufferExternalIterator<5>();
 }
 
+// This function runs the second thread for several of the cache
+// tests; it just writes a given value to cache it with exclusive
+// ownership.
+void cacheReadWorker(Atomic<int>* value, volatile int* sync)
+{
+    pinThread(core2);
+    while (1) {
+        while (*sync == 0) {
+            /* Do nothing */
+        }
+        if (*sync < 0) {
+            break;
+        }
+        (*value)++;
+        Fence::sfence();
+        *sync = 0;
+    }
+}
+
+// Measure the time to first compare-and-swap on the same value twice;
+// it is initially owned by a different cache.
+double cacheCasThenCas()
+{
+    int count = 1000000;
+    std::vector<uint64_t> samples;
+    samples.reserve(count);
+
+    // Make sure the shared value is on a cache line with nothing else.
+    int memory[1024];
+    Atomic<int>* value = reinterpret_cast<Atomic<int>*>(&memory[512]);
+    *value = 0;
+
+    // Used to synchronize writer and reader.
+    volatile int sync = 0;
+
+    // Get the worker thread running.
+    std::thread thread(cacheReadWorker, value, &sync);
+    pinThread(core1);
+
+    // Now run the test.
+    int dummy = 0;
+    int check = 0;
+    for (int i = -10; i < count; i++) {
+        sync = 1;
+        while (sync != 0) {
+            /* Wait for worker thread to update value, which flushes
+             * it from our cache. */
+        }
+        uint64_t start = Cycles::rdtsc();
+        if (value->compareExchange(4, 6) != 0) {
+            // Put in if statement just to make sure first op completes
+            // before second one runs.
+            check++;
+            dummy += value->compareExchange(1, 2);
+        }
+        Fence::sfence();
+        uint64_t t1 = Cycles::rdtsc();
+        uint64_t t2 = Cycles::rdtsc();
+        if (i >= 0) {
+            samples[i] = (t1 - start) - (t2 - t1);
+        }
+        // printf("Value %d, cycles %lu\n", *value, t1 - start);
+    }
+    if (check != count+10) {
+        printf("Check is only %d in cacheCasThenCas\n", check);
+    }
+    sync = -1;
+    thread.join();
+    unpinThread();
+    std::sort(samples.begin(), samples.end());
+    return Cycles::toSeconds(samples[count/2]);
+}
+
+// Measure the time to read a value cached in a different core
+// (the value ends up shared).
+double cacheRead()
+{
+    int count = 1000000;
+    std::vector<uint64_t> samples;
+    samples.reserve(count);
+
+    // Make sure the shared value is on a cache line with nothing else.
+    int memory[1024];
+    Atomic<int>* value = reinterpret_cast<Atomic<int>*>(&memory[512]);
+    *value = 0;
+
+    // Used to synchronize writer and reader.
+    volatile int sync = 0;
+
+    // Get the worker thread running.
+    std::thread thread(cacheReadWorker, value, &sync);
+    pinThread(core1);
+
+    // Now run the test.
+    int dummy;
+    for (int i = -10; i < count; i++) {
+        sync = 1;
+        while (sync != 0) {
+            /* Wait for worker thread to update value, which flushes
+             * it from our cache. */
+        }
+        uint64_t start = Cycles::rdtsc();
+        dummy += *value;
+        Fence::lfence();
+        uint64_t t1 = Cycles::rdtsc();
+        uint64_t t2 = Cycles::rdtsc();
+        if (i >= 0) {
+            samples[i] = (t1 - start) - (t2 - t1);
+        }
+        // printf("Value %d, cycles %lu\n", *value, t1 - start);
+    }
+    sync = -1;
+    thread.join();
+    unpinThread();
+    std::sort(samples.begin(), samples.end());
+    return Cycles::toSeconds(samples[count/2]);
+}
+
+// This function modifies a collection of cache lines, forcing each to
+// be cached on this core and not another other. Used by cacheReadLines.
+void cacheReadLinesWorker(volatile char* firstByte, int numLines, int stride,
+        volatile int* sync)
+{
+    pinThread(core2);
+    char value = 1;
+    while (1) {
+        while (*sync == 0) {
+            /* Do nothing */
+        }
+        if (*sync < 0) {
+            break;
+        }
+        volatile char* p = firstByte;
+        for (int i = 0; i < numLines; i++, p += stride) {
+            *p = value;
+        }
+        value++;
+        Fence::sfence();
+        *sync = 0;
+    }
+}
+
+// Measure the time to read several cache lines in parallel from data
+// cached in another core.
+double cacheReadLines(int numLines)
+{
+    int count = 1000000;
+    int stride = 256;
+    std::vector<uint64_t> samples;
+    samples.reserve(count);
+
+    // Make sure the shared value is on a cache line with nothing else.
+    volatile char memory[10000];
+    volatile char* firstByte = memory + 100;
+
+    // Used to synchronize writer and reader.
+    volatile int sync = 0;
+
+    // Get the worker thread running.
+    std::thread thread(cacheReadLinesWorker, firstByte, numLines, stride,
+            &sync);
+    pinThread(core1);
+
+    // Now run the test.
+    int dummy = 0;
+    for (int i = -10; i < count; i++) {
+        sync = 1;
+        while (sync != 0) {
+            /* Wait for worker thread to modify all of the cache lines. */
+        }
+        volatile char* p = firstByte;
+        volatile char* end = firstByte + numLines*stride;
+        uint64_t start = Cycles::rdtsc();
+        for ( ; p != end; p += stride) {
+            dummy += *p;
+        }
+        Fence::lfence();
+        // total += p[0] + p[64] + p[128] + p[192];
+        uint64_t t1 = Cycles::rdtsc();
+        uint64_t t2 = Cycles::rdtsc();
+        if (i >= 0) {
+            samples[i] = (t1 - start) - (t2 - t1);
+        }
+        if ((numLines == 2) && (i < 10)) {
+            // printf("Total: %d\n", total);
+        }
+    }
+    sync = -1;
+    thread.join();
+    unpinThread();
+    std::sort(samples.begin(), samples.end());
+    return Cycles::toSeconds(samples[count/2]);
+}
+
+double cacheRead2Lines() {
+    return cacheReadLines(2);
+}
+double cacheRead4Lines() {
+    return cacheReadLines(4);
+}
+double cacheRead6Lines() {
+    return cacheReadLines(6);
+}
+double cacheRead8Lines() {
+    return cacheReadLines(8);
+}
+double cacheRead10Lines() {
+    return cacheReadLines(10);
+}
+double cacheRead12Lines() {
+    return cacheReadLines(12);
+}
+double cacheRead14Lines() {
+    return cacheReadLines(14);
+}
+double cacheRead16Lines() {
+    return cacheReadLines(16);
+}
+
+// Measure the time to read a value cached in a different core using
+// compare-and-swap, so the value ends up owned exclusive
+// (the value ends up shared).
+double cacheReadExcl()
+{
+    int count = 1000000;
+    std::vector<uint64_t> samples;
+    samples.reserve(count);
+
+    // Make sure the shared value is on a cache line with nothing else.
+    int memory[1024];
+    Atomic<int>* value = reinterpret_cast<Atomic<int>*>(&memory[512]);
+    *value = 0;
+
+    // Used to synchronize writer and reader.
+    volatile int sync = 0;
+
+    // Get the worker thread running.
+    std::thread thread(cacheReadWorker, value, &sync);
+    pinThread(core1);
+
+    // Now run the test.
+    int total;
+    for (int i = -10; i < count; i++) {
+        sync = 1;
+        while (sync != 0) {
+            /* Wait for worker thread to update value, which flushes
+             * it from our cache. */
+        }
+        uint64_t start = Cycles::rdtsc();
+        total += value->compareExchange(1, 2);
+        Fence::lfence();
+        uint64_t t1 = Cycles::rdtsc();
+        uint64_t t2 = Cycles::rdtsc();
+        if (i >= 0) {
+            samples[i] = (t1 - start) - (t2 - t1);
+        }
+        // printf("Value %d, cycles %lu\n", *value, t1 - start);
+    }
+    sync = -1;
+    thread.join();
+    unpinThread();
+    std::sort(samples.begin(), samples.end());
+    return Cycles::toSeconds(samples[count/2]);
+}
+
+// Measure the time to first read a value cached in a different core
+// (nonexclusive), then execute a compare-and-swap on it.
+double cacheReadThenCas()
+{
+    int count = 1000000;
+    std::vector<uint64_t> samples;
+    samples.reserve(count);
+
+    // Make sure the shared value is on a cache line with nothing else.
+    int memory[1024];
+    Atomic<int>* value = reinterpret_cast<Atomic<int>*>(&memory[512]);
+    *value = 0;
+
+    // Used to synchronize writer and reader.
+    volatile int sync = 0;
+
+    // Get the worker thread running.
+    std::thread thread(cacheReadWorker, value, &sync);
+    pinThread(core1);
+
+    // Now run the test.
+    int dummy = 0;
+    int check = 0;
+    for (int i = -10; i < count; i++) {
+        sync = 1;
+        while (sync != 0) {
+            /* Wait for worker thread to update value, which flushes
+             * it from our cache. */
+        }
+        uint64_t start = Cycles::rdtsc();
+        if (*value >= 0) {
+            check++;
+            dummy += value->compareExchange(1, 2);
+        }
+        uint64_t t1 = Cycles::rdtsc();
+        uint64_t t2 = Cycles::rdtsc();
+        if (i >= 0) {
+            samples[i] = (t1 - start) - (t2 - t1);
+        }
+        // printf("Value %d, cycles %lu\n", *value, t1 - start);
+    }
+    if (check != count+10) {
+        printf("Check is only %d in cacheReadThenCas\n", check);
+    }
+    sync = -1;
+    thread.join();
+    unpinThread();
+    std::sort(samples.begin(), samples.end());
+    return Cycles::toSeconds(samples[count/2]);
+}
+
 // This function runs the second thread for cacheTransfer.
 void cacheTransferWorker(volatile uint64_t* startTime)
 {
@@ -530,7 +988,10 @@ void cacheTransferWorker(volatile uint64_t* startTime)
 // which doesn't make sense....
 double cacheTransfer()
 {
-    int count = 2000000;
+    int count = 1000000;
+    std::vector<uint64_t> samples;
+    samples.reserve(count);
+
     // Make sure the shared value is on a cache line with nothing else.
     int values[1024];
     volatile uint64_t* startTime =
@@ -541,14 +1002,7 @@ double cacheTransfer()
     pinThread(core1);
 
     // Now run the test.
-    uint64_t totalTime = 0;
-    uint64_t rdtscTime = 0;
     for (int i = -10; i < count; i++) {
-        if (i == 0) {
-            // Restart the timing after the test has been running
-            // for a while, so everything is warmed up.
-            totalTime = rdtscTime = 0;
-        }
         *startTime = 1;
         uint64_t start;
         while (1) {
@@ -560,8 +1014,9 @@ double cacheTransfer()
         }
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
-        totalTime += (t1 - start);
-        rdtscTime += (t2 - t1);
+        if (i >= 0) {
+            samples[i] = (t1 - start) - (t2 - t1);
+        }
         // printf("Value %d, cycles %lu\n", expected, t1 - startTime);
     }
     *startTime = 0;
@@ -569,7 +1024,79 @@ double cacheTransfer()
     unpinThread();
     // printf("Average rdtsc time: %.1fns\n",
     //         1e09*Cycles::toSeconds(rdtscTime)/count);
-    return Cycles::toSeconds(totalTime - rdtscTime)/count;
+    std::sort(samples.begin(), samples.end());
+    return Cycles::toSeconds(samples[count/2]);
+}
+
+// This function runs the second thread for cacheTransferAfterMiss.
+void cacheTransferAfterMissWorker(volatile uint64_t* startTime,
+        volatile int* sync)
+{
+    pinThread(core2);
+    while (1) {
+        while (*sync == 0) {
+            /* Do nothing */
+        }
+        if (*sync < 0) {
+            break;
+        }
+        *startTime = Cycles::rdtsc();
+        *sync = 0;
+    }
+}
+
+// Measure the end-to-end latency to transfer a value from one core
+// to another using the cache coherency mechanism. This test is different
+// from cacheTransfer because the shared value starts off dirty in the
+// cache of the receiver, so the initiator must first take a cache miss
+// before setting the value.
+double cacheTransferAfterMiss()
+{
+    int count = 1000000;
+    std::vector<uint64_t> samples;
+    samples.reserve(count);
+
+    // Make sure the shared value is on a cache line with nothing else.
+    int values[1024];
+    volatile uint64_t* startTime =
+            reinterpret_cast<uint64_t*>(&values[512]);
+    *startTime = 12345;
+
+    // Used to schedule the execution of the worker.
+    volatile int sync = 0;
+
+    std::thread thread(cacheTransferAfterMissWorker, startTime, &sync);
+    pinThread(core1);
+
+    // Now run the test.
+    for (int i = -10; i < count; i++) {
+        *startTime = 1;
+        sync = 1;
+        uint64_t start;
+        while (1) {
+            start = *startTime;
+            if (start > 10) {
+                break;
+            }
+            // Retry until the value changes.
+        }
+        uint64_t t1 = Cycles::rdtsc();
+        uint64_t t2 = Cycles::rdtsc();
+        if (i >= 0) {
+            samples[i] = (t1 - start) - (t2 - t1);
+        }
+        // printf("Value %d, cycles %lu\n", expected, t1 - startTime);
+        while (sync != 0) {
+            // Wait for worker to get in the correct state.
+        }
+    }
+    sync = -1;
+    thread.join();
+    unpinThread();
+    // printf("Average rdtsc time: %.1fns\n",
+    //         1e09*Cycles::toSeconds(rdtscTime)/count);
+    std::sort(samples.begin(), samples.end());
+    return Cycles::toSeconds(samples[count/2]);
 }
 
 // This function runs the second thread for coherenceInvalidate.
@@ -1782,6 +2309,8 @@ struct TestInfo {
                                   // test output fits on a single line).
 };
 TestInfo tests[] = {
+    {"arachneThreadCreate", arachneThreadCreate,
+     "Simulate Arachne thread creation"},
     {"atomicIntCmpX", atomicIntCmpX,
      "Atomic<int>::compareExchange"},
     {"atomicIntInc", atomicIntInc,
@@ -1840,8 +2369,32 @@ TestInfo tests[] = {
      "buffer iterate over 2 external chunks, accessing 1 byte each"},
     {"bufferExternalIterator5", bufferExternalIterator5,
      "buffer iterate over 5 external chunks, accessing 1 byte each"},
+    {"cacheCasThenCas", cacheCasThenCas,
+     "compare-swap twice on value from another cache"},
+    {"cacheRead", cacheRead,
+     "read value from another core's cache"},
+    {"cacheRead2Lines", cacheRead2Lines,
+     "read 2 cache lines concurrently from another core's cache"},
+    {"cacheRead4Lines", cacheRead4Lines,
+     "read 4 cache lines concurrently from another core's cache"},
+    {"cacheRead6Lines", cacheRead6Lines,
+     "read 6 cache lines concurrently from another core's cache"},
+    {"cacheRead8Lines", cacheRead8Lines,
+     "read 8 cache lines concurrently from another core's cache"},
+    {"cacheRead10Lines", cacheRead10Lines,
+     "read 10 cache lines concurrently from another core's cache"},
+    {"cacheRead12Lines", cacheRead12Lines,
+     "read 12 cache lines concurrently from another core's cache"},
+    {"cacheRead16Lines", cacheRead16Lines,
+     "read 16 cache lines concurrently from another core's cache"},
+    {"cacheReadExcl", cacheReadExcl,
+     "read value from another cache, make exclusive"},
+    {"cacheReadThenCas", cacheReadThenCas,
+     "read value, then make exclusive with compare-swap"},
     {"cacheTransfer", cacheTransfer,
-     "pass value from one core to another"},
+     "pass value from one core to another (initially cached)"},
+    {"cacheTransferAfterMiss", cacheTransferAfterMiss,
+     "pass value from one core to another (not cached on sender)"},
     {"coherenceInvalidate", coherenceInvalidate,
      "invalidate remote cache on write"},
     {"coherenceReadMiss", coherenceReadMiss,
@@ -1983,6 +2536,7 @@ void runTest(TestInfo& info)
 int
 main(int argc, char *argv[])
 {
+    Logger::get().setLogLevels("NOTICE");
     CPU_ZERO(&savedAffinities);
     sched_getaffinity(0, sizeof(savedAffinities), &savedAffinities);
     if (argc == 1) {
@@ -1991,20 +2545,21 @@ main(int argc, char *argv[])
             runTest(info);
         }
     } else {
-        // Run only the tests that were specified on the command line.
-        for (int i = 1; i < argc; i++) {
-            bool foundTest = false;
-            foreach (TestInfo& info, tests) {
-                if (strcmp(argv[i], info.name) == 0) {
+        // Run only the tests whose names contain at least one of the
+        // command-line arguments as a substring.
+        bool foundTest = false;
+        foreach (TestInfo& info, tests) {
+            for (int i = 1; i < argc; i++) {
+                if (strstr(info.name, argv[i]) !=  NULL) {
                     foundTest = true;
                     runTest(info);
                     break;
                 }
             }
-            if (!foundTest) {
-                int width = printf("%-18s ??", argv[i]);
-                printf("%*s No such test\n", 26-width, "");
-            }
+        }
+        if (!foundTest) {
+            printf("No tests matched given arguments\n");
         }
     }
+    Logger::get().sync();
 }
