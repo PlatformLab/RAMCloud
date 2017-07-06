@@ -19,12 +19,12 @@
 // tests measure performance in a single stand-alone process, not in a cluster
 // with multiple servers.  Invoke the program like this:
 //
-//     Perf test1 test2 ...
+//     Perf [options] test1 test2 ...
 //
 // If no test names are provided then all of the performance tests are run.
 // Otherwise, test1 and test2 are substrings that are matched against the
-// names of individual performance measurements; a test is run if its
-// name contains any of the substrings.
+// names of individual performance measurements (ignoring case); a test is
+// run if its name contains any of the substrings.
 //
 // To add a new test:
 // * Write a function that implements the test.  Use existing test functions
@@ -43,6 +43,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <boost/program_options.hpp>
 
 #include "Common.h"
 #include "Atomic.h"
@@ -91,7 +92,8 @@ timeTrace(uint64_t timestamp, const char* format, uint32_t arg0 = 0,
 }
 
 // For tests involving interactions between cores, these variables
-// specify the two cores to use.
+// specify the two cores to use. Core2 can be controlled with the
+// "--secondCore" command-line option.
 int core1 = 2;
 int core2 = 3;
 
@@ -217,10 +219,6 @@ double arachneThreadCreate()
         elapsed = 0;
         uint64_t startTime = Cycles::rdtsc();
         timeTrace(startTime, "about to read maskAndCount");
-        // The following statement prefetches the cache line to avoid
-        // a miss later.
-        __builtin_prefetch(
-                const_cast<uint64_t*>(&threadContext->wakeupTimeInCycles), 1);
         uint64_t maskCopy = *maskAndCount;
         // uint64_t maskCopy = maskAndCount->compareExchange(0, 0);
         if (maskCopy && 8) {
@@ -710,7 +708,7 @@ double cacheCasThenCas()
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
         if (i >= 0) {
-            samples[i] = (t1 - start) - (t2 - t1);
+            samples.push_back((t1 - start) - (t2 - t1));
         }
         // printf("Value %d, cycles %lu\n", *value, t1 - start);
     }
@@ -758,7 +756,7 @@ double cacheRead()
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
         if (i >= 0) {
-            samples[i] = (t1 - start) - (t2 - t1);
+            samples.push_back((t1 - start) - (t2 - t1));
         }
         // printf("Value %d, cycles %lu\n", *value, t1 - start);
     }
@@ -821,10 +819,9 @@ double cacheReadLines(int numLines)
         while (sync != 0) {
             /* Wait for worker thread to modify all of the cache lines. */
         }
-        volatile char* p = firstByte;
-        volatile char* end = firstByte + numLines*stride;
+        volatile char* p = firstByte + (numLines-1)*stride;
         uint64_t start = Cycles::rdtsc();
-            for ( ; p != end; p += stride) {
+            for ( ; p >= firstByte; p -= stride) {
                 dummy += *p;
             }
         Fence::lfence();
@@ -832,7 +829,7 @@ double cacheReadLines(int numLines)
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
         if (i >= 0) {
-            samples[i] = (t1 - start) - (t2 - t1);
+            samples.push_back((t1 - start) - (t2 - t1));
         }
         if ((numLines == 2) && (i < 10)) {
             // printf("Total: %d\n", total);
@@ -868,6 +865,9 @@ double cacheRead14Lines() {
 }
 double cacheRead16Lines() {
     return cacheReadLines(16);
+}
+double cacheRead32Lines() {
+    return cacheReadLines(32);
 }
 
 // Measure the time to read a value cached in a different core using
@@ -905,7 +905,7 @@ double cacheReadExcl()
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
         if (i >= 0) {
-            samples[i] = (t1 - start) - (t2 - t1);
+            samples.push_back((t1 - start) - (t2 - t1));
         }
         // printf("Value %d, cycles %lu\n", *value, t1 - start);
     }
@@ -953,7 +953,7 @@ double cacheReadThenCas()
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
         if (i >= 0) {
-            samples[i] = (t1 - start) - (t2 - t1);
+            samples.push_back((t1 - start) - (t2 - t1));
         }
         // printf("Value %d, cycles %lu\n", *value, t1 - start);
     }
@@ -1015,7 +1015,7 @@ double cacheTransfer()
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
         if (i >= 0) {
-            samples[i] = (t1 - start) - (t2 - t1);
+            samples.push_back((t1 - start) - (t2 - t1));
         }
         // printf("Value %d, cycles %lu\n", expected, t1 - startTime);
     }
@@ -1083,7 +1083,7 @@ double cacheTransferAfterMiss()
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
         if (i >= 0) {
-            samples[i] = (t1 - start) - (t2 - t1);
+            samples.push_back((t1 - start) - (t2 - t1));
         }
         // printf("Value %d, cycles %lu\n", expected, t1 - startTime);
         while (sync != 0) {
@@ -1097,131 +1097,6 @@ double cacheTransferAfterMiss()
     //         1e09*Cycles::toSeconds(rdtscTime)/count);
     std::sort(samples.begin(), samples.end());
     return Cycles::toSeconds(samples[count/2]);
-}
-
-// This function runs the second thread for coherenceInvalidate.
-void coherenceInvalidateWorker(volatile int* value,
-        volatile bool* okToWrite, volatile bool* finished)
-{
-    pinThread(core2);
-    while (true) {
-        while (*okToWrite) {
-            /* Wait for reader to finish its write-invalidate. */
-            if (*finished) {
-                return;
-            }
-        }
-        (*value)++;
-        Fence::sfence();
-        *okToWrite = true;
-    }
-}
-
-// Measure the cost of reading a value from another core's cache and
-// then modifying it, which invalidates the other value.
-double coherenceInvalidate()
-{
-    int count = 1000000;
-    volatile bool finished = false;
-    volatile bool okToWrite = false;
-    // Make sure the shared value is on a cache line with nothing else.
-    int values[1024];
-    volatile int *value = &values[512];
-    *value = 0;
-
-    std::thread thread(coherenceInvalidateWorker, value, &okToWrite,
-            &finished);
-    pinThread(core1);
-
-    // Now run the test.
-    uint64_t totalTime = 0;
-    uint64_t rdtscTime = 0;
-    for (int i = -10; i < count; i++) {
-        if (i == 0) {
-            // Restart the timing after the test has been running
-            // for a while, so everything is warmed up.
-            totalTime = rdtscTime = 0;
-        }
-        while (!okToWrite) {
-            // Wait for the worker thread to claim exclusive ownership
-            // of the value in its cache.
-        }
-        uint64_t start = Cycles::rdtsc();
-        *value = *value+1;
-        uint64_t t2 = Cycles::rdtsc();
-        uint64_t t3 = Cycles::rdtsc();
-        totalTime += (t2 - start);
-        rdtscTime += (t3 - t2);
-        okToWrite = false;
-    }
-    finished = true;
-    thread.join();
-    unpinThread();
-    // printf("Average rdtsc time: %.1fns\n",
-    //         1e09*Cycles::toSeconds(rdtscTime)/count);
-    return Cycles::toSeconds(totalTime - rdtscTime)/count;
-}
-
-// This function runs the second thread for coherenceReadMiss.
-void coherenceReadMissWorker(volatile int* value, volatile bool* okToRead,
-        volatile bool* finished)
-{
-    pinThread(core2);
-    while (true) {
-        while (*okToRead) {
-            /* Wait for reader to finish reading the current value. */
-            if (*finished) {
-                return;
-            }
-        }
-        (*value)++;
-        Fence::sfence();
-        *okToRead = true;
-    }
-}
-
-// Measure the cost of a memory read for which the up-to-date version
-// is in another core's cache.
-double coherenceReadMiss()
-{
-    int count = 1000000;
-    volatile bool finished = false;
-    volatile bool okToRead = false;
-    // Make sure the shared value is on a cache line with nothing else.
-    int values[1024];
-    volatile int *value = &values[512];
-    *value = 0;
-    uint64_t sum = 0;
-
-    std::thread thread(coherenceReadMissWorker, value, &okToRead,
-            &finished);
-    pinThread(core1);
-
-    // Now run the test.
-    uint64_t totalTime = 0;
-    uint64_t rdtscTime = 0;
-    for (int i = -10; i < count; i++) {
-        if (i == 0) {
-            // Restart the timing after the test has been running
-            // for a while, so everything is warmed up.
-            totalTime = rdtscTime = 0;
-        }
-        while (!okToRead) {
-            // Wait for the worker thread to claim exclusive ownership
-            // of the value in its cache.
-        }
-        uint64_t start = Cycles::rdtsc();
-        sum += *value;
-        uint64_t t2 = Cycles::rdtsc();
-        uint64_t t3 = Cycles::rdtsc();
-        totalTime += (t2 - start);
-        rdtscTime += (t3 - t2);
-        okToRead = false;
-    }
-    finished = true;
-    thread.join();
-    unpinThread();
-    return Cycles::toSeconds(totalTime - rdtscTime)/count;
 }
 
 // Measure the cost of the exchange method on a C++ atomic_int.
@@ -2416,12 +2291,12 @@ TestInfo tests[] = {
      "read 6 cache lines concurrently from another core's cache"},
     {"cacheRead8Lines", cacheRead8Lines,
      "read 8 cache lines concurrently from another core's cache"},
-    {"cacheRead10Lines", cacheRead10Lines,
-     "read 10 cache lines concurrently from another core's cache"},
     {"cacheRead12Lines", cacheRead12Lines,
      "read 12 cache lines concurrently from another core's cache"},
     {"cacheRead16Lines", cacheRead16Lines,
      "read 16 cache lines concurrently from another core's cache"},
+    {"cacheRead32Lines", cacheRead32Lines,
+     "read 32 cache lines concurrently from another core's cache"},
     {"cacheReadExcl", cacheReadExcl,
      "read value from another cache, make exclusive"},
     {"cacheReadThenCas", cacheReadThenCas,
@@ -2430,10 +2305,6 @@ TestInfo tests[] = {
      "pass value from one core to another (initially cached)"},
     {"cacheTransferAfterMiss", cacheTransferAfterMiss,
      "pass value from one core to another (not cached on sender)"},
-    {"coherenceInvalidate", coherenceInvalidate,
-     "invalidate remote cache on write"},
-    {"coherenceReadMiss", coherenceReadMiss,
-     "cache read miss from another core's cache"},
     {"cppAtomicExchg", cppAtomicExchange,
      "Exchange method on a C++ atomic_int"},
     {"cppAtomicLoad", cppAtomicLoad,
@@ -2573,6 +2444,34 @@ void runTest(TestInfo& info)
 int
 main(int argc, char *argv[])
 {
+    // Parse command-line options.
+    namespace po = boost::program_options;
+    vector<string> testNames;
+    po::options_description optionsDesc(
+            "Usage: Perf [options] testName testName ...\n\n"
+            "Runs one or more micro-benchmarks and outputs performance "
+            "information.\n\n"
+            "Allowed options");
+    optionsDesc.add_options()
+        ("help", "Print this help message and exit")
+        ("secondCore", po::value<int>(&core2)->default_value(3),
+                "Second core to use for tests involving two cores (first "
+                "core is always 2)")
+        ("testName", po::value<vector<string>>(&testNames),
+                "A test is run if its name contains any of the testName"
+                "arguments as a substring");
+
+    po::positional_options_description posDesc;
+    posDesc.add("testName", -1);
+    po::variables_map vm;
+    po::store(po::command_line_parser(argc, argv).
+          options(optionsDesc).positional(posDesc).run(), vm);
+    po::notify(vm);
+    if (vm.count("help")) {
+        std::cout << optionsDesc << "\n";
+        exit(0);
+    }
+
     Logger::get().setLogLevels("NOTICE");
     CPU_ZERO(&savedAffinities);
     sched_getaffinity(0, sizeof(savedAffinities), &savedAffinities);
@@ -2586,8 +2485,8 @@ main(int argc, char *argv[])
         // command-line arguments as a substring.
         bool foundTest = false;
         foreach (TestInfo& info, tests) {
-            for (int i = 1; i < argc; i++) {
-                if (strstr(info.name, argv[i]) !=  NULL) {
+            for (size_t i = 0; i < testNames.size(); i++) {
+                if (strstr(info.name, testNames[i].c_str()) !=  NULL) {
                     foundTest = true;
                     runTest(info);
                     break;
