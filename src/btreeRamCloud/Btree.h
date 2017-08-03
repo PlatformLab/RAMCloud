@@ -568,7 +568,7 @@ PRIVATE:
             uint32_t metadataSize =
                     (isLeaf() ? sizeof32(LeafNode) : sizeof32(InnerNode));
             void *ptr;
-#ifdef DEBUG
+#if DEBUG_BUILD
             uint32_t contigSpace = toBuffer->peek(offset, &ptr);
             assert (contigSpace >= metadataSize + keyStorageUsed);
 #else
@@ -2144,7 +2144,7 @@ PRIVATE:
     freeNode(NodeId nodeId)
     {
         Key key(treeTableId, &nodeId, sizeof(NodeId));
-#ifdef DEBUG
+#if DEBUG_BUILD
         Status status = objMgr->writeTombstone(key, &logBuffer);
         assert(status == STATUS_OK);
 #else
