@@ -53,6 +53,14 @@ ZOOKEEPER_LIB :=
 ZOOKEEPER_DIR :=
 endif
 
+# 'yes' replaces the regular RAMCLOUD_LOG() invocations with NANO_LOG() instead
+# Caveat: RAMCLOUD_BACKTRACE, RAMCLOUD_DIE, and RAMCLOUD_CLOG will still use
+# the built in RAMCloud logging system. This will produce 2 log files, the
+# regular RAMCloud log and a NanoLog log of the same name/location with the
+# suffix *.compressed appended to it.
+# Note: You can still use NANO_LOG() log statements even if NANOLOG=no
+NANOLOG ?= no
+
 BASECFLAGS := -g
 ifeq ($(DEBUG),yes)
 ifeq ($(DEBUG_OPT),yes)
@@ -107,6 +115,9 @@ COMFLAGS += -DENABLE_LOGCABIN
 endif
 ifeq ($(ZOOKEEPER),yes)
 COMFLAGS += -DENABLE_ZOOKEEPER
+endif
+ifeq ($(NANOLOG),yes)
+COMFLAGS += -DENABLE_NANOLOG
 endif
 TEST_INSTALL_FLAGS =
 
@@ -332,8 +343,8 @@ case $$GCCWARN in \
 	$(CXX) $(CXXFLAGS_NOWERROR) $(3) -c -o $(1) $(2); \
 	;; \
 9) \
-	echo $(CXX) $(CXXFLAGS) $(3) -c -o $(1) $(2); \
-	$(CXX) $(CXXFLAGS) $(3) -c -o $(1) $(2); \
+	echo NanoLog $(CXX) $(CXXFLAGS) $(3) -c -o $(1) $(2); \
+	$(call run-cxx-nanolog, $(1), $(2), $(3) $(CXXFLAGS)); \
 	;; \
 esac
 endef
@@ -355,6 +366,93 @@ include nanobenchmarks/MakefragNano
 include src/misc/Makefrag
 include bindings/python/Makefrag
 
+
+#########################
+# NanoLog Configuration #
+#########################
+# There were a couple of deviations from the NanoLog instructions:
+# 1) run-cxx was changed to run-cxx-nanolog due to conflicting namespace
+# 2) since run-xx is directed to the shell, run-cxx-nanolog was changed to
+#    be on 1 line and the makefile '@' directives removed
+# 3) Added a rm $(2).d in the run-cxx-nanolog due to the -M parameter
+#		 producing .d files.
+# 4) decompressor is put in the OBJ directory
+# 5) Compiled library sources with -fPIC to link with libramcloud.so
+
+
+# NanoLog Configuration
+USER_OBJS = $(SHARED_SRCFILES)
+USER_OBJS += $(COORDINATOR_OBJFILES)
+USER_OBJS += $(CLIENT_OBJFILES)
+USER_OBJS += $(SERVER_OBJFILES) $(OBJDIR)/ServerMain.o
+
+NANOOBJDIR = $(OBJDIR)/nanobenchmarks
+USER_OBJS += $(patsubst nanobenchmarks/%.cc, $(NANOOBJDIR)/%.o, $(wildcard nanobenchmarks/*.cc))
+
+APPOBJDIR = $(OBJDIR)/apps
+USER_OBJS += $(patsubst apps/%.cc, $(APPOBJDIR)/%.o, $(wildcard apps/*.cc))
+
+
+# [Required] Specifies the path to the NanoLog's Library directory
+NANOLOG_DIR=NanoLog
+
+
+####
+# Library Compilation (copy verbatim)
+####
+
+RUNTIME_DIR=$(NANOLOG_DIR)/runtime
+PREPROC_DIR=$(NANOLOG_DIR)/preprocessor
+
+# run-cxx-nanolog:
+# Compile a user C++ source file to an object file using the NanoLog system.
+# The first parameter $(1) should be the output filename (*.o)
+# The second parameter $(2) should be the input filename (*.cc)
+# The optional third parameter $(3) is any additional options compiler options.
+define run-cxx-nanolog
+	$(CXX) -E -I $(RUNTIME_DIR) $(2) -o $(2).i $(3) && \
+	mkdir -p generated && \
+	python $(PREPROC_DIR)/parser.py --mapOutput="generated/$(2).map" $(2).i && \
+	$(CXX) -I $(RUNTIME_DIR) -c -o $(1) $(2).ii $(3) && \
+	rm -f $(2).i $(2).ii generated/GeneratedCode.cc $(2).d
+endef
+
+RUNTIME_CXX_FLAGS= -std=c++11 -O3 -DNDEBUG -g -fPIC
+NANO_LOG_LIBRARY_LIBS=-lrt -pthread
+
+RUNTIME_DEPS=$(wildcard $(RUNTIME_DIR)/*.h)
+RUNTIME_CC=$(RUNTIME_DIR)/Cycles.cc $(RUNTIME_DIR)/NanoLog.cc \
+		 $(RUNTIME_DIR)/Util.cc $(RUNTIME_DIR)/Log.cc
+RUNTIME_OBJS=$(RUNTIME_CC:.cc=.o)
+
+COMWARNS := -Wall -Wformat=2 -Wextra \
+           -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute
+CWARNS   := $(COMWARNS) -Wmissing-prototypes -Wmissing-declarations -Wshadow \
+		-Wbad-function-cast
+CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
+		-Wcast-qual -Wcast-align -Wconversion
+ifeq ($(COMPILER),gnu)
+CXXWARNS += -Weffc++
+endif
+
+generated/GeneratedCode.o: $(USER_OBJS)
+	mkdir -p generated
+	python $(PREPROC_DIR)/parser.py --combinedOutput="generated/GeneratedCode.cc" $(shell find generated -type f -name "*.map" -printf ' "%h/%f" ')
+	$(CXX) $(RUNTIME_CXX_FLAGS) $(CXXWARNS) -c -o $@ generated/GeneratedCode.cc -I $(RUNTIME_DIR) -Igenerated -I$(OBJDIR)
+
+$(RUNTIME_DIR)/%.o: $(RUNTIME_DIR)/%.cc
+	$(CXX) $(RUNTIME_CXX_FLAGS) $(CXXWARNS) -c -o $@ $< -I $(RUNTIME_DIR) -Igenerated -Werror -I$(OBJDIR)
+
+libNanoLog.a: $(RUNTIME_OBJS) $(RUNTIME_DEPS) generated/GeneratedCode.o $(OBJDIR)/decompressor
+	ar -cr libNanoLog.a $(RUNTIME_OBJS) generated/GeneratedCode.o
+
+$(OBJDIR)/decompressor: generated/GeneratedCode.o $(RUNTIME_DIR)/Cycles.o $(RUNTIME_DIR)/Util.o $(RUNTIME_DIR)/Log.o $(RUNTIME_DIR)/LogDecompressor.cc
+	$(CXX) $(RUNTIME_CXX_FLAGS) $(CXXWARNS) $^ -o $(OBJDIR)/decompressor -I$(RUNTIME_DIR) -Igenerated -Werror $(NANO_LOG_LIBRARY_LIBS) -I$(OBJDIR)
+
+clean-all: clean
+	@rm -f libNanoLog.a $(RUNTIME_OBJS) $(OBJDIR)/decompressor
+	@rm -rf generated/*
+
 # The following line allows developers to create private make rules
 # in the file private/MakefragPrivate.  The recommended approach is
 # for you to keep all private files (personal development hacks,
@@ -362,7 +460,7 @@ include bindings/python/Makefrag
 include $(wildcard private/MakefragPrivate)
 
 clean: tests-clean docs-clean tags-clean install-clean java-clean
-	rm -rf $(OBJDIR)/.deps $(OBJDIR)/*
+	rm -rf $(OBJDIR)/.deps $(OBJDIR)/* libNanoLog.a
 
 check:
 	$(LINT) $$(./pragmas.py -f CPPLINT:5 $$(find $(TOP)/src $(TOP)/apps $(TOP)/nanobenchmarks '(' -name '*.cc' -or -name '*.h' -or -name '*.c' ')' -not -path '$(TOP)/src/btree/*' -not -path '$(TOP)/src/btreeRamCloud/*'))
@@ -413,8 +511,8 @@ INSTALL_BINS := \
     $(NULL)
 
 INSTALL_LIBS := \
-    $(OBJDIR)/libramcloud.so \
     $(OBJDIR)/libramcloud.a \
+    $(OBJDIR)/libramcloud.so \
     $(NULL)
 
 # Rebuild the Java bindings

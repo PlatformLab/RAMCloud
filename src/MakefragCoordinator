@@ -22,8 +22,9 @@ COORDINATOR_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(COORDINATOR_OBJFIL
 COORDINATOR_OBJFILES := $(COORDINATOR_OBJFILES) $(SHARED_OBJFILES)
 
 $(OBJDIR)/coordinator: $(COORDINATOR_OBJFILES) \
-                       $(OBJDIR)/CoordinatorMain.o
+                       $(OBJDIR)/CoordinatorMain.o \
+                       libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L. $(NANO_LOG_LIBRARY_LIBS)
 
 all: $(OBJDIR)/coordinator

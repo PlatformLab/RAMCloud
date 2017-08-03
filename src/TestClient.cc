@@ -1,4 +1,4 @@
-/* Copyright (c) 2015 Stanford University
+/* Copyright (c) 2015-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,7 +35,8 @@ try
     cluster.write(table, "42", 2, "Hello, World!", 14);
     const char *value = "0123456789012345678901234567890"
         "123456789012345678901234567890123456789";
-    cluster.write(table, "43", 2, value, downCast<uint32_t>(strlen(value) + 1));
+    cluster.write(table, "43", 2, value,
+                    RAMCloud::downCast<uint32_t>(strlen(value) + 1));
     Buffer buffer;
     cluster.read(table, "43", 2, &buffer);
     cluster.read(table, "42", 2, &buffer);

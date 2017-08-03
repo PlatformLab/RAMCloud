@@ -28,3 +28,7 @@ tags
 # Ignore IDE files
 /.idea/
 /nbproject/
+
+# NanoLog files
+libNanoLog.a
+generated

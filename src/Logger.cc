@@ -162,6 +162,12 @@ Logger::setLogFile(const char* path, bool truncate)
         close(fd);
     fd = newFd;
     mustCloseFd = true;
+
+    char nanoLogFileLocation[1000];
+    snprintf(nanoLogFileLocation,
+                sizeof(nanoLogFileLocation),
+                "%s.compressed", path);
+    NanoLog::setLogFile(nanoLogFileLocation);
 }
 
 /**
@@ -291,6 +297,8 @@ Logger::setLogLevels(LogLevel level)
         LogModule module = static_cast<LogModule>(i);
         setLogLevel(module, level);
     }
+
+    NanoLog::setLogLevel(static_cast<int>(level));
 }
 /**
  * Set the log level for all modules.
@@ -307,6 +315,8 @@ Logger::setLogLevels(int level)
     else if (level >= NUM_LOG_LEVELS)
         level = NUM_LOG_LEVELS - 1;
     setLogLevels(static_cast<LogLevel>(level));
+
+    NanoLog::setLogLevel(static_cast<int>(level));
 }
 /**
  * Set the log level for all modules.
@@ -666,12 +676,12 @@ Logger::cleanCollapseMap(struct timespec now)
 /**
  * This method copies a block of data into the printBuffer and wakes up
  * the print thread to output it.
- * 
+ *
  * \param src
  *      First byte in block of data to add to the buffer.
  * \param length
  *      Total number of bytes of data to add.  Must be > 0.
- * 
+ *
  * \return
  *      The return value is true if the data was successfully added, and false
  *      if there wasn't enough space for all of it (in which case none is
@@ -717,7 +727,7 @@ Logger::addToBuffer(const char* src, int length)
  * This method is the main program for a separate thread that runs in the
  * background to print log messages to secondary storage (this way, the
  * main RAMCloud threads aren't delayed for I/O).
- * 
+ *
  * \param logger
  *      The owning Logger. This thread accesses only information related
  *      to the buffer and the output file.

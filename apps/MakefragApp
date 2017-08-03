@@ -4,37 +4,37 @@ $(APPOBJDIR)/%.o: $(TOP)/apps/%.cc $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<, -fPIC)
 
-$(APPOBJDIR)/backuprecovery: $(APPOBJDIR)/BackupRecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+$(APPOBJDIR)/backuprecovery: $(APPOBJDIR)/BackupRecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(APPOBJDIR)/client: $(APPOBJDIR)/ClientMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+$(APPOBJDIR)/client: $(APPOBJDIR)/ClientMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(APPOBJDIR)/ClusterPerf: $(APPOBJDIR)/ClusterPerf.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+$(APPOBJDIR)/ClusterPerf: $(APPOBJDIR)/ClusterPerf.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(APPOBJDIR)/CoordinatorCrashRecovery: $(APPOBJDIR)/CoordinatorCrashRecovery.o $(OBJDIR)/libramcloud.a
+$(APPOBJDIR)/CoordinatorCrashRecovery: $(APPOBJDIR)/CoordinatorCrashRecovery.o $(OBJDIR)/libramcloud.a libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(APPOBJDIR)/ensureServers: $(APPOBJDIR)/EnsureServers.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+$(APPOBJDIR)/ensureServers: $(APPOBJDIR)/EnsureServers.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(APPOBJDIR)/migrateTablet: $(APPOBJDIR)/MigrateTabletMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+$(APPOBJDIR)/migrateTablet: $(APPOBJDIR)/MigrateTabletMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(APPOBJDIR)/recovery: $(APPOBJDIR)/RecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+$(APPOBJDIR)/recovery: $(APPOBJDIR)/RecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(APPOBJDIR)/dumpPerfStats: $(APPOBJDIR)/DumpPerfStats.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
+$(APPOBJDIR)/dumpPerfStats: $(APPOBJDIR)/DumpPerfStats.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
 .PHONY: apps
 

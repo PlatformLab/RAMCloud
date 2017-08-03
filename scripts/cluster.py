@@ -29,6 +29,7 @@ import os
 import random
 import pprint
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -41,6 +42,7 @@ remote_obj_path = config.hooks.get_remote_obj_path()
 coordinator_binary = '%s/coordinator' % remote_obj_path
 server_binary = '%s/server' % remote_obj_path
 ensure_servers_bin = '%s/apps/ensureServers' % remote_obj_path
+nanolog_decompressor_bin = '%s/decompressor' % remote_obj_path
 
 # Used to prepend debugging tool commands (e.g., valgrind) before the various
 # RAMCloud executables.
@@ -208,6 +210,9 @@ class Cluster(object):
         self.coordinator_locator = coord_locator(self.transport,
                                                  self.coordinator_host)
         self.log_subdir = log.createDir(log_dir, log_exists)
+
+        # Move nanolog decompressor into the log directory
+        shutil.copy(nanolog_decompressor_bin, self.log_subdir)
 
         # Create a perfcounters directory under the log directory.
         os.mkdir(self.log_subdir + '/perfcounters')

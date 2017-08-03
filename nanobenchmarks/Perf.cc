@@ -45,7 +45,7 @@
 #include <vector>
 #include <boost/program_options.hpp>
 
-#include "Common.h"
+#include "../src/Common.h"
 #include "Atomic.h"
 #include "Cycles.h"
 #include "CycleCounter.h"
@@ -62,9 +62,9 @@
 #include "SegmentIterator.h"
 #include "SpinLock.h"
 #include "ClientException.h"
-#include "PerfHelper.h"
+#include "../src/PerfHelper.h"
 #include "TimeTrace.h"
-#include "Util.h"
+#include "../src/Util.h"
 
 using namespace RAMCloud;
 
@@ -234,7 +234,7 @@ double arachneThreadCreate()
         threadContext->args[2] = 3;
         threadContext->args[3] = 4;
         threadContext->startTime = startTime;
-        Fence::sfence();
+        RAMCloud::Fence::sfence();
         threadContext->wakeupTimeInCycles = 0;
         // timeTrace("updated wakeupTimeInCycles");
         while (elapsed == 0) {
@@ -244,7 +244,7 @@ double arachneThreadCreate()
     }
     *maskAndCount = 1000;
     threadContext->wakeupTimeInCycles = 0;
-    Fence::sfence();
+    RAMCloud::Fence::sfence();
     thread.join();
     unpinThread();
 #ifdef PERFTT
@@ -663,7 +663,7 @@ void cacheReadWorker(Atomic<int>* value, volatile int* sync)
             break;
         }
         (*value)++;
-        Fence::sfence();
+        RAMCloud::Fence::sfence();
         *sync = 0;
     }
 }
@@ -704,7 +704,7 @@ double cacheCasThenCas()
             check++;
             dummy += value->compareExchange(1, 2);
         }
-        Fence::sfence();
+        RAMCloud::Fence::sfence();
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
         if (i >= 0) {
@@ -752,7 +752,7 @@ double cacheRead()
         }
         uint64_t start = Cycles::rdtsc();
         dummy += *value;
-        Fence::lfence();
+        RAMCloud::Fence::lfence();
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
         if (i >= 0) {
@@ -786,7 +786,7 @@ void cacheReadLinesWorker(volatile char* firstByte, int numLines, int stride,
             *p = value;
         }
         value++;
-        Fence::sfence();
+        RAMCloud::Fence::sfence();
         *sync = 0;
     }
 }
@@ -824,7 +824,7 @@ double cacheReadLines(int numLines)
             for ( ; p >= firstByte; p -= stride) {
                 dummy += *p;
             }
-        Fence::lfence();
+        RAMCloud::Fence::lfence();
         // total += p[0] + p[64] + p[128] + p[192];
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
@@ -901,7 +901,7 @@ double cacheReadExcl()
         }
         uint64_t start = Cycles::rdtsc();
         total += value->compareExchange(1, 2);
-        Fence::lfence();
+        RAMCloud::Fence::lfence();
         uint64_t t1 = Cycles::rdtsc();
         uint64_t t2 = Cycles::rdtsc();
         if (i >= 0) {
@@ -1328,7 +1328,7 @@ double lfence()
     Dispatch dispatch(false);
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
-        Fence::lfence();
+        RAMCloud::Fence::lfence();
     }
     uint64_t stop = Cycles::rdtsc();
     return Cycles::toSeconds(stop - start)/count;
@@ -1768,7 +1768,7 @@ double pingVariable()
     }
     uint64_t stop = Cycles::rdtsc();
     *value = -1;
-    Fence::sfence();
+    RAMCloud::Fence::sfence();
     thread.join();
     unpinThread();
     return Cycles::toSeconds(stop - start)/count;
@@ -1978,7 +1978,7 @@ double sfence()
     int count = 1000000;
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
-        Fence::sfence();
+        RAMCloud::Fence::sfence();
     }
     uint64_t stop = Cycles::rdtsc();
     return Cycles::toSeconds(stop - start)/count;
@@ -2057,7 +2057,7 @@ double throwIntNL()
     uint64_t start = Cycles::rdtsc();
     for (int i = 0; i < count; i++) {
         try {
-            PerfHelper::throwInt();
+            RAMCloud::PerfHelper::throwInt();
         } catch (int) { // NOLINT
             // pass
         }

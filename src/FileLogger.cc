@@ -53,7 +53,13 @@ FileLogger::FileLogger(LogLevel level, const char* prefix)
 FileLogger::~FileLogger()
 {
     if (!partialLine.empty()) {
+#ifdef ENABLE_NANOLOG
+        // NanoLog can't handle a dynamic log level, so we pipe it to
+        // CLOG which uses the native RAMCloud Logger
+        RAMCLOUD_CLOG(level, "%s%s", prefix, partialLine.c_str());
+#else
         RAMCLOUD_LOG(level, "%s%s", prefix, partialLine.c_str());
+#endif
     }
 }
 
@@ -96,8 +102,15 @@ FileLogger::write(void *cookie, const char *buf, size_t size)
         }
         size_t newlineIndex = (static_cast<const char*>(newline) - buf);
         fileLogger->partialLine.append(buf + pos, newlineIndex - pos);
+#ifdef ENABLE_NANOLOG
+        // NanoLog can't handle a dynamic log level, so we pipe it to
+        // CLOG which uses the native RAMCloud Logger
+        RAMCLOUD_CLOG(fileLogger->level, "%s%s", fileLogger->prefix,
+                fileLogger->partialLine.c_str());
+#else
         RAMCLOUD_LOG(fileLogger->level, "%s%s", fileLogger->prefix,
                 fileLogger->partialLine.c_str());
+#endif
         fileLogger->partialLine.resize(0);
         pos = newlineIndex + 1;
     }

@@ -42,6 +42,9 @@ class LoggerTest : public ::testing::Test {
     ~LoggerTest()
     {
         unlink("__test.log");
+
+        // Also remove the NanoLog log
+        unlink("__test.log.compressed");
     }
 
     // Given a string, read the log file in __test.log and return everything

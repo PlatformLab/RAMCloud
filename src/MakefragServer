@@ -14,8 +14,8 @@ SERVER_OBJFILES := $(SERVER_SRCFILES)
 SERVER_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(SERVER_OBJFILES))
 SERVER_OBJFILES := $(SERVER_OBJFILES) $(SHARED_OBJFILES)
 
-$(OBJDIR)/server: $(SERVER_OBJFILES) $(OBJDIR)/ServerMain.o $(OBJDIR)/OptionParser.o
+$(OBJDIR)/server: $(SERVER_OBJFILES) $(OBJDIR)/ServerMain.o $(OBJDIR)/OptionParser.o libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L. $(NANO_LOG_LIBRARY_LIBS)
 
 all: $(OBJDIR)/server

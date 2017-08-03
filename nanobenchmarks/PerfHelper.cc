@@ -16,7 +16,7 @@
 #include "Common.h"
 #include "ClientException.h"
 
-using namespace RAMCloud;
+namespace RAMCloud {
 
 namespace PerfHelper {
 
@@ -52,4 +52,6 @@ throwObjectDoesntExistException()
     throw ObjectDoesntExistException(HERE);
 }
 
-}
+} // RAMCloud
+
+} // PerfHelper

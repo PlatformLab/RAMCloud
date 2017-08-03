@@ -21,7 +21,7 @@
 #include "SegmentIterator.h"
 #include "Seglet.h"
 #include "Tablets.pb.h"
-#include "Util.h"
+#include "../src/Util.h"
 
 namespace RAMCloud {
 

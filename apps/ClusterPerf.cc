@@ -52,7 +52,7 @@ namespace po = boost::program_options;
 #include "IndexLookup.h"
 #include "TimeTrace.h"
 #include "Transaction.h"
-#include "Util.h"
+#include "../src/Util.h"
 
 using namespace RAMCloud;
 
@@ -501,18 +501,26 @@ class WorkloadGenerator {
                 }
             }
         } catch (TableDoesntExistException &e) {
-            LogLevel ll = NOTICE;
             if (targetMissCount > 0) {
-                ll = WARNING;
-            }
-            RAMCLOUD_LOG(ll,
+                RAMCLOUD_LOG(WARNING,
                     "Actual OPS %.0f / Target OPS %lu",
                     static_cast<double>(opCount) /
                     static_cast<double>(Cycles::toSeconds(stop - start)),
                     targetOps);
-            RAMCLOUD_LOG(ll,
+                RAMCLOUD_LOG(WARNING,
                     "%lu Misses / %lu Total -- %lu/%lu R/W",
                     targetMissCount, opCount, readCount, writeCount);
+            } else {
+                RAMCLOUD_LOG(NOTICE,
+                    "Actual OPS %.0f / Target OPS %lu",
+                    static_cast<double>(opCount) /
+                    static_cast<double>(Cycles::toSeconds(stop - start)),
+                    targetOps);
+                RAMCLOUD_LOG(NOTICE,
+                    "%lu Misses / %lu Total -- %lu/%lu R/W",
+                    targetMissCount, opCount, readCount, writeCount);
+            }
+
             throw e;
         }
     }
@@ -4957,18 +4965,25 @@ doWorkload(OpType type)
             startStats.readCount -
             startStats.writeCount) / elapsedTime;
 
-    LogLevel ll = NOTICE;
     if (targetMissCount > 0) {
-        ll = WARNING;
-    }
-    RAMCLOUD_LOG(ll,
+        RAMCLOUD_LOG(WARNING,
             "Actual OPS %.0f / Target OPS %lu",
             static_cast<double>(opCount) /
             static_cast<double>(Cycles::toSeconds(stop - start)),
             static_cast<uint64_t>(targetOps));
-    RAMCLOUD_LOG(ll,
+        RAMCLOUD_LOG(WARNING,
             "%lu Misses / %lu Total -- %lu/%lu R/W",
             targetMissCount, opCount, readCount, writeCount);
+    } else {
+        RAMCLOUD_LOG(NOTICE,
+            "Actual OPS %.0f / Target OPS %lu",
+            static_cast<double>(opCount) /
+            static_cast<double>(Cycles::toSeconds(stop - start)),
+            static_cast<uint64_t>(targetOps));
+        RAMCLOUD_LOG(NOTICE,
+            "%lu Misses / %lu Total -- %lu/%lu R/W",
+            targetMissCount, opCount, readCount, writeCount);
+    }
 
     // Stop slaves.
     cluster->dropTable("data");

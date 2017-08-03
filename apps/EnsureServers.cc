@@ -19,7 +19,7 @@
  */
 
 #include "AbstractServerList.h"
-#include "Cycles.h"
+#include "../src/Cycles.h"
 #include "CoordinatorClient.h"
 #include "ShortMacros.h"
 #include "OptionParser.h"

@@ -142,8 +142,8 @@ $(OBJDIR)/libramcloud.a: $(CLIENT_OBJFILES)
 	@mkdir -p $(@D)
 	$(AR) rcs $@ $^
 
-$(OBJDIR)/libramcloud.so: $(CLIENT_OBJFILES)
+$(OBJDIR)/libramcloud.so: $(CLIENT_OBJFILES) libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -shared -o $@ $^ -Wl,--no-undefined,-soname,libramcloud.so $(LIBS)
+	$(CXX) $(LDFLAGS) -shared -o $@ $^ -Wl,--no-undefined,-soname,libramcloud.so $(LIBS) -L. $(NANO_LOG_LIBRARY_LIBS)
 
 all: $(OBJDIR)/libramcloud.so $(OBJDIR)/libramcloud.a

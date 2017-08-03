@@ -237,13 +237,13 @@ $(OBJDIR)/gtest.a: $(OBJDIR)/gtest-all.o
 
 TESTS_LIB := -ldl $(LIBS)
 
-$(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a
+$(OBJDIR)/test: $(TESTS_OBJFILES) $(OBJDIR)/gtest.a libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(TESTS_LIB)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(TESTS_LIB) -L. $(NANO_LOG_LIBRARY_LIBS)
 
-$(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(OBJDIR)/gtest.a
+$(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(OBJDIR)/gtest.a libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(TESTS_LIB)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(TESTS_LIB) -L. $(NANO_LOG_LIBRARY_LIBS)
 
 # The unit tests don't actually call all of these programs, but
 # they are included here to make sure they continue to build.

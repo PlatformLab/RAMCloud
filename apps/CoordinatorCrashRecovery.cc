@@ -31,7 +31,7 @@ namespace po = boost::program_options;
 #include "Cycles.h"
 #include "ServerId.h"
 #include "AbstractServerList.h"
-#include "Util.h"
+#include "../src/Util.h"
 #include "OptionParser.h"
 
 using namespace RAMCloud;

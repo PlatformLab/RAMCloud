@@ -723,14 +723,11 @@ PRIVATE:
          * is provided for instances where the developer wishes to print the
          * entire B+ tree and a string with all the nodes would overflow the
          * RAMCloud Logger's internal buffer size.
-         *
-         * \param logLevel
-         *      Log Level at which to print the node.
          */
         virtual void
-        printToLog(enum LogLevel logLevel)
+        printToLog()
         {
-            RAMCLOUD_LOG(logLevel, "%s", toString().c_str());
+            RAMCLOUD_LOG(DEBUG, "%s", toString().c_str());
         }
 
         /// The following functions are intended for subclass use only
@@ -1368,13 +1365,10 @@ PRIVATE:
          * is provided for instances where the developer wishes to print the
          * entire B+ tree and a string with all the nodes would overflow the
          * RAMCloud Logger's internal buffer size.
-         *
-         * \param logLevel
-         *      Log Level at which to print the node.
          */
         virtual void
-        printToLog(enum LogLevel logLevel) {
-            RAMCLOUD_LOG(logLevel, "%s", toString().c_str());
+        printToLog() {
+            RAMCLOUD_LOG(DEBUG, "%s", toString().c_str());
         }
     };
 
@@ -1519,12 +1513,10 @@ PRIVATE:
          * entire B+ tree and a string with all the nodes would overflow the
          * RAMCloud Logger's internal buffer size.
          *
-         * \param logLevel
-         *      Log Level at which to print the node.
          */
         virtual void
-        printToLog(enum LogLevel logLevel) {
-            RAMCLOUD_LOG(logLevel, "%s", toString().c_str());
+        printToLog() {
+            RAMCLOUD_LOG(DEBUG, "%s", toString().c_str());
         }
     };
 
@@ -3161,13 +3153,13 @@ PUBLIC:
      *      string representation of the tree
      */
     void
-    printToLog(enum LogLevel logLevel)
+    printToLog()
     {
         std::deque<NodeId> toVisit;
         toVisit.push_back(ROOT_ID);
 
         if (nextNodeId <= ROOT_ID) {
-            RAMCLOUD_LOG(logLevel, "Empty Tree!");
+            RAMCLOUD_LOG(DEBUG, "Empty Tree!");
             return;
         }
 
@@ -3181,11 +3173,11 @@ PUBLIC:
             const Node *node = this->readNode(curr, &buff);
             if (node->level != level) {
                 level = node->level;
-                RAMCLOUD_LOG(logLevel, "=================== "
+                RAMCLOUD_LOG(DEBUG, "=================== "
                         "NEW LEVEL (%u) ====================", level);
             }
 
-            RAMCLOUD_LOG(logLevel, "NodeID: %lu\r\n%s", curr, node->toString().c_str());
+            RAMCLOUD_LOG(DEBUG, "NodeID: %lu\r\n%s", curr, node->toString().c_str());
 
             if (node->isinnernode()) {
                 const InnerNode *inner = static_cast<const InnerNode*>(node);

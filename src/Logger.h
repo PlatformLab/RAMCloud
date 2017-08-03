@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,6 +22,7 @@
 #include <unordered_map>
 
 #include "CodeLocation.h"
+#include "../NanoLog/runtime/NanoLog.h"
 #include "SpinLock.h"
 #include "Tub.h"
 
@@ -32,7 +33,7 @@ class CodeLocation;
 /**
  * The levels of verbosity for messages logged with #LOG.
  */
-enum LogLevel {
+enum RC_LogLevel {
     // Keep this in sync with logLevelNames defined inside _LOG.
     SILENT_LOG_LEVEL = 0,
     /**
@@ -57,6 +58,31 @@ enum LogLevel {
     DEBUG,
     NUM_LOG_LEVELS // must be the last element in the enum
 };
+
+// RAMCloud and NanoLog use the same LogLevel enum causing naming conflicts.
+// We use macros to explicitly resolve the enum names to either the NanoLog
+// or RAMCloud version depending on if we're compiling with NanoLog or not.
+// This solution is the most elegant since it leaves the original LOG()
+// statements in both systems unmodified.
+#ifdef ENABLE_NANOLOG
+#define SILENT_LOG_LEVEL    LogLevel::SILENT_LOG_LEVEL
+#define ERROR               LogLevel::ERROR
+#define WARNING             LogLevel::WARNING
+#define NOTICE              LogLevel::NOTICE
+#define DEBUG               LogLevel::DEBUG
+#define NUM_LOG_LEVELS      LogLevel::NUM_LOG_LEVELS
+
+#else
+
+#define SILENT_LOG_LEVEL    RC_LogLevel::SILENT_LOG_LEVEL
+#define ERROR               RC_LogLevel::ERROR
+#define WARNING             RC_LogLevel::WARNING
+#define NOTICE              RC_LogLevel::NOTICE
+#define DEBUG               RC_LogLevel::DEBUG
+#define NUM_LOG_LEVELS      RC_LogLevel::NUM_LOG_LEVELS
+#define LogLevel            RC_LogLevel
+
+#endif
 
 enum LogModule {
     DEFAULT_LOG_MODULE = 0,
@@ -363,14 +389,25 @@ class Logger {
  * \param[in] ...
  *      The arguments to the format string.
  */
-#define RAMCLOUD_LOG(level, format, ...) do { \
-    RAMCloud::Logger& _logger = Logger::get(); \
-    if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \
-        _logger.logMessage(false, RAMCLOUD_CURRENT_LOG_MODULE, level, HERE, \
-                           format "\n", ##__VA_ARGS__); \
-    } \
-    RAMCLOUD_TEST_LOG(format, ##__VA_ARGS__); \
-} while (0)
+#ifdef ENABLE_NANOLOG
+    #define RAMCLOUD_LOG(level, format, ...) do { \
+        RAMCloud::Logger& _logger = Logger::get(); \
+        if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \
+            NANO_LOG(level, format, ##__VA_ARGS__); \
+        } \
+        RAMCLOUD_TEST_LOG(format, ##__VA_ARGS__); \
+     } while (0)
+
+#else
+    #define RAMCLOUD_LOG(level, format, ...) do { \
+        RAMCloud::Logger& _logger = Logger::get(); \
+        if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \
+            _logger.logMessage(false, RAMCLOUD_CURRENT_LOG_MODULE, level, \
+                                HERE, format "\n", ##__VA_ARGS__); \
+        } \
+        RAMCLOUD_TEST_LOG(format, ##__VA_ARGS__); \
+     } while (0)
+#endif
 
 #define RAMCLOUD_CLOG(level, format, ...) do { \
     RAMCloud::Logger& _logger = Logger::get(); \
@@ -393,8 +430,15 @@ class Logger {
  *      Always thrown.
  */
 #define RAMCLOUD_DIE(format_, ...) do { \
-    RAMCLOUD_LOG(RAMCloud::ERROR, format_, ##__VA_ARGS__); \
-    RAMCLOUD_BACKTRACE(RAMCloud::ERROR); \
+    do { \
+        RAMCloud::Logger& _logger = Logger::get(); \
+        if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, ERROR)) { \
+            _logger.logMessage(false, RAMCLOUD_CURRENT_LOG_MODULE, ERROR, \
+                                HERE, format_ "\n", ##__VA_ARGS__); \
+        } \
+        RAMCLOUD_TEST_LOG(format_, ##__VA_ARGS__); \
+    } while (0); \
+    RAMCLOUD_BACKTRACE(ERROR); \
     Logger::get().sync(); \
     throw RAMCloud::FatalError(HERE, \
                                RAMCloud::format(format_, ##__VA_ARGS__)); \

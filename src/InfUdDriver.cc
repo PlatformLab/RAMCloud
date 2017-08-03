@@ -597,9 +597,17 @@ InfUdDriver::refillReceiver()
     if (freeBuffers <= rxBufferLogThreshold) {
         double percentUsed = 100.0*static_cast<double>(
                 TOTAL_RX_BUFFERS - freeBuffers)/TOTAL_RX_BUFFERS;
-        LOG((percentUsed >= 80.0) ? WARNING : NOTICE,
+
+        if (percentUsed >= 80.0) {
+            LOG(WARNING,
                 "%u receive buffers now in use (%.1f%%)",
                 TOTAL_RX_BUFFERS - freeBuffers, percentUsed);
+        } else {
+            LOG(NOTICE,
+                "%u receive buffers now in use (%.1f%%)",
+                TOTAL_RX_BUFFERS - freeBuffers, percentUsed);
+        }
+
         do {
             rxBufferLogThreshold -= 1000;
         } while (freeBuffers < rxBufferLogThreshold);
@@ -608,7 +616,7 @@ InfUdDriver::refillReceiver()
 
 /**
  * Constructor for BufferPool objects.
- * 
+ *
  * \param infiniband
  *      Infiniband object that the buffers will be associated with.
  * \param bufferSize

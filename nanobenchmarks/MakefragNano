@@ -4,37 +4,37 @@ $(NANOOBJDIR)/%.o: $(TOP)/nanobenchmarks/%.cc $(AUTO_GEN_HEADERS)
 	@mkdir -p $(@D)
 	$(call run-cxx,$@,$<, -fPIC)
 
-$(NANOOBJDIR)/CleanerCompactionBenchmark: $(NANOOBJDIR)/CleanerCompactionBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+$(NANOOBJDIR)/CleanerCompactionBenchmark: $(NANOOBJDIR)/CleanerCompactionBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES) libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(NANOOBJDIR)/Echo: $(NANOOBJDIR)/Echo.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+$(NANOOBJDIR)/Echo: $(NANOOBJDIR)/Echo.o $(SHARED_OBJFILES) $(SERVER_OBJFILES) libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(NANOOBJDIR)/HashTableBenchmark: $(NANOOBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+$(NANOOBJDIR)/HashTableBenchmark: $(NANOOBJDIR)/HashTableBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES) libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(NANOOBJDIR)/LogCleanerBenchmark: $(NANOOBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/Histogram.pb.o $(OBJDIR)/OptionParser.o $(OBJDIR)/LogEntryTypes.o $(OBJDIR)/LogMetrics.pb.o $(OBJDIR)/ServerConfig.pb.o $(OBJDIR)/libramcloud.a
+$(NANOOBJDIR)/LogCleanerBenchmark: $(NANOOBJDIR)/LogCleanerBenchmark.o $(OBJDIR)/Histogram.pb.o $(OBJDIR)/OptionParser.o $(OBJDIR)/LogEntryTypes.o $(OBJDIR)/LogMetrics.pb.o $(OBJDIR)/ServerConfig.pb.o $(OBJDIR)/libramcloud.a libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(NANOOBJDIR)/MigrateTabletBenchmark: $(NANOOBJDIR)/MigrateTabletBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+$(NANOOBJDIR)/MigrateTabletBenchmark: $(NANOOBJDIR)/MigrateTabletBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES) libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(NANOOBJDIR)/ObjectManagerBenchmark: $(NANOOBJDIR)/ObjectManagerBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+$(NANOOBJDIR)/ObjectManagerBenchmark: $(NANOOBJDIR)/ObjectManagerBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES) libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(NANOOBJDIR)/Perf: $(NANOOBJDIR)/Perf.o $(NANOOBJDIR)/PerfHelper.o $(SERVER_OBJFILES)
+$(NANOOBJDIR)/Perf: $(NANOOBJDIR)/Perf.o $(NANOOBJDIR)/PerfHelper.o $(SERVER_OBJFILES) libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
-$(NANOOBJDIR)/RecoverSegmentBenchmark: $(NANOOBJDIR)/RecoverSegmentBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES)
+$(NANOOBJDIR)/RecoverSegmentBenchmark: $(NANOOBJDIR)/RecoverSegmentBenchmark.o $(SHARED_OBJFILES) $(SERVER_OBJFILES) libNanoLog.a
 	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LIBS) -L$(TOP) $(NANO_LOG_LIBRARY_LIBS)
 
 .PHONY: nanobenchmarks
 

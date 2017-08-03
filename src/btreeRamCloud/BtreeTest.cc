@@ -388,7 +388,7 @@ TEST_F(BtreeTest, node_toString_printToLog) {
 
 
     TestLog::Enable _;
-    n->printToLog(NOTICE);
+    n->printToLog();
     EXPECT_STREQ("printToLog: Printing leaf node\r\n"
                     "1 <- prev | next -> 1\r\n"
                     " ( pKHash: 0 keyLength: 1 key: 0 )\r\n"
@@ -1356,7 +1356,7 @@ TEST_F(BtreeTest, InnerNode_toString_printToLog) {
             , n->toString().c_str());
 
     TestLog::Enable _;
-    n->printToLog(NOTICE);
+    n->printToLog();
     EXPECT_STREQ("printToLog: Printing inner node\r\n"
             "NodeId: 10 <==  ( pKHash: 0 keyLength: 10 key: 0000000000 )\r\n"
             "NodeId: 11 <==  ( pKHash: 1 keyLength: 10 key: 0000000001 )\r\n"

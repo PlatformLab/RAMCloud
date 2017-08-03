@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016 Stanford University
+/* Copyright (c) 2011-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -345,7 +345,24 @@ AdminService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
 
             uint32_t strlen = reqHdr->inputLength - (uint32_t) sizeof(LogLevel);
             const char* message = ((const char*) inputData) + sizeof(LogLevel);
-            LOG(*logLevel, "%.*s", strlen, message);
+
+            switch (*logLevel) {
+                case SILENT_LOG_LEVEL:
+                    LOG(SILENT_LOG_LEVEL, "%.*s", strlen, message);
+                    break;
+                case ERROR:
+                    LOG(ERROR, "%.*s", strlen, message);
+                    break;
+                case WARNING:
+                    LOG(WARNING, "%.*s", strlen, message);
+                    break;
+                case NOTICE:
+                    LOG(NOTICE, "%.*s", strlen, message);
+                    break;
+                default:
+                    LOG(DEBUG, "%.*s", strlen, message);
+                    break;
+            }
             break;
         }
         case WireFormat::LOG_TIME_TRACE:
