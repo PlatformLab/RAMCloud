@@ -5,13 +5,13 @@ For up to date information on how to install and use RAMCloud, see the RAMCloud 
 https://ramcloud.stanford.edu/wiki/display/ramcloud
 
 ## NanoLog
-This branch supplements RAMCloud's custom logger with [NanoLog](https://github.com/PlatformLab/NanoLog), an extremely performance nanosecond scale logging system.
+This branch supplements RAMCloud's custom logger with [NanoLog](https://github.com/PlatformLab/NanoLog), an extremely performant nanosecond scale logging system.
 
 To use NanoLog within RAMCloud, simply invoke NanoLog's printf-like API:
 ```cpp
 #include "Logger.h"
 ...
-NANO_LOG(NOTICE, "Hello World! This is an integer %d and a double %lf\r\n", 1, 2.0);
+NANO_LOG(LogLevel::NOTICE, "Hello World! This is an integer %d and a double %lf\r\n", 1, 2.0);
 ```
 
 Doing this will cause the RAMCloud system to generate an additional NanoLog log file and a NanoLog Decompressor executable **specific to that compilation** (See Limitations). The NanoLog log file will be in the same location as the RAMCloud log file except with a '.compressed' appended and the Decompressor executable is located in `obj.nanolog/decompressor`
@@ -40,7 +40,7 @@ Note that not all RAMCloud functionality is supported. Most notably, ```RAMCLOUD
 
 ```cpp
 formatStringVar = "Hello World # %d";
-LogLevel level = DEBUG;
+LogLevel level = LogLevel::DEBUG;
 NANO_LOG(formatStringVar, level, 5); // Compile-Error
 ```
 
@@ -48,11 +48,11 @@ NANO_LOG(formatStringVar, level, 5); // Compile-Error
 - A majority of NanoLog's speed-ups come from extracting *static information* from log message. Thus, one should attempt to fit as much information as possible into the format string and avoid logging dynamic strings where possible.
 
 ```cpp
-NANO_LOG("This is the best type of log message for NanoLog! It contains no arguments!");
-NANO_LOG("This is a pretty good log message with a dynamic integer %d", number);
+NANO_LOG(LogLevel::NOTICE, "This is the best type of log message for NanoLog! It contains no arguments!");
+NANO_LOG(LogLevel::NOTICE, "This is a pretty good log message with a dynamic integer %d", number);
 
-NANO_LOG("Floating points are sub-optimal, but are not bad %lf% of the time", 0.50);
-NANO_LOG("This is the worst because %s", "it contains a long string argument");
+NANO_LOG(LogLevel::NOTICE, "Floating points are sub-optimal, but are not bad %lf% of the time", 0.50);
+NANO_LOG(LogLevel::NOTICE, "This is the worst because %s", "it contains a long string argument");
 ```
 
 
