@@ -41,8 +41,8 @@ def scan(f, string):
     prevTime = 0.0
     writes = 0
     for line in f:
-        match = re.match('.*TimeTrace.*printInternal.* '
-                '([0-9.]+) ns \(\+ *([0-9.]+) ns\): (.*)',
+        match = re.match('.* '
+                '([0-9.]+) ns \(\+ *([0-9.]+) ns\): (.*)$',
                 line)
         if not match:
             continue
