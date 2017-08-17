@@ -422,7 +422,7 @@ NANO_LOG_LIBRARY_LIBS=-lrt -pthread
 
 RUNTIME_DEPS=$(wildcard $(RUNTIME_DIR)/*.h)
 RUNTIME_CC=$(RUNTIME_DIR)/Cycles.cc $(RUNTIME_DIR)/NanoLog.cc \
-		 $(RUNTIME_DIR)/Util.cc $(RUNTIME_DIR)/Log.cc
+		 $(RUNTIME_DIR)/Util.cc $(RUNTIME_DIR)/Log.cc $(RUNTIME_DIR)/RuntimeLogger.cc
 RUNTIME_OBJS=$(RUNTIME_CC:.cc=.o)
 
 COMWARNS := -Wall -Wformat=2 -Wextra \
@@ -446,7 +446,7 @@ $(RUNTIME_DIR)/%.o: $(RUNTIME_DIR)/%.cc
 libNanoLog.a: $(RUNTIME_OBJS) $(RUNTIME_DEPS) generated/GeneratedCode.o $(OBJDIR)/decompressor
 	ar -cr libNanoLog.a $(RUNTIME_OBJS) generated/GeneratedCode.o
 
-$(OBJDIR)/decompressor: generated/GeneratedCode.o $(RUNTIME_DIR)/Cycles.o $(RUNTIME_DIR)/Util.o $(RUNTIME_DIR)/Log.o $(RUNTIME_DIR)/LogDecompressor.cc
+$(OBJDIR)/decompressor: generated/GeneratedCode.o $(RUNTIME_DIR)/Cycles.o $(RUNTIME_DIR)/Util.o $(RUNTIME_DIR)/Log.o $(RUNTIME_DIR)/LogDecompressor.o
 	$(CXX) $(RUNTIME_CXX_FLAGS) $(CXXWARNS) $^ -o $(OBJDIR)/decompressor -I$(RUNTIME_DIR) -Igenerated -Werror $(NANO_LOG_LIBRARY_LIBS) -I$(OBJDIR)
 
 clean-all: clean
@@ -585,6 +585,8 @@ install: all java
 	cp $(INSTALL_BINS) $(INSTALL_DIR)/bin
 	mkdir -p $(INSTALL_DIR)/include/ramcloud
 	cp $(INSTALL_INCLUDES) $(INSTALL_DIR)/include/ramcloud
+	mkdir -p $(INSTALL_DIR)/include/NanoLog
+	cp $(RUNTIME_DEPS) $(INSTALL_DIR)/include/NanoLog
 	mkdir -p $(INSTALL_DIR)/lib/ramcloud
 	cp $(INSTALL_LIBS) $(INSTALL_DIR)/lib/ramcloud
 	cp bindings/java/build/install/ramcloud/lib/* $(INSTALL_DIR)/lib/ramcloud

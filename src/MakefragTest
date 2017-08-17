@@ -279,6 +279,7 @@ endif
 # info to be available.
 testInstall: install
 	$(CXX) --std=c++11 $(GLIBCXX_ABI) -g -DNDEBUG -Iinstall/include -I. \
+					-Iinstall/include/NanoLog \
 	        src/TestClient.cc -o $(OBJDIR)/TestClient -Linstall/lib/ramcloud/ \
 	        -lramcloud -Wl,-rpath=install/bin $(TEST_INSTALL_FLAGS)
 

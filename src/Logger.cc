@@ -298,7 +298,7 @@ Logger::setLogLevels(LogLevel level)
         setLogLevel(module, level);
     }
 
-    NanoLog::setLogLevel(static_cast<int>(level));
+    NanoLog::setLogLevel(level);
 }
 /**
  * Set the log level for all modules.
@@ -316,7 +316,7 @@ Logger::setLogLevels(int level)
         level = NUM_LOG_LEVELS - 1;
     setLogLevels(static_cast<LogLevel>(level));
 
-    NanoLog::setLogLevel(static_cast<int>(level));
+    NanoLog::setLogLevel(static_cast<LogLevel>(level));
 }
 /**
  * Set the log level for all modules.

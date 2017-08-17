@@ -7,7 +7,7 @@ https://ramcloud.stanford.edu/wiki/display/ramcloud
 ## NanoLog
 This branch supplements RAMCloud's custom logger with [NanoLog](https://github.com/PlatformLab/NanoLog), an extremely performant nanosecond scale logging system.
 
-To use NanoLog within RAMCloud, simply invoke NanoLog's printf-like API:
+To use NanoLog within RAMCloud*, simply invoke NanoLog's printf-like API:
 ```cpp
 #include "Logger.h"
 ...
@@ -20,6 +20,7 @@ To transform the NanoLog log into a human-readable format, invoke the decompress
 ```bash
 obj.nanolog/decompressor ramcloud.log.compressed
 ```
+*Note: Though ```NANO_LOG``` can be used directly _within_ the RAMCloud sources, it cannot be used in the client sources. If the client does wish to use NanoLog, it will have to integrate with [NanoLog](https://github.com/PlatformLab/NanoLog) itself.
 
 ### Replacing the Built-In RAMCloud Logger
 NanoLog can also be configured to replace most of RAMCloud's built-in functionality. More specifically, it can replace all ```RAMCLOUD_LOG``` macros with an invocation to NanoLog's API instead.

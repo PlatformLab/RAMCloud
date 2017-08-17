@@ -22,67 +22,18 @@
 #include <unordered_map>
 
 #include "CodeLocation.h"
-#include "../NanoLog/runtime/NanoLog.h"
+#include "NanoLog.h"
 #include "SpinLock.h"
 #include "Tub.h"
 
 namespace RAMCloud {
 
+// Import NanoLog's LogLevel enum into the RAMCloud namespace so that (a) we
+// don't have duplicate LogLevel classes and (b) don't have to modify existing
+// references to RAMCloud's original LogLevel enum.
+using namespace NanoLog::LogLevels; // NOLINT
+
 class CodeLocation;
-
-/**
- * The levels of verbosity for messages logged with #LOG.
- */
-enum RC_LogLevel {
-    // Keep this in sync with logLevelNames defined inside _LOG.
-    SILENT_LOG_LEVEL = 0,
-    /**
-     * Bad stuff that shouldn't happen. The system broke its contract to users
-     * in some way or some major assumption was violated.
-     */
-    ERROR,
-    /**
-     * Messages at the WARNING level indicate that, although something went
-     * wrong or something unexpected happened, it was transient and
-     * recoverable.
-     */
-    WARNING,
-    /**
-     * Somewhere in between WARNING and DEBUG...
-     */
-    NOTICE,
-    /**
-     * Messages at the DEBUG level don't necessarily indicate that anything
-     * went wrong, but they could be useful in diagnosing problems.
-     */
-    DEBUG,
-    NUM_LOG_LEVELS // must be the last element in the enum
-};
-
-// RAMCloud and NanoLog use the same LogLevel enum causing naming conflicts.
-// We use macros to explicitly resolve the enum names to either the NanoLog
-// or RAMCloud version depending on if we're compiling with NanoLog or not.
-// This solution is the most elegant since it leaves the original LOG()
-// statements in both systems unmodified.
-#ifdef ENABLE_NANOLOG
-#define SILENT_LOG_LEVEL    LogLevel::SILENT_LOG_LEVEL
-#define ERROR               LogLevel::ERROR
-#define WARNING             LogLevel::WARNING
-#define NOTICE              LogLevel::NOTICE
-#define DEBUG               LogLevel::DEBUG
-#define NUM_LOG_LEVELS      LogLevel::NUM_LOG_LEVELS
-
-#else
-
-#define SILENT_LOG_LEVEL    RC_LogLevel::SILENT_LOG_LEVEL
-#define ERROR               RC_LogLevel::ERROR
-#define WARNING             RC_LogLevel::WARNING
-#define NOTICE              RC_LogLevel::NOTICE
-#define DEBUG               RC_LogLevel::DEBUG
-#define NUM_LOG_LEVELS      RC_LogLevel::NUM_LOG_LEVELS
-#define LogLevel            RC_LogLevel
-
-#endif
 
 enum LogModule {
     DEFAULT_LOG_MODULE = 0,

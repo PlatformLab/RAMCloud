@@ -736,6 +736,9 @@ struct ReplicaAndLoadTime {
     }
 };
 
+} // end namespace (Note: the next function is also in the namespace,
+//// but is explicitly qualified due to doxygen complaints (believed bug)
+
 /**
  * Create the script that recovery masters will replay.
  * First add all primaries to the list, then all secondaries.
@@ -759,7 +762,7 @@ struct ReplicaAndLoadTime {
  *      Sent to all recovery masters verbatim.
  */
 vector<WireFormat::Recover::Replica>
-buildReplicaMap(Tub<BackupStartTask> tasks[],
+RecoveryInternal::buildReplicaMap(Tub<BackupStartTask> tasks[],
                 size_t taskCount,
                 RecoveryTracker* tracker,
                 uint64_t headId)
@@ -818,7 +821,6 @@ buildReplicaMap(Tub<BackupStartTask> tasks[],
     }
     return replicaMap;
 }
-} // end namespace
 using namespace RecoveryInternal; // NOLINT
 
 /**
