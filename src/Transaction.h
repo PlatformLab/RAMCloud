@@ -60,7 +60,7 @@ class Transaction {
     bool commitAndSync();
 
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
-            Buffer* value);
+            Buffer* value, bool* objectExists = NULL);
 
     void remove(uint64_t tableId, const void* key, uint16_t keyLength);
 
@@ -76,7 +76,7 @@ class Transaction {
         ReadOp(Transaction* transaction, uint64_t tableId, const void* key,
                uint16_t keyLength, Buffer* value, bool batch = false);
         bool isReady();
-        void wait();
+        void wait(bool* objectExists = NULL);
 
       PRIVATE:
         Transaction* transaction;       /// Pointer to associated transaction.
