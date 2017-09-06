@@ -357,12 +357,9 @@ Transaction::ReadOp::wait()
             // If no entry exists in cache an rpc must have been issued.
             assert(singleRequest->readRpc);
 
-            try {
-                singleRequest->readRpc->wait(&version);
+            singleRequest->readRpc->wait(&version, &objectExists);
+            if (objectExists)
                 data = buf->getValue(&dataLength);
-            } catch (ObjectDoesntExistException& e) {
-                objectExists = false;
-            }
         } else {
             assert(batchedRequest);
             // If no entry exists in cache a batch must have been assigned.

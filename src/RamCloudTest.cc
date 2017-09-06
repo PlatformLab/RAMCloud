@@ -525,6 +525,61 @@ TEST_F(RamCloudTest, read) {
                         value.size()));
 }
 
+TEST_F(RamCloudTest, read_objectExists) {
+    Buffer value;
+    uint64_t version;
+    bool objectExists = true;
+
+    ramcloud->read(tableId1, "0", 1, &value, NULL, &version, &objectExists);
+    EXPECT_FALSE(objectExists);
+
+    EXPECT_THROW(ramcloud->read(tableId1, "0", 1, &value, NULL, &version),
+        ObjectDoesntExistException);
+
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    ramcloud->read(tableId1, "0", 1, &value, NULL, &version, &objectExists);
+    EXPECT_TRUE(objectExists);
+
+    ramcloud->dropTable("table1");
+
+    EXPECT_THROW(ramcloud->read(tableId1, "0", 1, &value, NULL, &version,
+                                &objectExists),
+            TableDoesntExistException);
+    EXPECT_THROW(ramcloud->read(tableId1, "0", 1, &value, NULL, &version),
+            TableDoesntExistException);
+}
+
+TEST_F(RamCloudTest, readKeysAndValue_objectExists) {
+    ObjectBuffer keysAndValue;
+    uint64_t version;
+    bool objectExists = true;
+
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue, NULL, &version,
+                               &objectExists);
+    EXPECT_FALSE(objectExists);
+
+    EXPECT_THROW(
+            ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue, NULL,
+                                       &version),
+            ObjectDoesntExistException);
+
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue, NULL, &version,
+                               &objectExists);
+    EXPECT_TRUE(objectExists);
+
+    ramcloud->dropTable("table1");
+
+    EXPECT_THROW(ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue,
+                                            NULL, &version),
+            TableDoesntExistException);
+    EXPECT_THROW(ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue,
+                                            NULL, &version, &objectExists),
+            TableDoesntExistException);
+}
+
 TEST_F(RamCloudTest, remove) {
     ramcloud->write(tableId1, "0", 1, "abcdef", 6);
     uint64_t version;

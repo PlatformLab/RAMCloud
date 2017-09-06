@@ -1939,13 +1939,17 @@ RamCloud::multiWrite(MultiWriteObject* requests[], uint32_t numRequests)
  *      should be aborted with an error.
  * \param[out] version
  *      If non-NULL, the version number of the object is returned here.
+ * \param[out] objectExists
+ *      If non-NULL, the ObjectDoesntExistException is not thrown and a flag
+ *      indicating the existence of the object is returned here.
  */
 void
 RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
-        Buffer* value, const RejectRules* rejectRules, uint64_t* version)
+        Buffer* value, const RejectRules* rejectRules, uint64_t* version,
+        bool* objectExists)
 {
     ReadRpc rpc(this, tableId, key, keyLength, value, rejectRules);
-    rpc.wait(version);
+    rpc.wait(version, objectExists);
 }
 
 /**
@@ -1969,14 +1973,17 @@ RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
  *      should be aborted with an error.
  * \param[out] version
  *      If non-NULL, the version number of the object is returned here.
+ * \param[out] objectExists
+ *      If non-NULL, the ObjectDoesntExistException is not thrown and a flag
+ *      indicating the existence of the object is returned here.
  */
 void
 RamCloud::readKeysAndValue(uint64_t tableId, const void* key,
         uint16_t keyLength, ObjectBuffer* value,
-        const RejectRules* rejectRules, uint64_t* version)
+        const RejectRules* rejectRules, uint64_t* version, bool* objectExists)
 {
     ReadKeysAndValueRpc rpc(this, tableId, key, keyLength, value, rejectRules);
-    rpc.wait(version);
+    rpc.wait(version, objectExists);
 }
 
 /**
@@ -2024,18 +2031,29 @@ ReadRpc::ReadRpc(RamCloud* ramcloud, uint64_t tableId,
  *
  * \param[out] version
  *      If non-NULL, the version number of the object is returned here.
+ * \param[out] objectExists
+ *      If non-NULL, the ObjectDoesntExistException is not thrown and a flag
+ *      indicating the existence of the object is returned here.
  */
 void
-ReadRpc::wait(uint64_t* version)
+ReadRpc::wait(uint64_t* version, bool* objectExists)
 {
     waitInternal(context->dispatch);
     const WireFormat::Read::Response* respHdr(
             getResponseHeader<WireFormat::Read>());
     if (version != NULL)
         *version = respHdr->version;
+    if (objectExists != NULL)
+        *objectExists = true;
 
-    if (respHdr->common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr->common.status);
+    if (respHdr->common.status != STATUS_OK) {
+        if (objectExists != NULL &&
+                respHdr->common.status == STATUS_OBJECT_DOESNT_EXIST) {
+            *objectExists = false;
+        } else {
+            ClientException::throwException(HERE, respHdr->common.status);
+        }
+    }
 
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
@@ -2090,18 +2108,29 @@ ReadKeysAndValueRpc::ReadKeysAndValueRpc(RamCloud* ramcloud, uint64_t tableId,
  *
  * \param[out] version
  *      If non-NULL, the version number of the object is returned here.
+ * \param[out] objectExists
+ *      If non-NULL, the ObjectDoesntExistException is not thrown and a flag
+ *      indicating the existence of the object is returned here.
  */
 void
-ReadKeysAndValueRpc::wait(uint64_t* version)
+ReadKeysAndValueRpc::wait(uint64_t* version, bool* objectExists)
 {
     waitInternal(context->dispatch);
     const WireFormat::ReadKeysAndValue::Response* respHdr(
             getResponseHeader<WireFormat::ReadKeysAndValue>());
     if (version != NULL)
         *version = respHdr->version;
+    if (objectExists != NULL)
+        *objectExists = true;
 
-    if (respHdr->common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr->common.status);
+    if (respHdr->common.status != STATUS_OK) {
+        if (objectExists != NULL &&
+                respHdr->common.status == STATUS_OBJECT_DOESNT_EXIST) {
+            *objectExists = false;
+        } else {
+            ClientException::throwException(HERE, respHdr->common.status);
+        }
+    }
 
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.

@@ -124,10 +124,10 @@ class RamCloud {
             Buffer* outputData = NULL);
     void read(uint64_t tableId, const void* key, uint16_t keyLength,
             Buffer* value, const RejectRules* rejectRules = NULL,
-            uint64_t* version = NULL);
+            uint64_t* version = NULL, bool* objectExists = NULL);
     void readKeysAndValue(uint64_t tableId, const void* key, uint16_t keyLength,
             ObjectBuffer* value, const RejectRules* rejectRules = NULL,
-            uint64_t* version = NULL);
+            uint64_t* version = NULL, bool* objectExists = NULL);
     void remove(uint64_t tableId, const void* key, uint16_t keyLength,
             const RejectRules* rejectRules = NULL, uint64_t* version = NULL);
     void serverControlAll(WireFormat::ControlOp controlOp,
@@ -941,7 +941,7 @@ class ReadRpc : public ObjectRpcWrapper {
             uint16_t keyLength, Buffer* value,
             const RejectRules* rejectRules = NULL);
     ~ReadRpc() {}
-    void wait(uint64_t* version = NULL);
+    void wait(uint64_t* version = NULL, bool* objectExists = NULL);
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(ReadRpc);
@@ -958,7 +958,7 @@ class ReadKeysAndValueRpc : public ObjectRpcWrapper {
             uint16_t keyLength, ObjectBuffer* value,
             const RejectRules* rejectRules = NULL);
     ~ReadKeysAndValueRpc() {}
-    void wait(uint64_t* version = NULL);
+    void wait(uint64_t* version = NULL, bool* objectExists = NULL);
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(ReadKeysAndValueRpc);
