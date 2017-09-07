@@ -2038,13 +2038,14 @@ ReadRpc::ReadRpc(RamCloud* ramcloud, uint64_t tableId,
 void
 ReadRpc::wait(uint64_t* version, bool* objectExists)
 {
+    if (objectExists != NULL)
+        *objectExists = true;
+
     waitInternal(context->dispatch);
     const WireFormat::Read::Response* respHdr(
             getResponseHeader<WireFormat::Read>());
     if (version != NULL)
         *version = respHdr->version;
-    if (objectExists != NULL)
-        *objectExists = true;
 
     if (respHdr->common.status != STATUS_OK) {
         if (objectExists != NULL &&
@@ -2115,13 +2116,14 @@ ReadKeysAndValueRpc::ReadKeysAndValueRpc(RamCloud* ramcloud, uint64_t tableId,
 void
 ReadKeysAndValueRpc::wait(uint64_t* version, bool* objectExists)
 {
+    if (objectExists != NULL)
+        *objectExists = true;
+
     waitInternal(context->dispatch);
     const WireFormat::ReadKeysAndValue::Response* respHdr(
             getResponseHeader<WireFormat::ReadKeysAndValue>());
     if (version != NULL)
         *version = respHdr->version;
-    if (objectExists != NULL)
-        *objectExists = true;
 
     if (respHdr->common.status != STATUS_OK) {
         if (objectExists != NULL &&
