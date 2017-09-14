@@ -157,8 +157,7 @@ TableManager::coordSplitAndMigrateIndexlet(
             index->tableId, index->indexId, index->nextIndexletIdSuffix++));
     uint64_t newBackingTableId =
             createTable(lock, newBackingTableName.c_str(), 1, newOwner);
-    IdMap::iterator itd = idMap.find(newBackingTableId);
-    assert(itd != idMap.end());
+    assert(idMap.count(newBackingTableId) > 0U);
 
     MasterClient::prepForIndexletMigration(
             context, newOwner, tableId, indexId, newBackingTableId,
