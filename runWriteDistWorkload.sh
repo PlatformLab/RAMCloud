@@ -4,7 +4,7 @@
 ((REP = 1))
 
 #Sizes of the indexes as a power of 10
- SIZES="3 5 10 20 50"
+ SIZES="20 50"
 # SIZES=$(seq 50 -1 1)
 
 #LOGFILE="$(date +%Y%m%d%H%M%S).data"

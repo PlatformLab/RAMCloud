@@ -98,6 +98,7 @@ WitnessTracker::registerRpcAndSyncBatch(bool syncEarly,
 
         // 1. Sync
         objectManager->syncChanges();
+        syncInProgress = false; // reset this as soon as sync is completed.
 
         CycleCounter<uint64_t> __(&PerfStats::threadStats.temp3);
 
@@ -159,7 +160,7 @@ WitnessTracker::registerRpcAndSyncBatch(bool syncEarly,
         delete[] gcRpcs;
 #endif
         TimeTrace::record("WitnessTracker::registerRpcAndSyncBatch sync end");
-        syncInProgress = false;
+//        syncInProgress = false;
     }
 }
 

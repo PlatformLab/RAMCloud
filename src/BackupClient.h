@@ -192,10 +192,16 @@ class WriteSegmentRpc : public ServerIdRpcWrapper {
                     const Segment* segment, uint32_t offset, uint32_t length,
                     const SegmentCertificate* certificate,
                     bool open, bool close, bool primary);
+//    virtual bool isReady(); // For adding intentional delay to backup for CGAR benchmark.
     ~WriteSegmentRpc() {}
     void wait();
 
+    // For adding intentional delay to backup for CGAR benchmark.
+    // isReady call will be delayed to have at least this much of latency.
+    static std::atomic<uint64_t> minimumLatencyInCycles;
+
   PRIVATE:
+    uint64_t timeRpcSent; // For adding intentional delay to backup for CGAR benchmark.
     DISALLOW_COPY_AND_ASSIGN(WriteSegmentRpc);
 };
 

@@ -544,6 +544,10 @@ BackupClient::writeSegment(Context* context,
     rpc.wait();
 }
 
+// Set default value 0. so we don't wait anything more unless specified by
+// masterArgs.
+std::atomic<uint64_t> WriteSegmentRpc::minimumLatencyInCycles(0);
+
 /**
  * Constructor for WriteSegmentRpc: initiates an RPC in the same way as
  * #BackupClient::writeSegment, but returns once the RPC has been initiated,
@@ -617,6 +621,7 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  bool primary)
     : ServerIdRpcWrapper(context, backupId,
                          sizeof(WireFormat::BackupWrite::Response))
+    , timeRpcSent(Cycles::rdtsc())
 {
     WireFormat::BackupWrite::Request* reqHdr(
             allocHeader<WireFormat::BackupWrite>(backupId));
@@ -638,6 +643,13 @@ WriteSegmentRpc::WriteSegmentRpc(Context* context,
     CycleCounter<RawMetric> _(&metrics->master.replicationPostingWriteRpcTicks);
     send();
 }
+
+//bool
+//WriteSegmentRpc::isReady()
+//{
+//    return ServerIdRpcWrapper::isReady() &&
+//            (Cycles::rdtsc() - timeRpcSent) > minimumLatencyInCycles;
+//}
 
 /**
  * Wait for a writeSegment RPC to complete.

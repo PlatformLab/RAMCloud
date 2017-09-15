@@ -1601,9 +1601,19 @@ MasterService::multiWrite(const WireFormat::MultiOp::Request* reqHdr,
     // that the response can go back in a single RPC.
     assert(rpc->replyPayload->size() <= Transport::MAX_RPC_LEN);
 
+    // TODO(seojin): remove this.. this is a hack to make writeDistRandom
+    // benchmark initialize fast enough. (fillTable uses multiWrite.)
+    uint64_t syncMinCycles = WriteSegmentRpc::minimumLatencyInCycles;
+    if (syncMinCycles > 0)
+        WriteSegmentRpc::minimumLatencyInCycles = 0;
     // All of the individual writes were done asynchronously. Sync the objects
     // now to propagate them in bulk to backups.
     objectManager.syncChanges();
+
+    // TODO(seojin): remove this.. this is a hack to make writeDistRandom
+    // benchmark initialize fast enough. (fillTable uses multiWrite.)
+    if (syncMinCycles > 0)
+        WriteSegmentRpc::minimumLatencyInCycles = syncMinCycles;
 
     // Respond to the client RPC now. Removing old index entries can be
     // done asynchronously while maintaining strong consistency.
@@ -3350,10 +3360,10 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     // Hueristic hack to reduce CGAR key collision...
     // Start sync if previous value was written recently.
     bool syncEarly = false;
-    if (removedObjReference.toInteger()) {
-        syncEarly = objectManager.getLog()->writtenRecently(removedObjReference,
-                40000 * WitnessTracker::syncBatchSize);
-    }
+//    if (removedObjReference.toInteger()) {
+//        syncEarly = objectManager.getLog()->writtenRecently(removedObjReference,
+//                40000 * WitnessTracker::syncBatchSize);
+//    }
 
     // TODO(seojin): remove this to dedicated replication thread.
     if (asyncReplication && !didSync) {

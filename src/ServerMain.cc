@@ -103,6 +103,7 @@ main(int argc, char *argv[])
         bool masterOnly;
         bool backupOnly;
         bool witnessOnly;
+        uint32_t syncMinUsec;
 
         OptionsDescription serverOptions("Server");
         serverOptions.add_options()
@@ -217,6 +218,10 @@ main(int argc, char *argv[])
             ("syncBatchSize",
              ProgramOptions::value<uint32_t>(&WitnessTracker::syncBatchSize),
              "Number of writes before sync to backup and clear witness")
+            ("syncMinUsec",
+             ProgramOptions::value<uint32_t>(&syncMinUsec),
+             "Delay the completion of backupWriteRpc so that the RPC takes at "
+             "least takes this time in microseconds")
             ("totalMasterMemory,t",
 
              // Note: we have tried changing the default value below to
@@ -279,6 +284,9 @@ main(int argc, char *argv[])
                                WireFormat::ADMIN_SERVICE,
                                WireFormat::WITNESS_SERVICE};
         }
+
+        WriteSegmentRpc::minimumLatencyInCycles =
+                Cycles::fromMicroseconds(syncMinUsec);
 
         const string localLocator = optionParser.options.getLocalLocator();
 
