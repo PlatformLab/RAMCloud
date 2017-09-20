@@ -5,9 +5,3 @@
 [submodule "logcabin"]
 	path = logcabin
 	url = https://github.com/logcabin/logcabin.git
-[submodule "Arachne"]
-	path = Arachne
-	url = git@github.com:PlatformLab/Arachne.git
-[submodule "PerfUtils"]
-	path = PerfUtils
-	url = git@github.com:PlatformLab/PerfUtils.git
