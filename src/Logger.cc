@@ -31,7 +31,7 @@
 #include "TimeTrace.h"
 #include "Unlock.h"
 #include "Util.h"
-#include "../PerfUtils/Util.h"
+#include "PerfUtils/Util.h"
 
 namespace RAMCloud {
 

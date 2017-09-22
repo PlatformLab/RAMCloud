@@ -28,7 +28,7 @@
 #include "WorkerManager.h"
 #include "Arachne.h"
 #include "FileLogger.h"
-#include "../PerfUtils/Util.h"
+#include "PerfUtils/Util.h"
 
 /**
  * \file

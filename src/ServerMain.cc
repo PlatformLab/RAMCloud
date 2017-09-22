@@ -34,7 +34,7 @@
 #include "Arachne.h"
 #include "FileLogger.h"
 #include "PerfStats.h"
-#include "../PerfUtils/Util.h"
+#include "PerfUtils/Util.h"
 
 using namespace RAMCloud;
 

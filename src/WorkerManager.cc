@@ -267,8 +267,8 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
     uint64_t lastIdle = Cycles::rdtsc();
 
     try {
-        timeTrace("ID %u: Starting processing on Core %d, idInCore %d",
-                serverRpc->id, Arachne::kernelThreadId, Arachne::loadedContext->idInCore);
+        timeTrace("ID %u: Starting processing on KT %d, idInCore %d",
+                serverRpc->id, Arachne::core.kernelThreadId, Arachne::core.loadedContext->idInCore);
         Worker worker(context, serverRpc, WireFormat::Opcode(serverRpc->header->opcode));
 
         serverRpc->epoch = LogProtector::getCurrentEpoch();
@@ -277,8 +277,8 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
         Service::handleRpc(context, &rpc);
 
         // Pass the RPC back to the dispatch thread for completion.
-        timeTrace("ID %u: Finished processing; signal dispatch on Core %d",
-                serverRpc->id, Arachne::kernelThreadId);
+        timeTrace("ID %u: Finished processing; signal dispatch on KT %d",
+                serverRpc->id, Arachne::core.kernelThreadId);
         worker.sendReply();
 
         // Update performance statistics.

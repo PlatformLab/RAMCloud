@@ -86,7 +86,7 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends, uint32_t rpcId)
     Lock lock(appendLock);
     if (rpcId)
         TimeTrace::record("ID %u: Acquired appendLock on Core %d",
-                rpcId, Arachne::kernelThreadId);
+                rpcId, Arachne::core.kernelThreadId);
     metrics.totalAppendCalls++;
 
     uint32_t lengths[numAppends];

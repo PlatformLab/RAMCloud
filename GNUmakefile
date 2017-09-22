@@ -126,7 +126,9 @@ endif
 # -Winline
 
 LIBS := $(EXTRALIBS) $(LOGCABIN_LIB) $(ZOOKEEPER_LIB) \
-    -L$(TOP)/Arachne -lArachne -L$(TOP)/PerfUtils -lPerfUtils \
+    -L$(TOP)/arachne-all/Arachne/lib -lArachne \
+    -L$(TOP)/arachne-all/PerfUtils/lib -lPerfUtils \
+    -L$(TOP)/arachne-all/CoreArbiter/lib -lCoreArbiter \
 	-lpcrecpp -lboost_program_options \
 	-lprotobuf -lrt -lboost_filesystem -lboost_system \
 	-lpthread -lssl -lcrypto
@@ -138,7 +140,8 @@ endif
 INCLUDES := -I$(TOP)/src \
             -I$(TOP)/$(OBJDIR) \
             -I$(GTEST_DIR)/include \
-            -I$(TOP)/Arachne \
+            -I$(TOP)/arachne-all/Arachne/include \
+            -I$(TOP)/arachne-all/PerfUtils/include \
             -I/usr/local/openonload-201405/src/include \
              $(NULL)
 ifeq ($(LOGCABIN),yes)
@@ -480,8 +483,8 @@ INSTALL_INCLUDES := \
     $(OBJDIR)/SpinLockStatistics.pb.h \
     $(OBJDIR)/TableConfig.pb.h \
     $(OBJDIR)/Tablets.pb.h \
-    Arachne/Arachne.h \
     $(NULL)
+    # Arachne/Arachne.h \
 
 INSTALLED_BINS := $(patsubst $(OBJDIR)/%, $(INSTALL_DIR)/bin/%, $(INSTALL_BINS))
 INSTALLED_LIBS := $(patsubst $(OBJDIR)/%, $(INSTALL_DIR)/lib/%, $(INSTALL_LIBS))
