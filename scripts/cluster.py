@@ -480,7 +480,8 @@ class Cluster(object):
                 self.sandbox.checkFailures()
                 time.sleep(.1)
                 if time.time() - start > timeout:
-                    raise Exception('timeout exceeded %s' % self.log_subdir)
+                    raise Exception('timeout = %ds exceeded %s' %
+                                    (timeout, self.log_subdir))
             if self.verbose:
                 print('%s finished' % p.sonce)
 
@@ -637,10 +638,10 @@ def run(
             client += ' --dpdkPort %d' % dpdk_port
 
         if not coordinator_host:
-            coordinator_host = cluster.hosts[len(cluster.hosts)-1]
+            coordinator_host = cluster.hosts[-1]
         cluster.start_coordinator(coordinator_host, coordinator_args)
         if disjunct:
-            cluster.hosts.pop(0)
+            cluster.hosts.remove(coordinator_host)
 
         if old_master_host:
             oldMaster = cluster.start_server(old_master_host,
