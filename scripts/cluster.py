@@ -635,7 +635,8 @@ def run(
         if dpdk_port is not None:
             coordinator_args += ' --dpdkPort %d' % dpdk_port
             master_args += ' --dpdkPort %d' % dpdk_port
-            client += ' --dpdkPort %d' % dpdk_port
+            if client:
+                client += ' --dpdkPort %d' % dpdk_port
 
         if not coordinator_host:
             coordinator_host = cluster.hosts[-1]
