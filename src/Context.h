@@ -97,7 +97,7 @@ class Context {
     // Holds command-line options, or NULL if no options are available.
     // Memory for this is managed by whoever created this object; we can
     // assume this is static.
-    CommandLineOptions* options;
+    CommandLineOptions* const options;
 
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.
