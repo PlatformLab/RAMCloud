@@ -170,7 +170,6 @@ main(int argc, char *argv[])
     struct Environment : public ::testing::Environment {
         virtual ~Environment() {}
         virtual void SetUp() {
-            Arachne::numCores = 1;
             Arachne::init();
             Arachne::testInit();
         }

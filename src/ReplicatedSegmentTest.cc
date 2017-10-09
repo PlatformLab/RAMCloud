@@ -143,7 +143,7 @@ struct ReplicatedSegmentTest : public ::testing::Test {
     CountingDeleter deleter;
     uint32_t writeRpcsInFlight;
     uint32_t freeRpcsInFlight;
-    std::mutex dataMutex;
+    Arachne::SleepLock dataMutex;
     const ServerId masterId;
     const uint64_t segmentId;
     UpdateReplicationEpochTask replicationEpoch;

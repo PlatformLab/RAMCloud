@@ -1838,7 +1838,7 @@ TEST_F(MasterServiceTest, prepForIndexletMigration) {
     EXPECT_EQ("prepForIndexletMigration: Ready to receive indexlet "
             "in indexId 1 for tableId 1", TestLog::get());
 
-    SpinLock indexMutex("MasterServiceTest");
+    Arachne::SpinLock indexMutex;
     IndexletManager::Lock indexLock(indexMutex);
     IndexletManager::IndexletMap::iterator it =
             service->indexletManager.getIndexlet(

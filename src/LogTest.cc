@@ -231,7 +231,7 @@ TEST_F(LogTest, sync) {
     TestLog::reset();
     l.append(LOG_ENTRY_TYPE_OBJ, "hi", 2);
     {
-        SpinLock::Guard lock(l.appendLock);
+        std::lock_guard<Arachne::SleepLock> lock(l.appendLock);
         l.allocNewWritableHead();
     }
     l.sync();
@@ -266,7 +266,7 @@ TEST_F(LogSyncTest, syncTo) {
     // Test sync if preceding segment is not closed durably.
     TestLog::reset();
     {
-        SpinLock::Guard lock(l->appendLock);
+        std::lock_guard<Arachne::SleepLock> lock(l->appendLock);
         l->allocNewWritableHead();
     }
     EXPECT_FALSE(l->getSegment(reference2)->closedCommitted);
@@ -291,7 +291,7 @@ TEST_F(LogTest, rollHeadOver) {
 }
 
 TEST_F(LogTest, allocNextSegment) {
-    SpinLock::Guard _(l.appendLock);
+    std::lock_guard<Arachne::SleepLock> _(l.appendLock);
 
     LogSegment* segment = segmentManager.allocSideSegment(0, NULL);
     EXPECT_NE(static_cast<LogSegment*>(NULL), segment);

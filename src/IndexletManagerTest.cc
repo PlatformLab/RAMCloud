@@ -85,7 +85,7 @@ class IndexletManagerTest : public ::testing::Test {
             const void *firstKey, uint16_t firstKeyLength,
             const void *firstNotOwnedKey, uint16_t firstNotOwnedKeyLength)
     {
-        SpinLock mutex("IndexletManagerTest");
+        Arachne::SpinLock mutex;
         IndexletManager::Lock fakeGuard(mutex);
         IndexletManager::IndexletMap::iterator it = im->getIndexlet(
                 tableId, indexId, firstKey, firstKeyLength,

@@ -314,7 +314,7 @@ TEST_F(UnackedRpcResultsTest, SingleClientProtector) {
     uint64_t otherId = 84;
 
     // Dummy lock; to unsafely call internal methods this unit test
-    std::mutex mutex;
+    Arachne::SpinLock mutex;
     UnackedRpcResults::Lock dummyLock(mutex);
 
     UnackedRpcResults::SingleClientProtector* k2;

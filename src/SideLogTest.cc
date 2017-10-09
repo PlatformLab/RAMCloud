@@ -160,7 +160,7 @@ freeSegmentSoon(SegmentManager* segmentManager, LogSegment* segment) {
 
 TEST_F(SideLogTest, allocNextSegment_basics) {
     SideLog sl(&l);
-    SpinLock::Guard _(sl.appendLock);
+    std::lock_guard<Arachne::SleepLock> _(sl.appendLock);
 
     LogSegment* segment = segmentManager.allocSideSegment(0, NULL);
     EXPECT_NE(static_cast<LogSegment*>(NULL), segment);
@@ -181,7 +181,7 @@ TEST_F(SideLogTest, allocNextSegment_basics) {
 
 TEST_F(SideLogTest, allocNextSegment_closePrevious) {
     SideLog sl(&l);
-    SpinLock::Guard _(sl.appendLock);
+    std::lock_guard<Arachne::SleepLock> _(sl.appendLock);
 
     LogSegment* s1 = sl.allocNextSegment(false);
     EXPECT_FALSE(s1->replicatedSegment->queued.close);
