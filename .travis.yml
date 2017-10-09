@@ -34,6 +34,14 @@ before_install:
  - export CC="gcc-4.9"
  - wget http://launchpadlibrarian.net/57653337/doxygen_1.7.1-2_amd64.deb
  - sudo dpkg -i doxygen_1.7.1-2_amd64.deb
+ - cd arachne-all
+ - ./buildall.sh
+ - rm -rf PerfUtils/lib/libPerfUtils.so
+ - cd Arachne
+ - make
+ - cd ../CoreArbiter
+ - make
+ - cd ../..
 
 ## For if we ever decide to support multiple GCC versions.
 # - if [[ ${GCC_VERSION} ]]; then
