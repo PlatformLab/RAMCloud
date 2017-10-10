@@ -53,7 +53,7 @@ CoordinatorServerList::CoordinatorServerList(Context* context)
     , updates()
     , hasUpdatesOrStop()
     , listUpToDate()
-    , updaterThread()
+    , updaterThread(Arachne::NullThread)
     , activeRpcs()
     , spareRpcs()
     , maxConfirmedVersion(0)
@@ -946,7 +946,7 @@ CoordinatorServerList::startUpdater()
     Lock _(mutex);
 
     // Start thread if not started
-    if (!updaterThread) {
+    if (updaterThread == Arachne::NullThread) {
         lastScan.noWorkFoundForEpoch = 0;
         lastScan.searchIndex = 0;
         lastScan.minVersion = version;
