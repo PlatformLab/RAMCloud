@@ -34,7 +34,7 @@ class WorkerSessionTest : public ::testing::Test {
 
 // The following tests both the constructor and the sendRequest method
 // for WorkerSession.
-// TEST_F(WorkerSessionTest, basics) {  TODO(kraftp) : WHY SEGFAULT
+// TEST_F(WorkerSessionTest, basics) {  TODO(kraftp) : Arachnify MockTransport so this stops segfaulting
 //     MockTransport::sessionDeleteCount = 0;
 
 //     Transport::SessionRef wrappedSession = new WorkerSession(
@@ -59,7 +59,7 @@ TEST_F(WorkerSessionTest, abort) {
     EXPECT_STREQ("abort: ", transport.outputLog.c_str());
 }
 
-// TEST_F(WorkerSessionTest, cancelRequest) {  TODO(kraftp) : WHY SEGFAULT
+// TEST_F(WorkerSessionTest, cancelRequest) {
 //     WorkerSession* wrappedSession = new WorkerSession(
 //             &context, transport.getSession());
 //     wrappedSession->sendRequest(&rpc.request, &rpc.response, &rpc);
@@ -83,7 +83,7 @@ TEST_F(WorkerSessionTest, getServiceLocator) {
             wrappedSession->serviceLocator.c_str());
 }
 
-// TEST_F(WorkerSessionTest, sendRequest) {  TODO(kraftp) : WHY SEGFAULT
+// TEST_F(WorkerSessionTest, sendRequest) {
 //     WorkerSession* wrappedSession = new WorkerSession(
 //             &context, transport.getSession());
 //     wrappedSession->sendRequest(&rpc.request, &rpc.response, &rpc);
