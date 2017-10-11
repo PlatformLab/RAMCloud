@@ -75,7 +75,7 @@ class RamCloud {
             uint8_t numIndexlets = 1);
     void dropIndex(uint64_t tableId, uint8_t indexId);
     void echo(const char* serviceLocator, const void* message, uint32_t length,
-         uint32_t echoLength, Buffer* echo);
+         uint32_t echoLength, Buffer* reply = NULL);
     uint64_t enumerateTable(uint64_t tableId, bool keysOnly,
          uint64_t tabletFirstHash, Buffer& state, Buffer& objects);
     void getLogMetrics(const char* serviceLocator,
@@ -285,21 +285,41 @@ class DropIndexRpc : public CoordinatorRpcWrapper {
  */
 class EchoRpc : public RpcWrapper {
   public:
+    /// Base class for client-defined callback functions. It is invoked
+    /// immediately after the RPC becomes ready.
+    /// Note: this callback mechanism is not safe w.r.t. #RpcWrapper::cancel
+    /// because now #completed and #failed involve more than just setting the
+    /// RPC state. Only intended to be used in the single-threaded client load
+    /// generator when running Homa benchmarks.
+    class Callback {
+      public:
+        virtual ~Callback();
+        virtual void rpcFinished() = 0;
+    };
+
     EchoRpc(RamCloud* ramcloud, const char* serviceLocator,
             const void* message, uint32_t length, uint32_t echoLength,
-            Buffer* echo);
-    ~EchoRpc() {}
+            Buffer* reply = NULL);
+    EchoRpc(RamCloud* ramcloud, Transport::SessionRef session,
+            const void* message, uint32_t length, uint32_t echoLength,
+            Buffer* reply = NULL, Callback* callback = NULL,
+            uint64_t startTime = 0);
+    ~EchoRpc();
     virtual void completed();
+    virtual void failed();
     uint64_t getCompletionTime();
+    uint32_t getLength();
     /// \copydoc RpcWrapper::docForWait
     void wait();
 
   PRIVATE:
-    RamCloud* ramcloud;
+    /// Used to invoke client-defined callback function.
+    Callback* callback;
     /// TSC value when the RPC is sent.
     uint64_t startTime;
     /// TSC value when the RPC is completed.
     uint64_t endTime;
+    RamCloud* ramcloud;
     DISALLOW_COPY_AND_ASSIGN(EchoRpc);
 };
 

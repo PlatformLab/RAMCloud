@@ -171,6 +171,24 @@ class RpcWrapper : public Transport::RpcNotifier {
     void docForWait();
 
     /**
+     * Return the header from the request. This method should not be invoked
+     * unless allocHeader has been invoked.
+     *
+     * \tparam RpcType
+     *      A type from WireFormat, such as WireFormat::Read; determines
+     *      the type of the result.
+     * \return
+     *      An RPC-specific request header.
+     */
+    template <typename RpcType>
+    const typename RpcType::Request*
+    getRequestHeader()
+    {
+        assert(request.size() >= sizeof(typename RpcType::Request));
+        return request.getOffset<const typename RpcType::Request>(0);
+    }
+
+    /**
      * Assuming that isReady has returned true, this method will return
      * the header from the response. This method should not be invoked
      * unless isReady has returned true.

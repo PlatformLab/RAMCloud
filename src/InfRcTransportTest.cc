@@ -31,8 +31,8 @@ class InfRcTransportTest : public ::testing::Test {
     InfRcTransportTest()
         : context()
         , locator("infrc: host=localhost, port=11000")
-        , server(&context, &locator)
-        , client(&context)
+        , server(&context, &locator, 100)
+        , client(&context, NULL, 200)
     {
         context.workerManager = new WorkerManager(&context);
         context.workerManager->testingSaveRpcs = 1;

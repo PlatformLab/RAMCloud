@@ -20,6 +20,7 @@
 #include "Fence.h"
 #include "Initialize.h"
 #include "LogProtector.h"
+#include "MasterService.h"
 #include "PerfStats.h"
 #include "RawMetrics.h"
 #include "RpcLevel.h"
@@ -173,10 +174,26 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
         return;
     }
 
-    // Handle ping requests inline so that high server load can never cause a
-    // server to appear offline.
-    if ((header->opcode == WireFormat::PING)) {
-        Service::Rpc serviceRpc(NULL, &rpc->requestPayload, &rpc->replyPayload);
+    // Some requests are better handled inside the dispatch thread.
+    // For instance, echo requests are so trivial to process that
+    // it's not worth passing them to worker threads. Also, handle
+    // ping requests inline so that high server load can never cause
+    // a server to appear offline.
+    if ((header->opcode == WireFormat::ECHO) ||
+            (header->opcode == WireFormat::PING)) {
+        Service::Rpc serviceRpc(NULL, &rpc->requestPayload,
+                &rpc->replyPayload);
+#if HOMA_BENCHMARK
+        // As of 2017/10, bypassing Service::handleRpc reduces ~400(!) ns
+        // for short echo requests.
+        if (header->opcode == WireFormat::ECHO) {
+            MasterService* master = static_cast<MasterService*>(
+                    context->services[WireFormat::MASTER_SERVICE]);
+            master->dispatch(WireFormat::ECHO, &serviceRpc);
+            rpc->sendReply();
+            return;
+        }
+#endif
         Service::handleRpc(context, &serviceRpc);
         rpc->sendReply();
         return;
@@ -214,10 +231,10 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 
     // Temporary code to test how much faster things would be without threads.
 #if 0
-    if (((header->opcode == WireFormat::ECHO) ||
-            (header->opcode == WireFormat::READ)) &&
+    if ((header->opcode == WireFormat::READ) &&
             (header->service == WireFormat::MASTER_SERVICE)) {
-        Service::Rpc serviceRpc(NULL, &rpc->requestPayload, &rpc->replyPayload);
+        Service::Rpc serviceRpc(NULL, &rpc->requestPayload,
+                &rpc->replyPayload);
         Service::handleRpc(context, &serviceRpc);
         rpc->sendReply();
         return;

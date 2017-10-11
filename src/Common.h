@@ -132,6 +132,14 @@ uint32_t randomNumberGenerator(uint32_t n);
 #define VIRTUAL_FOR_TESTING
 #endif
 
+// A value of 1 indicates building RAMCloud with the configuration used to
+// generate the transport performance numbers presented in the HomaTransport
+// paper; such configuration is not meant for production, so the default value
+// of this macro is set to 0.
+#ifndef HOMA_BENCHMARK
+#define HOMA_BENCHMARK 0
+#endif
+
 string demangle(const char* name);
 
 } // namespace RAMCloud

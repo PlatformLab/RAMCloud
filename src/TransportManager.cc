@@ -92,7 +92,8 @@ static struct InfRcTransportFactory : public TransportFactory {
         : TransportFactory("infinibandrc", "infrc") {}
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
-        return new InfRcTransport(context, localServiceLocator);
+        return new InfRcTransport(context, localServiceLocator,
+                generateRandom());
     }
 } infRcTransportFactory;
 #endif

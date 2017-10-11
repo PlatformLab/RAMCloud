@@ -108,6 +108,13 @@ endif
 ifeq ($(ZOOKEEPER),yes)
 COMFLAGS += -DENABLE_ZOOKEEPER
 endif
+
+# Build RAMCloud with the configuration used to generate the evaluation
+# numbers presented in the HomaTransport paper. Not meant for production.
+ifeq ($(HOMA_BENCHMARK),yes)
+COMFLAGS += -DHOMA_BENCHMARK
+endif
+
 TEST_INSTALL_FLAGS =
 
 COMWARNS := -Wall -Wformat=2 -Wextra \

@@ -138,6 +138,12 @@ class Context {
     // not freed by this class.
     MasterRecoveryManager* recoveryManager;
 
+    // On masters, it points to a permanently mapped region of read-only
+    // memory that can be used as zero-copy source buffer for transmission;
+    // its size is guaranteed to be large enough to hold the largest
+    // request/reply message of an RPC.
+    const void* masterZeroCopyRegion;
+
     /**
      * Returns the BackupService associated with this context, if
      * there is one, or NULL if there is none.
