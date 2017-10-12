@@ -25,7 +25,7 @@
 #include "Tablet.h"
 #include "TableConfig.pb.h"
 #include "Indexlet.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 

@@ -16,7 +16,7 @@
 #include "BackupFailureMonitor.h"
 #include "ReplicaManager.h"
 #include "ShortMacros.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 

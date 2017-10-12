@@ -31,7 +31,7 @@
 #include "ShortMacros.h"
 #include "TransportManager.h"
 #include "WorkerTimer.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 #include "FileLogger.h"
 #include "PerfStats.h"
 #include "PerfUtils/Util.h"

@@ -28,7 +28,7 @@
 #include "Transport.h"
 #include "TaskQueue.h"
 #include "VarLenArray.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 

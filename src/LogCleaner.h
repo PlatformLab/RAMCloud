@@ -28,7 +28,7 @@
 #include "LogSegment.h"
 #include "SegmentManager.h"
 #include "ReplicaManager.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 #include "LogMetrics.pb.h"
 

@@ -24,7 +24,7 @@
 #include "ServerList.pb.h"
 #include "Transport.h"
 #include "Tub.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 /**

@@ -27,7 +27,7 @@
 #include "ObjectManager.h"
 #include "Service.h"
 #include "WireFormat.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 

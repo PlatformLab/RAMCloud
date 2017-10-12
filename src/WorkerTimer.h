@@ -23,7 +23,7 @@
 #include "BoostIntrusive.h"
 #include "Dispatch.h"
 #include "LogProtector.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 

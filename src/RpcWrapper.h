@@ -21,7 +21,7 @@
 #include "ServerId.h"
 #include "Transport.h"
 #include "WireFormat.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 class Context;

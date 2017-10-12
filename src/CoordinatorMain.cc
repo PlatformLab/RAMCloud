@@ -26,7 +26,7 @@
 #include "TableManager.h"
 #include "TransportManager.h"
 #include "WorkerManager.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 #include "FileLogger.h"
 #include "PerfUtils/Util.h"
 

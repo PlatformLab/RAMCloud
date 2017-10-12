@@ -26,7 +26,7 @@
 #include "ServerList.h"
 #include "ServerTracker.h"
 #include "Tub.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 

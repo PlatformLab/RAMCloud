@@ -23,7 +23,7 @@
 #include "SpinLock.h"
 #include "TabletManager.h"
 #include "WorkerTimer.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 

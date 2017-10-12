@@ -28,6 +28,9 @@ OBJSUFFIX := $(shell git symbolic-ref -q HEAD | \
 
 OBJDIR	:= obj$(OBJSUFFIX)
 
+ARACHNEDIR := arachne-all/Arachne
+PERFUTILSDIR := arachne-all/PerfUtils
+
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
 
@@ -420,7 +423,8 @@ INSTALL_BINS := \
 INSTALL_LIBS := \
     $(OBJDIR)/libramcloud.so \
     $(OBJDIR)/libramcloud.a \
-    $(OBJDIR)/libramcloud.so \
+    $(ARACHNEDIR)/lib/libArachne.a \
+    $(PERFUTILSDIR)/lib/libPerfUtils.a \
     $(NULL)
 
 # Rebuild the Java bindings
@@ -484,7 +488,6 @@ INSTALL_INCLUDES := \
     $(OBJDIR)/TableConfig.pb.h \
     $(OBJDIR)/Tablets.pb.h \
     $(NULL)
-    # Arachne/Arachne.h \
 
 INSTALLED_BINS := $(patsubst $(OBJDIR)/%, $(INSTALL_DIR)/bin/%, $(INSTALL_BINS))
 INSTALLED_LIBS := $(patsubst $(OBJDIR)/%, $(INSTALL_DIR)/lib/%, $(INSTALL_LIBS))
@@ -494,6 +497,10 @@ install: all java
 	cp $(INSTALL_BINS) $(INSTALL_DIR)/bin
 	mkdir -p $(INSTALL_DIR)/include/ramcloud
 	cp $(INSTALL_INCLUDES) $(INSTALL_DIR)/include/ramcloud
+	mkdir -p $(INSTALL_DIR)/include/ramcloud/Arachne
+	cp -r $(ARACHNEDIR)/include/* $(INSTALL_DIR)/include/ramcloud/
+	mkdir -p $(INSTALL_DIR)/include/ramcloud/PerfUtils
+	cp -r $(PERFUTILSDIR)/include/* $(INSTALL_DIR)/include/ramcloud/Arachne
 	mkdir -p $(INSTALL_DIR)/lib/ramcloud
 	cp $(INSTALL_LIBS) $(INSTALL_DIR)/lib/ramcloud
 	cp bindings/java/build/install/ramcloud/lib/* $(INSTALL_DIR)/lib/ramcloud

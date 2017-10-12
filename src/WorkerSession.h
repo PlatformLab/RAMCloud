@@ -22,7 +22,7 @@
 #include "Dispatch.h"
 #include "Transport.h"
 #include "DispatchExec.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 #include "TimeTrace.h"
 #include "RpcWrapper.h"
 

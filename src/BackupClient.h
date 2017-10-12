@@ -26,7 +26,7 @@
 #include "ServerList.pb.h"
 #include "RecoveryPartition.pb.h"
 #include "Transport.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 

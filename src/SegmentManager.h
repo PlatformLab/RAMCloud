@@ -34,7 +34,7 @@
 #include "ReplicaManager.h"
 #include "ServerId.h"
 #include "Tub.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 #include "LogMetrics.pb.h"
 

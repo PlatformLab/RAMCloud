@@ -25,7 +25,7 @@
 #include "ShortMacros.h"
 #include "ServerId.h"
 #include "ServiceMask.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 bool CoordinatorService::forceSynchronousInit = false;

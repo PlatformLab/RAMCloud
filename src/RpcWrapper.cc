@@ -21,7 +21,7 @@
 #include "RpcWrapper.h"
 #include "ShortMacros.h"
 #include "WireFormat.h"
-#include "Arachne.h"
+#include "Arachne/Arachne.h"
 #include "TimeTrace.h"
 
 namespace RAMCloud {
