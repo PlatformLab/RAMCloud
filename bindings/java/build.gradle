@@ -21,12 +21,18 @@ model {
             gtest {
                 headers.srcDir("$ramcloudDir/gtest/include")
             }
-            arachne {
-                headers.srcDirs("$ramcloudDir/Arachne",
-                                "$ramcloudDir/Arachne")
+            perfutils {
+                headers.srcDirs("$ramcloudDir/arachne-all/PerfUtils/include")
                 binaries.withType(StaticLibraryBinary) {
                     staticLibraryFile = file(
-                            "$ramcloudDir/Arachne/libArachne.a")
+                            "$ramcloudDir/arachne-all/PerfUtils/lib/libPerfUtils.a")
+                }
+            }            
+            arachne {
+                headers.srcDirs("$ramcloudDir/arachne-all/Arachne/include")
+                binaries.withType(StaticLibraryBinary) {
+                    staticLibraryFile = file(
+                            "$ramcloudDir/arachne-all/Arachne/lib/libArachne.a")
                 }
             }
             ramcloud {
@@ -62,6 +68,7 @@ model {
             }
             sources {
                 cpp.lib library: 'jni', linkage: 'api'
+                cpp.lib library: 'perfutils', linkage: 'static'
                 cpp.lib library: 'arachne', linkage: 'static'
                 cpp.lib library: 'ramcloud', linkage: 'shared'
                 cpp.lib library: 'bindings', linkage: 'api'
@@ -79,6 +86,7 @@ model {
             sources {
                 cpp.lib library: 'jni', linkage: 'api'
                 cpp.lib library: 'gtest', linkage: 'api'
+                cpp.lib library: 'perfutils', linkage: 'static'
                 cpp.lib library: 'arachne', linkage: 'static'
                 cpp.lib library: 'ramcloud', linkage: 'shared'
                 cpp.lib library: 'ramcloudtest', linkage: 'shared'
