@@ -70,8 +70,6 @@ SolarFlareDriver::SolarFlareDriver(Context* context,
     , rxRingFillLevel(0)
     , fd(-1)
     , bandwidthGbps(10)                   // Default bandwidth = 10 gbs
-    , queueEstimator(0)
-    , maxTransmitQueueSize(0)
 {
     if (localServiceLocator == NULL) {
 
@@ -394,13 +392,6 @@ SolarFlareDriver::getMaxPacketSize()
 }
 
 // See docs in Driver class.
-int
-SolarFlareDriver::getTransmitQueueSpace(uint64_t currentTime)
-{
-    return maxTransmitQueueSize - queueEstimator.getQueueSize(currentTime);
-}
-
-// See docs in Driver class.
 void
 SolarFlareDriver::receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets)
@@ -536,7 +527,8 @@ SolarFlareDriver::sendPacket(const Driver::Address* recipient,
                              const void* header,
                              uint32_t headerLen,
                              Buffer::Iterator* payload,
-                             int priority)
+                             int priority,
+                             TransmitQueueState* txQueueState)
 {
 
     uint32_t udpPayloadLen = downCast<uint32_t>(headerLen
@@ -639,7 +631,8 @@ SolarFlareDriver::sendPacket(const Driver::Address* recipient,
             LOG(WARNING, "Was not able to resolve the MAC address for the"
                 " packet destined to %s", inet_ntoa(destInAddr));
     }
-    queueEstimator.packetQueued(totalLen, Cycles::rdtsc());
+    uint64_t now = Cycles::rdtsc();
+    queueEstimator.packetQueued(totalLen, now, txQueueState);
 }
 
 /**

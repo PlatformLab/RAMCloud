@@ -218,9 +218,7 @@ class RpcWrapper : public Transport::RpcNotifier {
      *      Current state of processing for this RPC.
      */
     RpcState getState() {
-        RpcState result = state;
-        Fence::lfence();
-        return result;
+        return state.load(std::memory_order_acquire);
     }
 
     virtual bool handleTransportError();
@@ -246,7 +244,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     /// concurrently by wrapper methods running in one thread and transport
     /// code running in the dispatch thread (transports can only invoke the
     /// completed and failed methods).
-    Atomic<RpcState> state;
+    std::atomic<RpcState> state;
 
     /// Session on which RPC has been sent, or NULL if none.
     Transport::SessionRef session;

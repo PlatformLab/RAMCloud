@@ -77,7 +77,7 @@ RpcWrapper::cancel()
     if ((getState() == IN_PROGRESS) && session) {
         session->cancelRequest(this);
     }
-    state = CANCELED;
+    state.store(CANCELED, std::memory_order_relaxed);
 }
 
 /**
@@ -107,8 +107,7 @@ RpcWrapper::completed() {
     // state. Don't add any more functionality to this method
     // unless you carefully review all of the synchronization
     // properties of RpcWrappers!
-    Fence::sfence();
-    state = FINISHED;
+    state.store(FINISHED, std::memory_order_release);
 }
 
 
@@ -116,8 +115,7 @@ RpcWrapper::completed() {
 void
 RpcWrapper::failed() {
     // See comment in completed: the same warning applies here.
-    Fence::sfence();
-    state = FAILED;
+    state.store(FAILED, std::memory_order_release);
 }
 
 
@@ -154,6 +152,10 @@ RpcWrapper::isReady() {
     // Note: in addition to indicating whether the RPC is complete,
     // this method is where all the work of retrying is implemented.
     RpcState copyOfState = getState();
+
+    if (copyOfState == IN_PROGRESS) {
+        return false;
+    }
 
     if (copyOfState == FINISHED) {
         // Retrieve the status value from the response and handle the
@@ -234,10 +236,6 @@ RpcWrapper::isReady() {
         return checkStatus();
     }
 
-    if (copyOfState == IN_PROGRESS) {
-        return false;
-    }
-
     if (copyOfState == RETRY) {
         if (Cycles::rdtsc() >= retryTime) {
             send();
@@ -302,7 +300,7 @@ RpcWrapper::send()
     //   approaches (such as using service locators): they must set the
     //   session member before invoking this method.
 
-    state = IN_PROGRESS;
+    state.store(IN_PROGRESS, std::memory_order_relaxed);
     if (session)
         session->sendRequest(&request, response, this);
 }

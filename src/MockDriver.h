@@ -76,9 +76,11 @@ class MockDriver : public Driver {
     explicit MockDriver(HeaderToString headerToString);
     virtual ~MockDriver();
     virtual uint32_t getMaxPacketSize() { return MAX_PAYLOAD_SIZE; }
+#if TESTING
     virtual int getTransmitQueueSpace(uint64_t currentTime) {
         return transmitQueueSpace;
     }
+#endif
     virtual void receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets);
     virtual void release(char *payload);
@@ -86,7 +88,8 @@ class MockDriver : public Driver {
                             const void* header,
                             uint32_t headerLen,
                             Buffer::Iterator* payload,
-                            int priority = 0);
+                            int priority = 0,
+                            TransmitQueueState* txQueueState = NULL);
     virtual string getServiceLocator();
 
     /**
@@ -134,7 +137,7 @@ class MockDriver : public Driver {
     std::vector<PacketBuf*> incomingPackets;
 
     // Returned as the result of getTransmitQueueSpace.
-    uint32_t transmitQueueSpace;
+    int transmitQueueSpace;
 
     DISALLOW_COPY_AND_ASSIGN(MockDriver);
 };

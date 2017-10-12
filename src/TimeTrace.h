@@ -25,6 +25,10 @@
 
 namespace RAMCloud {
 
+// Change 1 -> 0 in the following line to disable time tracing globally.
+// Used only in debugging.
+#define ENABLE_TIME_TRACE 1
+
 /**
  * This class implements a circular buffer of entries, each of which
  * consists of a fine-grain timestamp, a short descriptive string, and
@@ -81,14 +85,18 @@ class TimeTrace {
     static inline void record(uint64_t timestamp, const char* format,
             uint32_t arg0 = 0, uint32_t arg1 = 0, uint32_t arg2 = 0,
             uint32_t arg3 = 0) {
+#if ENABLE_TIME_TRACE
         if (threadBuffer == NULL) {
             createThreadBuffer();
         }
         threadBuffer->record(timestamp, format, arg0, arg1, arg2, arg3);
+#endif
     }
     static inline void record(const char* format, uint32_t arg0 = 0,
             uint32_t arg1 = 0, uint32_t arg2 = 0, uint32_t arg3 = 0) {
+#if ENABLE_TIME_TRACE
         record(Cycles::rdtsc(), format, arg0, arg1, arg2, arg3);
+#endif
     }
 
     static void reset();

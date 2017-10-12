@@ -256,7 +256,17 @@ class Buffer {
     template<typename T>
     inline T*
     getStart() {
-        return getOffset<T>(0);
+        Chunk* chunk = firstChunk;
+        if (expect_false(NULL == chunk)) {
+            return NULL;
+        }
+        // Fast path: the object is stored contiguously in the first chunk.
+        if (chunk->length >= sizeof(T)) {
+            void* data = chunk->data;
+            return static_cast<T*>(data);
+        } else {
+            return getOffset<T>(0);
+        }
     }
 
     uint32_t peek(uint32_t offset, void** returnPtr);

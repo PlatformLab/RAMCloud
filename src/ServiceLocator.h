@@ -121,14 +121,20 @@ class ServiceLocator {
      * original locator string).
      * \return
      *      See above.
+     * \throw Exception
+     *      The service locator doesn't contain driver information.
      */
     const string getDriverLocatorString() const {
-        // Drop the transport information.
         size_t pos = originalString.find_first_of('+');
-        if (pos != string::npos) {
-            return originalString.substr(pos+1);
-        } else {
+        if (pos == string::npos) {
             return originalString;
+        } else if (pos + 1 < originalString.size()) {
+            return originalString.substr(pos + 1);
+        } else {
+            string errMsg =
+                    "couldn't find driver information in service locator: ";
+            errMsg += originalString;
+            throw Exception(HERE, errMsg.data());
         }
     }
 

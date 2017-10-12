@@ -1316,8 +1316,9 @@ echoMessageAsync(const vector<string> receivers, const char* message,
     // Compute a few more workload metrics for debugging.
     double averagePacketsPerMessage = 0;
     double averageRawBytesPerMessage = 0;
-    if (receivers.front().find("homa+dpdk") != string::npos) {
-        // For now, we only compute the protocol overhead of homa+dpdk.
+    if (receivers.front().find("homa+dpdk") != string::npos ||
+            receivers.front().find("basic+dpdk") != string::npos) {
+        // For now, we only compute the protocol overhead of homa/basic+dpdk.
         // The per-packet overhead of homa+dpdk is 72 bytes, so the
         // maximum payload size is 1542 (i.e. MTU) - 72 = 1470 bytes.
         for (unsigned i = 0; i < messageSizes.size(); i++) {
@@ -1338,7 +1339,7 @@ echoMessageAsync(const vector<string> receivers, const char* message,
     LOG(NOTICE, "Average message size %.2f (%.2f raw bytes), "
             "average packets per message %.2f, "
             "average arrival interval %.2f us, "
-            "packet generation rate %.0f pps, raw network load %.2f"
+            "packet generation rate %.0f pps, raw network load %.2f "
             "(nan indicates the metric is unsupported for the given protocol)",
             averageMessageSize, averageRawBytesPerMessage,
             averagePacketsPerMessage,
