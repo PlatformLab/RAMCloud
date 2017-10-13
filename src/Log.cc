@@ -289,11 +289,15 @@ Log::syncTo(Log::Reference reference, uint32_t rpcId)
     if (rpcId) TimeTrace::record("ID %u: Log::sync computed desires on Core %d",
             rpcId, Arachne::core.kernelThreadId);
 
+    bool didWeSync = false;
     do {
         // Do this check without the lock, since appendedLength is atomic.
         uint32_t syncedLength = segment->syncedLength;
-        if (desiredSyncedLength <= syncedLength)
+        if (desiredSyncedLength <= syncedLength) {
+            if (!didWeSync)
+                TEST_LOG("sync not needed: entry is already replicated");
             break;
+        }
         if (syncLock.try_lock()) {
             // Won the leader election for syncing
             if (rpcId) TimeTrace::record("ID %u: Starting replication on Core %d",
@@ -316,6 +320,7 @@ Log::syncTo(Log::Reference reference, uint32_t rpcId)
 
             segment->replicatedSegment->sync(appendedLength, &certificate, rpcId);
             segment->syncedLength = appendedLength;
+            didWeSync = true;
             TEST_LOG("log synced");
             if (rpcId) TimeTrace::record("ID %u: Finished replication on Core %d",
                     rpcId, Arachne::core.kernelThreadId);
