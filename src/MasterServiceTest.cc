@@ -3908,7 +3908,7 @@ TEST_F(MasterServiceTest, write_basics) {
     uint64_t version;
 
     TestLog::Enable _("writeObject",
-                      "sync",
+                      "syncTo",
                       "schedule",
                       "performWrite",
                       "sync",
@@ -3922,7 +3922,7 @@ TEST_F(MasterServiceTest, write_basics) {
             "performWrite: Sending write to backup 1.0 | "
             "schedule: scheduled | "
             "performWrite: Write RPC finished for replica slot 0 | "
-            "sync: log synced",
+            "syncTo: log synced",
             TestLog::get());
     ramcloud->readKeysAndValue(1, "key0", 4, &value);
     EXPECT_EQ("item0", string(reinterpret_cast<const char*>(
