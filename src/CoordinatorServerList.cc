@@ -952,6 +952,8 @@ CoordinatorServerList::startUpdater()
         lastScan.minVersion = version;
         stopUpdater = false;
         updaterThread = Arachne::createThread(&CoordinatorServerList::updateLoop, this);
+    } else {
+        stopUpdater = false;
     }
 
     // Tell it to start work regardless
