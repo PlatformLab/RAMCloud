@@ -57,36 +57,36 @@ TEST(UtilTest, pinThreadToCore) {
     Util::setCpuAffinity(oldSet);
 }
 
-TEST(UtilTest, getCpuAffinity) {
-    cpu_set_t oldSet = Util::getCpuAffinity();
-    for (int i = 0; i < CPU_COUNT(&oldSet); i++)
-        EXPECT_TRUE(CPU_ISSET(i, &oldSet));
-}
+// TEST(UtilTest, getCpuAffinity) {  TODO(kraftp):  Deprecated by CoreArbiter
+//     cpu_set_t oldSet = Util::getCpuAffinity();
+//     for (int i = 0; i < CPU_COUNT(&oldSet); i++)
+//         EXPECT_TRUE(CPU_ISSET(i, &oldSet));
+// }
 
-TEST(UtilTest, getCpuAffinityString) {
-    Util::pinThreadToCore(0);
-    EXPECT_EQ("X---", Util::getCpuAffinityString().substr(0, 4));
-    Util::clearCpuAffinity();
-    EXPECT_EQ("XXXX", Util::getCpuAffinityString().substr(0, 4));
-}
+// TEST(UtilTest, getCpuAffinityString) {
+//     Util::pinThreadToCore(0);
+//     EXPECT_EQ("X---", Util::getCpuAffinityString().substr(0, 4));
+//     Util::clearCpuAffinity();
+//     EXPECT_EQ("XXXX", Util::getCpuAffinityString().substr(0, 4));
+// }
 
-TEST(UtilTest, setCpuAffinity) {
-    cpu_set_t oldSet = Util::getCpuAffinity();
-    Util::pinThreadToCore(0);
-    Util::setCpuAffinity(oldSet);
-    cpu_set_t newSet = Util::getCpuAffinity();
-    EXPECT_TRUE(CPU_EQUAL(&oldSet, &newSet));
-}
+// TEST(UtilTest, setCpuAffinity) {
+//     cpu_set_t oldSet = Util::getCpuAffinity();
+//     Util::pinThreadToCore(0);
+//     Util::setCpuAffinity(oldSet);
+//     cpu_set_t newSet = Util::getCpuAffinity();
+//     EXPECT_TRUE(CPU_EQUAL(&oldSet, &newSet));
+// }
 
-TEST(UtilTest, clearCpuAffinity) {
-    Util::clearCpuAffinity();
-    cpu_set_t set = Util::getCpuAffinity();
-    for (int i = 0; i < CPU_COUNT(&set); i++) {
-        if (!CPU_ISSET(i, &set)) {
-            ADD_FAILURE() << format("CPU_ISSET returned false for CPU %d", i);
-        }
-    }
-}
+// TEST(UtilTest, clearCpuAffinity) {
+//     Util::clearCpuAffinity();
+//     cpu_set_t set = Util::getCpuAffinity();
+//     for (int i = 0; i < CPU_COUNT(&set); i++) {
+//         if (!CPU_ISSET(i, &set)) {
+//             ADD_FAILURE() << format("CPU_ISSET returned false for CPU %d", i);
+//         }
+//     }
+// }
 
 TEST(UtilTest, serialReadPmc) {
     Util::mockPmcValue = 1;
