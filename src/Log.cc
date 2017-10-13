@@ -192,11 +192,15 @@ Log::sync(uint32_t rpcId)
     // log while we wait. Once we grab the sync lock, take the append lock again
     // to ensure our new view of the head is consistent.
     lock.destroy();
+    bool didWeSync = false;
     do {
         // Do this check without the lock, since syncedLength is atomic.
         uint32_t syncedLength = originalHead->syncedLength;
-        if (appendedLength <= syncedLength)
+        if (appendedLength <= syncedLength) {
+            if (!didWeSync)
+                TEST_LOG("sync not needed: already fully replicated");
             break;
+        }
         // Won the leader election for syncing
         if (syncLock.try_lock()) {
             if (rpcId) TimeTrace::record("ID %u: Starting replication on Core %d",
@@ -219,6 +223,7 @@ Log::sync(uint32_t rpcId)
             originalHead->replicatedSegment->sync(appendedLength, &certificate, rpcId);
             originalHead->syncedLength = appendedLength;
             TEST_LOG("log synced");
+            didWeSync = true;
             if (rpcId) TimeTrace::record("ID %u: Finished replication on Core %d",
                     rpcId, Arachne::core.kernelThreadId);
             syncLock.unlock();
