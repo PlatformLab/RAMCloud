@@ -292,7 +292,7 @@ Log::syncTo(Log::Reference reference, uint32_t rpcId)
     bool didWeSync = false;
     do {
         // Do this check without the lock, since appendedLength is atomic.
-        uint32_t syncedLength = segment->syncedLength;
+        uint32_t syncedLength = head->syncedLength;
         if (desiredSyncedLength <= syncedLength) {
             if (!didWeSync)
                 TEST_LOG("sync not needed: entry is already replicated");
@@ -312,14 +312,14 @@ Log::syncTo(Log::Reference reference, uint32_t rpcId)
             // Get the latest segment length and certificate. This allows us to
             // batch up other appends that came in while we were waiting.
             SegmentCertificate certificate;
-            uint32_t appendedLength = segment->getAppendedLength(&certificate);
+            uint32_t appendedLength = head->getAppendedLength(&certificate);
 
             // Drop the append lock. We don't want to block other appending threads
             // while we sync.
             lock.destroy();
 
-            segment->replicatedSegment->sync(appendedLength, &certificate, rpcId);
-            segment->syncedLength = appendedLength;
+            head->replicatedSegment->sync(appendedLength, &certificate, rpcId);
+            head->syncedLength = appendedLength;
             didWeSync = true;
             TEST_LOG("log synced");
             if (rpcId) TimeTrace::record("ID %u: Finished replication on Core %d",
