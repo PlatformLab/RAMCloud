@@ -22,9 +22,6 @@
 #include "Dispatch.h"
 #include "Transport.h"
 #include "DispatchExec.h"
-#include "Arachne/Arachne.h"
-#include "TimeTrace.h"
-#include "RpcWrapper.h"
 
 namespace RAMCloud {
 /**
@@ -74,11 +71,6 @@ class SendRequestWrapper : public DispatchExec::Lambda {
     /// @copydoc DispatchExec::Lambda::invoke()
     void invoke() {
         session->sendRequest(request, response, notifier);
-        RpcWrapper* wrapper = dynamic_cast<RpcWrapper*>(notifier);
-        if (wrapper->ownerThreadId != Arachne::NullThread)
-            TimeTrace::record("Sent replication Rpc on behalf of Core %d, IdInCore %d",
-                    wrapper->ownerThreadId.context->coreId,
-                    wrapper->ownerThreadId.context->idInCore);
         session = NULL;
     }
   PRIVATE:
