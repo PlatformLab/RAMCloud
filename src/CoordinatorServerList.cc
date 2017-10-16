@@ -933,6 +933,7 @@ CoordinatorServerList::haltUpdater()
     // Wait for Thread stop
     if (updaterThread != Arachne::NullThread) {
         Arachne::join(updaterThread);
+        updaterThread = Arachne::NullThread;
     }
 }
 
