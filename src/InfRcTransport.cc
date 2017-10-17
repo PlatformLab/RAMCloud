@@ -1518,7 +1518,7 @@ InfRcTransport::Poller::poll()
     if (t->serverSetupSocket >= 0) {
         CycleCounter<RawMetric> receiveTicks;
         int numRequests = t->infiniband->pollCompletionQueue(t->serverRxCq,
-                                                             MAX_COMPLETIONS, wc);
+                MAX_COMPLETIONS, wc);
         if ((t->numFreeServerSrqBuffers - numRequests) == 0) {
             // The receive buffer queue has run completely dry. This is bad
             // for performance: if any requests arrive while the queue is empty,

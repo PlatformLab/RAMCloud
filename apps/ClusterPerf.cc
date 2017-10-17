@@ -39,12 +39,12 @@
 //  4. Add code for this test to clusterperf.py, following the instructions
 //     in that file.
 
+#include <random>
 #include <boost/program_options.hpp>
 #include <boost/version.hpp>
 #include <algorithm>
 #include <fstream>
 #include <iostream>
-#include <random>
 #include <unordered_set>
 namespace po = boost::program_options;
 
@@ -112,7 +112,7 @@ static int warmupCount;
 static string workload;     // NOLINT
 
 // See docs for option "--messageSizeCDF".
-static string messageSizeCDF;
+static string messageSizeCDF;   // NOLINT
 
 // See docs for option '--maxSessions'.
 static unsigned maxSessions;
@@ -1539,7 +1539,8 @@ echoMessageAsync(const vector<string> receivers, const char* message,
                 int emptySlot;
                 while (true) {
                     int i = nextSlotToInsert;
-                    nextSlotToInsert = (nextSlotToInsert + 1) % MAX_OUTSTANDING_RPCS;
+                    nextSlotToInsert =
+                            (nextSlotToInsert + 1) % MAX_OUTSTANDING_RPCS;
                     if (!outstandingRpcs[i]) {
                         emptySlot = i;
                         break;
@@ -1557,7 +1558,7 @@ echoMessageAsync(const vector<string> receivers, const char* message,
                 }
 
                 EchoRpc* echo = echoRpcPool.construct(cluster, session,
-                        message, length, length, (Buffer*) NULL,
+                        message, length, length, static_cast<Buffer*>(NULL),
                         new Callback(emptySlot, &readyQueue), rpcStartTime);
                 outstandingRpcs[emptySlot].construct(messageId, multiConn,
                         sessionId, echo);
@@ -1574,7 +1575,8 @@ echoMessageAsync(const vector<string> receivers, const char* message,
         LOG(WARNING, "Load generator failed to keep up; lost %.2f seconds",
                 Cycles::toSeconds(lostCycles));
     }
-    LOG(NOTICE, "Experiment runs for %.2f secs", Cycles::toSeconds(totalCycles));
+    LOG(NOTICE, "Experiment runs for %.2f secs",
+            Cycles::toSeconds(totalCycles));
     if (maxSessions > 1) {
         for (unsigned i = 0; i < servers.size(); i++) {
             MultiConnection* mc = servers[i];
@@ -3108,7 +3110,8 @@ echo_workload()
     if (clientIndex == 0) {
         cluster->serverControlAll(WireFormat::GET_PERF_STATS, NULL, 0,
                 &statsAfter);
-        printf("%s\n", PerfStats::printClusterStats(&statsBefore, &statsAfter).c_str());
+        printf("%s\n", PerfStats::printClusterStats(&statsBefore, &statsAfter)
+                .c_str());
     }
 
     // Output the times (several comma-separated values on each line) for
