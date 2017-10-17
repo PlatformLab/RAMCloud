@@ -6747,16 +6747,16 @@ writeThroughput()
                 objectsWritten = 0;
                 uint64_t checkTime = startTime + Cycles::fromSeconds(1.0);
                 do {
-                    TimeTrace::record("Before making key");
+                    // TimeTrace::record("Before making key");
                     char key[keyLength];
                     char value[objectSize];
                     makeKey(downCast<int>(generateRandom() % numObjects),
                             keyLength, key);
                     Util::genRandomString(value, objectSize);
-                    TimeTrace::record("After making key");
+                    // TimeTrace::record("After making key");
                     cluster->write(dataTable, key, keyLength, value, objectSize,
                             NULL, NULL, asyncReplication);
-                    TimeTrace::record("Finished cluster write");
+                    // TimeTrace::record("Finished cluster write");
                     ++objectsWritten;
                 } while (Cycles::rdtsc() < checkTime);
             } else if (strcmp(command, "done") == 0) {

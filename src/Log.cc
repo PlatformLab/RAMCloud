@@ -197,8 +197,9 @@ Log::sync(uint32_t rpcId)
         // Do this check without the lock, since syncedLength is atomic.
         uint32_t syncedLength = originalHead->syncedLength;
         if (appendedLength <= syncedLength) {
-            if (!didWeSync)
+            if (!didWeSync) {
                 TEST_LOG("sync not needed: already fully replicated");
+            }
             break;
         }
         // Won the leader election for syncing
@@ -294,8 +295,9 @@ Log::syncTo(Log::Reference reference, uint32_t rpcId)
         // Do this check without the lock, since appendedLength is atomic.
         uint32_t syncedLength = head->syncedLength;
         if (desiredSyncedLength <= syncedLength) {
-            if (!didWeSync)
+            if (!didWeSync) {
                 TEST_LOG("sync not needed: entry is already replicated");
+            }
             break;
         }
         if (syncLock.try_lock()) {
