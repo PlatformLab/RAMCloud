@@ -1125,11 +1125,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
 void
 ObjectManager::syncChanges(Log::Reference reference, uint32_t rpcId)
 {
-    if (reference.toInteger()){
-        log.syncTo(reference, rpcId);
-    } else {
-        log.sync(rpcId);
-    }
+    log.sync(rpcId);
 }
 
 /**
