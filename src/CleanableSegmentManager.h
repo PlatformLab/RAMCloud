@@ -18,14 +18,16 @@
 
 #include <thread>
 #include <vector>
+#include <mutex>
 
 #include "Common.h"
 #include "BoostIntrusive.h"
 #include "LogSegment.h"
 #include "LogCleanerMetrics.h"
+
 #include "SegmentManager.h"
 #include "ServerConfig.h"
-#include "SpinLock.h"
+#include "Arachne/Arachne.h"
 
 namespace RAMCloud {
 
@@ -80,14 +82,15 @@ class CleanableSegmentManager {
     void getSegmentsToClean(LogSegmentVector& outSegsToClean);
 
   PRIVATE:
-    void update(const SpinLock::Guard& guard);
-    void scanSegmentTombstones(const SpinLock::Guard& guard);
+    typedef std::lock_guard<Arachne::SpinLock> Guard;
+    void update(Guard& guard);
+    void scanSegmentTombstones(Guard& guard);
     uint64_t computeCleaningCostBenefitScore(LogSegment* s);
     uint64_t computeCompactionCostBenefitScore(LogSegment* s);
     uint64_t computeTombstoneScanScore(LogSegment* s);
     uint32_t computeFreeableSeglets(LogSegment* s);
-    void insertInAll(LogSegment* s, const SpinLock::Guard& guard);
-    void eraseFromAll(LogSegment* s, const SpinLock::Guard& guard);
+    void insertInAll(LogSegment* s, Guard& guard);
+    void eraseFromAll(LogSegment* s, Guard& guard);
     string toString();
 
     /// Update our data structures at most every this many microseconds. This
@@ -226,7 +229,7 @@ class CleanableSegmentManager {
 
     /// Monitor lock guarding all members of this class. The whole point of
     /// this class is to hold this lock as briefly as possible.
-    SpinLock lock;
+    Arachne::SpinLock lock;
 
     /// Size of each seglet in bytes.
     const uint32_t segletSize;

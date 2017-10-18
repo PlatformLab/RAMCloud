@@ -128,7 +128,7 @@ class LogCleanerTest : public ::testing::Test {
     void getNewCandidates() {
         LogSegmentVector newCandidates;
         segmentManager.cleanableSegments(newCandidates);
-        SpinLock::Guard guard(cleaner.cleanableSegments.lock);
+        std::lock_guard<Arachne::SpinLock> guard(cleaner.cleanableSegments.lock);
         foreach (LogSegment* segment, newCandidates) {
             segment->cachedCleaningCostBenefitScore =
                     cleaner.cleanableSegments.computeCleaningCostBenefitScore(

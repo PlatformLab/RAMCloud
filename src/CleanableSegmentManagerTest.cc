@@ -113,7 +113,7 @@ class CleanableSegmentManagerTest : public ::testing::Test {
 
 TEST_F(CleanableSegmentManagerTest, update) {
     CleanableSegmentManager& csm = cleaner.cleanableSegments;
-        SpinLock::Guard guard(csm.lock);
+        std::lock_guard<Arachne::SpinLock> guard(csm.lock);
 
     csm.update(guard);
     EXPECT_EQ("costBenefitCandidates [ ] compactionCandidates [ ] "
