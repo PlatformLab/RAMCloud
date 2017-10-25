@@ -1,4 +1,5 @@
-/* Copyright (c) 
+/* Copyright (c) 2016-2017 Stanford University
+ *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
  * notice and this permission notice appear in all copies.xx
@@ -41,12 +42,26 @@ TEST_F(QueueEstimatorTest, constructor) {
 TEST_F(QueueEstimatorTest, getQueueSize) {
     QueueEstimator estimator(8000);
     EXPECT_EQ(0.5, estimator.bandwidth);
-    estimator.packetQueued(1000, 100000u);
-    EXPECT_EQ(1000, estimator.queueSize);
+
+    // Enqueue a 1000-byte packet at TSC 100000.
+    Cycles::mockTscValue = 100000u;
+    estimator.packetQueued(1000, Cycles::rdtsc());
+    EXPECT_EQ(1000u, estimator.queueSize);
+
+    // Test the queue size after 100 cycles.
     EXPECT_EQ(950u, estimator.getQueueSize(100100));
-    estimator.packetQueued(1000, 101000u);
-    EXPECT_EQ(1500, estimator.queueSize);
-    EXPECT_EQ(0u, estimator.getQueueSize(105000));
+
+    // Enqueue another 1000-byte packet at TSC 101000.
+    Cycles::mockTscValue = 101000u;
+    estimator.packetQueued(1000, Cycles::rdtsc());
+    EXPECT_EQ(1500u, estimator.queueSize);
+
+    // Test the queue size with a stale timestamp.
+    EXPECT_EQ(1500u, estimator.getQueueSize(100000u));
+
+    // The 1500 bytes in the queue should drain in 3000 cycles.
+    EXPECT_EQ(0u, estimator.getQueueSize(104000));
+    Cycles::mockTscValue = 0;
 }
 
 }  // namespace RAMCloud

@@ -1,4 +1,4 @@
-/* Copyright (c) 2016 Stanford University
+/* Copyright (c) 2016-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -61,7 +61,7 @@ class QueueEstimator {
     packetQueued(uint32_t length, uint64_t transmitTime)
     {
         getQueueSize(transmitTime);
-        queueSize += static_cast <double>(length);
+        queueSize += length;
     }
 
     /**
@@ -73,11 +73,15 @@ class QueueEstimator {
     uint32_t
     getQueueSize(uint64_t time)
     {
-        double newSize = queueSize
-                - static_cast<double>(time - currentTime) * bandwidth;
-        queueSize = (newSize < 0) ? 0 : newSize;
-        currentTime = time;
-        return (uint32_t) queueSize;
+        // If the caller passes in a stale timestamp, just return the latest
+        // queue size.
+        if (time > currentTime) {
+            double newSize = queueSize
+                    - static_cast<double>(time - currentTime) * bandwidth;
+            queueSize = (newSize < 0) ? 0 : static_cast<uint32_t>(newSize);
+            currentTime = time;
+        }
+        return queueSize;
     }
 
     /**
@@ -112,12 +116,12 @@ class QueueEstimator {
     /// Network bandwidth, measured in bytes per Cycles::rdtsc tick.
     double bandwidth;
 
-    /// A Cycles::rdtsc ticks value indicating the last time when queueSize
+    /// A Cycles::rdtsc ticks value indicating the latest time when queueSize
     /// was calculated.
     uint64_t currentTime;
 
     /// The number of bytes in the transmit queue at currentTime.
-    double queueSize;
+    uint32_t queueSize;
 
     DISALLOW_COPY_AND_ASSIGN(QueueEstimator);
 };
