@@ -57,6 +57,8 @@ BackupClient::freeSegment(Context* context, ServerId backupId,
  *      The id of the master that created the segment to be freed.
  * \param segmentId
  *      The id of the segment to be freed.
+ * \param ownerThreadId
+ *      Arachne::ThreadId of owning thread.
  */
 FreeSegmentRpc::FreeSegmentRpc(Context* context, ServerId backupId,
         ServerId masterId, uint64_t segmentId, Arachne::ThreadId ownerThreadId)
@@ -603,6 +605,8 @@ BackupClient::writeSegment(Context* context,
  *      Whether this particular replica should be loaded and filtered at the
  *      start of master recovery (as opposed to having it loaded and filtered
  *      on demand. May be reset on each subsequent write.
+ * \param ownerThreadId
+ *      Arachne::ThreadId of owning thread.
  */
 WriteSegmentRpc::WriteSegmentRpc(Context* context,
                                  ServerId backupId,

@@ -75,6 +75,8 @@ AbstractLog::AbstractLog(LogEntryHandlers* entryHandlers,
  *      are also returned here.
  * \param numAppends
  *      Number of entries in the appends array.
+ * \param rpcId
+ *      Id of the RPC in which this is called.
  * \return
  *      True if the append succeeded, false if there was insufficient space
  *      to complete the operation.

@@ -375,6 +375,8 @@ ReplicatedSegment::handleBackupFailure(ServerId failedId, bool useMinCopysets)
  *      length and certificate. This is sometimes necessary when one thread is
  *      syncing a segment, but does not want to block other threads from
  *      appending to it.
+ * \param rpcId
+ *      rpcId of calling RPC.
  */
 void
 ReplicatedSegment::sync(

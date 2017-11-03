@@ -81,6 +81,9 @@ int WorkerManager::pollMicros = 10000;
  *
  * \param context
  *      Overall information about this server.
+ * \param maxCores
+ *      Number of cores workers can be scheduled on.
+ *      TODO:  Ask Henry if this does anything.
  */
 WorkerManager::WorkerManager(Context* context, uint32_t maxCores)
     : Dispatch::Poller(context->dispatch, "WorkerManager")
@@ -254,9 +257,8 @@ WorkerManager::waitForRpc(double timeoutSeconds) {
  * an RPC to be assigned to it, then executes that RPC and communicates its
  * completion back to the dispatch thread.
  *
- * \param worker
- *      Pointer to information used to communicate between the worker thread
- *      and the dispatch thread.
+ * \param serverRpc
+ *      The RPC this worker was created to process.
  */
 void
 WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
@@ -284,6 +286,7 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
         // Update performance statistics.
         uint64_t current = Cycles::rdtsc();
         PerfStats::threadStats.workerActiveCycles += (current - lastIdle);
+        timeTrace("ID %u: took worker time %u", serverRpc->id, (uint32_t) Cycles::toNanoseconds(current - lastIdle));
         TEST_LOG("exiting");
     } catch (std::exception& e) {
         LOG(ERROR, "worker: %s", e.what());

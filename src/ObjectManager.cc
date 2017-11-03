@@ -1121,6 +1121,11 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
  * the change is committed to stable storage. Prior to invoking this, no
  * guarantees are made about the consistency of backup and master views of the
  * log since the previous syncChanges() operation.
+ *
+ * \param reference
+ *      TODO:  Ask Henry why this is here.
+ * \param rpcId
+ *      rpcId of calling RPC.
  */
 void
 ObjectManager::syncChanges(Log::Reference reference, uint32_t rpcId)
@@ -1166,6 +1171,10 @@ ObjectManager::syncChanges(Log::Reference reference, uint32_t rpcId)
  *      linearizability.
  * \param[out] rpcResultPtr
  *      If non-NULL, pointer to the RpcResult in log is returned.
+ * \param logReference
+ *      TODO:  Ask Henry why this is here.
+ * \param rpcId
+ *      rpcId of calling RPC.
  * \return
  *      STATUS_OK if the object was written. Otherwise, for example,
  *      STATUS_UKNOWN_TABLE may be returned.
