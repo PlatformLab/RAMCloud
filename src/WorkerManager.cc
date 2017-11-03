@@ -269,9 +269,12 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
     uint64_t lastIdle = Cycles::rdtsc();
 
     try {
-        timeTrace("ID %u: Starting processing of opcode %d  on KT %d, idInCore %d",
-                serverRpc->id, serverRpc->header->opcode, Arachne::core.kernelThreadId, Arachne::core.loadedContext->idInCore);
-        Worker worker(context, serverRpc, WireFormat::Opcode(serverRpc->header->opcode));
+        timeTrace("ID %u: Starting processing of opcode %d  on KT %d, "
+            "idInCore %d", serverRpc->id, serverRpc->header->opcode,
+            Arachne::core.kernelThreadId,
+            Arachne::core.loadedContext->idInCore);
+        Worker worker(context, serverRpc,
+            WireFormat::Opcode(serverRpc->header->opcode));
 
         serverRpc->epoch = LogProtector::getCurrentEpoch();
         Service::Rpc rpc(&worker, &serverRpc->requestPayload,
@@ -279,14 +282,16 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
         Service::handleRpc(context, &rpc);
 
         // Pass the RPC back to the dispatch thread for completion.
-        timeTrace("ID %u: Finished processing opcode %d; signal dispatch on KT %d",
-                serverRpc->id, serverRpc->header->opcode, Arachne::core.kernelThreadId);
+        timeTrace("ID %u: Finished processing opcode %d; signal dispatch "
+            "on KT %d", serverRpc->id, serverRpc->header->opcode,
+            Arachne::core.kernelThreadId);
         worker.sendReply();
 
         // Update performance statistics.
         uint64_t current = Cycles::rdtsc();
         PerfStats::threadStats.workerActiveCycles += (current - lastIdle);
-        timeTrace("ID %u: took worker time %u", serverRpc->id, (uint32_t) Cycles::toNanoseconds(current - lastIdle));
+        timeTrace("ID %u: took worker time %u", serverRpc->id,
+            (uint32_t) Cycles::toNanoseconds(current - lastIdle));
         TEST_LOG("exiting");
     } catch (std::exception& e) {
         LOG(ERROR, "worker: %s", e.what());

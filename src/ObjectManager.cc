@@ -1297,8 +1297,10 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     }
 
     if (rpcId)
-        TimeTrace::record("ID %u: Before append on Core %d", rpcId, Arachne::core.kernelThreadId);
-    if (!log.append(appends, (tombstone ? 2 : 1) + (rpcResult ? 1 : 0), rpcId)) {
+        TimeTrace::record("ID %u: Before append on Core %d", rpcId,
+            Arachne::core.kernelThreadId);
+    if (!log.append(appends, (tombstone ? 2 : 1) + (rpcResult ? 1 : 0),
+     rpcId)) {
         // The log is out of space. Tell the client to retry and hope
         // that the cleaner makes space soon.
         throw RetryException(HERE, 1000, 2000, "Must wait for cleaner");

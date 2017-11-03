@@ -759,8 +759,9 @@ ReplicatedSegment::performWrite(Replica& replica)
             try {
                 replica.writeRpc->wait();
                 if (syncingRpcId)
-                    TimeTrace::record("ID %u: Completed replication Rpc on Core %d",
-                        syncingRpcId, Arachne::core.kernelThreadId);
+                    TimeTrace::record("ID %u: Completed replication Rpc "
+                        "on Core %d", syncingRpcId,
+                        Arachne::core.kernelThreadId);
                 TEST_LOG("Write RPC finished for replica slot %ld",
                          &replica - &replicas[0]);
                 if (replica.acked.open && !replica.sent.open) {

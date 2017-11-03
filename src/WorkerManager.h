@@ -110,7 +110,8 @@ class Worker {
     bool exited;                       /// True means the worker is no longer
                                        /// running.
 
-    explicit Worker(Context* context, Transport::ServerRpc* rpc, WireFormat::Opcode opcode)
+    explicit Worker(Context* context, Transport::ServerRpc* rpc,
+            WireFormat::Opcode opcode)
             : context(context)
             , replySent(false)
             , opcode(opcode)

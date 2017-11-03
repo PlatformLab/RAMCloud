@@ -59,8 +59,8 @@ namespace RAMCloud {
 //     ~WorkerManagerTest() {
 //         service.gate = 0;
 //         // Must explicitly destroy the service manager (to ensure that the
-//         // worker thread exits); if we used implicit destruction, it's possible
-//         // that some other objects such as MockService might get destroyed while
+//         // worker thread exits); if we used implicit destruction, possible
+//         // that other objects such as MockService might get destroyed while
 //         // the worker thread is still using them.
 //         manager.destroy();
 //         WorkerManager::sys = savedSyscall;
@@ -144,7 +144,8 @@ namespace RAMCloud {
 //     MockTransport::MockServerRpc* rpc = new MockTransport::MockServerRpc(
 //             &transport, "");
 //     manager->handleRpc(rpc);
-//     EXPECT_EQ("handleRpc: Incoming RPC contains no header (message length 0)",
+//     EXPECT_EQ("handleRpc: Incoming RPC contains no header"
+//          "(message length 0)",
 //             TestLog::get());
 //     EXPECT_STREQ("STATUS_MESSAGE_TOO_SHORT",
 //             statusToSymbol(transport.status));

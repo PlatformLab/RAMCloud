@@ -343,7 +343,8 @@ class ReplicatedSegment : public Task {
     bool isSynced() const;
     void close();
     void handleBackupFailure(ServerId failedId, bool useMinCopysets);
-    void sync(uint32_t offset = ~0u, SegmentCertificate* certificate = NULL, uint32_t rpcId = 0);
+    void sync(uint32_t offset = ~0u, SegmentCertificate* certificate = NULL,
+        uint32_t rpcId = 0);
     const Segment* swapSegment(const Segment* newSegment);
 
     /**

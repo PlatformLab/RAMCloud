@@ -19,7 +19,6 @@
 #include <atomic>
 #include <string>
 #include <boost/intrusive_ptr.hpp>
-#include <atomic>
 
 #include "BoostIntrusive.h"
 #include "Buffer.h"

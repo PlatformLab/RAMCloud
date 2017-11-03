@@ -128,7 +128,8 @@ class LogCleanerTest : public ::testing::Test {
     void getNewCandidates() {
         LogSegmentVector newCandidates;
         segmentManager.cleanableSegments(newCandidates);
-        std::lock_guard<Arachne::SpinLock> guard(cleaner.cleanableSegments.lock);
+        std::lock_guard<Arachne::SpinLock>
+            guard(cleaner.cleanableSegments.lock);
         foreach (LogSegment* segment, newCandidates) {
             segment->cachedCleaningCostBenefitScore =
                     cleaner.cleanableSegments.computeCleaningCostBenefitScore(
@@ -266,7 +267,8 @@ TEST_F(LogCleanerTest, doWork_notifyConditionVariable) {
 
     // First try: bump activeThreads so cleaner looks busy.
     cleaner.activeThreads = 1;
-    Arachne::ThreadId newThread = Arachne::createThread(disableThread, &cleaner);
+    Arachne::ThreadId newThread =
+        Arachne::createThread(disableThread, &cleaner);
     while (cleaner.disableCount == 0) {
         // Wait for the thread to acquire the lock and sleep.
     }

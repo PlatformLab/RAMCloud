@@ -16,9 +16,9 @@
 #ifndef RAMCLOUD_CLEANABLESEGMENTMANAGER_H
 #define RAMCLOUD_CLEANABLESEGMENTMANAGER_H
 
+#include <mutex>
 #include <thread>
 #include <vector>
-#include <mutex>
 
 #include "Common.h"
 #include "BoostIntrusive.h"

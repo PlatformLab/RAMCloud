@@ -393,9 +393,8 @@ RpcWrapper::waitInternal(Dispatch* dispatch, uint64_t abortTime)
     while (!isReady()) {
         if (isDispatchThread)
             dispatch->poll();
-        else {
+        else
             Arachne::yield();
-        }
         if (dispatch->currentTime > abortTime)
             return false;
     }

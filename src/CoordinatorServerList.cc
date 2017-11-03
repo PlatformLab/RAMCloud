@@ -952,7 +952,8 @@ CoordinatorServerList::startUpdater()
         lastScan.searchIndex = 0;
         lastScan.minVersion = version;
         stopUpdater = false;
-        updaterThread = Arachne::createThread(&CoordinatorServerList::updateLoop, this);
+        updaterThread =
+          Arachne::createThread(&CoordinatorServerList::updateLoop, this);
     } else {
         stopUpdater = false;
     }

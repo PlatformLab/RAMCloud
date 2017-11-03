@@ -33,7 +33,6 @@
 #include "WorkerTimer.h"
 #include "Arachne/Arachne.h"
 #include "FileLogger.h"
-#include "PerfStats.h"
 #include "PerfUtils/Util.h"
 
 using namespace RAMCloud;

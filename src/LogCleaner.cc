@@ -132,7 +132,8 @@ LogCleaner::start()
 {
     for (int i = 0; i < numThreads; i++) {
         if (threads[i] == Arachne::NullThread)
-            threads[i] = Arachne::createThread(cleanerThreadEntry, this, context);
+            threads[i] = Arachne::createThread(cleanerThreadEntry,
+                this, context);
     }
 }
 

@@ -22,10 +22,10 @@
 #include <cstdatomic>
 #endif
 
+#include <mutex>
 #include <stdint.h>
 #include <unordered_map>
 #include <vector>
-#include <mutex>
 
 #include "BoostIntrusive.h"
 #include "LargeBlockOfMemory.h"

@@ -150,7 +150,8 @@ namespace RAMCloud {
 //     context.services[0] = &service;
 //     request.fillFromString("1 2 54321 3 4");
 //     Service::handleRpc(&context, &rpc);
-//     EXPECT_STREQ("STATUS_REQUEST_FORMAT_ERROR", TestUtil::getStatus(&response));
+//     EXPECT_STREQ("STATUS_REQUEST_FORMAT_ERROR",
+//       TestUtil::getStatus(&response));
 // }
 // TEST_F(ServiceTest, handleRpc_clientExceptionAfterSendingReply) {
 //     MockService service;
@@ -183,8 +184,10 @@ namespace RAMCloud {
 
 // TEST_F(ServiceTest, prepareRetryResponse_withMessage) {
 //     response.fillFromString("abcdef");
-//     Service::prepareRetryResponse(&response, 1000, 2000, "test message");
-//     EXPECT_EQ("17 1000 2000 13 test message/0", TestUtil::toString(&response));
+//     Service::prepareRetryResponse(&response,
+//       1000, 2000, "test message");
+//     EXPECT_EQ("17 1000 2000 13 test message/0",
+//       TestUtil::toString(&response));
 // }
 // TEST_F(ServiceTest, prepareRetryResponse_noMessage) {
 //     response.fillFromString("abcdef");
@@ -195,7 +198,8 @@ namespace RAMCloud {
 // TEST_F(ServiceTest, callHandler_messageTooShort) {
 //     request.fillFromString("");
 //     EXPECT_THROW(
-//         (service.callHandler<WireFormat::Ping, Service, &Service::ping>(&rpc)),
+//         (service.callHandler<WireFormat::Ping, Service,
+//            &Service::ping>(&rpc)),
 //         MessageTooShortError);
 // }
 // TEST_F(ServiceTest, callHandler_normal) {
