@@ -97,6 +97,10 @@ class StatsLogger : WorkerTimer {
 int
 realMain(int argc, char *argv[])
 {
+    bool exclusive = Arachne::makeExclusiveOnCore(false);
+    if (!exclusive) {
+        DIE("Could not make dispatch thread exclusive");
+    }
     signal(SIGTERM, Perf::terminationHandler);
     Logger::installCrashBacktraceHandlers();
     Context context(true);
@@ -369,16 +373,12 @@ main(int argc, const char *argv[]) {
     FileLogger arachneLogger(NOTICE, "ARACHNE: ");
     Arachne::setErrorStream(arachneLogger.getFile());
 
-    Arachne::minNumCores = 2;
-    Arachne::maxNumCores = 4;
+    Arachne::minNumCores = 5;
+    Arachne::maxNumCores = 5;
     Arachne::initCore = [] () {
         PerfStats::registerStats(&PerfStats::threadStats);
     };
     Arachne::init(&argc, argv);
-    PerfUtils::Util::pinAvailableCore();
-    // Invoke realMain outside of Arachne for now so we can defer handling of
-    // the fact that the dispatch thread does not yield or terminate until we
-    // are ready to do that experiment.
-    realMain(argc, const_cast<char**>(argv));
+    Arachne::createThread(&realMain, argc, const_cast<char**>(argv));
     Arachne::waitForTermination();
 }

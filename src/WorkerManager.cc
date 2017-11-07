@@ -13,6 +13,7 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sched.h>
 #include <new>
 #include <typeinfo>
 #include "BitOps.h"
@@ -159,7 +160,8 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     // Create a new thread to handle the RPC.
     rpc->id = nextRpcId++;
     rpc->header = header;
-    timeTrace("ID %u: Dispatching opcode %d", rpc->id, header->opcode);
+    timeTrace("ID %u: Dispatching opcode %d on core %d", rpc->id,
+        header->opcode, sched_getcpu());
     if (Arachne::createThread(&WorkerManager::workerMain, this, rpc) ==
             Arachne::NullThread) {
         // On failure, send STATUS_RETRY
@@ -283,8 +285,8 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
 
         // Pass the RPC back to the dispatch thread for completion.
         timeTrace("ID %u: Finished processing opcode %d; signal dispatch "
-            "on KT %d", serverRpc->id, serverRpc->header->opcode,
-            Arachne::core.kernelThreadId);
+            "on KT %d on core %d", serverRpc->id, serverRpc->header->opcode,
+            Arachne::core.kernelThreadId, sched_getcpu());
         worker.sendReply();
 
         // Update performance statistics.
