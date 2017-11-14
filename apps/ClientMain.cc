@@ -28,7 +28,6 @@
 #include "OptionParser.h"
 #include "RamCloud.h"
 #include "Tub.h"
-#include "WireFormat.h"
 #include "IndexLookup.h"
 
 using namespace RAMCloud;
@@ -286,10 +285,6 @@ try
 
     OptionParser optionParser(clientOptions, argc, argv);
     RamCloud client(&optionParser.options);
-
-    client.serverControlAll(WireFormat::LOG_TIME_TRACE);
-
-    return 0;
 
     if (exercise) {
         while (1) {

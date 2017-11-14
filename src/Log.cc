@@ -127,8 +127,6 @@ Log::getMetrics(ProtoBuf::LogMetrics& m)
 LogPosition
 Log::getHead() {
     Lock _(appendLock);
-    TimeTrace::record("5 Acquired appendLock on Core %d",
-            Arachne::core.kernelThreadId);
     return LogPosition(head->id, head->getAppendedLength());
 }
 
@@ -161,16 +159,9 @@ Log::sync(uint32_t rpcId)
     CycleCounter<uint64_t> __(&PerfStats::threadStats.logSyncCycles);
 
     Tub<Lock> lock;
-    if (rpcId)
-        TimeTrace::record("ID %u: Waiting for appendLock logsync on Core %d lockowner %u me %u",
-                rpcId, Arachne::core.kernelThreadId, *((int*)(&appendLock.owner)), *((int*)(&Arachne::core.loadedContext)));
     lock.construct(appendLock);
-    if (rpcId) {TimeTrace::record("ID %u: Log::sync acquired appendLock on "
-        "Core %d", rpcId, Arachne::core.kernelThreadId);}
-    else {
-        TimeTrace::record("Log::sync acquired appendLock on "
+    if (rpcId) TimeTrace::record("ID %u: Log::sync acquired appendLock on "
         "Core %d", rpcId, Arachne::core.kernelThreadId);
-    }
     metrics.totalSyncCalls++;
 
     // The only time 'head' should be NULL is after construction and before the
@@ -201,8 +192,6 @@ Log::sync(uint32_t rpcId)
     // log while we wait. Once we grab the sync lock, take the append lock again
     // to ensure our new view of the head is consistent.
     lock.destroy();
-    if (rpcId) TimeTrace::record("ID %u: Log::sync dropped appendLock on "
-        "Core %d", rpcId, Arachne::core.kernelThreadId);
     bool didWeSync = false;
     do {
         // Do this check without the lock, since syncedLength is atomic.
@@ -221,9 +210,6 @@ Log::sync(uint32_t rpcId)
                 appendedLength, syncedLength);
             // See if we still have work to do. It's possible that another
             // thread already did the syncing we needed for us.
-            if (rpcId)
-                TimeTrace::record("ID %u: Waiting for appendLock logsync2 on Core %d lockowner %u me %u",
-                        rpcId, Arachne::core.kernelThreadId, *((int*)(&appendLock.owner)), *((int*)(&Arachne::core.loadedContext)));
             lock.construct(appendLock);
             if (rpcId) TimeTrace::record("ID %u: Log::sync reacquired "
                 "appendLock on Core %d", rpcId,
@@ -397,8 +383,6 @@ Log::rollHeadOver()
 {
     std::lock_guard<Arachne::SpinLock> lock(syncLock);
     Lock lock2(appendLock);
-    TimeTrace::record("4 Acquired appendLock on Core %d",
-            Arachne::core.kernelThreadId);
 
     // Allocate the new head and sync the log. This will ensure that the
     // position returned is stable on backups. This is paricularly important
