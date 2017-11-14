@@ -85,10 +85,24 @@ bool
 AbstractLog::append(AppendVector* appends, uint32_t numAppends, uint32_t rpcId)
 {
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
+    if (rpcId)
+        TimeTrace::record("ID %u: Waiting for appendLock append on Core %d lockowner %u me %u",
+                rpcId, Arachne::core.kernelThreadId, *((int*)(&appendLock.owner)), *((int*)(&Arachne::core.loadedContext)));
+    void* printpointer = (void*) &Arachne::core;
+    if (rpcId)
+        TimeTrace::record("ID %u: Me pointer: 0x%08x %08x",
+                rpcId, *(((int*)(&Arachne::core.loadedContext)) + 1), *((int*)(&Arachne::core.loadedContext)));
+    if (rpcId)
+        TimeTrace::record("ID %u: Core pointer: 0x%08x %08x",
+                rpcId, *(((int*)(&printpointer)) + 1), *((int*)(&printpointer)));
     Lock lock(appendLock);
     if (rpcId)
         TimeTrace::record("ID %u: Acquired appendLock on Core %d",
                 rpcId, Arachne::core.kernelThreadId);
+    else {
+        TimeTrace::record("ID append: Acquired appendLock on Core %d",
+                Arachne::core.kernelThreadId);
+    }
     metrics.totalAppendCalls++;
 
     uint32_t lengths[numAppends];
@@ -141,6 +155,8 @@ AbstractLog::append(Buffer *logBuffer, Reference *references,
 {
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
     Lock lock(appendLock);
+    TimeTrace::record("1 Acquired appendLock on Core %d",
+            Arachne::core.kernelThreadId);
     metrics.totalAppendCalls++;
 
     if (head == NULL || !head->hasSpaceFor(logBuffer->size())) {
