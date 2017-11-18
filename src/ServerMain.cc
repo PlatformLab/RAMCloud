@@ -262,7 +262,8 @@ realMain(int argc, char *argv[])
             args.append(argv[i]);
         }
         LOG(NOTICE, "Command line: %s", args.c_str());
-        LOG(NOTICE, "Server process id: %u", getpid());
+        LOG(NOTICE, "Server process id: %u on core %d",
+            getpid(), sched_getcpu());
 
         if (masterOnly && backupOnly)
             DIE("Can't specify both -B and -M options");
@@ -373,8 +374,8 @@ main(int argc, const char *argv[]) {
     FileLogger arachneLogger(NOTICE, "ARACHNE: ");
     Arachne::setErrorStream(arachneLogger.getFile());
 
-    Arachne::minNumCores = 5;
-    Arachne::maxNumCores = 5;
+    Arachne::minNumCores = 2;
+    Arachne::maxNumCores = 7;
     Arachne::initCore = [] () {
         PerfStats::registerStats(&PerfStats::threadStats);
     };
