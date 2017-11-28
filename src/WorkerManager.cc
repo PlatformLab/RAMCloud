@@ -170,8 +170,8 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
             LOG(NOTICE, "Incoming RPC with opcode %d failed to find a core, "
                 "reattempt %d", header->opcode, i);
             Arachne::sleep(10000);
-            if (Arachne::createThread(0, &WorkerManager::workerMain, this, rpc) !=
-                    Arachne::NullThread) {
+            if (Arachne::createThread(0, &WorkerManager::workerMain,
+                this, rpc) != Arachne::NullThread) {
                 outstandingRpcs.push_back(rpc);
                 return;
             }

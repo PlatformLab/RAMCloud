@@ -385,6 +385,7 @@ main(int argc, const char *argv[]) {
     };
     corePolicyRamCloud = new CorePolicy();
     Arachne::init(corePolicyRamCloud, &argc, argv);
-    Arachne::createThread(corePolicyRamCloud->baseClass, &realMain, argc, const_cast<char**>(argv));
+    Arachne::createThread(corePolicyRamCloud->baseClass,
+        &realMain, argc, const_cast<char**>(argv));
     Arachne::waitForTermination();
 }
