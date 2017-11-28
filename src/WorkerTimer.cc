@@ -210,7 +210,7 @@ WorkerTimer::Manager::Manager(Dispatch* dispatch, Lock& lock)
     , links()
 {
     managers.push_back(*this);
-    workerThread = Arachne::createThread(workerThreadMain, this);
+    workerThread = Arachne::createThread(0, workerThreadMain, this);
 }
 
 /**

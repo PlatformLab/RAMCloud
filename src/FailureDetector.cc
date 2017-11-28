@@ -67,7 +67,7 @@ FailureDetector::~FailureDetector()
 void
 FailureDetector::start()
 {
-    thread = Arachne::createThread(detectorThreadEntry, this, context);
+    thread = Arachne::createThread(0, detectorThreadEntry, this, context);
 }
 
 /**

@@ -23,6 +23,10 @@
 #include "CoordinatorService.h"
 #include "Tub.h"
 #include "Arachne/Arachne.h"
+#include "Arachne/CorePolicy.h"
+#include "CorePolicyRamCloud.h"
+
+CorePolicy* corePolicyRamCloud;
 
 namespace {
 
@@ -170,7 +174,8 @@ main(int argc, char *argv[])
     struct Environment : public ::testing::Environment {
         virtual ~Environment() {}
         virtual void SetUp() {
-            Arachne::init();
+            corePolicyRamCloud = new CorePolicy();
+            Arachne::init(corePolicyRamCloud);
             Arachne::testInit();
         }
         // Override this to define how to tear down the environment.

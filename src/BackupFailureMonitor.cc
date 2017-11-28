@@ -119,7 +119,7 @@ BackupFailureMonitor::start()
     if (running)
         return;
     running = true;
-    Arachne::createThread(&BackupFailureMonitor::main, this);
+    Arachne::createThread(0, &BackupFailureMonitor::main, this);
 }
 
 /**
@@ -175,7 +175,7 @@ BackupFailureMonitor::trackerChangesEnqueued()
      * Dispatches changes to #replicaManager for it to take
      * corrective actions when the ServerList changes. 
      */
-    Arachne::createThread(&BackupFailureMonitor::main, this);
+    Arachne::createThread(0, &BackupFailureMonitor::main, this);
 }
 
 } // namespace RAMCloud

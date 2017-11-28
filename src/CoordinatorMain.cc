@@ -27,6 +27,8 @@
 #include "TransportManager.h"
 #include "WorkerManager.h"
 #include "Arachne/Arachne.h"
+#include "Arachne/CorePolicy.h"
+#include "CorePolicyRamCloud.h"
 #include "FileLogger.h"
 #include "PerfUtils/Util.h"
 
@@ -36,6 +38,8 @@
  */
 
 using namespace RAMCloud;
+
+CorePolicy* corePolicyRamCloud;
 
 /**
  * Main program for the RAMCloud cluster coordinator.
@@ -174,7 +178,8 @@ main(int argc, const char *argv[]) {
     Arachne::initCore = [] () {
         PerfStats::registerStats(&PerfStats::threadStats);
     };
-    Arachne::init(&argc, argv);
+    corePolicyRamCloud = new CorePolicy();
+    Arachne::init(corePolicyRamCloud, &argc, argv);
     // Invoke realMain outside of Arachne for now so we can defer handling of
     // the fact that the dispatch thread does not yield or terminate until we
     // are ready to do that experiment.

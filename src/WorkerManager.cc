@@ -162,7 +162,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     rpc->header = header;
     timeTrace("ID %u: Dispatching opcode %d on core %d", rpc->id,
         header->opcode, sched_getcpu());
-    if (Arachne::createThread(&WorkerManager::workerMain, this, rpc) ==
+    if (Arachne::createThread(0, &WorkerManager::workerMain, this, rpc) ==
             Arachne::NullThread) {
         // Thread creations can fail randomly due to core deallocation,
         // so first retry a few times.
@@ -170,7 +170,7 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
             LOG(NOTICE, "Incoming RPC with opcode %d failed to find a core, "
                 "reattempt %d", header->opcode, i);
             Arachne::sleep(10000);
-            if (Arachne::createThread(&WorkerManager::workerMain, this, rpc) !=
+            if (Arachne::createThread(0, &WorkerManager::workerMain, this, rpc) !=
                     Arachne::NullThread) {
                 outstandingRpcs.push_back(rpc);
                 return;
