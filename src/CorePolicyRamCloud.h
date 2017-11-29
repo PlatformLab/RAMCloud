@@ -29,8 +29,7 @@ class CorePolicyRamCloud : public CorePolicy {
     CorePolicyRamCloud() : CorePolicy() {}
 
     void addCore(int coreId);
-    void removeCore(int coreId);
-    uint32_t maxClass() { return 0U; }
+    uint32_t maxClass() { return 1U; }
 
     threadClass_t dispatchClass = DISPATCH_THREAD_CLASS;
 };

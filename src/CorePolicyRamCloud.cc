@@ -19,26 +19,18 @@
 
 /**
   * Update threadCoreMap when a new core is added.  Takes in the coreId
-  * of the new core.
+  * of the new core.  Assigns the first core to the dispatch class and
+  * all others to the base class.
 **/
 void CorePolicyRamCloud::addCore(int coreId) {
+  threadCoreMapEntry* dispatchEntry = threadCoreMap[dispatchClass];
+  if (dispatchEntry->numFilled == 0) {
+    dispatchEntry->map[0] = coreId;
+    dispatchEntry->numFilled++;
+    Arachne::numExclusiveCores++;
+    return;
+  }
   threadCoreMapEntry* entry = threadCoreMap[baseClass];
   entry->map[entry->numFilled] = coreId;
   entry->numFilled++;
-}
-
-/**
-  * Update threadCoreMap when a core is removed.  Takes in the coreId
-  * of the doomed core.
-**/
-void CorePolicyRamCloud::removeCore(int coreId) {
-  threadCoreMapEntry* entry = threadCoreMap[baseClass];
-  entry->numFilled--;
-  int saveCoreId = entry->map[entry->numFilled];
-  for (uint32_t i = 0; i < entry->numFilled; i++) {
-    if (entry->map[i] == coreId) {
-      entry->map[i] = saveCoreId;
-      return;
-    }
-  }
 }

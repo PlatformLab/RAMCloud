@@ -174,7 +174,7 @@ main(int argc, char *argv[])
     struct Environment : public ::testing::Environment {
         virtual ~Environment() {}
         virtual void SetUp() {
-            corePolicyRamCloud = new CorePolicyRamCloud();
+            corePolicyRamCloud = new CorePolicy();
             Arachne::init(corePolicyRamCloud);
             Arachne::testInit();
         }

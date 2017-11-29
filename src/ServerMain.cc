@@ -101,10 +101,6 @@ class StatsLogger : WorkerTimer {
 int
 realMain(int argc, char *argv[])
 {
-    bool exclusive = Arachne::makeExclusiveOnCore(false);
-    if (!exclusive) {
-        DIE("Could not make dispatch thread exclusive");
-    }
     signal(SIGTERM, Perf::terminationHandler);
     Logger::installCrashBacktraceHandlers();
     Context context(true);
@@ -385,7 +381,7 @@ main(int argc, const char *argv[]) {
     };
     corePolicyRamCloud = new CorePolicyRamCloud();
     Arachne::init(corePolicyRamCloud, &argc, argv);
-    Arachne::createThread(corePolicyRamCloud->baseClass,
+    Arachne::createThread(DISPATCH_THREAD_CLASS,
         &realMain, argc, const_cast<char**>(argv));
     Arachne::waitForTermination();
 }
