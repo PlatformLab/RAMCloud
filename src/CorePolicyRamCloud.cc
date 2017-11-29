@@ -60,12 +60,13 @@ void CorePolicyRamCloud::addCore(int coreId) {
  */
 int CorePolicyRamCloud::getHyperTwin(int coreId) {
     // This file contains the siblings of core coreId.
-    std::string siblingFilePath = "/sys/devices/system/cpu/cpu" + std::to_string(coreId) + "/topology/thread_siblings_list";
+    std::string siblingFilePath = "/sys/devices/system/cpu/cpu"
+     + std::to_string(coreId) + "/topology/thread_siblings_list";
     FILE* siblingFile = fopen(siblingFilePath.c_str(), "r");
     int cpu1;
     int cpu2;
-    // If there is a hypertwin, the file is of the form "int1,int2", where int1 < int2
-    // and one is coreId and the other is the hypertwin's ID.
+    // If there is a hypertwin, the file is of the form "int1,int2", where
+    // int1 < int2 and one is coreId and the other is the hypertwin's ID.
     // Return -1 if no hypertwin found.
     if (fscanf(siblingFile, "%d,%d", &cpu1, &cpu2) < 2)
         return -1;
