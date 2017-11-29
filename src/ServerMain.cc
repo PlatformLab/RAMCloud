@@ -378,12 +378,12 @@ main(int argc, const char *argv[]) {
     FileLogger arachneLogger(NOTICE, "ARACHNE: ");
     Arachne::setErrorStream(arachneLogger.getFile());
 
-    Arachne::minNumCores = 2;
+    Arachne::minNumCores = 3;
     Arachne::maxNumCores = 7;
     Arachne::initCore = [] () {
         PerfStats::registerStats(&PerfStats::threadStats);
     };
-    corePolicyRamCloud = new CorePolicy();
+    corePolicyRamCloud = new CorePolicyRamCloud();
     Arachne::init(corePolicyRamCloud, &argc, argv);
     Arachne::createThread(corePolicyRamCloud->baseClass,
         &realMain, argc, const_cast<char**>(argv));

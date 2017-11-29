@@ -178,7 +178,7 @@ main(int argc, const char *argv[]) {
     Arachne::initCore = [] () {
         PerfStats::registerStats(&PerfStats::threadStats);
     };
-    corePolicyRamCloud = new CorePolicy();
+    corePolicyRamCloud = new CorePolicyRamCloud();
     Arachne::init(corePolicyRamCloud, &argc, argv);
     // Invoke realMain outside of Arachne for now so we can defer handling of
     // the fact that the dispatch thread does not yield or terminate until we

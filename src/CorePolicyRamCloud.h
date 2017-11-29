@@ -18,6 +18,21 @@
 
 #include "Arachne/CorePolicy.h"
 
+#define BASE_THREAD_CLASS 0
+#define DISPATCH_THREAD_CLASS 1
+
 extern CorePolicy* corePolicyRamCloud;
+
+class CorePolicyRamCloud : public CorePolicy {
+  public:
+    /** Constructor and destructor for CorePolicyRamCloud. */
+    CorePolicyRamCloud() : CorePolicy() {}
+
+    void addCore(int coreId);
+    void removeCore(int coreId);
+    uint32_t maxClass() { return 0U; }
+
+    threadClass_t dispatchClass = DISPATCH_THREAD_CLASS;
+};
 
 #endif // !RAMCLOUD_COREPOLICYRAMCLOUD_H

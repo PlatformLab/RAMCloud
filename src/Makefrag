@@ -64,6 +64,7 @@ SHARED_SRCFILES := \
 		   src/ClientException.cc \
 		   src/ClusterMetrics.cc \
 		   src/CodeLocation.cc \
+		   src/CorePolicyRamCloud.cc \
 		   src/Common.cc \
 		   src/Cycles.cc \
 		   src/DataBlock.cc \
