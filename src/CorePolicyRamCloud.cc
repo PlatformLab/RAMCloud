@@ -21,6 +21,8 @@
 
 using namespace RAMCloud;
 
+void blockForever();
+
 /**
   * Update threadCoreMap when a new core is added.  Takes in the coreId
   * of the new core.  Assigns the first core to the dispatch class and
@@ -39,7 +41,11 @@ void CorePolicyRamCloud::addCore(int coreId) {
     } else if (sched_getcpu() == dispatchHyperTwin) {
         LOG(NOTICE, "Dispatch thread hypertwin added on core %d with coreId %d",
             sched_getcpu(), coreId);
+        threadCoreMapEntry* dispatchHTEntry = threadCoreMap[dispatchHTClass];
+        dispatchHTEntry->map[0] = coreId;
+        dispatchHTEntry->numFilled++;
         Arachne::numExclusiveCores++;
+        Arachne::createThread(dispatchHTClass, blockForever);
         return;
     }
     LOG(NOTICE, "New core %d with coreId %d",
@@ -67,4 +73,10 @@ int CorePolicyRamCloud::getHyperTwin(int coreId) {
         return cpu2;
     else
         return cpu1;
+}
+
+void blockForever() {
+    while (1) {
+        sleep(1000);
+    }
 }

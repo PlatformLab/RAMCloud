@@ -20,6 +20,7 @@
 
 #define BASE_THREAD_CLASS 0
 #define DISPATCH_THREAD_CLASS 1
+#define DISPATCH_HT_THREAD_CLASS 2
 
 extern CorePolicy* corePolicyRamCloud;
 
@@ -29,9 +30,10 @@ class CorePolicyRamCloud : public CorePolicy {
     CorePolicyRamCloud() : CorePolicy() {}
 
     void addCore(int coreId);
-    uint32_t maxClass() { return 1U; }
+    uint32_t maxClass() { return 2U; }
 
     threadClass_t dispatchClass = DISPATCH_THREAD_CLASS;
+    threadClass_t dispatchHTClass = DISPATCH_HT_THREAD_CLASS;
    private:
     int dispatchHyperTwin = -1;
     int getHyperTwin(int coreId);
