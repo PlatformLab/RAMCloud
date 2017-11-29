@@ -32,6 +32,9 @@ class CorePolicyRamCloud : public CorePolicy {
     uint32_t maxClass() { return 1U; }
 
     threadClass_t dispatchClass = DISPATCH_THREAD_CLASS;
+   private:
+    int dispatchHyperTwin = -1;
+    int getHyperTwin(int coreId);
 };
 
 #endif // !RAMCLOUD_COREPOLICYRAMCLOUD_H

@@ -13,24 +13,58 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "CorePolicyRamCloud.h"
-#include "Arachne/CorePolicy.h"
+#include "ShortMacros.h"
 #include "Arachne/Arachne.h"
+#include "Arachne/CorePolicy.h"
+#include "CorePolicyRamCloud.h"
+#include "FileLogger.h"
+
+using namespace RAMCloud;
 
 /**
   * Update threadCoreMap when a new core is added.  Takes in the coreId
   * of the new core.  Assigns the first core to the dispatch class and
   * all others to the base class.
-**/
+  */
 void CorePolicyRamCloud::addCore(int coreId) {
-  threadCoreMapEntry* dispatchEntry = threadCoreMap[dispatchClass];
-  if (dispatchEntry->numFilled == 0) {
-    dispatchEntry->map[0] = coreId;
-    dispatchEntry->numFilled++;
-    Arachne::numExclusiveCores++;
-    return;
-  }
-  threadCoreMapEntry* entry = threadCoreMap[baseClass];
-  entry->map[entry->numFilled] = coreId;
-  entry->numFilled++;
+    threadCoreMapEntry* dispatchEntry = threadCoreMap[dispatchClass];
+    if (dispatchEntry->numFilled == 0) {
+        dispatchEntry->map[0] = coreId;
+        dispatchEntry->numFilled++;
+        Arachne::numExclusiveCores++;
+        dispatchHyperTwin = getHyperTwin(sched_getcpu());
+        LOG(NOTICE, "Dispatch thread on core %d with coreId %d",
+            sched_getcpu(), coreId);
+        return;
+    } else if (sched_getcpu() == dispatchHyperTwin) {
+        LOG(NOTICE, "Dispatch thread hypertwin added on core %d with coreId %d",
+            sched_getcpu(), coreId);
+        Arachne::numExclusiveCores++;
+        return;
+    }
+    LOG(NOTICE, "New core %d with coreId %d",
+        sched_getcpu(), coreId);
+    threadCoreMapEntry* entry = threadCoreMap[baseClass];
+    entry->map[entry->numFilled] = coreId;
+    entry->numFilled++;
+}
+
+/* 
+ * Return the hypertwin of coreId.  Return -1 if there is none.
+ */
+int CorePolicyRamCloud::getHyperTwin(int coreId) {
+    // This file contains the siblings of core coreId.
+    std::string siblingFilePath = "/sys/devices/system/cpu/cpu" + std::to_string(coreId) + "/topology/thread_siblings_list";
+    FILE* siblingFile = fopen(siblingFilePath.c_str(), "r");
+    int cpu1;
+    int cpu2;
+    // If there is a hypertwin, the file is of the form "int1,int2", where int1 < int2
+    // and one is coreId and the other is the hypertwin's ID.
+    // Return -1 if no hypertwin found.
+    if (fscanf(siblingFile, "%d,%d", &cpu1, &cpu2) < 2)
+        return -1;
+    if (coreId == cpu1)
+        return cpu2;
+    else
+        return cpu1;
 }
