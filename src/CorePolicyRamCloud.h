@@ -29,11 +29,16 @@ class CorePolicyRamCloud : public CorePolicy {
     /** Constructor and destructor for CorePolicyRamCloud. */
     CorePolicyRamCloud() : CorePolicy() {}
 
+    void bootstrapLoadEstimator();
     void addCore(int coreId);
     uint32_t maxClass() { return 2U; }
 
+    /* Thread class for the dispatch thread. Gets a core to itself */
     threadClass_t dispatchClass = DISPATCH_THREAD_CLASS;
+    /* Thread class used to protect the dispatch thread's hypertwin. */
     threadClass_t dispatchHTClass = DISPATCH_HT_THREAD_CLASS;
+    /* Cores occupied by the dispatch thread and its hypertwin. */
+    int numNecessaryCores = 0;
    private:
     int dispatchHyperTwin = -1;
     int getHyperTwin(int coreId);
