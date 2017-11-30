@@ -82,7 +82,7 @@ void CorePolicyRamCloud::bootstrapLoadEstimator() {
   * all others to the base class.
   */
 void CorePolicyRamCloud::addCore(int coreId) {
-    threadCoreMapEntry* dispatchEntry = threadCoreMap[dispatchClass];
+    ThreadCoreMapEntry* dispatchEntry = threadCoreMap[dispatchClass];
     if (dispatchEntry->numFilled == 0) {
         dispatchEntry->map[0] = coreId;
         dispatchEntry->numFilled++;
@@ -94,7 +94,7 @@ void CorePolicyRamCloud::addCore(int coreId) {
     } else if (sched_getcpu() == dispatchHyperTwin) {
         LOG(NOTICE, "Dispatch thread hypertwin added on core %d with coreId %d",
             sched_getcpu(), coreId);
-        threadCoreMapEntry* dispatchHTEntry = threadCoreMap[dispatchHTClass];
+        ThreadCoreMapEntry* dispatchHTEntry = threadCoreMap[dispatchHTClass];
         dispatchHTEntry->map[0] = coreId;
         dispatchHTEntry->numFilled++;
         numNecessaryCores++;
@@ -103,7 +103,7 @@ void CorePolicyRamCloud::addCore(int coreId) {
     }
     LOG(NOTICE, "New core %d with coreId %d",
         sched_getcpu(), coreId);
-    threadCoreMapEntry* entry = threadCoreMap[baseClass];
+    ThreadCoreMapEntry* entry = threadCoreMap[baseClass];
     entry->map[entry->numFilled] = coreId;
     entry->numFilled++;
 }
