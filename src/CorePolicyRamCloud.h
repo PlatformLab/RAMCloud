@@ -31,7 +31,6 @@ class CorePolicyRamCloud : public CorePolicy {
 
     void bootstrapLoadEstimator();
     void addCore(int coreId);
-    uint32_t maxClass() { return 2U; }
 
     /* Thread class for the dispatch thread. Gets a core to itself */
     threadClass_t dispatchClass = DISPATCH_THREAD_CLASS;

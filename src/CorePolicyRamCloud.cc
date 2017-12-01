@@ -72,17 +72,17 @@ void blockForever();
   */
 void CorePolicyRamCloud::bootstrapLoadEstimator() {
     RAMCloudutilizationThresholds = new double[Arachne::maxNumCores];
-    Arachne::createThread(baseClass, coreLoadEstimator, this);
+    Arachne::createThread(defaultClass, coreLoadEstimator, this);
 }
 
 
 /**
-  * Update threadCoreMap when a new core is added.  Takes in the coreId
+  * Update threadClassCoreMap when a new core is added.  Takes in the coreId
   * of the new core.  Assigns the first core to the dispatch class and
   * all others to the base class.
   */
 void CorePolicyRamCloud::addCore(int coreId) {
-    ThreadCoreMapEntry* dispatchEntry = threadCoreMap[dispatchClass];
+    CoreList* dispatchEntry = threadClassCoreMap[dispatchClass];
     if (dispatchEntry->numFilled == 0) {
         dispatchEntry->map[0] = coreId;
         dispatchEntry->numFilled++;
@@ -92,9 +92,9 @@ void CorePolicyRamCloud::addCore(int coreId) {
             sched_getcpu(), coreId);
         return;
     } else if (sched_getcpu() == dispatchHyperTwin) {
-        LOG(NOTICE, "Dispatch thread hypertwin added on core %d with coreId %d",
+        LOG(NOTICE, "Dispatch thread hypertwin on core %d with coreId %d",
             sched_getcpu(), coreId);
-        ThreadCoreMapEntry* dispatchHTEntry = threadCoreMap[dispatchHTClass];
+        CoreList* dispatchHTEntry = threadClassCoreMap[dispatchHTClass];
         dispatchHTEntry->map[0] = coreId;
         dispatchHTEntry->numFilled++;
         numNecessaryCores++;
@@ -103,7 +103,7 @@ void CorePolicyRamCloud::addCore(int coreId) {
     }
     LOG(NOTICE, "New core %d with coreId %d",
         sched_getcpu(), coreId);
-    ThreadCoreMapEntry* entry = threadCoreMap[baseClass];
+    CoreList* entry = threadClassCoreMap[defaultClass];
     entry->map[entry->numFilled] = coreId;
     entry->numFilled++;
 }
@@ -144,6 +144,8 @@ void coreLoadEstimator(CorePolicyRamCloud* corePolicy) {
     Arachne::PerfStats previousStats;
     Arachne::PerfStats::collectStats(&previousStats);
 
+    // Each loop cycle makes measurements and uses them to evaluate whether
+    // to increment the core count, decrement it, or do nothing.
     for (Arachne::PerfStats currentStats; ; previousStats = currentStats) {
         Arachne::sleep(MEASUREMENT_PERIOD);
         Arachne::PerfStats::collectStats(&currentStats);
@@ -195,7 +197,8 @@ void coreLoadEstimator(CorePolicyRamCloud* corePolicy) {
 
         // Scale down if the idle time after scale down is greater than the
         // time at which we scaled up, plus a hysteresis threshold.
-        if (totalUtilizedCores < RAMCloudutilizationThresholds[numSharedCores - 1]
+        if (totalUtilizedCores <
+                RAMCloudutilizationThresholds[numSharedCores - 1]
                 - idleCoreFractionHysteresis &&
                 averageNumSlotsUsed < SLOT_OCCUPANCY_THRESHOLD) {
             Arachne::decrementCoreCount();
