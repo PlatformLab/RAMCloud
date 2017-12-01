@@ -29,7 +29,6 @@ class CorePolicyRamCloud : public CorePolicy {
     /** Constructor and destructor for CorePolicyRamCloud. */
     CorePolicyRamCloud() : CorePolicy() {}
 
-    void bootstrapLoadEstimator();
     void addCore(int coreId);
 
     /* Thread class for the dispatch thread. Gets a core to itself */

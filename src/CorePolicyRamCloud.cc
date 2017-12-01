@@ -39,7 +39,7 @@ const double loadFactorThreshold = 1.0;
   * Save the core fraction at which we ramped up based on load factor, so we
   * can decide whether to ramp down.  Allocated in bootstrapLoadEstimator.
   */
-double *RAMCloudutilizationThresholds;
+double *RAMCloudUtilizationThresholds = NULL;
 
 /**
   * The difference in load, expressed as a fraction of a core, between a
@@ -63,18 +63,6 @@ const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 
 void coreLoadEstimator(CorePolicyRamCloud* corePolicy);
 void blockForever();
-
-/**
-  * Bootstrap the core load estimator thread.  This must be done separately
-  * from the CorePolicy constructor because the constructor must run before
-  * Arachne adds any cores, but the core load estimator must run after
-  * Arachne has cores.
-  */
-void CorePolicyRamCloud::bootstrapLoadEstimator() {
-    RAMCloudutilizationThresholds = new double[Arachne::maxNumCores];
-    Arachne::createThread(defaultClass, coreLoadEstimator, this);
-}
-
 
 /**
   * Update threadClassCoreMap when a new core is added.  Takes in the coreId
@@ -106,6 +94,11 @@ void CorePolicyRamCloud::addCore(int coreId) {
     CoreList* entry = threadClassCoreMap[defaultClass];
     entry->map[entry->numFilled] = coreId;
     entry->numFilled++;
+    if (RAMCloudUtilizationThresholds == NULL && 
+      !Arachne::disableLoadEstimation) {
+        RAMCloudUtilizationThresholds = new double[Arachne::maxNumCores];
+        Arachne::createThread(defaultClass, coreLoadEstimator, this);
+    }
 }
 
 /* 
@@ -184,7 +177,7 @@ void coreLoadEstimator(CorePolicyRamCloud* corePolicy) {
                 averageLoadFactor > loadFactorThreshold) {
             // Record our current totalUtilizedCores, so we will only ramp down
             // if utilization would drop below this level.
-            RAMCloudutilizationThresholds[numSharedCores] = totalUtilizedCores;
+            RAMCloudUtilizationThresholds[numSharedCores] = totalUtilizedCores;
             Arachne::incrementCoreCount();
             continue;
         }
@@ -198,7 +191,7 @@ void coreLoadEstimator(CorePolicyRamCloud* corePolicy) {
         // Scale down if the idle time after scale down is greater than the
         // time at which we scaled up, plus a hysteresis threshold.
         if (totalUtilizedCores <
-                RAMCloudutilizationThresholds[numSharedCores - 1]
+                RAMCloudUtilizationThresholds[numSharedCores - 1]
                 - idleCoreFractionHysteresis &&
                 averageNumSlotsUsed < SLOT_OCCUPANCY_THRESHOLD) {
             Arachne::decrementCoreCount();
