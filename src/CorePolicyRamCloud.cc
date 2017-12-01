@@ -22,46 +22,9 @@
 
 using namespace RAMCloud;
 
-/**
-  * Arachne will attempt to increase the number of cores if the idle core
-  * fraction (computed as idlePercentage * numSharedCores) is less than this
-  * number.
-  */
-const double maxIdleCoreFraction = 0.1;
+/* Is the core load estimator running? */
+bool loadEstimatorRunning = false;
 
-/**
-  * Arachne will attempt to increase the number of cores if the load factor
-  * increases beyond this threshold.
-  */
-const double loadFactorThreshold = 1.0;
-
-/**
-  * Save the core fraction at which we ramped up based on load factor, so we
-  * can decide whether to ramp down.  Allocated in bootstrapLoadEstimator.
-  */
-double *RAMCloudUtilizationThresholds = NULL;
-
-/**
-  * The difference in load, expressed as a fraction of a core, between a
-  * ramp-down threshold and the corresponding ramp-up threshold (i.e., we
-  * wait to ramp down until the load gets a bit below the point at 
-  * which we ramped up).
-  */
-const double idleCoreFractionHysteresis = 0.2;
-
-/**
-  * Do not ramp down if the percentage of occupied threadContext slots is
-  * above this threshold.
-  */
-const double SLOT_OCCUPANCY_THRESHOLD = 0.5;
-
-/**
-  * The period in ns over which we measure before deciding to reduce the number
-  * of cores we use.
-  */
-const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
-
-void coreLoadEstimator(CorePolicyRamCloud* corePolicy);
 void blockForever();
 
 /**
@@ -74,7 +37,6 @@ void CorePolicyRamCloud::addCore(int coreId) {
     if (dispatchEntry->numFilled == 0) {
         dispatchEntry->map[0] = coreId;
         dispatchEntry->numFilled++;
-        numNecessaryCores++;
         dispatchHyperTwin = getHyperTwin(sched_getcpu());
         LOG(NOTICE, "Dispatch thread on core %d with coreId %d",
             sched_getcpu(), coreId);
@@ -85,7 +47,6 @@ void CorePolicyRamCloud::addCore(int coreId) {
         CoreList* dispatchHTEntry = threadClassCoreMap[dispatchHTClass];
         dispatchHTEntry->map[0] = coreId;
         dispatchHTEntry->numFilled++;
-        numNecessaryCores++;
         Arachne::createThread(dispatchHTClass, blockForever);
         return;
     }
@@ -94,10 +55,10 @@ void CorePolicyRamCloud::addCore(int coreId) {
     CoreList* entry = threadClassCoreMap[defaultClass];
     entry->map[entry->numFilled] = coreId;
     entry->numFilled++;
-    if (RAMCloudUtilizationThresholds == NULL && 
+    if (!loadEstimatorRunning &&
       !Arachne::disableLoadEstimation) {
-        RAMCloudUtilizationThresholds = new double[Arachne::maxNumCores];
-        Arachne::createThread(defaultClass, coreLoadEstimator, this);
+        loadEstimatorRunning = true;
+        runLoadEstimator();
     }
 }
 
@@ -122,79 +83,9 @@ int CorePolicyRamCloud::getHyperTwin(int coreId) {
         return cpu1;
 }
 
+/* Block in the kernel forever. */
 void blockForever() {
     while (1) {
         sleep(1000);
-    }
-}
-
-/**
-  * Periodically wake up and observe the current load in Arachne to determine
-  * whether it is necessary to increase or reduce the number of cores used by
-  * Arachne.  Runs as the top-level method in an Arachne thread.
-  */
-void coreLoadEstimator(CorePolicyRamCloud* corePolicy) {
-    Arachne::PerfStats previousStats;
-    Arachne::PerfStats::collectStats(&previousStats);
-
-    // Each loop cycle makes measurements and uses them to evaluate whether
-    // to increment the core count, decrement it, or do nothing.
-    for (Arachne::PerfStats currentStats; ; previousStats = currentStats) {
-        Arachne::sleep(MEASUREMENT_PERIOD);
-        Arachne::PerfStats::collectStats(&currentStats);
-
-        // Take a snapshot of currently active cores before performing
-        // estimation to avoid races between estimation and the fulfillment of
-        // a previous core request.
-        uint32_t curActiveCores = Arachne::numActiveCores;
-
-        // Necessary cores should contribute nothing to statistics relevant to
-        // core estimation during the period over which they are exclusive.
-        int numSharedCores = curActiveCores - corePolicy->numNecessaryCores;
-
-        // Evaluate idle time precentage multiplied by number of cores to
-        // determine whether we need to decrease the number of cores.
-        uint64_t idleCycles =
-            currentStats.idleCycles - previousStats.idleCycles;
-        uint64_t totalCycles =
-            currentStats.totalCycles - previousStats.totalCycles;
-        uint64_t utilizedCycles = totalCycles - idleCycles;
-        uint64_t totalMeasurementCycles =
-            Cycles::fromNanoseconds(MEASUREMENT_PERIOD);
-        double totalUtilizedCores =
-            static_cast<double>(utilizedCycles) /
-            static_cast<double>(totalMeasurementCycles);
-
-        // Estimate load to determine whether we need to increment the number
-        // of cores.
-        uint64_t weightedLoadedCycles =
-            currentStats.weightedLoadedCycles -
-            previousStats.weightedLoadedCycles;
-        double averageLoadFactor =
-            static_cast<double>(weightedLoadedCycles) /
-            static_cast<double>(totalCycles);
-        if (curActiveCores < Arachne::maxNumCores &&
-                averageLoadFactor > loadFactorThreshold) {
-            // Record our current totalUtilizedCores, so we will only ramp down
-            // if utilization would drop below this level.
-            RAMCloudUtilizationThresholds[numSharedCores] = totalUtilizedCores;
-            Arachne::incrementCoreCount();
-            continue;
-        }
-
-        // We should not ramp down if we have high occupancy of slots.
-        double averageNumSlotsUsed = static_cast<double>(
-                currentStats.numThreadsCreated -
-                currentStats.numThreadsFinished) /
-                numSharedCores / Arachne::maxThreadsPerCore;
-
-        // Scale down if the idle time after scale down is greater than the
-        // time at which we scaled up, plus a hysteresis threshold.
-        if (totalUtilizedCores <
-                RAMCloudUtilizationThresholds[numSharedCores - 1]
-                - idleCoreFractionHysteresis &&
-                averageNumSlotsUsed < SLOT_OCCUPANCY_THRESHOLD) {
-            Arachne::decrementCoreCount();
-        }
     }
 }

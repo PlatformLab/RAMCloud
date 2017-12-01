@@ -35,8 +35,6 @@ class CorePolicyRamCloud : public CorePolicy {
     threadClass_t dispatchClass = DISPATCH_THREAD_CLASS;
     /* Thread class used to protect the dispatch thread's hypertwin. */
     threadClass_t dispatchHTClass = DISPATCH_HT_THREAD_CLASS;
-    /* Cores occupied by the dispatch thread and its hypertwin. */
-    int numNecessaryCores = 0;
    private:
     int dispatchHyperTwin = -1;
     int getHyperTwin(int coreId);
