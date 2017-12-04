@@ -23,7 +23,7 @@
 using namespace RAMCloud;
 
 /* Is the core load estimator running? */
-bool loadEstimatorRunning = false;
+bool ramCloudLoadEstimatorRunning = false;
 
 void blockForever();
 
@@ -55,9 +55,9 @@ void CorePolicyRamCloud::addCore(int coreId) {
     CoreList* entry = threadClassCoreMap[defaultClass];
     entry->map[entry->numFilled] = coreId;
     entry->numFilled++;
-    if (!loadEstimatorRunning &&
+    if (!ramCloudLoadEstimatorRunning &&
       !Arachne::disableLoadEstimation) {
-        loadEstimatorRunning = true;
+        ramCloudLoadEstimatorRunning = true;
         runLoadEstimator();
     }
 }

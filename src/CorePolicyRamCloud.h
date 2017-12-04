@@ -32,9 +32,9 @@ class CorePolicyRamCloud : public CorePolicy {
     void addCore(int coreId);
 
     /* Thread class for the dispatch thread. Gets a core to itself */
-    threadClass_t dispatchClass = DISPATCH_THREAD_CLASS;
+    static const ThreadClass dispatchClass = DISPATCH_THREAD_CLASS;
     /* Thread class used to protect the dispatch thread's hypertwin. */
-    threadClass_t dispatchHTClass = DISPATCH_HT_THREAD_CLASS;
+    static const ThreadClass dispatchHTClass = DISPATCH_HT_THREAD_CLASS;
    private:
     int dispatchHyperTwin = -1;
     int getHyperTwin(int coreId);
