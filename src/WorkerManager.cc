@@ -296,9 +296,6 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
         Service::handleRpc(context, &rpc);
 
         // Pass the RPC back to the dispatch thread for completion.
-        timeTrace("ID %u: Finished processing opcode %d; signal dispatch "
-            "on KT %d on core %d", serverRpc->id, serverRpc->header->opcode,
-            Arachne::core.kernelThreadId, sched_getcpu());
         worker.sendReply();
 
         // Update performance statistics.
