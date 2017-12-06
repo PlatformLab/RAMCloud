@@ -26,7 +26,7 @@ extern CorePolicy* corePolicyRamCloud;
 
 class CorePolicyRamCloud : public CorePolicy {
   public:
-    /** Constructor and destructor for CorePolicyRamCloud. */
+    /* Constructor and destructor for CorePolicyRamCloud. */
     CorePolicyRamCloud() : CorePolicy() {
         ramCloudCoreBlocker = new CoreBlocker();
     }
@@ -39,7 +39,9 @@ class CorePolicyRamCloud : public CorePolicy {
     /* Thread class used to protect the dispatch thread's hypertwin. */
     static const ThreadClass dispatchHTClass = DISPATCH_HT_THREAD_CLASS;
    private:
+    /* The CPU number of the dispatch thread's hypertwin. */
     int dispatchHyperTwin = -1;
+    /* The CoreBlocker protecting the dispatch thread's hypertwin. */
     CoreBlocker* ramCloudCoreBlocker;
     int getHyperTwin(int coreId);
 };

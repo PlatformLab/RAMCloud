@@ -25,13 +25,18 @@ using namespace RAMCloud;
 /* Is the core load estimator running? */
 bool ramCloudLoadEstimatorRunning = false;
 
-/**
-  * Update threadClassCoreMap when a new core is added.  Takes in the coreId
-  * of the new core.  Assigns the first core to the dispatch class and
-  * all others to the base class.
-  */
+/*
+ * Update threadClassCoreMap when a new core is added.  Takes in the coreId
+ * of the new core.  Assigns the first core to the dispatch class, the
+ * hypertwin of that one to the dispatchHyperTwin class, and all others to the
+ * default class.
+ *
+ * \param coreId
+ *     The coreId of the new core.
+ */
 void CorePolicyRamCloud::addCore(int coreId) {
     CoreList* dispatchEntry = threadClassCoreMap[dispatchClass];
+    // Assign the dispatch thread to the first core that comes up.
     if (dispatchEntry->numFilled == 0) {
         dispatchEntry->map[0] = coreId;
         dispatchEntry->numFilled++;
@@ -39,6 +44,7 @@ void CorePolicyRamCloud::addCore(int coreId) {
         LOG(NOTICE, "Dispatch thread on core %d with coreId %d",
             sched_getcpu(), coreId);
         return;
+    // Assign the dispatch thread's hypertwin when it shows up.
     } else if (sched_getcpu() == dispatchHyperTwin) {
         LOG(NOTICE, "Dispatch thread hypertwin on core %d with coreId %d",
             sched_getcpu(), coreId);
@@ -49,11 +55,13 @@ void CorePolicyRamCloud::addCore(int coreId) {
             ramCloudCoreBlocker, sched_getcpu());
         return;
     }
+    // Everything else gets assigned to the default class.
     LOG(NOTICE, "New core %d with coreId %d",
         sched_getcpu(), coreId);
     CoreList* entry = threadClassCoreMap[defaultClass];
     entry->map[entry->numFilled] = coreId;
     entry->numFilled++;
+    // Boostrap the coreLoadEstimator as soon as possible.
     if (!ramCloudLoadEstimatorRunning &&
       !Arachne::disableLoadEstimation) {
         ramCloudLoadEstimatorRunning = true;
@@ -63,6 +71,9 @@ void CorePolicyRamCloud::addCore(int coreId) {
 
 /* 
  * Return the hypertwin of coreId.  Return -1 if there is none.
+ *
+ * \param coreId
+ *     The coreId whose hypertwin will be returned.
  */
 int CorePolicyRamCloud::getHyperTwin(int coreId) {
     // This file contains the siblings of core coreId.
