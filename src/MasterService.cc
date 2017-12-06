@@ -3256,19 +3256,26 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         WireFormat::Write::Response* respHdr,
         Rpc* rpc)
 {
-    TimeTrace::record("TID: %d MasterService write rpc handler start.", rpc->worker->threadId);
+//    TimeTrace::record("TID: %d MasterService write rpc handler start.", rpc->worker->threadId);
     assert(reqHdr->common.rpcId > 0);
     // TODO(seojin): remove this hack after discussion...
     uint64_t ackId = reqHdr->common.ackId;
     if (reqHdr->common.asyncType == WireFormat::Asynchrony::RETRY) {
         ackId = 0;
     }
-    TimeTrace::record("TID: %d MasterService UnackedRpcHandle start", rpc->worker->threadId);
+//    TimeTrace::record("TID: %d MasterService UnackedRpcHandle start", rpc->worker->threadId);
     UnackedRpcHandle rh(&unackedRpcResults,
                         reqHdr->common.lease, reqHdr->common.rpcId, ackId);
-    TimeTrace::record("TID: %d MasterService UnackedRpcHandle end", rpc->worker->threadId);
+//    TimeTrace::record("TID: %d MasterService UnackedRpcHandle end", rpc->worker->threadId);
     if (rh.isDuplicate()) {
         *respHdr = parseRpcResult<WireFormat::Write>(rh.resultLoc());
+        rpc->sendReply();
+        return;
+    }
+    
+    if (reqHdr->common.witnessListVersion < witnessTracker.getVersion()) {
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
+        LOG(WARNING, "RPC with old witness version is detected.");
         rpc->sendReply();
         return;
     }
@@ -3302,14 +3309,14 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             reqHdr->common.ackId, respHdr, sizeof(*respHdr));
 
     // Write the object.
-    TimeTrace::record("TID: %d MasterService writeObject start", rpc->worker->threadId);
+//    TimeTrace::record("TID: %d MasterService writeObject start", rpc->worker->threadId);
     Log::Reference removedObjReference;
     respHdr->common.status = objectManager.writeObject(
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
             &rpcResult, &rpcResultPtr, &respHdr->common.logState,
             reqHdr->common.asyncType == WireFormat::Asynchrony::RETRY,
             &removedObjReference);
-    TimeTrace::record("TID: %d MasterService writeObject end", rpc->worker->threadId);
+//    TimeTrace::record("TID: %d MasterService writeObject end", rpc->worker->threadId);
 
     bool asyncReplication = reqHdr->common.asyncType == WireFormat::ASYNC;
     LogPosition synced(0, 0);
@@ -3343,39 +3350,38 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         respHdr->common.logState.headSegmentId = synced.getSegmentId();
         respHdr->common.logState.synced = synced.getSegmentOffset();
         respHdr->common.logState.appended = synced.getSegmentOffset();
-//        if (respHdr->common.logState.headSegmentId == synced.getSegmentId()) {
-//            respHdr->common.logState.synced = synced.getSegmentOffset();
-//        } else {
-//            // TODO: update headSegmentId instead..
-//            respHdr->common.logState.synced = 1000000000; // Just give 1 GB..
-//        }
     }
 
+    
+    // Save all request data that will be necessary after replying
+    // since request buffer may be reused for next RPC after replying.
+    WireFormat::LogState logState = respHdr->common.logState;
+    uint64_t leaseId = reqHdr->common.lease.leaseId;
+    uint64_t rpcId = reqHdr->common.rpcId;
+    KeyHash pkHash = object.getPKHash();
+    
     // Respond to the client RPC now. Removing old index entries can be
     // done asynchronously while maintaining strong consistency.
     rpc->sendReply();
-    TimeTrace::record("TID: %d MasterService write rpc handler replied.", rpc->worker->threadId);
+//    TimeTrace::record("TID: %d MasterService write rpc handler replied.", rpc->worker->threadId);
     // reqHdr, respHdr, and rpc are off-limits now!
 
     // Hueristic hack to reduce CGAR key collision...
     // Start sync if previous value was written recently.
     bool syncEarly = false;
-//    if (removedObjReference.toInteger()) {
-//        syncEarly = objectManager.getLog()->writtenRecently(removedObjReference,
-//                40000 * WitnessTracker::syncBatchSize);
-//    }
+    if (removedObjReference.toInteger()) {
+        syncEarly = objectManager.getLog()->writtenRecently(removedObjReference,
+//                200 * 200);
+                40000 * WitnessTracker::syncBatchSize);
+    }
 
     // TODO(seojin): remove this to dedicated replication thread.
     if (asyncReplication && !didSync) {
-        if (reqHdr->common.witnessListVersion < witnessTracker.getVersion()) {
-            respHdr->common.status = STATUS_UNKNOWN_TABLET;
-            LOG(WARNING, "RPC with old witness version is detected.");
-        }
-        LogPosition logPos(respHdr->common.logState.headSegmentId,
-                           respHdr->common.logState.appended);
-        witnessTracker.registerRpcAndSyncBatch(syncEarly, object.getPKHash(),
-                reqHdr->common.lease.leaseId, reqHdr->common.rpcId, logPos);
-        TimeTrace::record("TID: %d MasterService write rpc registerRpcAndSyncBatch to backup.", rpc->worker->threadId);
+        LogPosition logPos(logState.headSegmentId,
+                           logState.appended);
+        witnessTracker.registerRpcAndSyncBatch(syncEarly, pkHash, leaseId,
+                                               rpcId, logPos);
+//        TimeTrace::record("TID: %d MasterService write rpc registerRpcAndSyncBatch to backup.", rpc->worker->threadId);
     }
     if (didSync) {
         witnessTracker.freeWitnessEntries(synced);
