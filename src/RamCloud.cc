@@ -2966,7 +2966,7 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 
     request.appendExternal(rawRequest.data, rawRequest.size);
 
-    TimeTrace::record("WriteRpc request preparation.");
+//    TimeTrace::record("WriteRpc request preparation.");
     send();
 }
 
@@ -3047,9 +3047,9 @@ WriteRpc::~WriteRpc()
 void
 WriteRpc::wait(uint64_t* version)
 {
-    TimeTrace::record("WriteRpc wait before waitInternal.");
+//    TimeTrace::record("WriteRpc wait before waitInternal.");
     waitInternal(context->dispatch);
-    TimeTrace::record("WriteRpc wait waitInternal done.");
+//    TimeTrace::record("WriteRpc wait waitInternal done.");
     const WireFormat::Write::Response* respHdr(
             getResponseHeader<WireFormat::Write>());
 
@@ -3060,19 +3060,20 @@ WriteRpc::wait(uint64_t* version)
         ClientException::throwException(HERE, respHdr->common.status);
 
     // TODO(seojin): Remove this after changing multi-key write constructor.
-    if (rawRequest.data) {
-        WireFormat::Write::Request* reqHdr =
-                reinterpret_cast<WireFormat::Write::Request*>(rawRequest.data);
-        if (reqHdr->common.asyncType == WireFormat::Asynchrony::ASYNC) {
-            ramcloud->unsyncedRpcTracker->registerUnsynced(session, rawRequest,
-                    tableId, keyHash, respHdr->version,
-                    respHdr->common.logState, [](){});
-            rawRequest.data = NULL;
-            rawRequest.size = 0;
-        }
-        TimeTrace::record("registerUnsynced()");
-    }
-    TimeTrace::record("WriteRpc wait done.");
+    // Disabled CGAR-C features.
+//    if (rawRequest.data) {
+//        WireFormat::Write::Request* reqHdr =
+//                reinterpret_cast<WireFormat::Write::Request*>(rawRequest.data);
+//        if (reqHdr->common.asyncType == WireFormat::Asynchrony::ASYNC) {
+//            ramcloud->unsyncedRpcTracker->registerUnsynced(session, rawRequest,
+//                    tableId, keyHash, respHdr->version,
+//                    respHdr->common.logState, [](){});
+//            rawRequest.data = NULL;
+//            rawRequest.size = 0;
+//        }
+//        TimeTrace::record("registerUnsynced()");
+//    }
+//    TimeTrace::record("WriteRpc wait done.");
 }
 
 }  // namespace RAMCloud

@@ -189,7 +189,7 @@ UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
         } else {
             for (int i = 0; i < WITNESS_PER_MASTER; ++i) {
                 bool accepted = witnessRecordRpcs[i]->wait();
-                TimeTrace::record("Witness wait.");
+                TimeTrace::record("Received response from witness.");
                 if (!accepted) {
                     // Witness rejected recording request. Must sync..
                     shouldSync = true;
@@ -212,26 +212,28 @@ UnsyncedObjectRpcWrapper::waitInternal(Dispatch* dispatch,
     // This is also called in register unsynced... WTH.. remove one in
     // registerUnsynced. I am keeping this here to benefit for synchronous RPC's
     // result as well.
-    ramcloud->unsyncedRpcTracker->updateLogState(session.get(),
-                                                 respCommon->logState);
+    // Disabled CGAR-C
+//    ramcloud->unsyncedRpcTracker->updateLogState(session.get(),
+//                                                 respCommon->logState);
 
     // Skip sync if it was already synced by master.
     if (shouldSync &&
             respCommon->logState.appended > respCommon->logState.synced) {
         ++rejectCount;
         UnsyncedRpcTracker::SyncRpc rpc(context, session, respCommon->logState);
-//        TimeTrace::record("syncRpc send.");
+        TimeTrace::record("syncRpc send.");
         LogState newLogState;
         if (!rpc.wait(&newLogState)) {
             clearAndRetry(0, 0);
             return waitInternal(dispatch, abortTime);
         }
-//        TimeTrace::record("syncRpc wait.");
-        ramcloud->unsyncedRpcTracker->updateLogState(session.get(),
-                                                     newLogState);
+        TimeTrace::record("syncRpc wait.");
+        // Disabled CGAR-C
+//        ramcloud->unsyncedRpcTracker->updateLogState(session.get(),
+//                                                     newLogState);
 //        TimeTrace::record("syncRpc updateLogState.");
     }
-    TimeTrace::record("syncRpc done.");
+//    TimeTrace::record("syncRpc done.");
     return true;
 }
 
