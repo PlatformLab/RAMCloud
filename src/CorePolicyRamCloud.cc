@@ -25,8 +25,6 @@ using namespace RAMCloud;
 /* Is the core load estimator running? */
 bool ramCloudLoadEstimatorRunning = false;
 
-void blockForever();
-
 /**
   * Update threadClassCoreMap when a new core is added.  Takes in the coreId
   * of the new core.  Assigns the first core to the dispatch class and
@@ -47,7 +45,8 @@ void CorePolicyRamCloud::addCore(int coreId) {
         CoreList* dispatchHTEntry = threadClassCoreMap[dispatchHTClass];
         dispatchHTEntry->map[0] = coreId;
         dispatchHTEntry->numFilled++;
-        Arachne::createThread(dispatchHTClass, blockForever);
+        Arachne::createThread(dispatchHTClass, &CoreBlocker::blockCore,
+            ramCloudCoreBlocker, sched_getcpu());
         return;
     }
     LOG(NOTICE, "New core %d with coreId %d",
@@ -81,11 +80,4 @@ int CorePolicyRamCloud::getHyperTwin(int coreId) {
         return cpu2;
     else
         return cpu1;
-}
-
-/* Block in the kernel forever. */
-void blockForever() {
-    while (1) {
-        sleep(1000);
-    }
 }
