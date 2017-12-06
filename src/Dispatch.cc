@@ -292,13 +292,16 @@ void
 Dispatch::run()
 {
     PerfStats::registerStats(&PerfStats::threadStats);
-    uint64_t prev;
+    uint64_t prev = Cycles::rdtsc();
+    int prevResult = 0;
     while (true) {
-        prev = currentTime;
-        if (poll() > 0) {
+        int r = poll();
+        if (prevResult > 0) {
             PerfStats::threadStats.dispatchActiveCycles +=
                     currentTime - prev;
         }
+        prevResult = r;
+        prev = currentTime;
     }
 }
 
