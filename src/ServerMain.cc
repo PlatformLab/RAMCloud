@@ -39,7 +39,7 @@
 
 using namespace RAMCloud;
 
-CorePolicy* corePolicyRamCloud;
+RamCloudCorePolicy* ramCloudCorePolicy;
 
 // The following class is used for performance debugging: it logs
 // performance information at regular intervals.
@@ -379,9 +379,10 @@ main(int argc, const char *argv[]) {
     Arachne::initCore = [] () {
         PerfStats::registerStats(&PerfStats::threadStats);
     };
-    corePolicyRamCloud = new CorePolicyRamCloud();
-    Arachne::init(corePolicyRamCloud, &argc, argv);
-    Arachne::createThread(DISPATCH_THREAD_CLASS,
+    ramCloudCorePolicy = new RamCloudCorePolicy();
+    Arachne::init(reinterpret_cast<CorePolicy*>(ramCloudCorePolicy),
+        &argc, argv);
+    Arachne::createThread(ramCloudCorePolicy->dispatchClass,
         &realMain, argc, const_cast<char**>(argv));
     Arachne::waitForTermination();
 }

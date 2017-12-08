@@ -39,7 +39,7 @@
 
 using namespace RAMCloud;
 
-CorePolicy* corePolicyRamCloud;
+CorePolicy* ramCloudCorePolicy;
 
 /**
  * Main program for the RAMCloud cluster coordinator.
@@ -178,8 +178,8 @@ main(int argc, const char *argv[]) {
     Arachne::initCore = [] () {
         PerfStats::registerStats(&PerfStats::threadStats);
     };
-    corePolicyRamCloud = new CorePolicy();
-    Arachne::init(corePolicyRamCloud, &argc, argv);
+    ramCloudCorePolicy = new CorePolicy();
+    Arachne::init(ramCloudCorePolicy, &argc, argv);
     // Invoke realMain outside of Arachne for now so we can defer handling of
     // the fact that the dispatch thread does not yield or terminate until we
     // are ready to do that experiment.

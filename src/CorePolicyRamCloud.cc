@@ -19,6 +19,7 @@
 #include "Arachne/CorePolicy.h"
 #include "CorePolicyRamCloud.h"
 #include "FileLogger.h"
+#include "Util.h"
 
 using namespace RAMCloud;
 
@@ -26,21 +27,25 @@ using namespace RAMCloud;
 bool ramCloudLoadEstimatorRunning = false;
 
 /*
- * Update threadClassCoreMap when a new core is added.  Takes in the coreId
- * of the new core.  Assigns the first core to the dispatch class, the
- * hypertwin of that one to the dispatchHyperTwin class, and all others to the
- * default class.
+ * Handles core assignment for RamCloud.  The first core scheduled
+ * is always given to the dispatch thread.  When the dispatch thread's
+ * hypertwin appears, it is assigned to the dispatchHTClass and blocks
+ * forever to prevent work on the hypertwin from slowing down the dispatch
+ * thread.  All other threads are assigned to the default class.
+ *
+ * By design, the cores occupied by the dispatch thread and its hypertwin
+ * can never be lost or taken away, so they do not need to be reassigned.
  *
  * \param coreId
  *     The coreId of the new core.
  */
-void CorePolicyRamCloud::addCore(int coreId) {
+void RamCloudCorePolicy::addCore(int coreId) {
     CoreList* dispatchEntry = threadClassCoreMap[dispatchClass];
     // Assign the dispatch thread to the first core that comes up.
     if (dispatchEntry->numFilled == 0) {
         dispatchEntry->map[0] = coreId;
         dispatchEntry->numFilled++;
-        dispatchHyperTwin = getHyperTwin(sched_getcpu());
+        dispatchHyperTwin = Util::getHyperTwin(sched_getcpu());
         LOG(NOTICE, "Dispatch thread on core %d with coreId %d",
             sched_getcpu(), coreId);
         return;
@@ -65,30 +70,7 @@ void CorePolicyRamCloud::addCore(int coreId) {
     if (!ramCloudLoadEstimatorRunning &&
       !Arachne::disableLoadEstimation) {
         ramCloudLoadEstimatorRunning = true;
-        runLoadEstimator();
+        Arachne::createThread(defaultClass,
+            &RamCloudCorePolicy::coreLoadEstimator, this);
     }
-}
-
-/* 
- * Return the hypertwin of coreId.  Return -1 if there is none.
- *
- * \param coreId
- *     The coreId whose hypertwin will be returned.
- */
-int CorePolicyRamCloud::getHyperTwin(int coreId) {
-    // This file contains the siblings of core coreId.
-    std::string siblingFilePath = "/sys/devices/system/cpu/cpu"
-     + std::to_string(coreId) + "/topology/thread_siblings_list";
-    FILE* siblingFile = fopen(siblingFilePath.c_str(), "r");
-    int cpu1;
-    int cpu2;
-    // If there is a hypertwin, the file is of the form "int1,int2", where
-    // int1 < int2 and one is coreId and the other is the hypertwin's ID.
-    // Return -1 if no hypertwin found.
-    if (fscanf(siblingFile, "%d,%d", &cpu1, &cpu2) < 2)
-        return -1;
-    if (coreId == cpu1)
-        return cpu2;
-    else
-        return cpu1;
 }

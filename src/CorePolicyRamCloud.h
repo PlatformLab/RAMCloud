@@ -18,32 +18,27 @@
 
 #include "Arachne/CorePolicy.h"
 
-#define BASE_THREAD_CLASS 0
-#define DISPATCH_THREAD_CLASS 1
-#define DISPATCH_HT_THREAD_CLASS 2
-
 extern CorePolicy* corePolicyRamCloud;
 
-class CorePolicyRamCloud : public CorePolicy {
+class RamCloudCorePolicy : public CorePolicy {
   public:
-    /* Constructor and destructor for CorePolicyRamCloud. */
-    CorePolicyRamCloud() : CorePolicy() {
+    /* Constructor and destructor for RamCloudCorePolicy. */
+    RamCloudCorePolicy() : CorePolicy() {
         ramCloudCoreBlocker = new CoreBlocker();
     }
-    ~CorePolicyRamCloud() {delete ramCloudCoreBlocker;}
+    ~RamCloudCorePolicy() {delete ramCloudCoreBlocker;}
 
     void addCore(int coreId);
 
     /* Thread class for the dispatch thread. Gets a core to itself */
-    static const ThreadClass dispatchClass = DISPATCH_THREAD_CLASS;
+    static const ThreadClass dispatchClass = 1;
     /* Thread class used to protect the dispatch thread's hypertwin. */
-    static const ThreadClass dispatchHTClass = DISPATCH_HT_THREAD_CLASS;
+    static const ThreadClass dispatchHTClass = 2;
    private:
     /* The CPU number of the dispatch thread's hypertwin. */
     int dispatchHyperTwin = -1;
     /* The CoreBlocker protecting the dispatch thread's hypertwin. */
     CoreBlocker* ramCloudCoreBlocker;
-    int getHyperTwin(int coreId);
 };
 
 #endif // !RAMCLOUD_COREPOLICYRAMCLOUD_H
