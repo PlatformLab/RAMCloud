@@ -13,12 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef RAMCLOUD_COREPOLICYRAMCLOUD_H
-#define RAMCLOUD_COREPOLICYRAMCLOUD_H
+#ifndef RAMCLOUD_RAMCLOUDCOREPOLICY_H
+#define RAMCLOUD_RAMCLOUDCOREPOLICY_H
 
 #include "Arachne/CorePolicy.h"
-
-extern CorePolicy* corePolicyRamCloud;
 
 class RamCloudCorePolicy : public CorePolicy {
   public:
@@ -41,4 +39,4 @@ class RamCloudCorePolicy : public CorePolicy {
     CoreBlocker* ramCloudCoreBlocker;
 };
 
-#endif // !RAMCLOUD_COREPOLICYRAMCLOUD_H
+#endif // !RAMCLOUD_RAMCLOUDCOREPOLICY_H

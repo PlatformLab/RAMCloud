@@ -24,7 +24,6 @@
 #include "Tub.h"
 #include "Arachne/Arachne.h"
 #include "Arachne/CorePolicy.h"
-#include "CorePolicyRamCloud.h"
 
 CorePolicy* ramCloudCorePolicy;
 

@@ -64,7 +64,6 @@ SHARED_SRCFILES := \
 		   src/ClientException.cc \
 		   src/ClusterMetrics.cc \
 		   src/CodeLocation.cc \
-		   src/CorePolicyRamCloud.cc \
 		   src/Common.cc \
 		   src/Cycles.cc \
 		   src/DataBlock.cc \
@@ -127,6 +126,7 @@ SHARED_SRCFILES := \
 		   src/PortAlarm.cc \
 		   src/PreparedOp.cc \
 		   src/RamCloud.cc \
+		   src/RamCloudCorePolicy.cc \
 		   src/RawMetrics.cc \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \

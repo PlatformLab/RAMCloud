@@ -444,7 +444,7 @@ INSTALL_INCLUDES := \
     src/CodeLocation.h \
     src/CoordinatorClient.h \
     src/CoordinatorRpcWrapper.h \
-    src/CorePolicyRamCloud.h \
+    src/RamCloudCorePolicy.h \
     src/Crc32C.h \
     src/Exception.h \
     src/Fence.h \

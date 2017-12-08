@@ -28,7 +28,7 @@
 #include "WorkerManager.h"
 #include "Arachne/Arachne.h"
 #include "Arachne/CorePolicy.h"
-#include "CorePolicyRamCloud.h"
+#include "RamCloudCorePolicy.h"
 #include "FileLogger.h"
 #include "PerfUtils/Util.h"
 
