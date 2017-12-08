@@ -56,7 +56,7 @@ void RamCloudCorePolicy::addCore(int coreId) {
         CoreList* dispatchHTEntry = threadClassCoreMap[dispatchHTClass];
         dispatchHTEntry->map[0] = coreId;
         dispatchHTEntry->numFilled++;
-        Arachne::createThread(dispatchHTClass, &CoreBlocker::blockCore,
+        Arachne::createThread(dispatchHTClass, &Arachne::CoreBlocker::blockCore,
             ramCloudCoreBlocker, sched_getcpu());
         return;
     }
