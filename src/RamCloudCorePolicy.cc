@@ -40,6 +40,7 @@ bool ramCloudLoadEstimatorRunning = false;
  *     The coreId of the new core.
  */
 void RamCloudCorePolicy::addCore(int coreId) {
+    std::lock_guard<Arachne::SpinLock> _(corePolicyMutex);
     CoreList* dispatchEntry = threadClassCoreMap[dispatchClass];
     // Assign the dispatch thread to the first core that comes up.
     if (dispatchEntry->numFilled == 0) {
