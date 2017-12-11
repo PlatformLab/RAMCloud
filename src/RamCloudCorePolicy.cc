@@ -57,7 +57,7 @@ void RamCloudCorePolicy::addCore(int coreId) {
         CoreList* dispatchHTEntry = threadClassCoreMap[dispatchHTClass];
         dispatchHTEntry->map[0] = coreId;
         dispatchHTEntry->numFilled++;
-        ramCloudCoreBlocker->blockCores(dispatchHTClass);
+        Arachne::idleCore(coreId);
         return;
     }
     // Everything else gets assigned to the default class.

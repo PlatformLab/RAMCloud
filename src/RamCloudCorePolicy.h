@@ -21,10 +21,8 @@
 class RamCloudCorePolicy : public CorePolicy {
   public:
     /* Constructor and destructor for RamCloudCorePolicy. */
-    RamCloudCorePolicy() : CorePolicy() {
-        ramCloudCoreBlocker = new Arachne::CoreBlocker();
-    }
-    ~RamCloudCorePolicy() {delete ramCloudCoreBlocker;}
+    RamCloudCorePolicy() : CorePolicy() {}
+    ~RamCloudCorePolicy() {}
 
     void addCore(int coreId);
 
@@ -35,8 +33,6 @@ class RamCloudCorePolicy : public CorePolicy {
    private:
     /* The CPU number of the dispatch thread's hypertwin. */
     int dispatchHyperTwin = -1;
-    /* The CoreBlocker protecting the dispatch thread's hypertwin. */
-    Arachne::CoreBlocker* ramCloudCoreBlocker;
 };
 
 #endif // !RAMCLOUD_RAMCLOUDCOREPOLICY_H
