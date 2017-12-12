@@ -7302,39 +7302,40 @@ writeClusterThroughputMaster(int numObjects, int size, uint16_t keyLength)
     printf("#------------------------------------------------------"
             "------------------------------------------------------\n");
 
-    int tableNum = 0;
-    int witnessTableNum = 0;
-    for (int i = 0; i < numMasters + numWitnesses; i++) {
-        char tableName[20];
-        if (i + 2 < numMasters || i + 2 >= numMasters + numWitnesses) {
-            snprintf(tableName, sizeof(tableName), "dataNum%d", tableNum);
-            tableNum++;
-        } else {
-            // Table to be assigned to witness server.
-            snprintf(tableName, sizeof(tableName), "witnessNum%d", witnessTableNum);
-            witnessTableNum++;
-        }
-        cluster->createTable(tableName, 1);
-        uint64_t tid = cluster->getTableId(tableName);
-        fillTable(tid, numObjects, keyLength, size);
-    }
 
-//    for (int i = 0; i < numMasters; i++) {
+//    for (int i = 0; i < numMasters + numWitnesses; i++) {
 //        char tableName[20];
-//        snprintf(tableName, sizeof(tableName), "dataNum%d", i);
+//        if (i + 2 < numMasters || i + 2 >= numMasters + numWitnesses) {
+//            snprintf(tableName, sizeof(tableName), "dataNum%d", tableNum);
+//            tableNum++;
+//        } else {
+//            // Table to be assigned to witness server.
+//            snprintf(tableName, sizeof(tableName), "witnessNum%d", witnessTableNum);
+//            witnessTableNum++;
+//        }
 //        cluster->createTable(tableName, 1);
 //        uint64_t tid = cluster->getTableId(tableName);
 //        fillTable(tid, numObjects, keyLength, size);
 //    }
+
+
+
+    for (int i = 0; i < numMasters; i++) {
+        char tableName[20];
+        snprintf(tableName, sizeof(tableName), "dataNum%d", i);
+        cluster->createTable(tableName, 1);
+        uint64_t tid = cluster->getTableId(tableName);
+        fillTable(tid, numObjects, keyLength, size);
+    }
     Cycles::sleep(2000000);
 //    string stats[5];
 
-    sendCommand("run", "running", 1, numClients - 6);
+    sendCommand("run", "running", 1, numClients - 1 - (5 * 4 * 4));
     Cycles::sleep(1000000);
 //    for (int numSlaves = 1; numSlaves < numClients; numSlaves++) {
 //        sendCommand("run", "running", numSlaves, 1);
-    for (int numSlaves = numClients - 5; numSlaves < numClients; numSlaves++) {
-        sendCommand("run", "running", numSlaves, 1);
+    for (int numSlaves = numClients - (5 * 4 * 4); numSlaves < numClients; numSlaves += 5 * 4) {
+        sendCommand("run", "running", numSlaves, 5 * 4);
 
         Buffer beforeStats;
         cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS,
@@ -7349,9 +7350,15 @@ writeClusterThroughputMaster(int numObjects, int size, uint16_t keyLength)
         PerfStats::clusterDiffInt64(&beforeStats, &afterStats, &diff,
                 &cyclesPerSecond);
         double clusterCyclesPerSecond = 0;
+
+        int witnessCount = 0;
 //        for (uint64_t di = cyclesPerSecond.size() - numServers;
 //                di < cyclesPerSecond.size(); di++) {
-        for (int di = 0; di < numMasters; di++) {
+        for (uint di = 0; di < cyclesPerSecond.size(); di++) {
+            if (diff["logSizeBytes"][di] == 0) {
+                ++witnessCount;
+                continue; // Skip witness-only servers.
+            }
             clusterCyclesPerSecond += cyclesPerSecond[di];
         }
 
@@ -7367,7 +7374,8 @@ writeClusterThroughputMaster(int numObjects, int size, uint16_t keyLength)
         uint64_t clusterWitnessGcCycles = 0;
 //        for (uint64_t di = diff["collectionTime"].size() - numServers;
 //                di < diff["collectionTime"].size(); di++) {
-        for (int di = 0; di < numMasters; di++) {
+        for (uint di = 0; di < cyclesPerSecond.size(); di++) {
+            if (diff["logSizeBytes"][di] == 0) continue; // Skip witness-only servers.
             clusterElapsedCycles += diff["collectionTime"][di];
             clusterWriteCount += diff["writeCount"][di];
             clusterWorkerActiveCycles += diff["workerActiveCycles"][di];
@@ -7391,10 +7399,10 @@ writeClusterThroughputMaster(int numObjects, int size, uint16_t keyLength)
         uint64_t wclusterReplicationRpcs = 0;
         uint64_t wclusterLogSyncCycles = 0;
         uint64_t wclusterWitnessGcCycles = 0;
-//        for (uint64_t di = diff["collectionTime"].size() - numServers;
-//                di < diff["collectionTime"].size(); di++) {
-        for (uint64_t di = cyclesPerSecond.size() - numWitnesses;
-                di < cyclesPerSecond.size(); di++) {
+//        for (uint64_t di = cyclesPerSecond.size() - numWitnesses;
+//                di < cyclesPerSecond.size(); di++) {
+        for (uint di = 0; di < cyclesPerSecond.size(); di++) {
+            if (diff["logSizeBytes"][di] > 0) continue; // Skip master servers.
             wclusterElapsedCycles += diff["collectionTime"][di];
             wclusterRecordCount += diff["temp1"][di] + diff["temp2"][di];
             wclusterWorkerActiveCycles += diff["workerActiveCycles"][di];
