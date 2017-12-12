@@ -256,7 +256,8 @@ def run_test(
         'share_hosts': True,
         'transport':   options.transport,
         'disjunct':    options.disjunct,
-        'verbose':     options.verbose
+        'verbose':     options.verbose,
+        'independent_witness_process': options.independent_witness_process
     }
     client_args = {}
     # Provide a default value for num_servers here.  This is better
@@ -937,6 +938,10 @@ if __name__ == '__main__':
     parser.add_option('--witnesses', type=int, default=0,
             metavar='N', dest='num_witnesses',
             help='Number of hosts on which to run witness-only servers')
+    parser.add_option('--independentWitness', action='store_true', default=False,
+            metavar='True/False', dest="independent_witness_process",
+            help='Use separate RAMCloud server process for witness. '
+                 'By doing so, we can avoid getting bottlenecked by dispatch thread.')
     parser.add_option('-s', '--size', type=int, default=100,
             help='Object size in bytes')
     parser.add_option('--numObjects', type=int,

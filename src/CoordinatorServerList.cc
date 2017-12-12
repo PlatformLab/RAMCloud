@@ -694,7 +694,7 @@ CoordinatorServerList::serialize(const Lock& lock,
                                  ProtoBuf::ServerList* protoBuf) const
 {
     serialize(lock, protoBuf, {WireFormat::MASTER_SERVICE,
-        WireFormat::BACKUP_SERVICE});
+        WireFormat::BACKUP_SERVICE, WireFormat::WITNESS_SERVICE});
 }
 
 /**
@@ -1248,7 +1248,8 @@ CoordinatorServerList::getWork(Tub<UpdateServerListRpc>* rpc) {
                     // New server, send full server list
                     ProtoBuf::ServerList fullList;
                     serialize(lock, &fullList, {WireFormat::MASTER_SERVICE,
-                            WireFormat::BACKUP_SERVICE});
+                            WireFormat::BACKUP_SERVICE,
+                            WireFormat::WITNESS_SERVICE});
                     rpc->construct(context, server->serverId, &fullList);
                     server->updateVersion = version;
                 } else {
@@ -1557,7 +1558,7 @@ CoordinatorServerList::Entry::serialize(ProtoBuf::ServerList_Entry* dest) const
  * so that it will survive coordinator crashes. If a new sequence number
  * is to be associated with this update, it is up to the caller to
  * allocate that and stored in the entry.
- * 
+ *
  * \param externalStorage
  *      Storage system in which to persist this entry.
  */

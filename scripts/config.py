@@ -93,6 +93,7 @@ obj_path = '%s/%s' % (top_path, obj_dir)
 coordinator_port = 12246
 server_port = 12247
 second_backup_port = 12248
+independent_witness_port = 12249
 
 # Command-line argument specifying where the server should store the segment
 # replicas when one device is used.

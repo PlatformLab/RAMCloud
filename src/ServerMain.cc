@@ -265,19 +265,25 @@ main(int argc, char *argv[])
 
         Context context(true, &optionParser.options);
 
-        if (masterOnly && backupOnly)
-            DIE("Can't specify both -B and -M options");
+//        if (masterOnly && backupOnly)
+//            DIE("Can't specify both -B and -M options");
 
-        if (masterOnly) {
+        if (masterOnly && backupOnly) {
+            config.services = {WireFormat::MASTER_SERVICE,
+                               WireFormat::BACKUP_SERVICE,
+                               WireFormat::ADMIN_SERVICE};
+        } else if (masterOnly) {
             config.services = {WireFormat::MASTER_SERVICE,
                                WireFormat::ADMIN_SERVICE};
         } else if (backupOnly) {
             config.services = {WireFormat::BACKUP_SERVICE,
                                WireFormat::ADMIN_SERVICE};
         } else if (witnessOnly) {
-            config.services = {WireFormat::MASTER_SERVICE,
-                               WireFormat::WITNESS_SERVICE,
+            config.services = {WireFormat::WITNESS_SERVICE,
                                WireFormat::ADMIN_SERVICE};
+//            config.services = {WireFormat::MASTER_SERVICE,
+//                               WireFormat::WITNESS_SERVICE,
+//                               WireFormat::ADMIN_SERVICE};
         } else {
             config.services = {WireFormat::MASTER_SERVICE,
                                WireFormat::BACKUP_SERVICE,
@@ -340,7 +346,7 @@ main(int argc, char *argv[])
         // Re-parse the options to override coordinator provided defaults.
         OptionParser optionReparser(serverOptions, argc, argv);
 
-        if (!backupOnly) {
+        if (masterOnly || (!masterOnly && !backupOnly && !witnessOnly)) {
             LOG(NOTICE, "Using %u backups", config.master.numReplicas);
             config.setLogAndHashTableSize(masterTotalMemory, hashTableMemory);
         }

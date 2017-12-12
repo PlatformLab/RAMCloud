@@ -336,6 +336,8 @@ class Cluster(object):
         self.next_server_id += 1
         if master and backup and witness:
             pass
+        elif master and backup:
+            command += ' --masterOnly --backupOnly'
         elif master:
             command += ' --masterOnly'
         elif backup:
@@ -590,6 +592,7 @@ def run(
         valgrind=False,		   # Do not run under valgrind
         valgrind_args='',	   # Additional arguments for valgrind
         disjunct=False,            # Disjunct entities on a server
+        independent_witness_process=False,   # Use separate server process for witness. Primarily to avoid bottlenecks by dispatch
         coordinator_host=None
         ):
     """
@@ -668,7 +671,13 @@ def run(
                 args += ' %s' % backup_args
                 backups_started += 1
                 disk_args = disk1 if backup_disks_per_server == 1 else disk2
-            cluster.start_server(host, args, backup=backup, disk=disk_args)
+            if independent_witness_process:
+               cluster.start_server(host, args, master=True, backup=backup, witness=False, disk=disk_args) 
+               cluster.start_server(host, master=False, backup=False, witness=True, port=12249)
+#               if masters_started % 2 == 0: # Only half of machines start second witnessses.
+#               cluster.start_server(host, master=False, backup=False, witness=True, port=12250)
+            else:
+                cluster.start_server(host, args, backup=backup, disk=disk_args)
             masters_started += 1
         cluster.hosts = cluster.hosts[num_servers:]
         #print(num_servers, ' Servers started. Now hosts:', cluster.hosts, '\n')
@@ -717,8 +726,9 @@ def run(
             # don't do it unless necessary.
             if not client_hosts:
                 host_list = cluster.hosts[:]
-                if share_hosts:
-                    host_list.extend(cluster.hosts[:num_servers])
+# Following two lines doesn't work with current cluster.py; cluster.hosts is already truncated.
+#                if share_hosts:
+#                    host_list.extend(cluster.hosts[:num_servers])
 
                 client_hosts = [host_list[i % len(host_list)]
                                 for i in range(num_clients)]

@@ -458,6 +458,7 @@ PerfStats::clusterDiffInt64(Buffer* before, Buffer* after,
         // match the declaration order in PerfStats.h.
         (*diff)["serverId"].push_back(static_cast<uint64_t>(i));
         (*cyclesPerSecond).push_back(p1.cyclesPerSecond);
+        (*diff)["logSizeBytes"].push_back(p1.logSizeBytes);
         ADD_METRIC2(collectionTime);
         ADD_METRIC2(readCount);
         ADD_METRIC2(readObjectBytes);

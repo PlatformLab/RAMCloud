@@ -327,7 +327,7 @@ CoordinatorClient::getServerList(Context* context,
         ProtoBuf::ServerList* serverList)
 {
     GetServerListRpc rpc(context, {WireFormat::MASTER_SERVICE,
-            WireFormat::BACKUP_SERVICE});
+            WireFormat::BACKUP_SERVICE, WireFormat::WITNESS_SERVICE});
     rpc.wait(serverList);
 }
 
