@@ -148,7 +148,6 @@ WorkerManager::~WorkerManager()
 void
 WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 {
-    TimeTrace::record("hadleRpc starts new RPC");
     // Find the service for this RPC.
     const WireFormat::RequestCommon* header;
     header = rpc->requestPayload.getStart<WireFormat::RequestCommon>();
