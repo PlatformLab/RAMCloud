@@ -18,6 +18,7 @@
 #include <boost/program_options.hpp>
 #include <iostream>
 #include <fstream>
+#include <execinfo.h>
 
 #include "Common.h"
 #include "Transport.h"
@@ -132,6 +133,18 @@ OptionParser::usageAndExit() const
  */
 char* executableName;
 void invokeGDB(int signum) {
+    printf("Signal %d (%s)\n", signum, strsignal(signum));
+
+    const int maxFrames = 128;
+    void* retAddrs[maxFrames];
+    int frames = backtrace(retAddrs, maxFrames);
+    char** symbols = backtrace_symbols(retAddrs, frames);
+    printf("Backtrace:\n");
+    for (int i = 1; i < frames; ++i)
+        printf("%s\n", symbols[i]);
+    Logger::get().sync();
+    free(symbols);
+    
     // Prevent repeated invocation of gdb when the server suicides
     if (signum == SIGABRT)
        signal(SIGINT, SIG_DFL);
