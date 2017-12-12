@@ -350,7 +350,9 @@ AdminService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         }
         case WireFormat::LOG_TIME_TRACE:
         {
-            TimeTrace::printToLog();
+            LOG(NOTICE, "Dumping TimeTrace to LOG in background");
+//            TimeTrace::printToLog();
+            TimeTrace::printToLogBackground(context->dispatch);
             break;
         }
         case WireFormat::GET_CACHE_TRACE:
