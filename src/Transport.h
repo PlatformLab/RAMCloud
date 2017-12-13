@@ -59,7 +59,11 @@ class Transport {
 
       /// Maximum allowable size for an RPC request or response message: must
       /// be large enough to hold an 8MB segment plus header information.
+#if HOMA_BENCHMARK
+      static const uint32_t MAX_RPC_LEN = ((1 << 25) + 200);
+#else
       static const uint32_t MAX_RPC_LEN = ((1 << 23) + 200);
+#endif
 
     /**
      * An RPC request that has been received and is either being serviced or

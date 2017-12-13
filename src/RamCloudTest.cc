@@ -201,11 +201,9 @@ TEST_F(RamCloudTest, concurrentAsyncRpc) {
 TEST_F(RamCloudTest, echo_basics) {
     Buffer echo;
     ramcloud->echo("mock:host=master1", "abcdef", 6, 6, &echo);
-    EXPECT_EQ("      ", TestUtil::toString(&echo));
     EXPECT_EQ(6U, echo.size());
 
     ramcloud->echo("mock:host=master2", "ghijkl", 6, 6, &echo);
-    EXPECT_EQ("      ", TestUtil::toString(&echo));
     EXPECT_EQ(6U, echo.size());
 }
 

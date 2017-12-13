@@ -89,7 +89,8 @@ TEST_F(TimeTraceTest, printInternal_pickStartingTimeAndPrune) {
     buffer4.record(50, "4.a");
     buffer4.record(550, "4.b");
     TimeTrace::printInternal(&buffers, NULL);
-    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): 2.a | "
+    EXPECT_EQ("printInternal: Starting TSC 200, cyclesPerSec 2000000000 | "
+            "printInternal:      0.0 ns (+   0.0 ns): 2.a | "
             "printInternal:     25.0 ns (+  25.0 ns): 2.b | "
             "printInternal:     50.0 ns (+  25.0 ns): 1.b | "
             "printInternal:    175.0 ns (+ 125.0 ns): 4.b",
@@ -102,7 +103,8 @@ TEST_F(TimeTraceTest, printInternal_allEntriesInBufferBeforeStartingTime) {
         buffer2.record(50, "2.xx");
     }
     TimeTrace::printInternal(&buffers, NULL);
-    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): 1.a | "
+    EXPECT_EQ("printInternal: Starting TSC 100, cyclesPerSec 2000000000 | "
+            "printInternal:      0.0 ns (+   0.0 ns): 1.a | "
             "printInternal:    100.0 ns (+ 100.0 ns): 1.b",
             TestLog::get());
 }
@@ -128,7 +130,8 @@ TEST_F(TimeTraceTest, printInternal_printToLogWithArgs) {
     buffer.record(200, "point b %d %d %d %u", 99, 101, -1, -2);
     buffer.record(350, "point c");
     TimeTrace::printInternal(&buffers, NULL);
-    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a | "
+    EXPECT_EQ("printInternal: Starting TSC 100, cyclesPerSec 2000000000 | "
+            "printInternal:      0.0 ns (+   0.0 ns): point a | "
             "printInternal:     50.0 ns (+  50.0 ns): point b 99 101 "
             "-1 4294967294 | "
             "printInternal:    125.0 ns (+  75.0 ns): point c",
@@ -141,7 +144,8 @@ TEST_F(TimeTraceTest, printInternal_emptyTrace_stringVersion) {
 TEST_F(TimeTraceTest, printInternal_emptyTrace_logVersion) {
     buffer.nextIndex = 0;
     TimeTrace::printInternal(&buffers, NULL);
-    EXPECT_EQ("printInternal: No time trace events to print", TestLog::get());
+    EXPECT_EQ("printInternal: Starting TSC 0, cyclesPerSec 2000000000 | "
+            "printInternal: No time trace events to print", TestLog::get());
 }
 
 TEST_F(TimeTraceTest, printToLog) {
@@ -149,7 +153,8 @@ TEST_F(TimeTraceTest, printToLog) {
     buffer.record(100, "point b");
     TimeTrace::threadBuffers.push_back(&buffer);
     TimeTrace::printToLog();
-    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a | "
+    EXPECT_EQ("printInternal: Starting TSC 100, cyclesPerSec 2000000000 | "
+            "printInternal:      0.0 ns (+   0.0 ns): point a | "
             "printInternal:      0.0 ns (+   0.0 ns): point b",
             TestLog::get());
     TimeTrace::threadBuffers.pop_back();
@@ -169,7 +174,8 @@ TEST_F(TimeTraceTest, printToLogBackground) {
         usleep(1000);
     }
     EXPECT_TRUE(TimeTrace::backgroundLogger->isFinished);
-    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a",
+    EXPECT_EQ("printInternal: Starting TSC 100, cyclesPerSec 2000000000 | "
+            "printInternal:      0.0 ns (+   0.0 ns): point a",
             TestLog::get());
     EXPECT_EQ(0, TimeTrace::activeReaders);
 }
@@ -234,7 +240,8 @@ TEST_F(TimeTraceTest, Buffer_getTrace) {
 TEST_F(TimeTraceTest, Buffer_printToLog) {
     buffer.record(100, "point a");
     buffer.printToLog();
-    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): point a",
+    EXPECT_EQ("printInternal: Starting TSC 100, cyclesPerSec 2000000000 | "
+            "printInternal:      0.0 ns (+   0.0 ns): point a",
             TestLog::get());
 }
 

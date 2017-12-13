@@ -27,6 +27,10 @@
 #include "WorkerManager.h"
 #include "WorkerSession.h"
 
+#ifdef DPDK
+#include "DpdkDriver.h"
+#endif
+
 #ifdef INFINIBAND
 #include "InfRcTransport.h"
 #include "InfUdDriver.h"
@@ -34,10 +38,6 @@
 
 #ifdef ONLOAD
 #include "SolarFlareDriver.h"
-#endif
-
-#ifdef DPDK
-#include "DpdkDriver.h"
 #endif
 
 namespace RAMCloud {
@@ -57,7 +57,7 @@ static struct BasicUdpTransportFactory : public TransportFactory {
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new BasicTransport(context, localServiceLocator,
-                new UdpDriver(context, localServiceLocator),
+                new UdpDriver(context, localServiceLocator), true,
                 generateRandom());
     }
 } basicUdpTransportFactory;
@@ -69,7 +69,7 @@ static struct BasicSolarFlareTransportFactory : public TransportFactory {
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new BasicTransport(context, localServiceLocator,
-                new SolarFlareDriver(context, localServiceLocator),
+                new SolarFlareDriver(context, localServiceLocator), true,
                 generateRandom());
     }
 } basicSolarFlareTransportFactory;
@@ -82,7 +82,7 @@ static struct BasicInfUdTransportFactory : public TransportFactory {
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new BasicTransport(context, localServiceLocator,
-                new InfUdDriver(context, localServiceLocator, false),
+                new InfUdDriver(context, localServiceLocator, false), true,
                 generateRandom());
     }
 } basicInfUdTransportFactory;
@@ -92,7 +92,8 @@ static struct InfRcTransportFactory : public TransportFactory {
         : TransportFactory("infinibandrc", "infrc") {}
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
-        return new InfRcTransport(context, localServiceLocator);
+        return new InfRcTransport(context, localServiceLocator,
+                generateRandom());
     }
 } infRcTransportFactory;
 #endif
@@ -100,7 +101,7 @@ static struct InfRcTransportFactory : public TransportFactory {
 #ifdef DPDK
 struct BasicDpdkTransportFactory : public TransportFactory {
     BasicDpdkTransportFactory()
-        : TransportFactory("basic+dpdk", "basic+dpdk"), driver(NULL)  {}
+        : TransportFactory("basic+dpdk"), driver(NULL)  {}
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         if (driver == NULL) {
@@ -109,8 +110,8 @@ struct BasicDpdkTransportFactory : public TransportFactory {
                     "command-line option?)");
             throw TransportException(HERE, "DPDK is not enabled");
         }
-        return new BasicTransport(context, localServiceLocator,
-                driver, generateRandom());
+        return new BasicTransport(context, localServiceLocator, driver, false,
+                generateRandom());
     }
     void setDpdkDriver(DpdkDriver* driver) {
         this->driver = driver;
@@ -119,6 +120,7 @@ struct BasicDpdkTransportFactory : public TransportFactory {
     DISALLOW_COPY_AND_ASSIGN(BasicDpdkTransportFactory);
 };
 static BasicDpdkTransportFactory basicDpdkTransportFactory;
+
 #endif
 
 /**
@@ -129,6 +131,7 @@ static BasicDpdkTransportFactory basicDpdkTransportFactory;
  */
 TransportManager::TransportManager(Context* context)
     : context(context)
+    , dpdkDriver()
     , isServer(false)
     , transportFactories()
     , transports()
@@ -154,8 +157,8 @@ TransportManager::TransportManager(Context* context)
     if (context->options != NULL) {
         int dpdkPort = context->options->getDpdkPort();
         if (dpdkPort >= 0) {
-            basicDpdkTransportFactory.setDpdkDriver(
-                    new DpdkDriver(context, dpdkPort));
+            dpdkDriver = new DpdkDriver(context, dpdkPort);
+            basicDpdkTransportFactory.setDpdkDriver(dpdkDriver);
         }
     }
 #endif
@@ -176,8 +179,15 @@ TransportManager::~TransportManager()
     while (mockRegistrations > 0)
         unregisterMock();
 #endif
-    foreach (auto transport, transports)
+    for (Transport* transport : transports) {
         delete transport;
+    }
+
+#ifdef DPDK
+    if (dpdkDriver) {
+        delete dpdkDriver;
+    }
+#endif
 }
 
 /**
@@ -299,16 +309,17 @@ TransportManager::getSession(const string& serviceLocator)
 {
     // If we're running on a server (i.e., multithreaded) must exclude
     // other threads.
-    Tub<std::lock_guard<SpinLock>> lock;
+    Tub<SpinLock::Guard> lock;
     if (isServer) {
         lock.construct(mutex);
     }
 
     // First check to see if we have already opened a session for the
     // locator; this should almost always be true.
-    auto it = sessionCache.find(serviceLocator);
-    if (it != sessionCache.end())
+    SessionCache::iterator it = sessionCache.find(serviceLocator);
+    if (it != sessionCache.end()) {
         return it->second;
+    }
 
     CycleCounter<RawMetric> counter;
 

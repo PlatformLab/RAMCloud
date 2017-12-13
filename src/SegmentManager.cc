@@ -107,6 +107,11 @@ SegmentManager::SegmentManager(Context* context,
     context->transportManager->registerMemory(
         const_cast<void*>(allocator.getBaseAddress()),
         allocator.getTotalBytes());
+#if HOMA_BENCHMARK
+    // Repurpose the memory that are backing seglets as zero-copy source
+    // buffer when running Homa benchmarks.
+    context->masterZeroCopyRegion = allocator.getBaseAddress();
+#endif
 }
 
 /**

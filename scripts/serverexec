@@ -16,4 +16,4 @@ echo $3 > $shared_file
 shift
 shift
 shift
-exec $*
+exec env $*

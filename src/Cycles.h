@@ -31,11 +31,28 @@ class Cycles {
 
     /**
      * Return the current value of the fine-grain CPU cycle counter
-     * (accessed via the RDTSCP instruction).
+     * (accessed via the RDTSC instruction).
      */
     static __inline __attribute__((always_inline))
     uint64_t
     rdtsc()
+    {
+#if TESTING
+        if (mockTscValue)
+            return mockTscValue;
+#endif
+        uint32_t lo, hi;
+        __asm__ __volatile__("rdtsc" : "=a" (lo), "=d" (hi));
+        return (((uint64_t)hi << 32) | lo);
+    }
+
+    /**
+     * Return the current value of the fine-grain CPU cycle counter
+     * (accessed via the RDTSCP instruction).
+     */
+    static __inline __attribute__((always_inline))
+    uint64_t
+    rdtscp()
     {
 #if TESTING
         if (mockTscValue)
@@ -56,7 +73,7 @@ class Cycles {
     rdtsc_ignoreMockTsc()
     {
         uint32_t lo, hi;
-        __asm__ __volatile__("rdtscp" : "=a" (lo), "=d" (hi) : : "%rcx");
+        __asm__ __volatile__("rdtsc" : "=a" (lo), "=d" (hi));
         return (((uint64_t)hi << 32) | lo);
     }
 #endif

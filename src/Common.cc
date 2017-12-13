@@ -133,28 +133,6 @@ randomNumberGenerator(uint32_t n)
 }
 
 /**
- * Pin the calling thread to a particular CPU.
- * \param cpu
- *      The number of the CPU on which to execute, starting from 0.
- * \return
- *      Whether the operation succeeded.
- */
-bool
-pinToCpu(uint32_t cpu)
-{
-    cpu_set_t cpus;
-    CPU_ZERO(&cpus);
-    CPU_SET(cpu, &cpus);
-    int r = sched_setaffinity(0, sizeof(cpus), &cpus);
-    if (r < 0) {
-        LOG(ERROR, "server: Couldn't pin to core %d: %s",
-            cpu, strerror(errno));
-        return false;
-    }
-    return true;
-}
-
-/**
  * Obtain the total amount of system memory in bytes as reported by
  * /proc/meminfo on Linux.
  * \return

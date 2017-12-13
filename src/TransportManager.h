@@ -30,6 +30,7 @@
 
 namespace RAMCloud {
 
+class DpdkDriver;
 class TransportFactory;
 
 /**
@@ -111,6 +112,15 @@ class TransportManager {
     Context* context;
 
     /**
+     * Shared DPDK driver instance, one per RAMCloud instance. NULL if
+     * the DpdkDriver is not supported or enabled.
+     *
+     * As of 2017/10, we have not tried to configure DPDK to allow multiple
+     * instances of DpdkDriver sharing one NIC port.
+     */
+    DpdkDriver* dpdkDriver;
+
+    /**
      * True means this is a server application, false means this is a client only.
      */
     bool isServer;
@@ -145,7 +155,8 @@ class TransportManager {
      * This is used as a cache so that the same SessionRef is used if
      * #getSession() is called on an existing service locator string.
      */
-    std::unordered_map<string, Transport::SessionRef> sessionCache;
+    typedef std::unordered_map<string, Transport::SessionRef> SessionCache;
+    SessionCache sessionCache;
 
     /**
      * The following variables record the parameters for all previous calls
