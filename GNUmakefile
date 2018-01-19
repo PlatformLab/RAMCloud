@@ -61,6 +61,11 @@ endif
 # Note: You can still use NANO_LOG() log statements even if NANOLOG=no
 NANOLOG ?= no
 
+# 'yes' enables additional logging that can be used to trace an execution of
+# a read/write rpc
+BENCHMARK_DISPATCH_TRACING ?= no
+BENCHMARK_WORKER_TRACING ?= no
+
 BASECFLAGS := -g
 ifeq ($(DEBUG),yes)
 ifeq ($(DEBUG_OPT),yes)
@@ -115,6 +120,12 @@ COMFLAGS += -DENABLE_LOGCABIN
 endif
 ifeq ($(ZOOKEEPER),yes)
 COMFLAGS += -DENABLE_ZOOKEEPER
+endif
+ifeq ($(BENCHMARK_DISPATCH_TRACING),yes)
+COMFLAGS += -DBENCHMARK_DISPATCH_TRACING
+endif
+ifeq ($(BENCHMARK_WORKER_TRACING),yes)
+COMFLAGS += -DBENCHMARK_WORKER_TRACING
 endif
 ifeq ($(NANOLOG),yes)
 COMFLAGS += -DENABLE_NANOLOG

@@ -13,7 +13,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include<fstream>
+#include <regex>
+#include <fstream>
+
 #include "TestUtil.h"
 #include "Common.h"
 #include "AdminClient.h"
@@ -566,8 +568,32 @@ TEST_F(AdminServiceTest, serverControl_logTimeTrace) {
     TimeTrace::record("sample");
     AdminClient::serverControl(&context, serverId, WireFormat::LOG_TIME_TRACE,
                 "abc", 3, &output);
-    EXPECT_EQ("printInternal:      0.0 ns (+   0.0 ns): sample",
-            TestLog::get());
+
+    // Delete all the numbers so we can compare results deterministically
+    std::string result;
+    std::regex numRegex("\\d");
+    std::string log = TestLog::get();
+    std::regex_replace(std::back_inserter(result),
+                        log.begin(),
+                        log.end(),
+                        numRegex, "");
+
+    EXPECT_EQ(
+        "printInternal:      . ns (+   . ns): sample | serverControl: \r\n"
+        "Wrote  events (. MB) in . seconds (. seconds spent "
+            "compressing)\r\n"
+        "There were  file flushes and the final sync time was . sec\r\n"
+        "Compression Thread was active for . out of . seconds "
+            "(. %)\r\n"
+        "On average, that's\r\n"
+            "\t. MB/s or . ns/byte w/ processing\r\n"
+            "\t. MB/s or . ns/byte disk throughput (min)\r\n"
+            "\tinf MB per flush with inf bytes/event\r\n"
+            "\tinf ns/event in total\r\n"
+            "\t-nan ns/event compressing\r\n"
+        "The compression ratio was .-.x ( bytes in,  bytes out,"
+            "  pad bytes)\n",
+        result);
 }
 
 TEST_F(AdminServiceTest, serverControl_getCacheTrace) {

@@ -329,8 +329,14 @@ class Cluster(object):
                      (default: True)
         @return: Sandbox.Process representing the server process.
         """
-        log_prefix = '%s/server%d.%s' % (
+
+        if self.server_log_dir:
+            log_prefix = '%s/server%d.%s' % (
+                self.server_log_dir, self.next_server_id, host[0])
+        else:
+            log_prefix = '%s/server%d.%s' % (
                       self.log_subdir, self.next_server_id, host[0])
+
 
         command = ('%s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
                    '--logFile %s.log --preferredIndex %d %s' %
@@ -584,6 +590,7 @@ def run(
         valgrind=False,            # Do not run under valgrind
         valgrind_args='',          # Additional arguments for valgrind
         disjunct=False,            # Disjunct entities on a server
+        server_log_dir=None,    # Where to place server logs
         coordinator_host=None
         ):
     """
@@ -627,6 +634,7 @@ def run(
         prefix_command += (' valgrind %s' % valgrind_args)
 
     with Cluster(log_dir, superuser=superuser) as cluster:
+        cluster.server_log_dir = server_log_dir
         cluster.log_level = log_level
         cluster.verbose = verbose
         cluster.transport = transport

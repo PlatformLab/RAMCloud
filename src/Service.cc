@@ -141,15 +141,21 @@ Service::handleRpc(Context* context, Rpc* rpc) {
     const WireFormat::RequestCommon* header;
     header = rpc->requestPayload->getStart<WireFormat::RequestCommon>();
     if (header == NULL) {
+        BENCHMARK_LOG("Message too short");
         prepareErrorResponse(rpc->replyPayload, STATUS_MESSAGE_TOO_SHORT);
         return;
     }
     if ((header->service >= WireFormat::INVALID_SERVICE)
             || (context->services[header->service] == NULL)) {
         prepareErrorResponse(rpc->replyPayload, STATUS_SERVICE_NOT_AVAILABLE);
+        BENCHMARK_LOG("Invalid Service for request");
         return;
     }
     Service* service = context->services[header->service];
+    if (rpc->worker) {
+        BENCHMARK_LOG("Worker %d attempting to dispatch service %d on core %d",
+                rpc->worker->threadId, header->service, sched_getcpu());
+    }
 
     WireFormat::Opcode opcode = WireFormat::Opcode(header->opcode);
     (&metrics->rpc.rpc0Count)[opcode]++;
@@ -182,6 +188,8 @@ Service::handleRpc(Context* context, Rpc* rpc) {
     RpcLevel::setCurrentOpcode(RpcLevel::NO_RPC);
 #endif
     (&metrics->rpc.rpc0Ticks)[opcode] += Cycles::rdtsc() - start;
+    if (rpc->worker)
+        BENCHMARK_LOG("Worker %d finished dispatching", rpc->worker->threadId);
 }
 
 /**

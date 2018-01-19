@@ -43,7 +43,7 @@ namespace {
 
 /**
  * Construct a new BasicTransport.
- * 
+ *
  * \param context
  *      Shared state about various RAMCloud modules.
  * \param locator
@@ -162,7 +162,7 @@ BasicTransport::deleteClientRpc(ClientRpc* clientRpc)
  * When we are finished processing an incoming RPC, this method is
  * invoked to delete the RPC object and remove it from all existing
  * data structures.
- * 
+ *
  * \param serverRpc
  *      An RPC that has either completed normally or should be
  *      aborted.
@@ -274,7 +274,7 @@ BasicTransport::opcodeSymbol(uint8_t opcode) {
  * both for requests and for responses. When a method returns, the given
  * range of data will have been queued for the NIC but may not actually
  * have been transmitted yet.
- * 
+ *
  * \param address
  *      Identifies the destination for the message.
  * \param rpcId
@@ -341,7 +341,7 @@ BasicTransport::sendBytes(const Driver::Address* address, RpcId rpcId,
 /**
  * Given a pointer to a BasicTransport packet, return a human-readable
  * string describing the information in its header.
- * 
+ *
  * \param packet
  *      Address of the first bite of the packet header, which must be
  *      contiguous in memory.
@@ -461,6 +461,7 @@ BasicTransport::tryToTransmitData()
 
     // Each iteration of the following loop transmits data packets for
     // a single request or response.
+    PERF_DEBUG_LOG("Try Transmit Start");
     while (transmitQueueSpace >= maxDataPerPacket) {
         // Find an outgoing request or response that is ready to transmit.
         // The policy here is as follows:
@@ -563,6 +564,7 @@ BasicTransport::tryToTransmitData()
             break;
         }
     }
+    PERF_DEBUG_LOG("Try Transmit End");
 
     return result;
 }
@@ -687,7 +689,7 @@ BasicTransport::Session::sendRequest(Buffer* request, Buffer* response,
  * This method is invoked whenever a packet arrives. It is the top-level
  * dispatching method for dealing with incoming packets, both for requests
  * and responses.
- * 
+ *
  * \param received
  *      Information about the new packet.
  */
@@ -757,6 +759,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                         header->messageLength, driver, payload);
                 clientRpc->notifier->completed();
                 deleteClientRpc(clientRpc);
+                PERF_DEBUG_LOG("BT-AllDataServer");
                 return;
             }
 
@@ -810,6 +813,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                     uint32_t dummy;
                     received->steal(&dummy);
                 }
+                PERF_DEBUG_LOG("BT-DataServer");
                 return;
             }
 
@@ -819,6 +823,10 @@ BasicTransport::handlePacket(Driver::Received* received)
                 if (header == NULL)
                     goto packetLengthError;
                 timeTrace("client received GRANT, sequence %u, offset %u",
+                        downCast<uint32_t>(header->common.rpcId.sequence),
+                        header->offset);
+                BENCHMARK_DISPATCH_LOG(
+                        "client received GRANT, sequence %u, offset %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset);
                 if (header->offset > clientRpc->transmitLimit) {
@@ -836,6 +844,11 @@ BasicTransport::handlePacket(Driver::Received* received)
                 TimeTrace::record(
                         "client received LOG_TIME_TRACE for sequence %u",
                         downCast<uint32_t>(common->rpcId.sequence));
+                BENCHMARK_DISPATCH_LOG(
+                        "Client received LOG_TIME_TRACE request from "
+                        "server %s for sequence %lu",
+                        received->sender->toString().c_str(),
+                        common->rpcId.sequence);
                 TimeTrace::printToLogBackground(context->dispatch);
                 return;
             }
@@ -846,6 +859,11 @@ BasicTransport::handlePacket(Driver::Received* received)
                 if (header == NULL)
                     goto packetLengthError;
                 timeTrace("client received RESEND, sequence %u, offset %u, "
+                        "length %u",
+                        downCast<uint32_t>(header->common.rpcId.sequence),
+                        header->offset, header->length);
+                BENCHMARK_DISPATCH_LOG(
+                        "client received RESEND, sequence %u, offset %u, "
                         "length %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset, header->length);
@@ -897,6 +915,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                         FROM_CLIENT|RETRANSMISSION|clientRpc->needGrantFlag,
                         true);
                 clientRpc->lastTransmitTime = Cycles::rdtsc();
+                PERF_DEBUG_LOG("BT-ResendServer");
                 return;
             }
 
@@ -927,6 +946,7 @@ BasicTransport::handlePacket(Driver::Received* received)
             serverRpc->silentIntervals = 0;
         }
 
+        PERF_DEBUG_LOG("Lookup complete");
         switch (common->opcode) {
             // ALL_DATA from client
             case PacketOpcode::ALL_DATA: {
@@ -965,7 +985,9 @@ BasicTransport::handlePacket(Driver::Received* received)
                         payload + sizeof32(AllDataHeader),
                         header->messageLength, driver, payload);
                 serverRpc->requestComplete = true;
+                PERF_DEBUG_LOG("b4 Handle");
                 context->workerManager->handleRpc(serverRpc);
+                PERF_DEBUG_LOG("BT-AllData");
                 return;
             }
 
@@ -1001,6 +1023,11 @@ BasicTransport::handlePacket(Driver::Received* received)
                             serverRpc->requestPayload.getStart<
                             WireFormat::RequestCommon>()->opcode,
                             header->totalLength);
+                    BENCHMARK_DISPATCH_LOG(
+                            "server received opcode %u, totalLength %u",
+                            serverRpc->requestPayload.getStart<
+                            WireFormat::RequestCommon>()->opcode,
+                            header->totalLength);
                 }
                 if (serverRpc->requestPayload.size() >= header->totalLength) {
                     // Message complete; start servicing the RPC.
@@ -1030,6 +1057,11 @@ BasicTransport::handlePacket(Driver::Received* received)
                                 downCast<uint32_t>(
                                 header->common.rpcId.sequence),
                                 serverRpc->grantOffset);
+                        BENCHMARK_DISPATCH_LOG(
+                                "server sending GRANT, sequence %u, offset %u",
+                                downCast<uint32_t>(
+                                header->common.rpcId.sequence),
+                                serverRpc->grantOffset);
                         GrantHeader grant(header->common.rpcId,
                                 serverRpc->grantOffset, FROM_SERVER);
                         driver->sendPacket(serverRpc->clientAddress,
@@ -1041,6 +1073,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                     uint32_t dummy;
                     received->steal(&dummy);
                 }
+                PERF_DEBUG_LOG("BT-Data");
                 return;
             }
 
@@ -1063,6 +1096,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 if (header->offset > serverRpc->transmitLimit) {
                     serverRpc->transmitLimit = header->offset;
                 }
+                PERF_DEBUG_LOG("BT-Grant");
                 return;
             }
 
@@ -1138,6 +1172,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                         true);
                 serverRpc->lastTransmitTime = Cycles::rdtsc();
                 return;
+                PERF_DEBUG_LOG("BT-Resend");
             }
 
             // ACK from client
@@ -1235,7 +1270,7 @@ BasicTransport::MessageAccumulator::~MessageAccumulator()
  * This method is invoked whenever a new DATA packet arrives for a partially
  * complete message. It saves information about the new fragment and
  * (eventually) combines all of the fragments into a complete message.
- * 
+ *
  * \param header
  *      Pointer to the first byte of the packet, which must be a valid
  *      DATA packet.
@@ -1284,7 +1319,7 @@ BasicTransport::MessageAccumulator::addPacket(DataHeader *header,
  * This method is invoked to append a fragment to a partially-assembled
  * message. It handles the special cases where part or all of the
  * fragment is already in the assembled message.
- * 
+ *
  * \param header
  *      Address of the first byte of a DATA packet.
  * \param length
@@ -1316,7 +1351,7 @@ BasicTransport::MessageAccumulator::appendFragment(DataHeader *header,
 /**
  * This method is invoked to issue a RESEND packet when it appears that
  * packets have been lost. It is used by both servers and clients.
- * 
+ *
  * \param t
  *      Overall information about the transport.
  * \param address
@@ -1396,9 +1431,17 @@ BasicTransport::Poller::poll()
 #define MAX_PACKETS 8
     t->driver->receivePackets(MAX_PACKETS, &t->receivedPackets);
     int numPackets = downCast<int>(t->receivedPackets.size());
-    for (int i = 0; i < numPackets; i++) {
-        result = 1;
-        t->handlePacket(&t->receivedPackets[i]);
+    if (numPackets > 0) {
+        for (int i = 0; i < numPackets; i++) {
+            if (i == 0) {
+                BENCHMARK_DISPATCH_LOG("I got %d packets in poll loop!",
+                                            numPackets);
+            }
+            result = 1;
+            t->handlePacket(&t->receivedPackets[i]);
+        }
+        PERF_DEBUG_LOG("handled %d packets", numPackets);
+        BENCHMARK_DISPATCH_LOG("handled %d packets", numPackets);
     }
 
     // See if we should check for timeouts. Ideally, we'd like to do this
@@ -1430,6 +1473,8 @@ BasicTransport::Poller::poll()
             t->nextTimeoutCheck = now + t->timerInterval;
             t->timeoutCheckDeadline = 0;
         }
+
+        PERF_DEBUG_LOG("timeout checked");
     }
 
     // Transmit data packets if possible.

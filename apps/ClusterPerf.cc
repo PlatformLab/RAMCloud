@@ -5779,9 +5779,6 @@ readDistRandom()
     // benchmark.
     Util::serialize();
 
-    // The following variable is used to stop the test after 10 seconds
-    // if we haven't read count keys by then.
-    uint64_t stop = Cycles::rdtsc() + Cycles::fromSeconds(10.0);
 
     // Issue the reads back-to-back, and save the times.
     std::vector<uint64_t> ticks(count);
@@ -5799,12 +5796,6 @@ readDistRandom()
         int index = downCast<int>(interval/bucketTicks);
         if (index < NUM_BUCKETS) {
             timeBuckets[index]++;
-        }
-        if (now >= stop) {
-            count = i+1;
-            LOG(NOTICE, "Time exceeded: stopping test after %d measurements",
-                    count);
-            break;
         }
     }
 
@@ -6541,10 +6532,6 @@ writeDistRandom()
 
     fillTable(dataTable, numKeys, keyLength, objectSize);
 
-    // The following variable is used to stop the test after 10 seconds
-    // if we haven't read count keys by then.
-    uint64_t stop = Cycles::rdtsc() + Cycles::fromSeconds(10.0);
-
     // Issue the writes back-to-back, and save the times.
     std::vector<uint64_t> ticks;
     ticks.resize(count);
@@ -6559,12 +6546,6 @@ writeDistRandom()
                        NULL, NULL, asyncReplication);
         uint64_t now = Cycles::rdtsc();
         ticks.at(i) = now - start;
-        if (now >= stop) {
-            count = i+1;
-            LOG(NOTICE, "Time exceeded: stopping test after %d measurements",
-                    count);
-            break;
-        }
     }
 
     // Output the times (several comma-separated values on each line).

@@ -27,6 +27,7 @@
 #include "RawMetrics.h"
 #include "PerfStats.h"
 #include "Unlock.h"
+#include "RamCloud.h"
 
 // Uncomment to print out a human readable name for any poller that takes longer
 // than slowPollerCycles to complete. Useful for determining which poller is
@@ -141,6 +142,8 @@ Dispatch::~Dispatch()
  *      and file handlers that did useful work). Zero means there
  *      was no useful work found in this call.
  */
+
+static __thread int coreId = -1;
 int
 Dispatch::poll()
 {
@@ -176,12 +179,26 @@ Dispatch::poll()
         }
         currentTime = newCurrent;
     }
+    int newCoreId = sched_getcpu();
+    if (newCoreId != coreId) {
+        PERF_DEBUG_LOG("Dispatch changed to core %d", newCoreId);
+        coreId = newCoreId;
+    }
+
+    static int NanoLogBackgroundThread = -1;
+    if (NanoLogBackgroundThread != NanoLog::getCoreIdOfBackgroundThread()) {
+        PERF_DEBUG_LOG("NanoLog Thread changed to core %d",
+                        NanoLog::getCoreIdOfBackgroundThread());
+        NanoLogBackgroundThread = NanoLog::getCoreIdOfBackgroundThread();
+    }
+
     for (uint32_t i = 0; i < pollers.size(); i++) {
 #if DEBUG_SLOW_POLLERS
         uint64_t ticks = 0;
         CycleCounter<> counter(&ticks);
 #endif
         result += pollers[i]->poll();
+//        PERF_DEBUG_LOG("Poller %u finished", i);
 #if DEBUG_SLOW_POLLERS
         counter.stop();
         if (ticks > slowPollerCycles) {
@@ -291,9 +308,17 @@ Dispatch::poll()
 void
 Dispatch::run()
 {
+    NanoLogInternal::Util::pinThreadToCore(1);
     PerfStats::registerStats(&PerfStats::threadStats);
     uint64_t prev = Cycles::rdtsc();
     int prevResult = 0;
+
+    PERF_DEBUG_LOG("There are %lu pollers", pollers.size());
+
+    for (size_t i = 0; i < pollers.size(); ++i) {
+        PERF_DEBUG_LOG("Poller at %lu is %s",
+                                    i, pollers[i]->pollerName.c_str());
+    }
     while (true) {
         int r = poll();
         if (prevResult > 0) {
@@ -306,10 +331,10 @@ Dispatch::run()
 }
 
 /**
- * Starts execution time profiling of Dispatch::poll() method. 
+ * Starts execution time profiling of Dispatch::poll() method.
  *
- * \param totalElements 
- *      size of circular array that keeps the 
+ * \param totalElements
+ *      size of circular array that keeps the
  *      profiling data. It's equal to the total
  *      measurement data points that could be taken.
  */

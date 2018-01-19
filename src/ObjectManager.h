@@ -183,6 +183,7 @@ class ObjectManager : public LogEntryHandlers,
             uint64_t bucket = HashTable::findBucketIndex(
                         objectManager.objectMap.getNumBuckets(),
                         key.getHash(), &unused);
+            BENCHMARK_LOG("Locking Bucket id %lu", bucket);
             takeBucketLock(objectManager, bucket);
         }
 

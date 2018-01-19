@@ -133,6 +133,7 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         return;
     }
 
+    BENCHMARK_LOG("Master Service on opcode %d", opcode);
     switch (opcode) {
         case WireFormat::DropTabletOwnership::opcode:
             callHandler<WireFormat::DropTabletOwnership, MasterService,
@@ -1741,6 +1742,8 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
     }
 
     Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
+    BENCHMARK_LOG("Looking up key hash %lu for table %lu",
+                key.getHash(), key.getTableId());
 
     RejectRules rejectRules = reqHdr->rejectRules;
     bool valueOnly = true;

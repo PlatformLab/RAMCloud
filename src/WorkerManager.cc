@@ -207,6 +207,9 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
                 levels[level].waitingRpcs.push(rpc);
                 rpcsWaiting++;
                 timeTrace("RPC deferred; threads busy");
+                BENCHMARK_DISPATCH_LOG(
+                    "RPC %d deferred from core %d; threads busy",
+                    rpcsWaiting, sched_getcpu());
                 return;
             }
         }
@@ -232,6 +235,9 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     idleThreads.pop_back();
     worker->opcode = WireFormat::Opcode(header->opcode);
     worker->level = level;
+    BENCHMARK_DISPATCH_LOG(
+                    "Handing off rpc opcode %d to worker %d from core %d",
+                        header->opcode, worker->threadId, sched_getcpu());
     worker->handoff(rpc);
     worker->busyIndex = downCast<int>(busyThreads.size());
     busyThreads.push_back(worker);
@@ -273,6 +279,9 @@ WorkerManager::poll()
         Fence::enter();
         timeTrace("dispatch thread starting cleanup for opcode %d, thread %d",
                 worker->opcode, worker->threadId);
+        BENCHMARK_DISPATCH_LOG(
+                "dispatch thread starting cleanup for opcode %d, worker %d",
+                worker->opcode, worker->threadId);
 
         // The worker is either post-processing or idle; in either case,
         // there may be an RPC that we have to respond to. Save the RPC
@@ -312,6 +321,8 @@ WorkerManager::poll()
                     rpcsWaiting--;
                     level->requestsRunning++;
                     worker->level = i;
+                    BENCHMARK_DISPATCH_LOG("Reawakening worker %d from cpu %d",
+                                            worker->threadId, sched_getcpu());
                     worker->handoff(level->waitingRpcs.front());
                     level->waitingRpcs.pop();
                     startedNewRpc = true;
@@ -328,9 +339,13 @@ WorkerManager::poll()
                     reinterpret_cast<uint64_t>(rpc),
                     rpc->replyPayload.size());
 #endif
+            BENCHMARK_DISPATCH_LOG("Sending RPC reply for opcode %d, worker %d",
+                        worker->opcode, worker->threadId);
             rpc->sendReply();
+            //TODO(syang0) the following swaps threadid and opcode >__>
             timeTrace("sent reply for opcode %d, thread %d",
                     worker->threadId, worker->opcode);
+            BENCHMARK_DISPATCH_LOG("Reply Sent");
 
         }
 
@@ -378,6 +393,7 @@ WorkerManager::waitForRpc(double timeoutSeconds) {
     }
 }
 
+static __thread int coreId = -1;
 /**
  * This is the top-level method for worker threads.  It repeatedly waits for
  * an RPC to be assigned to it, then executes that RPC and communicates its
@@ -401,12 +417,20 @@ WorkerManager::workerMain(Worker* worker)
     try {
         uint64_t pollCycles = Cycles::fromNanoseconds(1000*pollMicros);
         while (true) {
+            int newCoreId = sched_getcpu();
+            if (newCoreId != coreId) {
+                PERF_DEBUG_LOG("Worker changed to core %d", newCoreId);
+                BENCHMARK_LOG("Worker changed to core %d", newCoreId);
+                coreId = newCoreId;
+            }
             uint64_t stopPollingTime = lastIdle + pollCycles;
 
             // Wait for WorkerManager to supply us with some work to do.
             while (worker->state.load() != Worker::WORKING) {
                 if (lastIdle >= stopPollingTime) {
                     timeTrace("worker thread %d sleeping", worker->threadId);
+                    BENCHMARK_LOG(
+                              "worker thread %d sleeping", worker->threadId);
 
                     // It's been a long time since we've had any work to do; go
                     // to sleep so we don't waste any more CPU cycles.  Tricky
@@ -417,6 +441,8 @@ WorkerManager::workerMain(Worker* worker)
                     int expected = Worker::POLLING;
                     if (worker->state.compareExchange(expected,
                                                       Worker::SLEEPING)) {
+                        PERF_DEBUG_LOG("Worker Sleeping");
+                        coreId = -1;
                         if (sys->futexWait(
                                 reinterpret_cast<int*>(&worker->state),
                                 Worker::SLEEPING) == -1) {
@@ -429,8 +455,15 @@ WorkerManager::workerMain(Worker* worker)
                                     strerror(errno));
                             }
                         }
+                        int newCoreId = sched_getcpu();
+                        if (newCoreId != coreId) {
+                            PERF_DEBUG_LOG("Worker changed to core %d",
+                                                newCoreId);
+                            coreId = newCoreId;
+                        }
                     }
                     timeTrace("worker thread %d waking", worker->threadId);
+                    BENCHMARK_LOG("worker thread %d waking", worker->threadId);
                 }
                 lastIdle = Cycles::rdtsc();
             }
@@ -440,10 +473,12 @@ WorkerManager::workerMain(Worker* worker)
             timeTrace("worker thread %d received opcode %d", worker->threadId,
                     worker->opcode);
 
+            PERF_DEBUG_LOG("Handling RPC");
             worker->rpc->epoch = LogProtector::getCurrentEpoch();
             Service::Rpc rpc(worker, &worker->rpc->requestPayload,
                     &worker->rpc->replyPayload);
             Service::handleRpc(worker->context, &rpc);
+            PERF_DEBUG_LOG("Handled RPC");
 
             // Pass the RPC back to the dispatch thread for completion.
             Fence::leave();
@@ -524,6 +559,7 @@ Worker::handoff(Transport::ServerRpc* newRpc)
     if (prevState == SLEEPING) {
         // The worker got tired of polling and went to sleep, so we
         // have to do extra work to wake it up.
+        BENCHMARK_LOG("Waking up worker thread %d", threadId);
         WorkerManager::timeTrace("waking sleeping worker thread %d", threadId);
         if (WorkerManager::sys->futexWake(reinterpret_cast<int*>(&state), 1)
                 == -1) {

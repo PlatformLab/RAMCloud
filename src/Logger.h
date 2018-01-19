@@ -26,6 +26,46 @@
 #include "SpinLock.h"
 #include "Tub.h"
 
+#ifndef PERF_DEBUG_LOG
+#define PERF_DEBUG_LOG(format, ...) {}
+#endif
+
+
+#ifdef BENCHMARK_DISPATCH_TRACING
+
+#ifndef BENCHMARK_DISPATCH_LOG
+#define BENCHMARK_DISPATCH_LOG(format, ...) do { \
+                    RAMCLOUD_LOG(DEBUG, format, ##__VA_ARGS__); \
+                    } while (0);
+#endif
+
+#else
+
+#ifndef BENCHMARK_DISPATCH_LOG
+#define BENCHMARK_DISPATCH_LOG(format, ...) {}
+#endif
+
+#endif
+
+
+
+#ifdef BENCHMARK_WORKER_TRACING
+
+#ifndef BENCHMARK_LOG
+#define BENCHMARK_LOG(format, ...) do { \
+                    RAMCLOUD_LOG(DEBUG, format, ##__VA_ARGS__); \
+                    } while (0);
+#endif
+
+#else
+
+#ifndef BENCHMARK_LOG
+#define BENCHMARK_LOG(format, ...) {}
+#endif
+
+#endif
+
+
 namespace RAMCloud {
 
 // Import NanoLog's LogLevel enum into the RAMCloud namespace so that (a) we

@@ -363,6 +363,7 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
     PerfStats::threadStats.readKeyBytes +=
             object.getKeysAndValueLength() - valueLength;
 
+    BENCHMARK_LOG("Returning object of size %u", valueLength);
     return STATUS_OK;
 }
 
@@ -2707,7 +2708,9 @@ ObjectManager::lookup(HashTableBucketLock& lock, Key& key,
 {
     HashTable::Candidates candidates;
     objectMap.lookup(key.getHash(), candidates);
+    int numLookups = 0;
     while (!candidates.isDone()) {
+        numLookups++;
         Buffer candidateBuffer;
         Log::Reference candidateRef(candidates.getReference());
         LogEntryType type = log.getEntry(candidateRef, candidateBuffer);
@@ -2729,12 +2732,17 @@ ObjectManager::lookup(HashTableBucketLock& lock, Key& key,
                 *outReference = candidateRef;
             if (outCandidates != NULL)
                 *outCandidates = candidates;
+
+            BENCHMARK_LOG("Object lookup succeeded after looking at "
+                    "%d things in a bucket", numLookups);
             return true;
         }
 
         candidates.next();
     }
 
+    BENCHMARK_LOG("Object lookup failed after looking at "
+                    "%d things in a bucket", numLookups);
     return false;
 }
 
