@@ -333,10 +333,12 @@ BackupMasterRecovery::getRecoverySegment(uint64_t recoveryId,
     if (!replica->built) {
         if (replica->frame->isLoaded()) {
             LOG(DEBUG, "Deferring because <%s,%lu> not yet filtered: %p",
-                crashedMasterId.toString().c_str(), segmentId, replica);
+                crashedMasterId.toString().c_str(), segmentId,
+                static_cast<void*>(replica));
         } else {
             LOG(DEBUG, "Deferring because <%s,%lu> not yet loaded: %p",
-                crashedMasterId.toString().c_str(), segmentId, replica);
+                crashedMasterId.toString().c_str(), segmentId,
+                static_cast<void*>(replica));
         }
 
         throw RetryException(HERE, 5000, 10000,

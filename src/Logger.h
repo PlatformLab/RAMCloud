@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2017 Stanford University
+/* Copyright (c) 2010-2018 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,6 +20,13 @@
 #include <thread>
 #include <time.h>
 #include <unordered_map>
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Weffc++"
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#include "spdlog/spdlog.h"
+#pragma GCC diagnostic pop
 
 #include "CodeLocation.h"
 #include "NanoLog.h"
@@ -97,6 +104,7 @@ class Logger {
     ~Logger();
     static Logger& get();
 
+    spdlog::logger* getSpdlogLogger();
     void setLogFile(const char* path, bool truncate = false);
     void setLogFile(int fd);
     int getLogFile() { return fd; }
@@ -152,6 +160,30 @@ class Logger {
 
     static void installCrashBacktraceHandlers();
 
+    /**
+     * Transforms a NanoLog/RAMCloud log level to a spdlog log level.
+     *
+     * \param level
+     *      RAMCloud/NanoLog LogLevel
+     * \return
+     *      spdlog's equivalent log level
+     */
+    static inline constexpr spdlog::level::level_enum
+    logLevelToSpdlogLevel(LogLevel level) {
+        return
+            (level == SILENT_LOG_LEVEL) ?
+                spdlog::level::level_enum::off
+            : (level == ERROR) ?
+                spdlog::level::level_enum::err
+            : (level == WARNING) ?
+                spdlog::level::level_enum::warn
+            : (level == NOTICE) ?
+                spdlog::level::level_enum::info
+            : (level == DEBUG) ?
+                spdlog::level::level_enum::debug
+            : spdlog::level::trace;
+    }
+
   PRIVATE:
     bool addToBuffer(const char* src, int length);
     void cleanCollapseMap(struct timespec now);
@@ -187,6 +219,14 @@ class Logger {
      */
     SpinLock mutex;
     typedef std::unique_lock<SpinLock> Lock;
+
+    /**
+     * Pointer to a spdlog logger that is constructed with this class.
+     * By default, it logs to console until setLogFile() is invoked,
+     * in which case it will log to a file with the same name with
+     * ".spdlog" as an extension.
+     */
+    std::shared_ptr<spdlog::logger> spdlog_async_logger;
 
     /**
      * Objects of the following type are used in collapseMap to keep
@@ -386,9 +426,14 @@ class Logger {
         if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \
             NANO_LOG(level, format, ##__VA_ARGS__); \
         } \
-        RAMCLOUD_TEST_LOG(format, ##__VA_ARGS__); \
      } while (0)
 
+#elif defined ENABLE_SPDLOG
+    #define RAMCLOUD_LOG(level, format, ...) do { \
+        RAMCloud::Logger& _logger = Logger::get(); \
+        _logger.getSpdlogLogger()->log(Logger::logLevelToSpdlogLevel(level), \
+                                            format, ##__VA_ARGS__); \
+     } while (0)
 #else
     #define RAMCLOUD_LOG(level, format, ...) do { \
         RAMCloud::Logger& _logger = Logger::get(); \

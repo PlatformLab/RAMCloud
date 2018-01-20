@@ -368,7 +368,7 @@ AdminService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         case WireFormat::LOG_TIME_TRACE:
         {
             TimeTrace::printToLog();
-            RAMCLOUD_LOG(ERROR, "%s", NanoLog::getStats().c_str());
+            RAMCLOUD_LOG(NOTICE, "%s", NanoLog::getStats().c_str());
             break;
         }
         case WireFormat::GET_CACHE_TRACE:

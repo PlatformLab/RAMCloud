@@ -30,6 +30,7 @@ OBJDIR	:= obj$(OBJSUFFIX)
 
 TOP	:= $(shell echo $${PWD-`pwd`})
 GTEST_DIR ?= $(TOP)/gtest
+SPDLOG_DIR ?= $(TOP)/spdlog
 
 # Determines whether or not RAMCloud is built with support for LogCabin as an
 # ExternalStorage implementation.
@@ -60,6 +61,22 @@ endif
 # suffix *.compressed appended to it.
 # Note: You can still use NANO_LOG() log statements even if NANOLOG=no
 NANOLOG ?= no
+
+# 'yes' replaces the regular RAMCLOUD_LOG() invocations with spdlog instead
+# Caveat: RAMCLOUD_BACKTRACE, RAMCLOUD_DIE, and RAMCLOUD_CLOG will still use
+# the built in RAMCloud logging system. This will produce 2 log files, the
+# regular RAMCloud log and a spdlog log of the same name/location with the
+# suffix *.compressed appended to it.
+# NOTE: This cannot be used in conjunction with NANOLOG=yes
+SPDLOG ?= no
+
+# Make sure both systems are not active at the same time
+ifeq ($(NANOLOG),yes)
+ifeq ($(SPDLOG),yes)
+$(error Cannot enable NANOLOG and SPDLOG at the same time! \
+Please only select one!)
+endif
+endif
 
 # 'yes' enables additional logging that can be used to trace an execution of
 # a read/write rpc
@@ -130,6 +147,9 @@ endif
 ifeq ($(NANOLOG),yes)
 COMFLAGS += -DENABLE_NANOLOG
 endif
+ifeq ($(SPDLOG),yes)
+COMFLAGS += -DENABLE_SPDLOG -DSPDLOG_FMT_PRINTF
+endif
 TEST_INSTALL_FLAGS =
 
 COMWARNS := -Wall -Wformat=2 -Wextra \
@@ -158,6 +178,7 @@ endif
 
 INCLUDES := -I$(TOP)/src \
             -I$(TOP)/$(OBJDIR) \
+            -I$(SPDLOG_DIR)/include/ \
             -I$(GTEST_DIR)/include \
             -I/usr/local/openonload-201405/src/include \
              $(NULL)
@@ -377,6 +398,22 @@ include nanobenchmarks/MakefragNano
 include src/misc/Makefrag
 include bindings/python/Makefrag
 
+# run-cxx-spdlog:
+# Compile a user C++ source file to an object file and replace regular log
+# format strings statements with spdlog format strings
+# The first parameter $(1) should be the output filename (*.o)
+# The second parameter $(2) should be the input filename (*.cc)
+# The optional third parameter $(3) is any additional options compiler options.
+define run-cxx-spdlog
+	$(CXX) -E -I $(RUNTIME_DIR) $(2) -o $(2).i $(3) && \
+	mkdir -p generated && \
+	python ramcloud2spdlog.py $(2).i && \
+	$(CXX) -I $(RUNTIME_DIR) -c -o $(1) $(2).ii $(3)
+endef
+
+
+# $(CXX) -I $(RUNTIME_DIR) -c -o $(1) $(2).ii $(3) && \
+# rm -f $(2).i $(2).ii generated/GeneratedCode.cc $(2).d
 
 #########################
 # NanoLog Configuration #
@@ -598,6 +635,7 @@ install: all java
 	cp $(INSTALL_INCLUDES) $(INSTALL_DIR)/include/ramcloud
 	mkdir -p $(INSTALL_DIR)/include/NanoLog
 	cp $(RUNTIME_DEPS) $(INSTALL_DIR)/include/NanoLog
+	cp -R $(SPDLOG_DIR)/include/* $(INSTALL_DIR)/include
 	mkdir -p $(INSTALL_DIR)/lib/ramcloud
 	cp $(INSTALL_LIBS) $(INSTALL_DIR)/lib/ramcloud
 	cp bindings/java/build/install/ramcloud/lib/* $(INSTALL_DIR)/lib/ramcloud

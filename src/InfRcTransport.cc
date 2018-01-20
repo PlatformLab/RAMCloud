@@ -750,11 +750,13 @@ InfRcTransport::clientTrySetupQueuePair(IpAddress& address)
         return qp;
     }
 
+    static const uint32_t qpExchangeUsecTimeout = QP_EXCHANGE_USEC_TIMEOUT;
+    static const uint32_t qpExchangeMaxTimeouts = QP_EXCHANGE_MAX_TIMEOUTS;
     LOG(WARNING, "failed to exchange with server (%s) within allotted "
         "%u microseconds (sent request %u times, local port %d)",
         address.toString().c_str(),
-        QP_EXCHANGE_USEC_TIMEOUT * QP_EXCHANGE_MAX_TIMEOUTS,
-        QP_EXCHANGE_MAX_TIMEOUTS,
+        qpExchangeUsecTimeout * qpExchangeMaxTimeouts,
+        qpExchangeMaxTimeouts,
         clientPort);
     delete qp;
     throw TransportException(HERE, "failed to connect to host");

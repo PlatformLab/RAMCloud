@@ -1,4 +1,4 @@
-# RAMCloud + NanoLog
+# RAMCloud + NanoLog (+ spdlog)
 [![Build Status](https://travis-ci.org/PlatformLab/RAMCloud.svg?branch=master)](https://travis-ci.org/PlatformLab/RAMCloud)
 
 For up to date information on how to install and use RAMCloud, see the RAMCloud Wiki:
@@ -56,6 +56,17 @@ NANO_LOG(LogLevel::NOTICE, "Floating points are sub-optimal, but are not bad %lf
 NANO_LOG(LogLevel::NOTICE, "This is the worst because %s", "it contains a long string argument");
 ```
 
+## Spdlog
+This branch also allows the user to supplant the RAMCloud logger with [spdlog](https://github.com/gabime/spdlog). To enable this feature, simply compile RAMCloud with the SPDLOG=yes flag:
+
+```bash
+make clean-all
+make DEBUG=NO SPDLOG=yes -j17
+```
+
+After this, all ```RAMCLOUD_LOG``` statements in the code will be forwarded to a ```spdlog::basic_logger_mt```. The file location can be set by invoking ```Logger::setLogFile(filename)``` and the final output file will be appended with a ".spdlog" extension.
+
+Note that not all RAMCloud functionality is replaced. Most notably, ```RAMCLOUD_CLOG```, ```RAMCLOUD_BACKTRACE```, ```RAMCLOUD_DIE``` and FileLogger will still forward to RAMCloud's internal logging system. Additionally, "SPDLOG=yes" is **INCOMPATIBLE** with "NANOLOG=yes" since they both attempt to replace the RAMCLOUD_LOG macro with their own. If you attempt this, the make process will throw an error.
 
 ## What is RAMCloud?
 *note*: the following is an excerpt copied from the [RAMCloud wiki](https://ramcloud.stanford.edu/wiki/display/ramcloud)  on 1/22/16.

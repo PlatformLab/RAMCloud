@@ -8,6 +8,7 @@ apply plugin: 'cpp'
 def ramcloudDir = "../.."
 def ramcloudSrc = "src"
 def nanologSrc = "NanoLog/runtime"
+def spdlogSrc = "spdlog/include"
 def ramcloudBin = findRamcloudBin()
 def jniDirs = findJniDirs()
 def bindingsDir = "${buildDir}/generated"
@@ -25,7 +26,8 @@ model {
             ramcloud {
                 headers.srcDirs("$ramcloudDir/$ramcloudSrc",
                                 "$ramcloudDir/$ramcloudBin",
-                                "$ramcloudDir/$nanologSrc")
+                                "$ramcloudDir/$nanologSrc",
+                                "$ramcloudDir/$spdlogSrc")
                 binaries.withType(SharedLibraryBinary) {
                     sharedLibraryFile = file(
                             "$ramcloudDir/$ramcloudBin/libramcloud.so")
@@ -34,7 +36,8 @@ model {
             ramcloudtest {
                 headers.srcDirs("$ramcloudDir/$ramcloudSrc",
                                 "$ramcloudDir/$ramcloudBin",
-                                "$ramcloudDir/$nanologSrc")
+                                "$ramcloudDir/$nanologSrc",
+                                "$ramcloudDir/$spdlogSrc")
                 binaries.withType(SharedLibraryBinary) {
                     sharedLibraryFile = file(
                             "$ramcloudDir/$ramcloudBin/libramcloudtest.so")

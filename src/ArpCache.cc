@@ -96,7 +96,7 @@ ArpCache::ArpCache(Context* context, const uint32_t localIp,
 }
 
 /**
- * Destructor of ArpCache object. 
+ * Destructor of ArpCache object.
  */
 ArpCache::~ArpCache()
 {
@@ -110,10 +110,10 @@ ArpCache::~ArpCache()
  * Given a destination IP address this method returns the corresponding MAC
  * address. (ie. The packet must be sent to this MAC address to reach the
  * destination IP address).
- * \param destIp 
+ * \param destIp
  *      32 bit destination IP (in network byte order) for which we want to
  *      resolve the next hop MAC address.
- * \param destMac 
+ * \param destMac
  *      Pointer to the destination MAC address to be resolved by this method.
  *      If this method returns true, the value that this pointer points to will
  *      contain the 6 bytes MAC address corresponding to destIp address or
@@ -180,10 +180,10 @@ ArpCache::arpLookup(const uint32_t destIp, MacAddress destMac)
  * ARP cache. If the corresponding MAC address is found, it will returns the
  * MAC address and also updates the local ARP cache.
  *
- * \param destIp 
+ * \param destIp
  *      32 bit destination IP (in network byte order) for which we want to
  *      resolve the MAC address.
- * \param destMac 
+ * \param destMac
  *      Pointer to the destination MAC address to be resolved by this method.
  *      If this method returns true, the value that this pointer points to will
  *      contain either the 6 bytes MAC address corresponding to destIp address
@@ -237,9 +237,10 @@ ArpCache::lookupKernelArpCache(const uint32_t destIp, MacAddress destMac)
         } else {
 
             // If the ioctl failed, we wait for some time and try again.
+            static const int arpWait = ARP_WAIT;
             LOG(WARNING, "Kernel ARP cache entry for host at %s is in use!"
                 " Sleeping for %d us then retry for %dth time",
-                inet_ntoa(sin->sin_addr), ARP_WAIT, r+1);
+                inet_ntoa(sin->sin_addr), arpWait, r+1);
             usleep(ARP_WAIT);
         }
     }

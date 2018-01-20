@@ -14,7 +14,10 @@ SERVER_LOG_DIR="/tmp/"
 
 BENCHMARK_WORKER_TRACINGS="yes no"
 BENCHMARK_DISPATCH_TRACINGS="yes no"
+# Note: NANOLOG=yes and SPDLOG=yes are invalid configurations and will
+# be skipped
 NANOLOGS="yes no"
+SPDLOGS="yes no"
 LOG_LEVELS="DEBUG NOTICE"
 CLUSTERPERF_TESTS="readThroughput writeThroughput writeDistRandom readDistRandom readDist"
 ((ITTERATIONS=3))
@@ -29,59 +32,71 @@ do
   do
     for NANOLOG in $NANOLOGS;
     do
-      echo "Building NANOLOG=${NANOLOG} BENCHMARK_DISPATCH_TRACING=${BENCHMARK_DISPATCH_TRACING} BENCHMARK_WORKER_TRACING=${BENCHMARK_WORKER_TRACING}"
-      make clean-all > /dev/null && make DEBUG=NO NANOLOG=${NANOLOG} BENCHMARK_DISPATCH_TRACING=${BENCHMARK_DISPATCH_TRACING} BENCHMARK_WORKER_TRACING=${BENCHMARK_WORKER_TRACING} -j17 > /dev/null && clear
-      for LOG_LEVEL in $LOG_LEVELS;
+      for SPDLOG in $SPDLOGS;
       do
-        LOG_NAME="LL_${LOG_LEVEL}_NL_${NANOLOG}_DISPATCH_${BENCHMARK_DISPATCH_TRACING}_WORKER_${BENCHMARK_WORKER_TRACING}"
+        if [ "$SPDLOG" == "yes" ] && [ "$NANOLOG" == "yes" ]; then
+            echo "Skipping SPDLOG=yes NANOLOG=yes"
+            echo ""
+            continue
+        fi
 
-        DETAILED_LOG_DIR="${LOG_DIR}/details/${LOG_NAME}"
-        mkdir -p $DETAILED_LOG_DIR
-
-        VERBOSE_LOG_FILE="${DETAILED_LOG_DIR}/details.txt"
-        touch $VERBOSE_LOG_FILE
-
-        for TEST in $CLUSTERPERF_TESTS;
+        echo "Building NANOLOG=${NANOLOG} SPDLOG=${SPDLOG} BENCHMARK_DISPATCH_TRACING=${BENCHMARK_DISPATCH_TRACING} BENCHMARK_WORKER_TRACING=${BENCHMARK_WORKER_TRACING}"
+        make clean-all > /dev/null && make DEBUG=NO NANOLOG=${NANOLOG} SPDLOG=${SPDLOG} BENCHMARK_DISPATCH_TRACING=${BENCHMARK_DISPATCH_TRACING} BENCHMARK_WORKER_TRACING=${BENCHMARK_WORKER_TRACING} -j17 > /dev/null && clear
+        for LOG_LEVEL in $LOG_LEVELS;
         do
+          LOG_NAME="LL_${LOG_LEVEL}_NL_${NANOLOG}_SPDLOG_${SPDLOG}_DISPATCH_${BENCHMARK_DISPATCH_TRACING}_WORKER_${BENCHMARK_WORKER_TRACING}"
+
+          DETAILED_LOG_DIR="${LOG_DIR}/details/${LOG_NAME}"
+          mkdir -p $DETAILED_LOG_DIR
+
+          VERBOSE_LOG_FILE="${DETAILED_LOG_DIR}/details.txt"
+          touch $VERBOSE_LOG_FILE
+
+          for TEST in $CLUSTERPERF_TESTS;
+          do
+            for ((i=1; i <= ITTERATIONS; ++i))
+            do
+              # Log file keeps track of statistics for iteration of tests
+              RUN_LOG_FILE="${DETAILED_LOG_DIR}/run${i}.txt"
+              touch $RUN_LOG_FILE
+
+              CMD="rm -f /tmp/*"
+              rcdo "${CMD}"
+              scripts/clusterperf.py -l ${LOG_LEVEL} ${TEST} --serverLogDir=${SERVER_LOG_DIR} -v --rcdf --count=${COUNT} --timeout=${TIMEOUT} | tee -a $VERBOSE_LOG_FILE $RUN_LOG_FILE
+
+              # Spaces to separate tests
+              echo " " >> $VERBOSE_LOG_FILE
+              echo " " >> $VERBOSE_LOG_FILE
+
+              echo " " >> $RUN_LOG_FILE
+              echo " " >> $RUN_LOG_FILE
+
+              # Get log sizes
+              CMD='ls -lah /tmp/logFile /tmp/*'
+              rcdo "hostname && ${CMD}" | tee -a $VERBOSE_LOG_FILE $RUN_LOG_FILE
+
+              # Get a sample of their logs
+              if [ "$NANOLOG" == "yes" ]; then
+                CMD="$(pwd)/obj.nanolog_benchmark/decompressor /tmp/logFile | head -n 100000 | tail -n 1000 > ${DETAILED_LOG_DIR}/${TEST}_\$(hostname).log.txt"
+                rcdo "hostname && ${CMD}"
+              elif [ "$SPDLOG" == "yes" ]; then
+                CMD="head -n 100000 /tmp/*.spdlog | tail -n 1000 > $(pwd)/${DETAILED_LOG_DIR}/\$(hostname).log.txt"
+                rcdo "hostname && ${CMD}"
+              else
+                CMD="head -n 100000 /tmp/*.log | tail -n 1000 > $(pwd)/${DETAILED_LOG_DIR}/\$(hostname).log.txt"
+                rcdo "hostname && ${CMD}"
+              fi
+
+              cp -R $(pwd)/logs/latest/*.log ${DETAILED_LOG_DIR}
+            done
+          done
+
           for ((i=1; i <= ITTERATIONS; ++i))
           do
-            # Log file keeps track of statistics for itteration of tests
+            LOG_FILE="${LOG_DIR}/${LOG_NAME}_run${i}.txt"
             RUN_LOG_FILE="${DETAILED_LOG_DIR}/run${i}.txt"
-            touch $RUN_LOG_FILE
-
-            CMD="rm -f /tmp/*"
-            rcdo "${CMD}"
-            scripts/clusterperf.py -l ${LOG_LEVEL} ${TEST} --serverLogDir=${SERVER_LOG_DIR} -v --rcdf --count=${COUNT} --timeout=${TIMEOUT} | tee -a $VERBOSE_LOG_FILE $RUN_LOG_FILE
-
-            # Spaces to separate tests
-            echo " " >> $VERBOSE_LOG_FILE
-            echo " " >> $VERBOSE_LOG_FILE
-
-            echo " " >> $RUN_LOG_FILE
-            echo " " >> $RUN_LOG_FILE
-
-            # Get log sizes
-            CMD='ls -lah /tmp/logFile /tmp/*.log'
-            rcdo "hostname && ${CMD}" | tee -a $VERBOSE_LOG_FILE $RUN_LOG_FILE
-
-            # Get a sample of their logs
-            if [ "$NANOLOG" == "no" ]; then
-              CMD="head -n 100000 /tmp/*.log | tail -n 1000 > $(pwd)/${DETAILED_LOG_DIR}/\$(hostname).log.txt"
-              rcdo "hostname && ${CMD}"
-            else
-              CMD="$(pwd)/obj.nanolog_benchmark/decompressor /tmp/logFile | head -n 100000 | tail -n 1000 > ${DETAILED_LOG_DIR}/${TEST}_\$(hostname).log.txt"
-              rcdo "hostname && ${CMD}"
-            fi
-
-            cp -R $(pwd)/logs/latest/*.log ${DETAILED_LOG_DIR}
+            grep -P "^ |#" ${RUN_LOG_FILE} > ${LOG_FILE}
           done
-        done
-
-        for ((i=1; i <= ITTERATIONS; ++i))
-        do
-          LOG_FILE="${LOG_DIR}/${LOG_NAME}_run${i}.txt"
-          RUN_LOG_FILE="${DETAILED_LOG_DIR}/run${i}.txt"
-          grep -P "^ |#" ${RUN_LOG_FILE} > ${LOG_FILE}
         done
       done
     done

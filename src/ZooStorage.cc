@@ -669,9 +669,10 @@ ZooStorage::renewLease(Lock& lock)
 
             // We're no longer leader; print out information about the
             // new leader.
+            const char *bufferPtr = buffer;
             RAMCLOUD_LOG(WARNING, "Lost ZooKeeper leadership; current "
                     "leader info: %.*s, version: %u, our version: %u",
-                    length, buffer, stat.version,
+                    length, bufferPtr, stat.version,
                     leaderVersion);
             lostLeadership = true;
             return true;

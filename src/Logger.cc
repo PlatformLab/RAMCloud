@@ -35,6 +35,21 @@
 namespace RAMCloud {
 
 /**
+ * Configuration for spdlog
+ */
+
+// According to https://github.com/gabime/spdlog/wiki/6.-Asynchronous-logging
+// This number *104 is the size of the buffer. It must be a power of two so we
+// set it to 8192 to get it as close to our NanoLog 1MB as possible.
+static const int SPDLOG_ASYNC_BUFFER_SIZE = 8192;
+
+// Documentation for pattern:
+// https://github.com/gabime/spdlog/wiki/3.-Custom-formatting
+static const char* SPDLOG_PATTERN = "%Y-%m-%d %T.%F: %l[%t] %v";
+
+/* END configuration for spdlog*/
+
+/**
  * Friendly names for each #LogLevel value.
  * Keep this in sync with the LogLevel enum.
  */
@@ -67,6 +82,7 @@ Logger::Logger(LogLevel level)
     : fd(2)
     , mustCloseFd(false)
     , mutex("Logger::mutex")
+    , spdlog_async_logger()
     , collapseMap()
     , collapseIntervalMs(DEFAULT_COLLAPSE_INTERVAL)
     , maxCollapseMapSize(DEFAULT_COLLAPSE_MAP_LIMIT)
@@ -99,6 +115,10 @@ Logger::Logger(LogLevel level)
 #if ENABLE_LOGCABIN
     LogCabinLogger::setup(level);
 #endif
+
+    spdlog::set_async_mode(SPDLOG_ASYNC_BUFFER_SIZE);
+    spdlog::set_pattern(SPDLOG_PATTERN);
+    spdlog_async_logger = spdlog::stdout_color_mt("console");
 }
 
 /**
@@ -118,6 +138,11 @@ Logger::~Logger()
     if (mustCloseFd)
         close(fd);
     delete[] messageBuffer;
+
+    if (spdlog_async_logger) {
+        spdlog::drop_all();
+        spdlog_async_logger = nullptr;
+    }
 }
 
 /**
@@ -163,11 +188,30 @@ Logger::setLogFile(const char* path, bool truncate)
     fd = newFd;
     mustCloseFd = true;
 
-    char nanoLogFileLocation[1000];
-    snprintf(nanoLogFileLocation,
-                sizeof(nanoLogFileLocation),
+    char altLoggerLocation[1000];
+    snprintf(altLoggerLocation,
+                sizeof(altLoggerLocation),
                 "%s.compressed", path);
-    NanoLog::setLogFile(nanoLogFileLocation);
+    NanoLog::setLogFile(altLoggerLocation);
+
+#ifdef ENABLE_SPDLOG
+    snprintf(altLoggerLocation,
+                sizeof(altLoggerLocation),
+                "%s.spdlog", path);
+    spdlog::drop_all();
+    spdlog::set_async_mode(SPDLOG_ASYNC_BUFFER_SIZE);
+    spdlog::flush_on(spdlog::level::critical); // Higher than warning
+    spdlog_async_logger = spdlog::basic_logger_mt("async_file_logger",
+                                                    altLoggerLocation);
+#endif
+}
+
+/**
+ * Returns a pointer to the internal spdlog logger.
+ */
+spdlog::logger*
+Logger::getSpdlogLogger() {
+    return spdlog_async_logger.get();
 }
 
 /**
@@ -299,6 +343,7 @@ Logger::setLogLevels(LogLevel level)
     }
 
     NanoLog::setLogLevel(level);
+    spdlog::set_level(logLevelToSpdlogLevel(level));
 }
 /**
  * Set the log level for all modules.
@@ -317,6 +362,7 @@ Logger::setLogLevels(int level)
     setLogLevels(static_cast<LogLevel>(level));
 
     NanoLog::setLogLevel(static_cast<LogLevel>(level));
+    spdlog::set_level(logLevelToSpdlogLevel(static_cast<LogLevel>(level)));
 }
 /**
  * Set the log level for all modules.

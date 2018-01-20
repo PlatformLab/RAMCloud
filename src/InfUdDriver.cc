@@ -140,11 +140,14 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
     rxPool.construct(infiniband, bufSize, TOTAL_RX_BUFFERS+0);
     rxBufferLogThreshold = TOTAL_RX_BUFFERS - 1000;
     txPool.construct(infiniband, bufSize, MAX_TX_QUEUE_DEPTH+0);
+
+    static const uint32_t totalRxBuffers = TOTAL_RX_BUFFERS;
+    static const uint32_t maxTXQueueDepth = MAX_TX_QUEUE_DEPTH;
     double seconds = Cycles::toSeconds(Cycles::rdtsc() - start);
     LOG(NOTICE, "Initialized InfUdDriver buffers: %u receive buffers (%u MB), "
             "%u transmit buffers (%u MB), took %.1f ms",
-            TOTAL_RX_BUFFERS, (TOTAL_RX_BUFFERS*bufSize)/(1024*1024),
-            MAX_TX_QUEUE_DEPTH, (MAX_TX_QUEUE_DEPTH*bufSize)/(1024*1024),
+            totalRxBuffers, (totalRxBuffers*bufSize)/(1024*1024),
+            maxTXQueueDepth, (maxTXQueueDepth*bufSize)/(1024*1024),
             seconds*1e03);
 
     // Create completion queues for receive and transmit.
