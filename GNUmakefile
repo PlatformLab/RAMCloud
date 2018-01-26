@@ -83,6 +83,11 @@ endif
 BENCHMARK_DISPATCH_TRACING ?= no
 BENCHMARK_WORKER_TRACING ?= no
 
+# 'yes' enables NL_TRACE() logging in WorkerManager.cc and BasicTransport.cc
+# to the default logger. These logs were derived from existing TimeTrace
+# invocations. Can be combined with NANOLOG=yes or SPDLOG=yes.
+TRACE_REPLACE ?= no
+
 BASECFLAGS := -g
 ifeq ($(DEBUG),yes)
 ifeq ($(DEBUG_OPT),yes)
@@ -149,6 +154,9 @@ COMFLAGS += -DENABLE_NANOLOG
 endif
 ifeq ($(SPDLOG),yes)
 COMFLAGS += -DENABLE_SPDLOG -DSPDLOG_FMT_PRINTF
+endif
+ifeq ($(TRACE_REPLACE),yes)
+COMFLAGS += -DENABLE_TRACE_REPLACE
 endif
 TEST_INSTALL_FLAGS =
 
@@ -397,20 +405,6 @@ include apps/MakefragApp
 include nanobenchmarks/MakefragNano
 include src/misc/Makefrag
 include bindings/python/Makefrag
-
-# run-cxx-spdlog:
-# Compile a user C++ source file to an object file and replace regular log
-# format strings statements with spdlog format strings
-# The first parameter $(1) should be the output filename (*.o)
-# The second parameter $(2) should be the input filename (*.cc)
-# The optional third parameter $(3) is any additional options compiler options.
-define run-cxx-spdlog
-	$(CXX) -E -I $(RUNTIME_DIR) $(2) -o $(2).i $(3) && \
-	mkdir -p generated && \
-	python ramcloud2spdlog.py $(2).i && \
-	$(CXX) -I $(RUNTIME_DIR) -c -o $(1) $(2).ii $(3)
-endef
-
 
 # $(CXX) -I $(RUNTIME_DIR) -c -o $(1) $(2).ii $(3) && \
 # rm -f $(2).i $(2).ii generated/GeneratedCode.cc $(2).d

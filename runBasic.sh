@@ -12,11 +12,13 @@ mkdir -p $LOG_DIR $VERBOSE_LOG_DIR
 
 SERVER_LOG_DIR="/tmp/"
 
-BENCHMARK_WORKER_TRACINGS="yes no"
-BENCHMARK_DISPATCH_TRACINGS="yes no"
+BENCHMARKS="yes no"
+# BENCHMARK_WORKER_TRACINGS="yes no"
+# BENCHMARK_DISPATCH_TRACINGS="yes no"
+
 # Note: NANOLOG=yes and SPDLOG=yes are invalid configurations and will
 # be skipped
-NANOLOGS="yes no"
+NANOLOGS="no yes"
 SPDLOGS="yes no"
 LOG_LEVELS="DEBUG NOTICE"
 CLUSTERPERF_TESTS="readThroughput writeThroughput writeDistRandom readDistRandom readDist"
@@ -26,14 +28,17 @@ CLUSTERPERF_TESTS="readThroughput writeThroughput writeDistRandom readDistRandom
 
 grep -P "^[^#].*(BENCHMARK_LOG|DISPATCH_LOG)" -a1 -n src/*.* src/*.* > "${LOG_DIR}/logs.txt"
 
-for BENCHMARK_WORKER_TRACING in $BENCHMARK_WORKER_TRACINGS;
+for SPDLOG in $SPDLOGS;
 do
-  for BENCHMARK_DISPATCH_TRACING in $BENCHMARK_DISPATCH_TRACINGS;
-  do
-    for NANOLOG in $NANOLOGS;
-    do
-      for SPDLOG in $SPDLOGS;
-      do
+  for BENCHMARK in $BENCHMARKS
+    BENCHMARK_DISPATCH_TRACING="$BENCHMARK"
+    BENCHMARK_WORKER_TRACING="$BENCHMARK"
+    # for BENCHMARK_WORKER_TRACING in $BENCHMARK_WORKER_TRACINGS;
+    # do
+    #   for BENCHMARK_DISPATCH_TRACING in $BENCHMARK_DISPATCH_TRACINGS;
+    #   do
+        for NANOLOG in $NANOLOGS;
+        do
         if [ "$SPDLOG" == "yes" ] && [ "$NANOLOG" == "yes" ]; then
             echo "Skipping SPDLOG=yes NANOLOG=yes"
             echo ""
@@ -77,7 +82,7 @@ do
 
               # Get a sample of their logs
               if [ "$NANOLOG" == "yes" ]; then
-                CMD="$(pwd)/obj.nanolog_benchmark/decompressor /tmp/logFile | head -n 100000 | tail -n 1000 > ${DETAILED_LOG_DIR}/${TEST}_\$(hostname).log.txt"
+                CMD="$(pwd)/obj.nanolog_benchmark/decompressor /tmp/*.compressed | head -n 100000 | tail -n 1000 > ${DETAILED_LOG_DIR}/${TEST}_\$(hostname).log.txt"
                 rcdo "hostname && ${CMD}"
               elif [ "$SPDLOG" == "yes" ]; then
                 CMD="head -n 100000 /tmp/*.spdlog | tail -n 1000 > $(pwd)/${DETAILED_LOG_DIR}/\$(hostname).log.txt"
@@ -99,7 +104,8 @@ do
           done
         done
       done
-    done
+  #   done
+  # done
   done
 done
 

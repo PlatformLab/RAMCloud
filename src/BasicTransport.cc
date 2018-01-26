@@ -149,7 +149,7 @@ void
 BasicTransport::deleteClientRpc(ClientRpc* clientRpc)
 {
     TEST_LOG("RpcId %lu", clientRpc->sequence);
-    timeTrace("deleting client RPC, sequence %u",
+    NL_TRACE("deleting client RPC, sequence %u",
             downCast<uint32_t>(clientRpc->sequence));
     outgoingRpcs.erase(clientRpc->sequence);
     if (clientRpc->transmitPending) {
@@ -172,7 +172,7 @@ BasicTransport::deleteServerRpc(ServerRpc* serverRpc)
 {
     TEST_LOG("RpcId (%lu, %lu)", serverRpc->rpcId.clientId,
             serverRpc->rpcId.sequence);
-    timeTrace("deleting server RPC, sequence %u",
+    NL_TRACE("deleting server RPC, sequence %u",
             downCast<uint32_t>(serverRpc->rpcId.sequence));
     incomingRpcs.erase(serverRpc->rpcId);
     if (serverRpc->sendingResponse) {
@@ -333,7 +333,7 @@ BasicTransport::sendBytes(const Driver::Address* address, RpcId rpcId,
         curOffset += bytesThisPacket;
     }
 
-    timeTrace("sent data, sequence %u, offset %u, length %u",
+    NL_TRACE("sent data, sequence %u, offset %u, length %u",
             downCast<uint32_t>(rpcId.sequence), offset, bytesSent);
     return bytesSent;
 }
@@ -662,7 +662,7 @@ void
 BasicTransport::Session::sendRequest(Buffer* request, Buffer* response,
                 RpcNotifier* notifier)
 {
-    timeTrace("sendRequest invoked, sequence %u, length %u",
+    NL_TRACE("sendRequest invoked, sequence %u, length %u",
             downCast<uint32_t>(t->nextClientSequenceNumber),
             request->size());
     response->reset();
@@ -751,7 +751,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                     driver->release(payload);
                     return;
                 }
-                timeTrace("client received ALL_DATA, sequence %u, length %u",
+                NL_TRACE("client received ALL_DATA, sequence %u, length %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         length);
                 Driver::PayloadChunk::appendToBuffer(clientRpc->response,
@@ -769,7 +769,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 bool retainPacket = false;
                 if (header == NULL)
                     goto packetLengthError;
-                timeTrace("client received DATA, sequence %u, offset %u, "
+                NL_TRACE("client received DATA, sequence %u, offset %u, "
                         "length %u, flags %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset, received->len, header->common.flags);
@@ -798,7 +798,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                             (clientRpc->grantOffset < header->totalLength)) {
                         clientRpc->grantOffset = clientRpc->response->size()
                                 + roundTripBytes + grantIncrement;
-                        timeTrace(
+                        NL_TRACE(
                                 "client sending GRANT, sequence %u, offset %u",
                                 downCast<uint32_t>(
                                 header->common.rpcId.sequence),
@@ -822,7 +822,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 GrantHeader* header = received->getOffset<GrantHeader>(0);
                 if (header == NULL)
                     goto packetLengthError;
-                timeTrace("client received GRANT, sequence %u, offset %u",
+                NL_TRACE("client received GRANT, sequence %u, offset %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset);
                 BENCHMARK_DISPATCH_LOG(
@@ -858,7 +858,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 ResendHeader* header = received->getOffset<ResendHeader>(0);
                 if (header == NULL)
                     goto packetLengthError;
-                timeTrace("client received RESEND, sequence %u, offset %u, "
+                NL_TRACE("client received RESEND, sequence %u, offset %u, "
                         "length %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset, header->length);
@@ -922,7 +922,7 @@ BasicTransport::handlePacket(Driver::Received* received)
             // ACK from server
             case PacketOpcode::ACK: {
                 // Nothing to do.
-                timeTrace("client received ACK, sequence %u",
+                NL_TRACE("client received ACK, sequence %u",
                         downCast<uint32_t>(common->rpcId.sequence));
                 return;
             }
@@ -955,7 +955,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 AllDataHeader* header = received->getOffset<AllDataHeader>(0);
                 if (header == NULL)
                     goto packetLengthError;
-                timeTrace("server received ALL_DATA, sequence %u, length %u",
+                NL_TRACE("server received ALL_DATA, sequence %u, length %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->messageLength);
                 if (serverRpc != NULL) {
@@ -997,7 +997,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 bool retainPacket = false;
                 if (header == NULL)
                     goto packetLengthError;
-                timeTrace("server received DATA, sequence %u, offset %u, "
+                NL_TRACE("server received DATA, sequence %u, offset %u, "
                         "length %u, flags %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset, received->len, header->common.flags);
@@ -1019,7 +1019,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 retainPacket = serverRpc->accumulator->addPacket(header,
                         received->len);
                 if (header->offset == 0) {
-                    timeTrace("server received opcode %u, totalLength %u",
+                    NL_TRACE("server received opcode %u, totalLength %u",
                             serverRpc->requestPayload.getStart<
                             WireFormat::RequestCommon>()->opcode,
                             header->totalLength);
@@ -1052,7 +1052,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                         serverRpc->grantOffset =
                                 serverRpc->requestPayload.size()
                                 + roundTripBytes + grantIncrement;
-                        timeTrace(
+                        NL_TRACE(
                                 "server sending GRANT, sequence %u, offset %u",
                                 downCast<uint32_t>(
                                 header->common.rpcId.sequence),
@@ -1082,7 +1082,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 GrantHeader* header = received->getOffset<GrantHeader>(0);
                 if (header == NULL)
                     goto packetLengthError;
-                timeTrace("server received GRANT, sequence %u, offset %u",
+                NL_TRACE("server received GRANT, sequence %u, offset %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset);
                 if ((serverRpc == NULL) || !serverRpc->sendingResponse) {
@@ -1118,7 +1118,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 ResendHeader* header = received->getOffset<ResendHeader>(0);
                 if (header == NULL)
                     goto packetLengthError;
-                timeTrace("server received RESEND, sequence %u, offset %u, "
+                NL_TRACE("server received RESEND, sequence %u, offset %u, "
                         "length %u",
                         downCast<uint32_t>(header->common.rpcId.sequence),
                         header->offset, header->length);
@@ -1128,7 +1128,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                     // request, or if a packet of the response got lost but
                     // we have already freed the ServerRpc. In either case,
                     // ask the client to restart the RPC from scratch.
-                    timeTrace("server requesting restart, sequence %u",
+                    NL_TRACE("server requesting restart, sequence %u",
                             downCast<uint32_t>(common->rpcId.sequence));
                     ResendHeader resend(header->common.rpcId, 0,
                             roundTripBytes, FROM_SERVER|RESTART);
@@ -1178,7 +1178,7 @@ BasicTransport::handlePacket(Driver::Received* received)
             // ACK from client
             case PacketOpcode::ACK: {
                 // Nothing to do.
-                timeTrace("server received ACK, sequence %u",
+                NL_TRACE("server received ACK, sequence %u",
                         downCast<uint32_t>(common->rpcId.sequence));
                 return;
             }
@@ -1219,7 +1219,7 @@ BasicTransport::ServerRpc::getClientServiceLocator()
 void
 BasicTransport::ServerRpc::sendReply()
 {
-    timeTrace("sendReply invoked, sequence %u, length %u",
+    NL_TRACE("sendReply invoked, sequence %u, length %u",
             downCast<uint32_t>(rpcId.sequence), replyPayload.size());
     sendingResponse = true;
     transmitLimit = t->roundTripBytes;
@@ -1401,11 +1401,11 @@ BasicTransport::MessageAccumulator::requestRetransmission(BasicTransport *t,
     }
     assert(endOffset > buffer->size());
     if (whoFrom == FROM_SERVER) {
-        timeTrace("server requesting retransmission of bytes %u-%u, "
+        NL_TRACE("server requesting retransmission of bytes %u-%u, "
                 "sequence %u", buffer->size(), endOffset,
                 downCast<uint32_t>(rpcId.sequence));
     } else {
-        timeTrace("client requesting retransmission of bytes %u-%u, "
+        NL_TRACE("client requesting retransmission of bytes %u-%u, "
                 "sequence %u", buffer->size(), endOffset,
                 downCast<uint32_t>(rpcId.sequence));
     }
@@ -1466,7 +1466,7 @@ BasicTransport::Poller::poll()
                 || (now >= t->timeoutCheckDeadline)) {
             if (numPackets == MAX_PACKETS) {
                 RAMCLOUD_CLOG(NOTICE, "Deadline invocation of checkTimeouts");
-                timeTrace("Deadline invocation of checkTimeouts");
+                NL_TRACE("Deadline invocation of checkTimeouts");
             }
             t->checkTimeouts();
             result = 1;
@@ -1533,7 +1533,7 @@ BasicTransport::checkTimeouts()
             // than the server's wait time to request retransmission (first
             // give the server a chance to handle the problem).
             if ((clientRpc->silentIntervals % pingIntervals) == 0) {
-                timeTrace("client sending RESEND for sequence %u",
+                NL_TRACE("client sending RESEND for sequence %u",
                         downCast<uint32_t>(sequence));
                 ResendHeader resend(RpcId(clientId, sequence), 0,
                         roundTripBytes, FROM_CLIENT);

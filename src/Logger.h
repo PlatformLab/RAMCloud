@@ -445,6 +445,34 @@ class Logger {
      } while (0)
 #endif
 
+#ifndef ENABLE_TRACE_REPLACE
+#define NL_TRACE(format, ...) {}
+#else
+#ifdef ENABLE_NANOLOG
+#define NL_TRACE(format, ...) do { \
+        RAMCloud::Logger& _logger = Logger::get(); \
+        if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, DEBUG)) { \
+            NANO_LOG(DEBUG, format, ##__VA_ARGS__); \
+        } \
+     } while (0)
+#elif defined ENABLE_SPDLOG
+#define NL_TRACE(format, ...) do { \
+    RAMCloud::Logger& _logger = Logger::get(); \
+    _logger.getSpdlogLogger()->log(Logger::logLevelToSpdlogLevel(DEBUG), \
+                                        format, ##__VA_ARGS__); \
+    } while (0)
+#else
+#define NL_TRACE(format, ...) do { \
+        RAMCloud::Logger& _logger = Logger::get(); \
+        if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, DEBUG)) { \
+            _logger.logMessage(false, RAMCLOUD_CURRENT_LOG_MODULE, DEBUG, \
+                                HERE, format "\n", ##__VA_ARGS__); \
+        } \
+        RAMCLOUD_TEST_LOG(format, ##__VA_ARGS__); \
+     } while (0)
+#endif
+#endif
+
 #define RAMCLOUD_CLOG(level, format, ...) do { \
     RAMCloud::Logger& _logger = Logger::get(); \
     if (_logger.isLogging(RAMCLOUD_CURRENT_LOG_MODULE, level)) { \

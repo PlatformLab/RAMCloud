@@ -35,7 +35,11 @@
 // unstable. The additional file IO on the dispatch thread will cause service
 // gaps that prevent servers from responding to pings quickly enough to prevent
 // eviction from the cluster.
-// #define LOG_RPCS 1
+#ifdef ENABLE_TRACE_REPLACE
+#define LOG_RPCS 1
+#else
+#define LOG_RPCS 0
+#endif
 
 namespace RAMCloud {
 // Uncomment the following line (or specify -D SMTT on the make command line)
@@ -183,9 +187,9 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     }
 
     int level = RpcLevel::getLevel(WireFormat::Opcode(header->opcode));
-    timeTrace("handleRpc processing opcode %d", header->opcode);
+    NL_TRACE("handleRpc processing opcode %d", header->opcode);
 #ifdef LOG_RPCS
-    LOG(NOTICE, "Received %s RPC at %lu with %u bytes",
+    LOG(DEBUG, "Received %s RPC at %lu with %u bytes",
             WireFormat::opcodeSymbol(header->opcode),
             reinterpret_cast<uint64_t>(rpc),
             rpc->requestPayload.size());
@@ -206,10 +210,12 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
                 // Can't run this request right now.
                 levels[level].waitingRpcs.push(rpc);
                 rpcsWaiting++;
-                timeTrace("RPC deferred; threads busy");
+                NL_TRACE("RPC deferred; threads busy");
+#ifdef BENCHMARK_DISPATCH_TRACING
                 BENCHMARK_DISPATCH_LOG(
                     "RPC %d deferred from core %d; threads busy",
                     rpcsWaiting, sched_getcpu());
+#endif
                 return;
             }
         }
@@ -235,9 +241,12 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     idleThreads.pop_back();
     worker->opcode = WireFormat::Opcode(header->opcode);
     worker->level = level;
+
+#ifdef BENCHMARK_DISPATCH_TRACING
     BENCHMARK_DISPATCH_LOG(
                     "Handing off rpc opcode %d to worker %d from core %d",
                         header->opcode, worker->threadId, sched_getcpu());
+#endif
     worker->handoff(rpc);
     worker->busyIndex = downCast<int>(busyThreads.size());
     busyThreads.push_back(worker);
@@ -277,7 +286,7 @@ WorkerManager::poll()
         }
         foundWork = 1;
         Fence::enter();
-        timeTrace("dispatch thread starting cleanup for opcode %d, thread %d",
+        NL_TRACE("dispatch thread starting cleanup for opcode %d, thread %d",
                 worker->opcode, worker->threadId);
         BENCHMARK_DISPATCH_LOG(
                 "dispatch thread starting cleanup for opcode %d, worker %d",
@@ -321,8 +330,10 @@ WorkerManager::poll()
                     rpcsWaiting--;
                     level->requestsRunning++;
                     worker->level = i;
+#ifdef BENCHMARK_DISPATCH_TRACING
                     BENCHMARK_DISPATCH_LOG("Reawakening worker %d from cpu %d",
                                             worker->threadId, sched_getcpu());
+#endif
                     worker->handoff(level->waitingRpcs.front());
                     level->waitingRpcs.pop();
                     startedNewRpc = true;
@@ -334,7 +345,7 @@ WorkerManager::poll()
         // Now send the response, if any.
         if (rpc != NULL) {
 #ifdef LOG_RPCS
-            LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
+            LOG(DEBUG, "Sending reply for %s at %lu with %u bytes",
                     WireFormat::opcodeSymbol(&rpc->requestPayload),
                     reinterpret_cast<uint64_t>(rpc),
                     rpc->replyPayload.size());
@@ -343,7 +354,7 @@ WorkerManager::poll()
                         worker->opcode, worker->threadId);
             rpc->sendReply();
             //TODO(syang0) the following swaps threadid and opcode >__>
-            timeTrace("sent reply for opcode %d, thread %d",
+            NL_TRACE("sent reply for opcode %d, thread %d",
                     worker->threadId, worker->opcode);
             BENCHMARK_DISPATCH_LOG("Reply Sent");
 
@@ -428,7 +439,7 @@ WorkerManager::workerMain(Worker* worker)
             // Wait for WorkerManager to supply us with some work to do.
             while (worker->state.load() != Worker::WORKING) {
                 if (lastIdle >= stopPollingTime) {
-                    timeTrace("worker thread %d sleeping", worker->threadId);
+                    NL_TRACE("worker thread %d sleeping", worker->threadId);
                     BENCHMARK_LOG(
                               "worker thread %d sleeping", worker->threadId);
 
@@ -462,7 +473,7 @@ WorkerManager::workerMain(Worker* worker)
                             coreId = newCoreId;
                         }
                     }
-                    timeTrace("worker thread %d waking", worker->threadId);
+                    NL_TRACE("worker thread %d waking", worker->threadId);
                     BENCHMARK_LOG("worker thread %d waking", worker->threadId);
                 }
                 lastIdle = Cycles::rdtsc();
@@ -470,7 +481,7 @@ WorkerManager::workerMain(Worker* worker)
             Fence::enter();
             if (worker->rpc == WORKER_EXIT)
                 break;
-            timeTrace("worker thread %d received opcode %d", worker->threadId,
+            NL_TRACE("worker thread %d received opcode %d", worker->threadId,
                     worker->opcode);
 
             PERF_DEBUG_LOG("Handling RPC");
@@ -483,7 +494,7 @@ WorkerManager::workerMain(Worker* worker)
             // Pass the RPC back to the dispatch thread for completion.
             Fence::leave();
             worker->state.store(Worker::POLLING);
-            timeTrace("worker thread %d completed opcode %d; "
+            NL_TRACE("worker thread %d completed opcode %d; "
                     "dispatch thread signaled",
                     worker->threadId, worker->opcode);
 
@@ -560,7 +571,7 @@ Worker::handoff(Transport::ServerRpc* newRpc)
         // The worker got tired of polling and went to sleep, so we
         // have to do extra work to wake it up.
         BENCHMARK_LOG("Waking up worker thread %d", threadId);
-        WorkerManager::timeTrace("waking sleeping worker thread %d", threadId);
+        NL_TRACE("waking sleeping worker thread %d", threadId);
         if (WorkerManager::sys->futexWake(reinterpret_cast<int*>(&state), 1)
                 == -1) {
             LOG(ERROR,
@@ -570,7 +581,7 @@ Worker::handoff(Transport::ServerRpc* newRpc)
             // or unwinding the RPC.  As of 6/2011 it isn't clear what the
             // right action is, so things just get left in limbo.
         }
-        WorkerManager::timeTrace("futexWake completed for worker thread %d",
+        NL_TRACE("futexWake completed for worker thread %d",
                 threadId);
     }
 }
@@ -585,7 +596,7 @@ Worker::sendReply()
 {
     Fence::leave();
     state.store(POSTPROCESSING);
-    WorkerManager::timeTrace("worker thread %d postprocesing opcode %d; "
+    NL_TRACE("worker thread %d postprocesing opcode %d; "
             "reply signaled to dispatch", threadId, opcode);
 }
 
