@@ -1,6 +1,15 @@
 #! /bin/bash
 
+####
+# To use this file simply just invoke it and it will run all tests.
+#
+# *  If you wanted to run a subset of the clusterperf tests,
+#    edit the CLUSTERPERF_TESTS variable
+# *  If you wanted to run a subset of the system configurations (i.e. w/ NanoLog, snappy, tracing, etc),
+#    edit the runTest invocations at the end of the file
+####
 
+# Allows you to specify a suffix in the results folder for easy identification
 LOG_SUFFIX=""
 if [ -n "$1" ]; then
   LOG_SUFFIX="_${1}"
@@ -48,8 +57,8 @@ function runTest() {
       for TRACE_REPLACE in "$TRACE_REPLACES"
       do
 
-        # echo "Building NANOLOG=${NANOLOG} SPDLOG=${SPDLOG} TRACE_REPLACE=${TRACE_REPLACE}"
-        # make clean-all > /dev/null && make DEBUG=NO NANOLOG=${NANOLOG} SPDLOG=${SPDLOG} TRACE_REPLACE=${TRACE_REPLACE} -j17 > /dev/null && clear
+        echo "Building NANOLOG=${NANOLOG} SPDLOG=${SPDLOG} TRACE_REPLACE=${TRACE_REPLACE}"
+        make clean-all > /dev/null && make DEBUG=NO NANOLOG=${NANOLOG} SPDLOG=${SPDLOG} TRACE_REPLACE=${TRACE_REPLACE} -j17 > /dev/null && clear
         for LOG_LEVEL in "$LOG_LEVELS";
         do
           LOG_NAME="LL_${LOG_LEVEL}_NL_${NANOLOG}_SPDLOG_${SPDLOG}_TRACE_REPLACE=${TRACE_REPLACE}"
@@ -114,7 +123,7 @@ function runTest() {
 
 # Key is  LogDir    LogLevel  NanoLog    Spdlog  Tracing
 runTest "$LOG_DIR"  "DEBUG"    "no"      "yes"    "yes"
-# runTest "$LOG_DIR"  "DEBUG"    "yes"     "no"     "yes"
-# runTest "$LOG_DIR"  "DEBUG"    "no"      "no"     "yes"
-# runTest "$LOG_DIR"  "DEBUG"    "no"      "no"     "no"
-# runTest "$LOG_DIR"  "NOTICE"   "no"      "no"     "no"
+runTest "$LOG_DIR"  "DEBUG"    "yes"     "no"     "yes"
+runTest "$LOG_DIR"  "DEBUG"    "no"      "no"     "yes"
+runTest "$LOG_DIR"  "DEBUG"    "no"      "no"     "no"
+runTest "$LOG_DIR"  "NOTICE"   "no"      "no"     "no"
