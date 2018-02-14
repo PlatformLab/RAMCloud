@@ -228,7 +228,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
 
     // Retrieve the link speed and compute information based on it.
     struct rte_eth_link link;
-    rte_eth_link_get_nowait(portId, &link);
+    rte_eth_link_get(portId, &link);
     if (!link.link_status) {
         throw DriverException(HERE, format(
                 "Failed to detect a link on Ethernet port %u", portId));
