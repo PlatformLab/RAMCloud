@@ -219,6 +219,15 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     // and activate the port.
     rte_eth_rx_queue_setup(portId, 0, NDESC, 0, NULL, mbufPool);
     rte_eth_tx_queue_setup(portId, 0, NDESC, 0, NULL);
+
+    // set the MTU that the NIC port should support
+    ret = rte_eth_dev_set_mtu(portId, MAX_PAYLOAD_SIZE);
+    if (ret != 0) {
+        throw DriverException(HERE, format(
+                "Failed to set the MTU on Ethernet port  %u: %s",
+                portId, rte_strerror(rte_errno)));
+    }
+
     ret = rte_eth_dev_start(portId);
     if (ret != 0) {
         throw DriverException(HERE, format(
@@ -252,14 +261,6 @@ DpdkDriver::DpdkDriver(Context* context, int port)
         // Make sure that we advertise enough space in the transmit queue to
         // prepare the next packet while the current one is transmitting.
         maxTransmitQueueSize = 2*maxPacketSize;
-    }
-
-    // set the MTU that the NIC port should support
-    ret = rte_eth_dev_set_mtu(portId, MAX_PAYLOAD_SIZE);
-    if (ret != 0) {
-        throw DriverException(HERE, format(
-                "Failed to set the MTU on Ethernet port  %u: %s",
-                portId, rte_strerror(rte_errno)));
     }
 
     // create an in-memory ring, used as a software loopback in order to handle
