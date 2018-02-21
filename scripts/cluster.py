@@ -330,13 +330,15 @@ class Cluster(object):
         @return: Sandbox.Process representing the server process.
         """
 
+
+        log_prefix = '%s/server%d.%s' % (
+                  self.log_subdir, self.next_server_id, host[0])
+
         if self.server_log_dir:
-            log_prefix = '%s/server%d.%s' % (
+            server_log_prefix = '%s/server%d.%s' % (
                 self.server_log_dir, self.next_server_id, host[0])
         else:
-            log_prefix = '%s/server%d.%s' % (
-                      self.log_subdir, self.next_server_id, host[0])
-
+            server_log_prefix = log_prefix
 
         command = ('%s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
                    '--logFile %s.log --preferredIndex %d %s' %
@@ -345,7 +347,7 @@ class Cluster(object):
                     server_locator(self.transport, host, port),
                     self.replicas,
                     self.log_level,
-                    log_prefix,
+                    server_log_prefix,
                     self.next_server_id,
                     args))
 
