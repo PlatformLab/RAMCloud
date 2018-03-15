@@ -1136,6 +1136,25 @@ double cppAtomicLoad()
     return Cycles::toSeconds(stop - start)/count;
 }
 
+// Measure the cost of gcc's  __builtin_clzll, which counts the number of
+// leading zeroes in a word.
+double clzll()
+{
+    int count = 1000000;
+    uint64_t word = 0xdeaddeadbeef;
+    static uint64_t dummy = 11;
+    uint64_t start = Cycles::rdtscp();
+    for (int i = 0; i < count; i++) {
+        // Without any change to word, compiler throws away instruction under
+        // benchmark.
+        word <<= 1;
+        dummy += __builtin_clzll(word);
+    }
+    uint64_t stop = Cycles::rdtscp();
+    // printf("Final value: %d\n", value.load());
+    return Cycles::toSeconds(stop - start)/count;
+}
+
 // Measure the minimum cost of Dispatch::poll, when there are no
 // Pollers and no Timers.
 double dispatchPoll()
@@ -2371,6 +2390,8 @@ TestInfo tests[] = {
      "Convert a rdtsc result to (double) seconds"},
     {"cyclesToNanos", perfCyclesToNanoseconds,
      "Convert a rdtsc result to (uint64_t) nanoseconds"},
+    {"leadingZeroes", clzll,
+    "Find the number of leading 0-bits"},
     {"dispatchPoll", dispatchPoll,
      "Dispatch::poll (no timers or pollers)"},
     {"div32", div32,
