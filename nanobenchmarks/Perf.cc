@@ -1700,7 +1700,7 @@ double pingConditionVar()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// This function runs the second thread for pingConditionVar.
+// This function runs the second thread for pingMutex.
 void pingMutexWorker(std::mutex* mutex1, std::mutex* mutex2, bool* finished)
 {
     pinThread(core2);
@@ -1711,7 +1711,7 @@ void pingMutexWorker(std::mutex* mutex1, std::mutex* mutex2, bool* finished)
 }
 
 // Measure the round-trip time for two threads to ping each other using
-// a pair of condition variables.
+// a pair of mutexes.
 double pingMutex()
 {
     int count = 100000;
@@ -1720,6 +1720,7 @@ double pingMutex()
 
     // First get the other thread running and warm up the caches.
     mutex1.lock();
+    mutex2.lock();
     std::thread thread(pingMutexWorker, &mutex1, &mutex2, &finished);
     pinThread(core1);
 
