@@ -317,7 +317,6 @@ def run_test(
         'debug':       options.debug,
         'log_dir':     options.log_dir,
         'log_level':   options.log_level,
-        'backup_disks_per_server': options.backup_disks_per_server,
         'num_servers': options.num_servers,
         'replicas':    options.replicas,
         'timeout':     options.timeout,
@@ -325,7 +324,8 @@ def run_test(
         'transport':   options.transport,
         'disjunct':    options.disjunct,
         'verbose':     options.verbose,
-        'superuser':   options.superuser
+        'superuser':   options.superuser,
+        'disk'     :   options.disk
     }
     # Provide a default value for num_servers here.  This is better
     # than defaulting it in the OptionParser below, because tests can
@@ -503,7 +503,7 @@ def indexScalability(name, options, cluster_args, client_args):
         cluster_args['master_args'] = '--maxCores 3'
     if cluster_args['timeout'] < 360:
         cluster_args['timeout'] = 360
-    cluster_args['backup_disks_per_server'] = 0
+    cluster_args['disk'] = None
     cluster_args['replicas'] = 0
     # Number of concurrent rpcs to do per indexlet
     if '--count' not in client_args:
@@ -649,7 +649,7 @@ def netBandwidth(name, options, cluster_args, client_args):
     default(name, options, cluster_args, client_args)
 
 def readAllToAll(name, options, cluster_args, client_args):
-    cluster_args['backup_disks_per_server'] = 0
+    cluster_args['disk'] = None
     cluster_args['replicas'] = 0
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = len(getHosts())
@@ -699,7 +699,7 @@ def readLoaded(name, options, cluster_args, client_args):
     default(name, options, cluster_args, client_args)
 
 def readRandom(name, options, cluster_args, client_args):
-    cluster_args['backup_disks_per_server'] = 0
+    cluster_args['disk'] = None
     cluster_args['replicas'] = 0
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 16
@@ -824,7 +824,7 @@ def migrateLoaded(name, options, cluster_args, client_args):
         cluster_args['num_servers'] = servers
 
         # Use two backups per server for more disk bandwidth.
-        defaultTo(cluster_args, 'backup_disks_per_server', 2)
+        defaultTo(cluster_args, 'disk', default_disks)
 
         # Need lots of mem for big workload and migration.
         defaultTo(cluster_args, 'master_args',
@@ -945,6 +945,10 @@ if __name__ == '__main__':
             metavar='True/False',
             help='Do not colocate clients on a node (servers are never '
                   'colocated, regardless of this option)')
+    parser.add_option('--disks', default=default_disks, metavar='DISKS',
+            dest="disk",
+            help='Server arguments to specify disks used for backup; '
+                  'format is -f followed by a comma separated list.')
     parser.add_option('--debug', action='store_true', default=False,
             help='Pause after starting servers but before running '
                  'clients to enable debugging setup')
@@ -956,10 +960,6 @@ if __name__ == '__main__':
             choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
             metavar='L', dest='log_level',
             help='Controls degree of logging in servers')
-    parser.add_option('-b', '--numBackupDisks', type=int, default=2,
-            metavar='N', dest='backup_disks_per_server',
-            help='Number of backup disks to use on each server host '
-                 '(0, 1, or 2)')
     parser.add_option('-r', '--replicas', type=int, default=3,
             metavar='N',
             help='Number of disk backup copies for each segment')
