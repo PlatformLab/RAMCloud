@@ -33,13 +33,11 @@
 #include "WorkerTimer.h"
 #include "Arachne/Arachne.h"
 #include "Arachne/CorePolicy.h"
-#include "RamCloudCorePolicy.h"
+#include "Arachne/DefaultCorePolicy.h"
 #include "FileLogger.h"
 #include "PerfUtils/Util.h"
 
 using namespace RAMCloud;
-
-RamCloudCorePolicy* ramCloudCorePolicy;
 
 // The following class is used for performance debugging: it logs
 // performance information at regular intervals.
@@ -375,10 +373,9 @@ main(int argc, const char *argv[]) {
     Arachne::initCore = [] () {
         PerfStats::registerStats(&PerfStats::threadStats);
     };
-    ramCloudCorePolicy = new RamCloudCorePolicy();
-    Arachne::init(reinterpret_cast<CorePolicy*>(ramCloudCorePolicy),
-        &argc, argv);
-    Arachne::createThread(ramCloudCorePolicy->dispatchClass,
-        &realMain, argc, const_cast<char**>(argv));
+    Arachne::init(&argc, argv);
+    Arachne::createThreadWithClass(
+            Arachne::DefaultCorePolicy::EXCLUSIVE,
+            &realMain, argc, const_cast<char**>(argv));
     Arachne::waitForTermination();
 }

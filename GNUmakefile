@@ -454,7 +454,6 @@ INSTALL_INCLUDES := \
     src/CodeLocation.h \
     src/CoordinatorClient.h \
     src/CoordinatorRpcWrapper.h \
-    src/RamCloudCorePolicy.h \
     src/Crc32C.h \
     src/Exception.h \
     src/Fence.h \
@@ -511,7 +510,8 @@ install: all java
 	mkdir -p $(INSTALL_DIR)/include/ramcloud/Arachne
 	cp -r $(ARACHNEDIR)/include/* $(INSTALL_DIR)/include/ramcloud/
 	mkdir -p $(INSTALL_DIR)/include/ramcloud/PerfUtils
-	cp -r $(PERFUTILSDIR)/include/* $(INSTALL_DIR)/include/ramcloud/Arachne
+	cp -r $(PERFUTILSDIR)/include/* $(INSTALL_DIR)/include/ramcloud/Arachne/
+	cp -r $(PERFUTILSDIR)/include/* $(INSTALL_DIR)/include/ramcloud/
 	mkdir -p $(INSTALL_DIR)/lib/ramcloud
 	cp $(INSTALL_LIBS) $(INSTALL_DIR)/lib/ramcloud
 	cp bindings/java/build/install/ramcloud/lib/* $(INSTALL_DIR)/lib/ramcloud

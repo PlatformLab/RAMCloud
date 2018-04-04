@@ -25,8 +25,6 @@
 #include "Arachne/Arachne.h"
 #include "Arachne/CorePolicy.h"
 
-CorePolicy* ramCloudCorePolicy;
-
 namespace {
 
 /**
@@ -173,8 +171,7 @@ main(int argc, char *argv[])
     struct Environment : public ::testing::Environment {
         virtual ~Environment() {}
         virtual void SetUp() {
-            ramCloudCorePolicy = new CorePolicy();
-            Arachne::init(ramCloudCorePolicy);
+            Arachne::init();
             Arachne::testInit();
         }
         // Override this to define how to tear down the environment.

@@ -268,7 +268,7 @@ TEST_F(LogCleanerTest, doWork_notifyConditionVariable) {
     // First try: bump activeThreads so cleaner looks busy.
     cleaner.activeThreads = 1;
     Arachne::ThreadId newThread =
-        Arachne::createThread(0, disableThread, &cleaner);
+        Arachne::createThread(disableThread, &cleaner);
     while (cleaner.disableCount == 0) {
         // Wait for the thread to acquire the lock and sleep.
     }

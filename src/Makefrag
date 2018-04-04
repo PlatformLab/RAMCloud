@@ -126,7 +126,6 @@ SHARED_SRCFILES := \
 		   src/PortAlarm.cc \
 		   src/PreparedOp.cc \
 		   src/RamCloud.cc \
-		   src/RamCloudCorePolicy.cc \
 		   src/RawMetrics.cc \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \

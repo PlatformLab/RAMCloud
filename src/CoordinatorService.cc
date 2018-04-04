@@ -76,7 +76,7 @@ CoordinatorService::CoordinatorService(Context* context,
     if (forceSynchronousInit) {
         init(this, unitTesting);
     } else {
-        Arachne::createThread(0, init, this, unitTesting);
+        Arachne::createThread(init, this, unitTesting);
     }
 }
 
