@@ -22,7 +22,7 @@ import socket
 import xml.etree.ElementTree as ET
 
 __all__ = ['getHosts', 'local_scripts_path', 'top_path', 'obj_path',
-           'default_disk1', 'default_disk2', 'EmulabClusterHooks', 'log'] 
+            'default_disks', 'EmulabClusterHooks', 'log'] 
 
 hostname = socket.gethostname()
 
@@ -101,12 +101,8 @@ else:
     obj_dir = 'obj.%s' % git_branch
 
 # Command-line argument specifying where the server should store the segment
-# replicas when one device is used.
-default_disk1 = '-f /dev/sdb'
-
-# Command-line argument specifying where the server should store the segment
-# replicas when two devices are used.
-default_disk2 = '-f /dev/sdb,/dev/sdc'
+# replicas by default.
+default_disks = '-f /dev/sdb,/dev/sdc'
 
 class EmulabClusterHooks:
     def __init__(self, makeflags=''):
@@ -177,7 +173,7 @@ class EmulabClusterHooks:
 
     def fix_disk_permissions(self):
         log("Fixing disk permissions")
-        disks = default_disk2.split(' ')[1].split(',')
+        disks = default_disks.split(' ')[1].split(',')
         cmds = ['sudo chmod 777 %s' % disk for disk in disks]
         self.remote_func('(%s)' % ';'.join(cmds))
 

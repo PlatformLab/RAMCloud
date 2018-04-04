@@ -134,8 +134,8 @@ class Cluster(object):
     @ivar transport: Transport name to use for servers
                      (see server_locator_templates) (default: basic+infud).
     @ivar replicas: Replication factor to use for each log segment. (default: 3)
-    @ivar disk: Server args for specifying the storage device to use for
-                backups (default: default_disk1 taken from {,local}config.py).
+    @ivar disks: Server args for specifying the storage device to use for
+                backups (default: default_disks taken from {,local}config.py).
     @ivar disjunct: Disjunct (not collocate) entities on each server.
 
     === Other Stuff ===
@@ -184,7 +184,7 @@ class Cluster(object):
         self.verbose = False
         self.transport = 'basic+infud'
         self.replicas = 3
-        self.disk = default_disk1
+        self.disk = default_disks
         self.disjunct = False
 
         if cluster_name_exists: # do nothing if it exists
@@ -520,17 +520,11 @@ class Cluster(object):
 def run(
         num_servers=4,             # Number of hosts on which to start
                                    # servers (not including coordinator).
-        backup_disks_per_server=2, # Number of backup disks to use on each
-                                   # server host (0, 1, or 2).
         replicas=3,                # Replication factor to use for each
                                    # log segment.
-        disk1=default_disk1,       # Server arguments specifying the
-                                   # backing device when one backup disk
-                                   # is used on each server.
-        disk2=default_disk2,       # Server arguments specifying the
-                                   # backing devices when two backup disks
-                                   # are used on each server
-                                   # (if backup_disks_per_server= 2).
+        disk=default_disks,        # Server arguments specifying the
+                                   # backing devices as a comma-separated list
+                                   # prefixed by `-f`.
         timeout=20,                # How many seconds to wait for the
                                    # clients to complete.
         coordinator_args='',       # Additional arguments for the
@@ -628,7 +622,7 @@ def run(
         cluster.transport = transport
         cluster.replicas = replicas
         cluster.timeout = timeout
-        cluster.disk = disk1
+        cluster.disk = disk
         cluster.enable_logcabin = enable_logcabin
         cluster.disjunct = disjunct
         cluster.hosts = getHosts()
@@ -656,11 +650,11 @@ def run(
             backup = False
             args = master_args
             disk_args = None
-            if backup_disks_per_server > 0:
+            if disk != None:
                 backup = True
                 args += ' %s' % backup_args
                 backups_started += 1
-                disk_args = disk1 if backup_disks_per_server == 1 else disk2
+                disk_args = disk
             cluster.start_server(host, args, backup=backup, disk=disk_args)
             masters_started += 1
 
@@ -707,10 +701,6 @@ if __name__ == '__main__':
             dest='backup_args',
             help='Additional command-line arguments to pass to '
                  'each backup')
-    parser.add_option('-b', '--backupDisks', type=int, default=1,
-            metavar='N', dest='backup_disks_per_server',
-            help='Number of backup disks to run on each server host '
-                 '(0, 1, or 2)')
     parser.add_option('--client', metavar='ARGS',
             help='Command line to invoke the client application '
                  '(additional arguments will be inserted at the beginning '
@@ -726,10 +716,9 @@ if __name__ == '__main__':
     parser.add_option('--debug', action='store_true', default=False,
             help='Pause after starting servers but before running '
                  'clients to enable debugging setup')
-    parser.add_option('--disk1', default=default_disk1,
-            help='Server arguments to specify disk for first backup')
-    parser.add_option('--disk2', default=default_disk2,
-            help='Server arguments to specify disk for second backup')
+    parser.add_option('--disks', default=default_disks, dest="disk",
+            help='Server arguments to specify disks used for backup; '
+                  'format is -f followed by a comma separated list.')
     parser.add_option('-l', '--logLevel', default='NOTICE',
             choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
             metavar='L', dest='log_level',
