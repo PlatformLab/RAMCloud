@@ -253,7 +253,7 @@ class Cluster(object):
                                                  self.coordinator_host)
         if not self.enable_logcabin:
             command = (
-                '%s %s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
+                '%s %s -C %s -l %s --logFile %s/coordinator.%s.log %s --neverKill' %
                 (prefix_command,
                  coordinator_binary, self.coordinator_locator,
                  self.log_level, self.log_subdir,
@@ -473,15 +473,20 @@ class Cluster(object):
                           whose exit should be waited on.
         @param timeout: Seconds to wait for exit before giving up and throwing
                         an exception. (default: 30)
+
         """
         start = time.time()
+        hasWritten = False
         for i, p in enumerate(processes):
             while p.proc.returncode is None:
                 self.sandbox.checkFailures()
                 time.sleep(.1)
-                if time.time() - start > timeout:
-                    raise Exception('timeout = %ds exceeded %s' %
-                                    (timeout, self.log_subdir))
+                if time.time() - start > timeout and not hasWritten:
+                    # Log but don't blow up, so that we can debug interactively
+                    print('timeout = %ds exceeded %s' % (timeout, self.log_subdir), file=sys.stderr)
+                    hasWritten = True
+#                    raise Exception('timeout = %ds exceeded %s' %
+#                                    (timeout, self.log_subdir))
             if self.verbose:
                 print('%s finished' % p.sonce)
 
