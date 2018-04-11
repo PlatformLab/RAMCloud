@@ -45,6 +45,7 @@ class CommandLineOptions {
         , sessionTimeout(0)
         , portTimeout(0)
         , clusterName()
+        , configDir()
         , dpdkPort(0)
     {
     }
@@ -80,6 +81,15 @@ class CommandLineOptions {
     const string& getClusterName() const
     {
         return clusterName;
+    }
+
+    /**
+     * Returns the path of the directory containing RAMCloud configuration
+     * files.
+     */
+    const string& getConfigDir() const
+    {
+        return configDir;
     }
 
     /**
@@ -125,6 +135,7 @@ class CommandLineOptions {
     uint32_t sessionTimeout;        ///< See getSessionTimeout().
     int32_t  portTimeout;           ///< See getSessionTimeout().
     string clusterName;             ///< See getClusterName().
+    string configDir;               ///< See getConfigDir().
     int dpdkPort;                   ///< See getDpdkPort().
 };
 

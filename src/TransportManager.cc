@@ -16,6 +16,7 @@
 
 #include "BasicTransport.h"
 #include "CycleCounter.h"
+#include "HomaTransport.h"
 #include "OptionParser.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
@@ -62,6 +63,17 @@ static struct BasicUdpTransportFactory : public TransportFactory {
     }
 } basicUdpTransportFactory;
 
+static struct HomaUdpTransportFactory : public TransportFactory {
+    HomaUdpTransportFactory()
+        : TransportFactory("homa+kernelUdp", "homa+udp") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new HomaTransport(context, localServiceLocator,
+                new UdpDriver(context, localServiceLocator), true,
+                generateRandom());
+    }
+} homaUdpTransportFactory;
+
 #ifdef ONLOAD
 static struct BasicSolarFlareTransportFactory : public TransportFactory {
     BasicSolarFlareTransportFactory()
@@ -73,6 +85,17 @@ static struct BasicSolarFlareTransportFactory : public TransportFactory {
                 generateRandom());
     }
 } basicSolarFlareTransportFactory;
+
+static struct HomaSolarFlareTransportFactory : public TransportFactory {
+    HomaSolarFlareTransportFactory()
+        : TransportFactory("homa+solarflare", "homa+sf") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new HomaTransport(context, localServiceLocator,
+                new SolarFlareDriver(context, localServiceLocator), true,
+                generateRandom());
+    }
+} homaSolarFlareTransportFactory;
 #endif
 
 #ifdef INFINIBAND
@@ -86,6 +109,17 @@ static struct BasicInfUdTransportFactory : public TransportFactory {
                 generateRandom());
     }
 } basicInfUdTransportFactory;
+
+static struct HomaInfUdTransportFactory : public TransportFactory {
+    HomaInfUdTransportFactory()
+        : TransportFactory("homa+infinibandud", "homa+infud") {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        return new HomaTransport(context, localServiceLocator,
+                new InfUdDriver(context, localServiceLocator, false), true,
+                generateRandom());
+    }
+} homaInfUdTransportFactory;
 
 static struct InfRcTransportFactory : public TransportFactory {
     InfRcTransportFactory()
@@ -121,6 +155,27 @@ struct BasicDpdkTransportFactory : public TransportFactory {
 };
 static BasicDpdkTransportFactory basicDpdkTransportFactory;
 
+struct HomaDpdkTransportFactory : public TransportFactory {
+    HomaDpdkTransportFactory()
+        : TransportFactory("homa+dpdk"), driver(NULL)  {}
+    Transport* createTransport(Context* context,
+            const ServiceLocator* localServiceLocator) {
+        if (driver == NULL) {
+            LOG(WARNING, "Tried to use homa+dpdk transport, but DPDK is "
+                    "not enabled (did you specify the --dpdkPort "
+                    "command-line option?)");
+            throw TransportException(HERE, "DPDK is not enabled");
+        }
+        return new HomaTransport(context, localServiceLocator, driver, false,
+                generateRandom());
+    }
+    void setDpdkDriver(DpdkDriver* driver) {
+        this->driver = driver;
+    }
+    DpdkDriver* driver;
+    DISALLOW_COPY_AND_ASSIGN(HomaDpdkTransportFactory);
+};
+static HomaDpdkTransportFactory homaDpdkTransportFactory;
 #endif
 
 /**
@@ -145,20 +200,25 @@ TransportManager::TransportManager(Context* context)
 {
     transportFactories.push_back(&tcpTransportFactory);
     transportFactories.push_back(&basicUdpTransportFactory);
+    transportFactories.push_back(&homaUdpTransportFactory);
 #ifdef ONLOAD
     transportFactories.push_back(&basicSolarFlareTransportFactory);
+    transportFactories.push_back(&homaSolarFlareTransportFactory);
 #endif
 #ifdef INFINIBAND
     transportFactories.push_back(&basicInfUdTransportFactory);
+    transportFactories.push_back(&homaInfUdTransportFactory);
     transportFactories.push_back(&infRcTransportFactory);
 #endif
 #ifdef DPDK
     transportFactories.push_back(&basicDpdkTransportFactory);
+    transportFactories.push_back(&homaDpdkTransportFactory);
     if (context->options != NULL) {
         int dpdkPort = context->options->getDpdkPort();
         if (dpdkPort >= 0) {
             dpdkDriver = new DpdkDriver(context, dpdkPort);
             basicDpdkTransportFactory.setDpdkDriver(dpdkDriver);
+            homaDpdkTransportFactory.setDpdkDriver(dpdkDriver);
         }
     }
 #endif

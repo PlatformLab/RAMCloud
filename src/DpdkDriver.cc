@@ -94,8 +94,6 @@ DpdkDriver::DpdkDriver()
     , loopbackRing(NULL)
     , hasHardwareFilter(true)
     , bandwidthMbps(10000)
-    , highestPriorityAvail(7)
-    , lowestPriorityAvail(0)
     , fileLogger(NOTICE, "DPDK: ")
 {
     localMac.construct("01:23:45:67:89:ab");
@@ -131,9 +129,6 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     , loopbackRing(NULL)
     , hasHardwareFilter(true)             // Cleared later if not applicable
     , bandwidthMbps(10000)                // Default bandwidth = 10 gbs
-    // Assume we are allowed to use all 8 ethernet priorities.
-    , highestPriorityAvail(7)
-    , lowestPriorityAvail(0)
     , fileLogger(NOTICE, "DPDK: ")
 {
     struct ether_addr mac;
@@ -307,7 +302,7 @@ DpdkDriver::~DpdkDriver()
 int
 DpdkDriver::getHighestPacketPriority()
 {
-    return highestPriorityAvail - lowestPriorityAvail;
+    return arrayLength(PRIORITY_TO_PCP) - 1;
 }
 
 // See docs in Driver class.
@@ -463,7 +458,6 @@ DpdkDriver::sendPacket(const Address* addr,
 {
     // Convert transport-level packet priority to Ethernet priority.
     assert(priority >= 0 && priority <= getHighestPacketPriority());
-    priority += lowestPriorityAvail;
 
     uint32_t etherPayloadLength = headerLen + (payload ? payload->size() : 0);
     assert(etherPayloadLength <= MAX_PAYLOAD_SIZE);

@@ -78,6 +78,7 @@ SHARED_SRCFILES := \
 		   src/FailSession.cc \
 		   src/FileLogger.cc \
 		   src/HashTable.cc \
+		   src/HomaTransport.cc \
 		   src/IndexKey.cc \
 		   src/IndexletManager.cc \
 		   src/IndexLookup.cc \

@@ -199,6 +199,9 @@ OptionParser::setup(int argc, char* argv[])
              "Ignored if --externalStorage is specified.  Deprecated "
              "and doesn't support rollover between coordinators; use "
              "--externalStorage and --clusterName instead).")
+            ("configDir",
+             po::value<string>(&options.configDir),
+             "Directory containing RAMCloud configuration files")
             ("externalStorage,x",
              po::value<string>(&options.externalStorageLocator),
              "Locator for external storage server containing cluster "

@@ -62,7 +62,7 @@ UdpDriver::UdpDriver(Context* context,
     , currentBatch(0)
     , packetBufPool()
     , mutex("UdpDriver")
-    , locatorString()
+    , locatorString("udp:")
     , bandwidthGbps(10)                   // Default bandwidth = 10 gbs
     , readerThread()
     , readerThreadExit(false)

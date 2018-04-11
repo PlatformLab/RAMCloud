@@ -51,6 +51,7 @@ CLIENT_SRCFILES := \
 		   src/ExternalStorage.cc \
 		   src/FailSession.cc \
 		   src/FileLogger.cc \
+		   src/HomaTransport.cc \
 		   src/IndexKey.cc \
 		   src/IndexLookup.cc \
 		   src/IndexRpcWrapper.cc \

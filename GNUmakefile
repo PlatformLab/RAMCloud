@@ -127,6 +127,8 @@ CXXWARNS := $(COMWARNS) -Wno-non-template-friend -Woverloaded-virtual \
 ifeq ($(COMPILER),gnu)
 CXXWARNS += -Weffc++
 endif
+
+CXXWARNS += -w
 # Too many false positives list:
 # -Wunreachable-code
 # Failed deconstructor inlines are generating noise
