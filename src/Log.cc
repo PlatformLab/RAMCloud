@@ -239,11 +239,16 @@ Log::syncTo(Log::Reference reference)
     segment->getEntry(offset, NULL, &lengthWithMetadata);
     uint32_t desiredSyncedLength = offset + lengthWithMetadata;
 
-    SpinLock::Guard _(syncLock);
-
     // See if we still have work to do. It's possible that another thread
     // already did the syncing we needed for us.
     if (desiredSyncedLength > segment->syncedLength) {
+        SpinLock::Guard _(syncLock);
+        // Check whether we need to sync once again after grabbing the syncLock.
+        // Previous sync may have synced the desired portion already.
+        if (desiredSyncedLength <= segment->syncedLength) {
+            return;
+        }
+
         Tub<SpinLock::Guard> lock;
         lock.construct(appendLock);
 
