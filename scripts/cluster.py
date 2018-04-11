@@ -667,7 +667,7 @@ def run(
             cluster.hosts = cluster.hosts[num_servers:]
 
         if masters_started > 0 or backups_started > 0:
-            cluster.ensure_servers()
+            cluster.ensure_servers(timeout=60)
             if verbose:
                 print('All servers running')
 
