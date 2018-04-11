@@ -43,6 +43,7 @@
 
 namespace RAMCloud {
 
+#define TIME_TRACE 0
 // struct MasterService::Replica
 
 /**
@@ -3192,12 +3193,16 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
             &rpcResult, &rpcResultPtr, &logReference, rpc->worker->rpc->id);
 
+#if TIME_TRACE
     TimeTrace::record("ID %u: Wrote object, waiting for sync on Core %d",
             rpc->worker->rpc->id, Arachne::core.kernelThreadId);
+#endif
     if (respHdr->common.status == STATUS_OK) {
         objectManager.syncChanges(logReference, rpc->worker->rpc->id);
+#if TIME_TRACE
         TimeTrace::record("ID %u: Finished syncing on Core %d",
                 rpc->worker->rpc->id, Arachne::core.kernelThreadId);
+#endif
         rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is
                                            // written.
                                            // Otherwise, RPC state should reset
@@ -3211,8 +3216,10 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         objectManager.writeRpcResultOnly(&rpcResult, &rpcResultPtr);
         rh.recordCompletion(rpcResultPtr);
     }
+#if TIME_TRACE
     TimeTrace::record("ID %u: Finished recording completion on Core %d",
             rpc->worker->rpc->id, Arachne::core.kernelThreadId);
+#endif
 
     // If this is a overwrite, delete old index entries if any (this can
     // be done asynchronously after sending a reply).

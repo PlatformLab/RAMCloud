@@ -160,8 +160,10 @@ Log::sync(uint32_t rpcId)
 
     Tub<Lock> lock;
     lock.construct(appendLock);
+    #if TIME_TRACE
     if (rpcId) TimeTrace::record("ID %u: Log::sync acquired appendLock on "
         "Core %d", rpcId, Arachne::core.kernelThreadId);
+    #endif
     metrics.totalSyncCalls++;
 
     // The only time 'head' should be NULL is after construction and before the
@@ -204,16 +206,20 @@ Log::sync(uint32_t rpcId)
         }
         // Won the leader election for syncing
         if (syncLock.try_lock()) {
+            #if TIME_TRACE
             if (rpcId) TimeTrace::record("ID %u: Starting replication on "
                 "Core %d appendedLength %u syncedLength %u",
                 rpcId, Arachne::core.kernelThreadId,
                 appendedLength, syncedLength);
+            #endif
             // See if we still have work to do. It's possible that another
             // thread already did the syncing we needed for us.
             lock.construct(appendLock);
+            #if TIME_TRACE
             if (rpcId) TimeTrace::record("ID %u: Log::sync reacquired "
                 "appendLock on Core %d", rpcId,
                 Arachne::core.kernelThreadId);
+            #endif
 
             // Get the latest segment length and certificate. This allows us
             // to batch up other appends that came in while we were waiting.
@@ -229,9 +235,11 @@ Log::sync(uint32_t rpcId)
             originalHead->syncedLength = appendedLength;
             TEST_LOG("log synced");
             didWeSync = true;
+            #if TIME_TRACE
             if (rpcId) TimeTrace::record("ID %u: Finished replication on "
                 "Core %d appendedLength %u syncedLength %u", rpcId,
                 Arachne::core.kernelThreadId, appendedLength, syncedLength);
+            #endif
             syncLock.unlock();
             // Now notify all the other threads waiting. At this point, this
             // lock should not be contended, since all the threads that would
@@ -292,8 +300,10 @@ Log::syncTo(Log::Reference reference, uint32_t rpcId)
     segment->getEntry(offset, NULL, &lengthWithMetadata);
     uint32_t desiredSyncedLength = offset + lengthWithMetadata;
 
+    #if TIME_TRACE
     if (rpcId) TimeTrace::record("ID %u: Log::sync computed desires on Core %d",
             rpcId, Arachne::core.kernelThreadId);
+    #endif
 
     bool didWeSync = false;
     do {
@@ -307,14 +317,18 @@ Log::syncTo(Log::Reference reference, uint32_t rpcId)
         }
         if (syncLock.try_lock()) {
             // Won the leader election for syncing
+            #if TIME_TRACE
             if (rpcId) TimeTrace::record("ID %u: Starting replication on "
                 "Core %d", rpcId, Arachne::core.kernelThreadId);
+            #endif
             // See if we still have work to do. It's possible that another
             // thread already did the syncing we needed for us.
             Tub<Lock> lock;
             lock.construct(appendLock);
+            #if TIME_TRACE
             if (rpcId) TimeTrace::record("ID %u: Log::sync reacquired "
                 "appendLock on Core %d", rpcId, Arachne::core.kernelThreadId);
+            #endif
 
             // Get the latest segment length and certificate. This allows us to
             // batch up other appends that came in while we were waiting.
@@ -329,8 +343,10 @@ Log::syncTo(Log::Reference reference, uint32_t rpcId)
             head->syncedLength = appendedLength;
             didWeSync = true;
             TEST_LOG("log synced");
+            #if TIME_TRACE
             if (rpcId) TimeTrace::record("ID %u: Finished replication on "
                 "Core %d", rpcId, Arachne::core.kernelThreadId);
+            #endif
             syncLock.unlock();
             // Now notify all the other threads waiting. At this point, this
             // lock should not be contended, since all the threads that would

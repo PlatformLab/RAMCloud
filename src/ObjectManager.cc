@@ -1296,18 +1296,22 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         appends[rpcResultIndex].type = LOG_ENTRY_TYPE_RPCRESULT;
     }
 
+    #if TIME_TRACE
     if (rpcId)
         TimeTrace::record("ID %u: Before append on Core %d", rpcId,
             Arachne::core.kernelThreadId);
+    #endif
     if (!log.append(appends, (tombstone ? 2 : 1) + (rpcResult ? 1 : 0),
      rpcId)) {
         // The log is out of space. Tell the client to retry and hope
         // that the cleaner makes space soon.
         throw RetryException(HERE, 1000, 2000, "Must wait for cleaner");
     }
+    #if TIME_TRACE
     if (rpcId)
         TimeTrace::record("ID %u: Finished log append on Core %d",
                 rpcId, Arachne::core.kernelThreadId);
+    #endif
 
     if (tombstone) {
         currentHashTableEntry.setReference(appends[0].reference.toInteger());
@@ -1315,9 +1319,11 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     } else {
         objectMap.insert(key.getHash(), appends[0].reference.toInteger());
     }
+    #if TIME_TRACE
     if (rpcId)
         TimeTrace::record("ID %u: Finished updating hash table Core %d",
                 rpcId, Arachne::core.kernelThreadId);
+    #endif
 
     if (rpcResult && rpcResultPtr)
         *rpcResultPtr = appends[rpcResultIndex].reference.toInteger();

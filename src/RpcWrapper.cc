@@ -26,6 +26,7 @@
 
 namespace RAMCloud {
 
+#define TIME_TRACE 0
 /**
  * Constructor for RpcWrapper objects.
  * \param responseHeaderLength
@@ -116,9 +117,11 @@ RpcWrapper::completed() {
     // ThreadId for signaling.
     if (ownerThreadId != Arachne::NullThread) {
         Arachne::signal(ownerThreadId);
+#if TIME_TRACE
         TimeTrace::record("Signaled for Core %d, IdInCore %d",
                 ownerThreadId.context->coreId,
                 ownerThreadId.context->idInCore);
+#endif
     }
     state.store(FINISHED, std::memory_order_release);
 }

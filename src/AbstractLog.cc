@@ -25,6 +25,8 @@
 
 namespace RAMCloud {
 
+#define TIME_TRACE 0
+
 /**
  * Constructor for AbstractLog.
  *
@@ -86,9 +88,11 @@ AbstractLog::append(AppendVector* appends, uint32_t numAppends, uint32_t rpcId)
 {
     CycleCounter<uint64_t> _(&metrics.totalAppendTicks);
     Lock lock(appendLock);
+#if TIME_TRACE
     if (rpcId)
         TimeTrace::record("ID %u: Acquired appendLock on Core %d",
                 rpcId, Arachne::core.kernelThreadId);
+#endif
     metrics.totalAppendCalls++;
 
     uint32_t lengths[numAppends];
