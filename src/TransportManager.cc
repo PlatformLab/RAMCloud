@@ -160,6 +160,10 @@ TransportManager::TransportManager(Context* context)
             dpdkDriver = new DpdkDriver(context, dpdkPort);
             basicDpdkTransportFactory.setDpdkDriver(dpdkDriver);
         }
+    } else {
+        int dpdkPort = 1;
+        dpdkDriver = new DpdkDriver(context, dpdkPort);
+        basicDpdkTransportFactory.setDpdkDriver(dpdkDriver);
     }
 #endif
     transports.resize(transportFactories.size(), NULL);
