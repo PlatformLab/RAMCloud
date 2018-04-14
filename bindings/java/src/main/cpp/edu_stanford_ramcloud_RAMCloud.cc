@@ -404,3 +404,16 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppWrite(JNIEnv *env,
     buffer.write(version);
 }
 
+
+JNIEXPORT void
+JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppSetLogFile
+  (JNIEnv *env,
+        jclass jRamCloud,
+        jlong byteBufferPointer) {
+    ByteBuffer buffer(byteBufferPointer);
+    char* logFileName = buffer.pointer;
+    buffer.rewind();
+    try {
+        Logger::get().setLogFile(strdup(logFileName));
+    } EXCEPTION_CATCHER(buffer);
+}
