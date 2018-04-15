@@ -114,6 +114,9 @@ JNICALL Java_edu_stanford_ramcloud_RAMCloud_cppConnect(
     buffer.mark += 1 + locatorLength;
     char* name = buffer.pointer + buffer.mark;
 
+    // Set a default log level of NOTICE for now.
+    Logger::get().setLogLevels(NOTICE);
+
     RamCloud* ramcloud = NULL;
     buffer.rewind();
     try {

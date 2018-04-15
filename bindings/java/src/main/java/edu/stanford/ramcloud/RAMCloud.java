@@ -118,10 +118,15 @@ public class RAMCloud {
      *            "--clusterName" command-line option given to the coordinator
      *            when it started.
      */
-    public RAMCloud(String locator, String clusterName) {
+    public RAMCloud(String locator, String clusterName, String logFile) {
         byteBuffer = ByteBuffer.allocateDirect(bufferCapacity);
         byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
         byteBufferPointer = cppGetByteBufferPointer(byteBuffer);
+        // Set the log file
+        if (logFile != null) {
+            setLogFile(logFile);
+        }
+        byteBuffer.rewind();
         byteBuffer.putInt(locator.length())
                 .put(locator.getBytes())
                 .put((byte) 0)
@@ -140,7 +145,7 @@ public class RAMCloud {
      * @see #RAMCloud(String, String)
      */
     public RAMCloud(String locator) {
-        this(locator, "main");
+        this(locator, "main", null);
     }
 
     /**
