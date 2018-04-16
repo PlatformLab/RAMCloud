@@ -52,7 +52,7 @@ namespace RAMCloud
 
 // Change 0 -> 1 in the following line to compile detailed time tracing in
 // this driver.
-#define TIME_TRACE 0
+#define TIME_TRACE 1
 
 // Provides a cleaner way of invoking TimeTrace::record, with the code
 // conditionally compiled in or out by the TIME_TRACE #ifdef.
