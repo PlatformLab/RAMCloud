@@ -1008,6 +1008,13 @@ ReplicatedSegment::dumpProgress()
         masterId.toString().c_str(), segmentId,
         queued.open, queued.bytes, queued.close,
         getCommitted().open, getCommitted().bytes, getCommitted().close);
+    if (followingSegment) {
+        info.append(format(
+        "    followingSegment: %p, isOpen: %d\n",
+        followingSegment, followingSegment->getCommitted().open));
+    } else {
+        info.append(format("followingSegment = NULL"));
+    }
     uint32_t i = 0;
     foreach (const auto& replica, replicas) {
         string backupLocator = "<unknown>";
