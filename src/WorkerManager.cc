@@ -174,6 +174,12 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 
     // Create a new thread to handle the RPC.
     rpc->id = nextRpcId++;
+    // For writes, use the request header
+    if (header->opcode == WireFormat::WRITE) {
+        const WireFormat::Write::Request* reqHdr =
+            rpc->requestPayload.getStart<WireFormat::Write::Request>();
+        rpc->id = static_cast<uint32_t>(reqHdr->rpcId);
+    }
     rpc->header = header;
     timeTrace("ID %u: Dispatching opcode %d on core %d", rpc->id,
         header->opcode, sched_getcpu());
