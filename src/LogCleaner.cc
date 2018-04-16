@@ -256,6 +256,7 @@ LogCleaner::doWork(CleanerThreadState* state)
         case Balancer::CLEAN_DISK:
           {
             CycleCounter<uint64_t> __(&state->diskCleaningTicks);
+            RAMCLOUD_LOG(NOTICE, "Performing disk cleaning");
             doDiskCleaning();
             break;
           }
@@ -263,6 +264,7 @@ LogCleaner::doWork(CleanerThreadState* state)
         case Balancer::COMPACT_MEMORY:
           {
             CycleCounter<uint64_t> __(&state->memoryCompactionTicks);
+            RAMCLOUD_LOG(NOTICE, "Performing memory cleaning");
             doMemoryCleaning();
             break;
           }

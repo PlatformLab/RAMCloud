@@ -1199,6 +1199,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     }
     if (tablet.state != TabletManager::NORMAL) {
         if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
+            RAMCLOUD_LOG(DEBUG, "Tablet is locked for migration");
             throw RetryException(HERE, 1000, 2000,
                     "Tablet is currently locked for migration!");
         return STATUS_UNKNOWN_TABLET;
@@ -1279,6 +1280,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     // Note: only check for enough space for the object (tombstones
     // don't get included in the limit, since they can be cleaned).
     if (!log.hasSpaceFor(appends[0].buffer.size())) {
+        RAMCLOUD_LOG(DEBUG, "RETRY: Memory capacity exceeded");
         throw RetryException(HERE, 1000, 2000, "Memory capacity exceeded");
     }
 
@@ -1305,6 +1307,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
      rpcId)) {
         // The log is out of space. Tell the client to retry and hope
         // that the cleaner makes space soon.
+        RAMCLOUD_LOG(DEBUG, "RETRY: Log is out of space, must wait for cleaner");
         throw RetryException(HERE, 1000, 2000, "Must wait for cleaner");
     }
     #if TIME_TRACE
@@ -1393,6 +1396,7 @@ ObjectManager::writePrepareFail(RpcResult* rpcResult, uint64_t* rpcResultPtr)
     av.type = LOG_ENTRY_TYPE_RPCRESULT;
 
     if (!log.hasSpaceFor(av.buffer.size()) || !log.append(&av, 1)) {
+        RAMCLOUD_LOG(DEBUG, "RETRY: Log is out of space");
         throw RetryException(HERE, 1000, 2000,
                 "Log is out of space! Transaction abort-vote wasn't logged.");
     }
