@@ -19,6 +19,8 @@
 #include "Segment.h"
 #include "ShortMacros.h"
 #include "TimeTrace.h"
+#include "CoordinatorClient.h"
+#include <unistd.h>
 
 namespace RAMCloud {
 
@@ -441,12 +443,16 @@ ReplicatedSegment::sync(
             }
         }
         double waited = Cycles::toSeconds(Cycles::rdtsc() - syncStartTicks);
-        if (waited > 10) {
+        if (waited > 1) {
             LOG(WARNING, "Log write sync has taken over 10s; seems to "
                     "be stuck");
             dumpProgress();
             TimeTrace::record("Log write sync stuck");
             TimeTrace::printToLog();
+
+            // Ask all other servers to also dump TimeTrace
+            CoordinatorClient::serverControlAll(context, WireFormat::LOG_TIME_TRACE, NULL, 0, NULL);
+            sleep(5);
             abort();
             syncStartTicks = Cycles::rdtsc();
         }
