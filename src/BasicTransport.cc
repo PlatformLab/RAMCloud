@@ -23,7 +23,7 @@ namespace RAMCloud {
 
 // Change 0 -> 1 in the following line to compile detailed time tracing in
 // this transport.
-#define TIME_TRACE 0
+#define TIME_TRACE 1
 
 // Provides a cleaner way of invoking TimeTrace::record, with the code
 // conditionally compiled in or out by the TIME_TRACE #ifdef. Arguments
@@ -887,6 +887,13 @@ BasicTransport::Session::sendRequest(Buffer* request, Buffer* response,
     timeTrace("sendRequest invoked, clientId %u, sequence %u, length %u, "
             "%u outgoing requests", t->clientId, t->nextClientSequenceNumber,
             length, t->outgoingRequests.size());
+#if TIME_TRACE
+    uint64_t addr = reinterpret_cast<uint64_t>(notifier);
+    TimeTrace::record("sendRequest invoked, clientId %u, sequence %u, RpcNotifier = 0x%x%x",
+            static_cast<uint32_t>(t->clientId), static_cast<uint32_t>(t->nextClientSequenceNumber),
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
+#endif
     if (aborted) {
         notifier->failed();
         return;
@@ -1410,6 +1417,11 @@ BasicTransport::handlePacket(Driver::Received* received)
                         || (header->offset >= response->transmitOffset)
                         || ((Cycles::rdtsc() - response->lastTransmitTime)
                         < timerInterval)) {
+
+                    // Log information about the serverRpc
+                    TimeTrace::record("clientId %lu, sequence %lu, requestComplete %d, sendingResponse %d",
+                            static_cast<uint32_t>(common->rpcId.clientId), static_cast<uint32_t>(common->rpcId.sequence), serverRpc->requestComplete, serverRpc->sendingResponse);
+
                     // One of two things has happened: either (a) we haven't
                     // yet sent the requested bytes for the first time (there
                     // must be other outgoing traffic with higher priority)
@@ -1776,8 +1788,8 @@ BasicTransport::Poller::poll()
     // go back in time.
     if (numPackets > 0) {
         uint64_t ns = Cycles::toNanoseconds(startTime - lastPollTime);
-        timeTrace(startTime, "start of polling iteration %u, "
-                "last poll was %u ns ago", owner->iteration, ns);
+        TimeTrace::record(startTime, "start of polling iteration %u, "
+                "last poll was %u ns ago", static_cast<uint32_t>(owner->iteration), static_cast<uint32_t>(ns));
     }
     lastPollTime = Cycles::rdtsc();
 #endif

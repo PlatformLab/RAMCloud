@@ -445,6 +445,9 @@ ReplicatedSegment::sync(
             LOG(WARNING, "Log write sync has taken over 10s; seems to "
                     "be stuck");
             dumpProgress();
+            TimeTrace::record("Log write sync stuck");
+            TimeTrace::printToLog();
+            abort();
             syncStartTicks = Cycles::rdtsc();
         }
 
@@ -1034,6 +1037,11 @@ ReplicatedSegment::dumpProgress()
             replica.committed.open, replica.committed.bytes,
             replica.committed.close,
             bool(replica.writeRpc)));
+        if (bool(replica.writeRpc)) {
+           info.append(format(
+           "    write rpc address: %p\n"
+           "    write rpc state:   %d\n", replica.writeRpc.get(), const_cast<WriteSegmentRpc*>(replica.writeRpc.get())->getState()));
+        }
     }
     LOG(NOTICE, "\n%s", info.c_str());
 }
