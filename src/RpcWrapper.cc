@@ -21,9 +21,11 @@
 #include "RpcWrapper.h"
 #include "ShortMacros.h"
 #include "WireFormat.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
+#define TIME_TRACE 1
 /**
  * Constructor for RpcWrapper objects.
  * \param responseHeaderLength
@@ -77,6 +79,12 @@ RpcWrapper::cancel()
     if ((getState() == IN_PROGRESS) && session) {
         session->cancelRequest(this);
     }
+#if TIME_TRACE
+    uint64_t addr = reinterpret_cast<uint64_t>(this);
+    TimeTrace::record("Storing CANCELED for Rpc at 0x%x%x",
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
+#endif
     state.store(CANCELED, std::memory_order_relaxed);
 }
 
@@ -107,6 +115,16 @@ RpcWrapper::completed() {
     // state. Don't add any more functionality to this method
     // unless you carefully review all of the synchronization
     // properties of RpcWrappers!
+    Fence::sfence();
+    // Not all clients block, so we must signal before setting the state to
+    // avoid a race where the entire Rpc gets cleaned up before we read the
+    // ThreadId for signaling.
+#if TIME_TRACE
+    uint64_t addr = reinterpret_cast<uint64_t>(this);
+    TimeTrace::record("Storing FINISHED for Rpc at 0x%x%x",
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
+#endif
     state.store(FINISHED, std::memory_order_release);
 }
 
@@ -115,6 +133,13 @@ RpcWrapper::completed() {
 void
 RpcWrapper::failed() {
     // See comment in completed: the same warning applies here.
+    Fence::sfence();
+#if TIME_TRACE
+    uint64_t addr = reinterpret_cast<uint64_t>(this);
+    TimeTrace::record("Storing FAILED for Rpc at 0x%x%x",
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
+#endif
     state.store(FAILED, std::memory_order_release);
 }
 
@@ -300,6 +325,12 @@ RpcWrapper::send()
     //   approaches (such as using service locators): they must set the
     //   session member before invoking this method.
 
+#if TIME_TRACE
+    uint64_t addr = reinterpret_cast<uint64_t>(this);
+    TimeTrace::record("Storing IN_PROGRESS for Rpc at 0x%x%x",
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
+#endif
     state.store(IN_PROGRESS, std::memory_order_relaxed);
     if (session)
         session->sendRequest(&request, response, this);
@@ -374,11 +405,33 @@ RpcWrapper::waitInternal(Dispatch* dispatch, uint64_t abortTime)
     // the dispatch thread so we have to invoke the dispatcher while waiting.
     bool isDispatchThread = dispatch->isDispatchThread();
 
+    // If waiting longer than 5 seconds, then start logging in the client log.
+    uint64_t logTime = Cycles::rdtsc() + Cycles::fromSeconds(5);
+
     while (!isReady()) {
         if (isDispatchThread)
             dispatch->poll();
         if (dispatch->currentTime > abortTime)
             return false;
+        if (dispatch->currentTime > logTime) {
+            // Update the logTime so that we don't report again for another 5 seconds.
+            logTime = dispatch->currentTime + Cycles::fromSeconds(5);
+            const WireFormat::RequestCommon* header;
+            header = request.getStart<WireFormat::RequestCommon>();
+            if (header->opcode != WireFormat::WRITE) {
+                LOG(WARNING, "Rpc has been waiting for more than 5 seconds. Opcode = %u RpcState = %d, serviceLocator = %s",
+                        header->opcode, getState(), session->serviceLocator.c_str());
+            } else {
+                auto* reqHdr = getRequestHeader<WireFormat::Write>();
+                LOG(WARNING, "Write Rpc has been waiting for more than 5 seconds. Opcode = %u RpcId = %lu RpcState = %d, serviceLocator = %s",
+                        reqHdr->common.opcode, reqHdr->rpcId, getState(), session->serviceLocator.c_str());
+            }
+            TimeTrace::record("Rpc just waited far too long");
+            TimeTrace::printToLog();
+
+            // Abort immediately after dumping TimeTrace.
+            abort();
+        }
     }
     if (getState() == CANCELED)
         throw RpcCanceledException(HERE);
