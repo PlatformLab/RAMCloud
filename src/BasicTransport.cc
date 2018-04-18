@@ -1122,15 +1122,32 @@ BasicTransport::handlePacket(Driver::Received* received)
                     request->transmitLimit = header->length;
                     clientRpc->accumulator.destroy();
                     clientRpc->scheduledMessage.destroy();
+                    TimeTrace::record("client received RESTART, clientId %u, sequence %u, "
+                            "clientRpc->transmitPending %d, request->topChoice %d",
+                            static_cast<uint32_t>(header->common.rpcId.clientId),
+                            static_cast<uint32_t>(header->common.rpcId.sequence),
+                            clientRpc->transmitPending, request->topChoice);
+                    TimeTrace::record("client received RESTART, clientId %u, sequence %u, "
+                            "topOutgoingMessages.size() = %u, transmitDataSlowPath = %u",
+                            static_cast<uint32_t>(header->common.rpcId.clientId),
+                            static_cast<uint32_t>(header->common.rpcId.sequence),
+                            static_cast<uint32_t>(topOutgoingMessages.size()),
+                            transmitDataSlowPath);
                     if (!clientRpc->transmitPending) {
                         clientRpc->transmitPending = true;
                         outgoingRequests.push_back(*clientRpc);
-                        maintainTopOutgoingMessages(request);
                     } else if (request->topChoice) {
                         request->topChoice = false;
                         erase(topOutgoingMessages, clientRpc->request);
-                        maintainTopOutgoingMessages(request);
                     }
+                    maintainTopOutgoingMessages(request);
+
+                    TimeTrace::record("client received RESTART, clientId %u, sequence %u, "
+                            "topOutgoingMessages.size() = %u, transmitDataSlowPath | (request->topChoice << 1) %u",
+                            static_cast<uint32_t>(header->common.rpcId.clientId),
+                            static_cast<uint32_t>(header->common.rpcId.sequence),
+                            static_cast<uint32_t>(topOutgoingMessages.size()),
+                            transmitDataSlowPath | (request->topChoice << 1));
                     return;
                 }
                 uint32_t resendEnd = header->offset + header->length;
