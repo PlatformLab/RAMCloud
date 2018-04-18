@@ -182,10 +182,20 @@ ServerIdRpcWrapper::waitAndCheckErrors()
     // packet except checking for errors.
     waitInternal(context->dispatch);
     if (serverCrashed) {
+        uint64_t addr = reinterpret_cast<uint64_t>(this);
+        TimeTrace::record("ServerNotUp for Rpc 0x%x%08x",
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
         throw ServerNotUpException(HERE);
     }
-    if (responseHeader->status != STATUS_OK)
+    if (responseHeader->status != STATUS_OK) {
+        uint64_t addr = reinterpret_cast<uint64_t>(this);
+        TimeTrace::record("Reponse header status = %d for Rpc 0x%x%08x",
+            responseHeader->status,
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
         ClientException::throwException(HERE, responseHeader->status);
+    }
 }
 
 } // namespace RAMCloud

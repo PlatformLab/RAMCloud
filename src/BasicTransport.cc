@@ -74,7 +74,7 @@ BasicTransport::BasicTransport(Context* context, const ServiceLocator* locator,
     // observed any message drop due to driver packet buffer exhaustion when
     // running workloads W3, W4 and W5 that are used in the HomaTransport paper
     // evaluation.
-    , messageZeroCopyThreshold(100*maxDataPerPacket)
+    , messageZeroCopyThreshold(0)
 
     // As of 09/2017, we consider messages less than 300 bytes as small (which
     // takes at most 240 ns to transmit on a 10Gbps network). This value is
@@ -1541,6 +1541,12 @@ BasicTransport::ServerRpc::sendReply()
     timeTrace("sendReply invoked, clientId %u, sequence %u, length %u, "
             "%u outgoing responses", rpcId.clientId, rpcId.sequence,
             length, t->outgoingResponses.size());
+    uint64_t addr = reinterpret_cast<uint64_t>(this);
+    TimeTrace::record("sendReply invoked, clientId %u, sequence %u, ServerRpc = 0x%x%08x",
+            static_cast<uint32_t>(rpcId.clientId),
+            static_cast<uint32_t>(rpcId.sequence),
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
     if (cancelled) {
         t->deleteServerRpc(this);
         return;

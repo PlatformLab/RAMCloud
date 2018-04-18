@@ -316,6 +316,15 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
                 &serverRpc->replyPayload);
         Service::handleRpc(context, &rpc);
 
+        if (serverRpc->header->opcode == WireFormat::BACKUP_WRITE) {
+            const WireFormat::ResponseCommon* responseHeader = static_cast<const WireFormat::ResponseCommon*>(
+                    serverRpc->replyPayload.getRange(0, sizeof(WireFormat::BackupWrite::Response)));
+            uint64_t addr = reinterpret_cast<uint64_t>(serverRpc);
+            timeTrace("Sending reply for ServerRpc 0x%x%08x, status = %d",
+                    static_cast<uint32_t>(addr >> 32),
+                    static_cast<uint32_t>(addr & 0xffffffff),
+                    responseHeader->status);
+        }
         // Pass the RPC back to the dispatch thread for completion.
         worker.sendReply();
 
