@@ -19,8 +19,6 @@
 #include "Segment.h"
 #include "ShortMacros.h"
 #include "TimeTrace.h"
-#include "CoordinatorClient.h"
-#include <unistd.h>
 
 namespace RAMCloud {
 
@@ -187,12 +185,6 @@ ReplicatedSegment::free()
     foreach (auto& replica, replicas) {
         if (!replica.isActive || !replica.writeRpc)
             continue;
-
-        uint64_t addr = reinterpret_cast<uint64_t>(replica.writeRpc.get());
-        TimeTrace::record("ReplicatedSegment::free() called cancel() on writeRpc 0x%x%08x", 
-            static_cast<uint32_t>(addr >> 32),
-            static_cast<uint32_t>(addr & 0xffffffff));
-
         replica.writeRpc->cancel();
         replica.writeRpc.destroy();
         --writeRpcsInFlight;
@@ -449,17 +441,10 @@ ReplicatedSegment::sync(
             }
         }
         double waited = Cycles::toSeconds(Cycles::rdtsc() - syncStartTicks);
-        if (waited > 1) {
+        if (waited > 10) {
             LOG(WARNING, "Log write sync has taken over 10s; seems to "
                     "be stuck");
-            TimeTrace::record("Log write sync stuck");
             dumpProgress();
-            TimeTrace::printToLog();
-
-            // Ask all other servers to also dump TimeTrace
-            CoordinatorClient::serverControlAll(context, WireFormat::LOG_TIME_TRACE, NULL, 0, NULL);
-            sleep(5);
-            abort();
             syncStartTicks = Cycles::rdtsc();
         }
 
@@ -772,14 +757,7 @@ ReplicatedSegment::performWrite(Replica& replica)
         if (replica.writeRpc->isReady()) {
             // Wait for it to complete if it is ready.
             try {
-                uint64_t addr = reinterpret_cast<uint64_t>(this);
-                TimeTrace::record("writeRpc 0x%x%08x invoking wait",
-                    static_cast<uint32_t>(addr >> 32),
-                    static_cast<uint32_t>(addr & 0xffffffff));
                 replica.writeRpc->wait();
-                TimeTrace::record("writeRpc 0x%x%08x just returned from wait",
-                    static_cast<uint32_t>(addr >> 32),
-                    static_cast<uint32_t>(addr & 0xffffffff));
                 #if TIME_TRACE
                 if (syncingRpcId)
                     TimeTrace::record("ID %u: Completed replication Rpc "
@@ -812,8 +790,6 @@ ReplicatedSegment::performWrite(Replica& replica)
                         followingSegment = NULL;
                     }
                 }
-                TimeTrace::record("replica.acked.open %d replica.sentCertificate %d replica.committed.open %d",
-                        replica.acked.open, replica.sentCertificate, replica.committed.open);
             } catch (const ServerNotUpException& e) {
                 // Retry; wait for BackupFailureMonitor to call
                 // handleBackupFailure to reset the replica and break this
@@ -844,10 +820,6 @@ ReplicatedSegment::performWrite(Replica& replica)
                     statusToSymbol(e.status));
                 throw;
             }
-            uint64_t addr = reinterpret_cast<uint64_t>(this);
-            TimeTrace::record("ReplicatedSegment::performWrite() calling writeRpc::destroy at 0x%x%08x",
-                    static_cast<uint32_t>(addr >> 32),
-                    static_cast<uint32_t>(addr & 0xffffffff));
             replica.writeRpc.destroy();
             --writeRpcsInFlight;
             if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {
@@ -1036,10 +1008,6 @@ ReplicatedSegment::dumpProgress()
         masterId.toString().c_str(), segmentId,
         queued.open, queued.bytes, queued.close,
         getCommitted().open, getCommitted().bytes, getCommitted().close);
-    info.append(format(
-        "freeQueued = %d, recoveringFromLostOpenReplicas = %d, \n"
-        "normalLogSegment = %d, precedingSegmentCloseCommitted = %d\n",
-                freeQueued, recoveringFromLostOpenReplicas, normalLogSegment, precedingSegmentCloseCommitted));
     if (followingSegment) {
         info.append(format(
         "    followingSegment: %p, isOpen: %d\n",
@@ -1066,11 +1034,6 @@ ReplicatedSegment::dumpProgress()
             replica.committed.open, replica.committed.bytes,
             replica.committed.close,
             bool(replica.writeRpc)));
-        if (bool(replica.writeRpc)) {
-           info.append(format(
-           "    write rpc address: %p\n"
-           "    write rpc state:   %d\n", replica.writeRpc.get(), const_cast<WriteSegmentRpc*>(replica.writeRpc.get())->getState()));
-        }
     }
     LOG(NOTICE, "\n%s", info.c_str());
 }

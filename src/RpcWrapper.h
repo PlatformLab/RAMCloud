@@ -66,7 +66,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     virtual void failed();
     virtual bool isReady();
 
-//  PROTECTED:
+  PROTECTED:
     /// Possible states for an RPC.
     enum RpcState {
         NOT_STARTED,                // Initial state before the request has

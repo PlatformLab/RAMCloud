@@ -41,7 +41,7 @@
 namespace RAMCloud {
 // Uncomment the following line (or specify -D SMTT on the make command line)
 // to enable a bunch of time tracing in this module.
-#define SMTT 1
+// #define SMTT 1
 
 // Provides a shorthand way of invoking TimeTrace::record, compiled in or out
 // by the SMTT #ifdef.
@@ -174,12 +174,6 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 
     // Create a new thread to handle the RPC.
     rpc->id = nextRpcId++;
-    // For writes, use the request header
-    if (header->opcode == WireFormat::WRITE) {
-        const WireFormat::Write::Request* reqHdr =
-            rpc->requestPayload.getStart<WireFormat::Write::Request>();
-        rpc->id = static_cast<uint32_t>(reqHdr->rpcId);
-    }
     rpc->header = header;
     timeTrace("ID %u: Dispatching opcode %d on core %d", rpc->id,
         header->opcode, sched_getcpu());
@@ -316,15 +310,6 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
                 &serverRpc->replyPayload);
         Service::handleRpc(context, &rpc);
 
-        if (serverRpc->header->opcode == WireFormat::BACKUP_WRITE) {
-            const WireFormat::ResponseCommon* responseHeader = static_cast<const WireFormat::ResponseCommon*>(
-                    serverRpc->replyPayload.getRange(0, sizeof(WireFormat::BackupWrite::Response)));
-            uint64_t addr = reinterpret_cast<uint64_t>(serverRpc);
-            timeTrace("Sending reply for ServerRpc 0x%x%08x, status = %d",
-                    static_cast<uint32_t>(addr >> 32),
-                    static_cast<uint32_t>(addr & 0xffffffff),
-                    responseHeader->status);
-        }
         // Pass the RPC back to the dispatch thread for completion.
         worker.sendReply();
 
