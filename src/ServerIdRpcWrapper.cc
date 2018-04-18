@@ -159,7 +159,7 @@ ServerIdRpcWrapper::send()
     session = context->serverList->getSession(id);
 #if TIME_TRACE
     uint64_t addr = reinterpret_cast<uint64_t>(this);
-    TimeTrace::record("Storing IN_PROGRESS for Rpc at 0x%x%x",
+    TimeTrace::record("Storing IN_PROGRESS for Rpc at 0x%x%08x",
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff));
 #endif

@@ -62,6 +62,12 @@ RpcWrapper::RpcWrapper(uint32_t responseHeaderLength, Buffer* response)
   * canceled.
   */
 RpcWrapper::~RpcWrapper() {
+#if TIME_TRACE
+    uint64_t addr = reinterpret_cast<uint64_t>(this);
+    TimeTrace::record("RpcWrapper DESTROYED for Rpc at 0x%x%08x",
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
+#endif
     cancel();
 }
 
@@ -83,7 +89,7 @@ RpcWrapper::cancel()
     }
 #if TIME_TRACE
     uint64_t addr = reinterpret_cast<uint64_t>(this);
-    TimeTrace::record("Storing CANCELED for Rpc at 0x%x%x",
+    TimeTrace::record("Storing CANCELED for Rpc at 0x%x%08x",
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff));
 #endif
@@ -131,7 +137,7 @@ RpcWrapper::completed() {
     }
 #if TIME_TRACE
     uint64_t addr = reinterpret_cast<uint64_t>(this);
-    TimeTrace::record("Storing FINISHED for Rpc at 0x%x%x",
+    TimeTrace::record("Storing FINISHED for Rpc at 0x%x%08x",
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff));
 #endif
@@ -148,7 +154,7 @@ RpcWrapper::failed() {
         Arachne::signal(ownerThreadId);
 #if TIME_TRACE
     uint64_t addr = reinterpret_cast<uint64_t>(this);
-    TimeTrace::record("Storing FAILED for Rpc at 0x%x%x",
+    TimeTrace::record("Storing FAILED for Rpc at 0x%x%08x",
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff));
 #endif
@@ -339,7 +345,7 @@ RpcWrapper::send()
 
 #if TIME_TRACE
     uint64_t addr = reinterpret_cast<uint64_t>(this);
-    TimeTrace::record("Storing IN_PROGRESS for Rpc at 0x%x%x",
+    TimeTrace::record("Storing IN_PROGRESS for Rpc at 0x%x%08x",
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff));
 #endif

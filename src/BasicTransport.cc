@@ -889,7 +889,7 @@ BasicTransport::Session::sendRequest(Buffer* request, Buffer* response,
             length, t->outgoingRequests.size());
 #if TIME_TRACE
     uint64_t addr = reinterpret_cast<uint64_t>(notifier);
-    TimeTrace::record("sendRequest invoked, clientId %u, sequence %u, RpcNotifier = 0x%x%x",
+    TimeTrace::record("sendRequest invoked, clientId %u, sequence %u, RpcNotifier = 0x%x%08x",
             static_cast<uint32_t>(t->clientId), static_cast<uint32_t>(t->nextClientSequenceNumber),
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff));
