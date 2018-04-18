@@ -1141,9 +1141,14 @@ BasicTransport::handlePacket(Driver::Received* received)
                     return;
                 }
                 uint32_t resendEnd = header->offset + header->length;
+                timeTrace("client received RESEND, oldTransmitLimit %u, resendEnd %u",
+                        request->transmitLimit, resendEnd);
                 if (resendEnd > request->transmitLimit) {
                     // Needed in case a GRANT packet was lost.
                     request->transmitLimit = resendEnd;
+                    if (!request->topChoice) {
+                        transmitDataSlowPath = true;
+                    }
                 }
                 if ((header->offset >= request->transmitOffset)
                         || ((Cycles::rdtsc() - request->lastTransmitTime)
@@ -1412,6 +1417,9 @@ BasicTransport::handlePacket(Driver::Received* received)
                 if (resendEnd > response->transmitLimit) {
                     // Needed in case GRANT packet was lost.
                     response->transmitLimit = resendEnd;
+                    if (!response->topChoice) {
+                        transmitDataSlowPath = true;
+                    }
                 }
                 if (!serverRpc->sendingResponse
                         || (header->offset >= response->transmitOffset)
