@@ -189,7 +189,7 @@ ReplicatedSegment::free()
             continue;
 
         uint64_t addr = reinterpret_cast<uint64_t>(replica.writeRpc.get());
-        TimeTrace::record("Replicated segment is destroying writeRpc 0x%x%08x", 
+        TimeTrace::record("ReplicatedSegment::free() called cancel() on writeRpc 0x%x%08x", 
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff));
 
@@ -772,7 +772,14 @@ ReplicatedSegment::performWrite(Replica& replica)
         if (replica.writeRpc->isReady()) {
             // Wait for it to complete if it is ready.
             try {
+                uint64_t addr = reinterpret_cast<uint64_t>(this);
+                TimeTrace::record("writeRpc 0x%x%08x invoking wait",
+                    static_cast<uint32_t>(addr >> 32),
+                    static_cast<uint32_t>(addr & 0xffffffff));
                 replica.writeRpc->wait();
+                TimeTrace::record("writeRpc 0x%x%08x just returned from wait",
+                    static_cast<uint32_t>(addr >> 32),
+                    static_cast<uint32_t>(addr & 0xffffffff));
                 #if TIME_TRACE
                 if (syncingRpcId)
                     TimeTrace::record("ID %u: Completed replication Rpc "
@@ -805,6 +812,8 @@ ReplicatedSegment::performWrite(Replica& replica)
                         followingSegment = NULL;
                     }
                 }
+                TimeTrace::record("replica.acked.open %d replica.sentCertificate %d replica.committed.open %d",
+                        replica.acked.open, replica.sentCertificate, replica.committed.open);
             } catch (const ServerNotUpException& e) {
                 // Retry; wait for BackupFailureMonitor to call
                 // handleBackupFailure to reset the replica and break this
@@ -835,6 +844,10 @@ ReplicatedSegment::performWrite(Replica& replica)
                     statusToSymbol(e.status));
                 throw;
             }
+            uint64_t addr = reinterpret_cast<uint64_t>(this);
+            TimeTrace::record("ReplicatedSegment::performWrite() calling writeRpc::destroy at 0x%x%08x",
+                    static_cast<uint32_t>(addr >> 32),
+                    static_cast<uint32_t>(addr & 0xffffffff));
             replica.writeRpc.destroy();
             --writeRpcsInFlight;
             if (LOG_RECOVERY_REPLICATION_RPC_TIMING && recoveryStart) {

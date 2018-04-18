@@ -17,6 +17,7 @@
 #include "Logger.h"
 #include "LinearizableObjectRpcWrapper.h"
 #include "RamCloud.h"
+#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -109,6 +110,13 @@ LinearizableObjectRpcWrapper::~LinearizableObjectRpcWrapper()
 void
 LinearizableObjectRpcWrapper::cancel()
 {
+#define TIME_TRACE 1
+#if TIME_TRACE
+    uint64_t addr = reinterpret_cast<uint64_t>(this);
+    TimeTrace::record("LinearizableObjectRpcWrapper::cancel called RpcWrapper::cancel on 0x%x%08x",
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
+#endif
     RpcWrapper::cancel();
     if (linearizabilityOn && assignedRpcId) {
         ramcloud->rpcTracker->rpcFinished(assignedRpcId);

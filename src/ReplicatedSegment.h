@@ -28,8 +28,10 @@
 #include "Transport.h"
 #include "TaskQueue.h"
 #include "VarLenArray.h"
+#include "TimeTrace.h"
 #include "Arachne/Arachne.h"
 
+#define TIME_TRACE 1
 namespace RAMCloud {
 
 /**
@@ -236,10 +238,24 @@ class ReplicatedSegment : public Task {
         {}
 
         ~Replica() {
-            if (writeRpc)
+            if (writeRpc) {
+#if TIME_TRACE
+                uint64_t addr = reinterpret_cast<uint64_t>(writeRpc.get());
+                TimeTrace::record("Replica destructor called writeRpc::cancel() on 0x%x%08x",
+                        static_cast<uint32_t>(addr >> 32),
+                        static_cast<uint32_t>(addr & 0xffffffff));
+#endif
                 writeRpc->cancel();
-            if (freeRpc)
+            }
+            if (freeRpc) {
+#if TIME_TRACE
+                uint64_t addr = reinterpret_cast<uint64_t>(freeRpc.get());
+                TimeTrace::record("Replica destructor called freeRpc::cancel() on 0x%x%08x",
+                        static_cast<uint32_t>(addr >> 32),
+                        static_cast<uint32_t>(addr & 0xffffffff));
+#endif
                 freeRpc->cancel();
+            }
         }
 
         /**
@@ -627,5 +643,7 @@ class ReplicatedSegment : public Task {
 };
 
 } // namespace RAMCloud
+
+#undef TIME_TRACE
 
 #endif
