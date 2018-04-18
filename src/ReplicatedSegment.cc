@@ -187,6 +187,12 @@ ReplicatedSegment::free()
     foreach (auto& replica, replicas) {
         if (!replica.isActive || !replica.writeRpc)
             continue;
+
+        uint64_t addr = reinterpret_cast<uint64_t>(replica.writeRpc.get());
+        TimeTrace::record("Replicated segment is destroying writeRpc 0x%x%08x", 
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
+
         replica.writeRpc->cancel();
         replica.writeRpc.destroy();
         --writeRpcsInFlight;
@@ -446,8 +452,8 @@ ReplicatedSegment::sync(
         if (waited > 1) {
             LOG(WARNING, "Log write sync has taken over 10s; seems to "
                     "be stuck");
-            dumpProgress();
             TimeTrace::record("Log write sync stuck");
+            dumpProgress();
             TimeTrace::printToLog();
 
             // Ask all other servers to also dump TimeTrace
@@ -1017,6 +1023,10 @@ ReplicatedSegment::dumpProgress()
         masterId.toString().c_str(), segmentId,
         queued.open, queued.bytes, queued.close,
         getCommitted().open, getCommitted().bytes, getCommitted().close);
+    info.append(format(
+        "freeQueued = %d, recoveringFromLostOpenReplicas = %d, \n"
+        "normalLogSegment = %d, precedingSegmentCloseCommitted = %d\n",
+                freeQueued, recoveringFromLostOpenReplicas, normalLogSegment, precedingSegmentCloseCommitted));
     if (followingSegment) {
         info.append(format(
         "    followingSegment: %p, isOpen: %d\n",
