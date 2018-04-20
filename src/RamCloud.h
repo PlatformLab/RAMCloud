@@ -200,6 +200,17 @@ class RamCloud {
     ClientTransactionManager *transactionManager;
 
   private:
+    /**
+     * Dump client-side TimeTrace whenever the cycle counter reaches this
+     * value.  When the value is zero, it is assumed to be uninitialized.
+     * This value is atomic so that we can have one instance across multiple
+     * threads.
+     */
+    static std::atomic<uint64_t> nextTimeToDumpTimeTrace;
+
+    // Call this function to print time trace to log periodically.
+    void periodicTimeTraceDump();
+
     DISALLOW_COPY_AND_ASSIGN(RamCloud);
 };
 
