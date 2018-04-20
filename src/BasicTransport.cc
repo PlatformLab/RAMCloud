@@ -1122,6 +1122,8 @@ BasicTransport::handlePacket(Driver::Received* received)
                     request->transmitLimit = header->length;
                     clientRpc->accumulator.destroy();
                     clientRpc->scheduledMessage.destroy();
+                    LOG(WARNING, "client received RESTART, clientId %lu, sequence %lu, recipient = %s",
+                            header->common.rpcId.clientId, header->common.rpcId.sequence, request->recipient->toString().c_str());
                     TimeTrace::record("client received RESTART, clientId %u, sequence %u, "
                             "clientRpc->transmitPending %d, request->topChoice %d",
                             static_cast<uint32_t>(header->common.rpcId.clientId),
