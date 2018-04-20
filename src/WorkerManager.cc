@@ -213,6 +213,12 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 
     rpc->id = nextRpcId++;
     timeTrace("ID %u: Dispatching opcode %d", rpc->id, header->opcode);
+    // Only writes seem to have a linearizatbility ID
+    if (header->opcode == WireFormat::WRITE) {
+        const WireFormat::Write::Request* reqHdr =
+            rpc->requestPayload.getStart<WireFormat::Write::Request>();
+        timeTrace("ID %u: Client RpcId = %u", rpc->id, static_cast<uint32_t>(reqHdr->rpcId));
+    }
 
     // See if we should start executing this request. Once we reach our
     // desired concurrency limit, only start a new request if its level
