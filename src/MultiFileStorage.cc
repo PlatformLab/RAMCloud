@@ -31,7 +31,6 @@
 #include "RawMetrics.h"
 #include "ShortMacros.h"
 #include "PerfStats.h"
-#include "TimeTrace.h"
 
 namespace RAMCloud {
 
@@ -718,8 +717,6 @@ MultiFileStorage::unlockedWrite(Frame::Lock& lock, void* buf, size_t count,
                     i, cb->aio_offset, cb->aio_nbytes, r);
         }
         double elapsedSeconds = Cycles::toSeconds(Cycles::rdtsc() - start);
-        TimeTrace::record("BACKUP just finished an IO of %d bytes in %d us",
-                static_cast<uint32_t>(cb->aio_nbytes), static_cast<uint32_t>(elapsedSeconds * 1e06));
         if ((elapsedSeconds > 0.1) && firstSlowIO) {
             firstSlowIO = false;
             LOG(WARNING, "Slow write to replica storage on device %lu: %.1f ms "
