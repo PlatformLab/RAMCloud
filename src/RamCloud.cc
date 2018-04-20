@@ -2087,7 +2087,7 @@ ReadRpc::ReadRpc(RamCloud* ramcloud, uint64_t tableId,
 {
     #if TIME_TRACE
     uint64_t addr = reinterpret_cast<uint64_t>(this);
-    TimeTrace::record("ReadRpc %x%08x being constructed",
+    TimeTrace::record("ReadRpc 0x%x%08x being constructed",
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff));
     #endif
@@ -2098,7 +2098,7 @@ ReadRpc::ReadRpc(RamCloud* ramcloud, uint64_t tableId,
     reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
     request.append(key, keyLength);
 #if TIME_TRACE
-    TimeTrace::record("ReadRpc %x%08x about to send",
+    TimeTrace::record("ReadRpc 0x%x%08x about to send",
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff));
 #endif
@@ -2142,7 +2142,7 @@ ReadRpc::wait(uint64_t* version, bool* objectExists)
     assert(respHdr->length == response->size());
 #if TIME_TRACE
     uint64_t addr = reinterpret_cast<uint64_t>(this);
-    TimeTrace::record("ReadRpc %x%08x just got response from server",
+    TimeTrace::record("ReadRpc 0x%x%08x just got response from server",
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff));
 #endif
@@ -3033,7 +3033,7 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 {
 #if TIME_TRACE
     uint64_t addr = reinterpret_cast<uint64_t>(this);
-    TimeTrace::record("WriteRpc %x%08x being constructed",
+    TimeTrace::record("WriteRpc 0x%x%08x being constructed",
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff));
 #endif
@@ -3058,7 +3058,7 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 
     fillLinearizabilityHeader<WireFormat::Write::Request>(reqHdr);
 #if TIME_TRACE
-    TimeTrace::record("WriteRpc %x%08x about to send with RpcId %u",
+    TimeTrace::record("WriteRpc 0x%x%08x about to send with RpcId %u",
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff),
             static_cast<uint32_t>(assignedRpcId));
@@ -3104,6 +3104,12 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
             keyList[0].key, keyList[0].keyLength,
             sizeof(WireFormat::Write::Response))
 {
+#if TIME_TRACE
+    uint64_t addr = reinterpret_cast<uint64_t>(this);
+    TimeTrace::record("WriteRpc 0x%x%08x being constructed",
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff));
+#endif
     WireFormat::Write::Request* reqHdr(allocHeader<WireFormat::Write>());
     reqHdr->tableId = tableId;
 
@@ -3118,6 +3124,12 @@ WriteRpc::WriteRpc(RamCloud* ramcloud, uint64_t tableId,
 
     fillLinearizabilityHeader<WireFormat::Write::Request>(reqHdr);
 
+#if TIME_TRACE
+    TimeTrace::record("WriteRpc 0x%x%08x about to send with RpcId %u",
+            static_cast<uint32_t>(addr >> 32),
+            static_cast<uint32_t>(addr & 0xffffffff),
+            static_cast<uint32_t>(reqHdr->rpcId));
+#endif
     send();
 }
 
@@ -3143,7 +3155,7 @@ WriteRpc::wait(uint64_t* version)
         ClientException::throwException(HERE, respHdr->common.status);
 #if TIME_TRACE
     uint64_t addr = reinterpret_cast<uint64_t>(this);
-    TimeTrace::record("WriteRpc %x%08x RpcId %u just got response from server",
+    TimeTrace::record("WriteRpc 0x%x%08x RpcId %u just got response from server",
             static_cast<uint32_t>(addr >> 32),
             static_cast<uint32_t>(addr & 0xffffffff),
             static_cast<uint32_t>(assignedRpcId));
