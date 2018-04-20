@@ -1718,6 +1718,7 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
         WireFormat::Read::Response* respHdr,
         Rpc* rpc)
 {
+    TimeTrace::record("ID %u, starting MasterService::read", rpc->worker->rpc->id);
     using RAMCloud::Perf::ReadRPC_MetricSet;
     ReadRPC_MetricSet::Interval _(&ReadRPC_MetricSet::readRpcTime);
 
@@ -1743,6 +1744,7 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
         return;
 
     respHdr->length = rpc->replyPayload->size() - initialLength;
+    TimeTrace::record("ID %u, leaving MasterService::read", rpc->worker->rpc->id);
 }
 
 /**
@@ -3145,6 +3147,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         WireFormat::Write::Response* respHdr,
         Rpc* rpc)
 {
+    TimeTrace::record("ID %u, starting MasterService::write", rpc->worker->rpc->id);
     assert(reqHdr->rpcId > 0);
     UnackedRpcHandle rh(&unackedRpcResults,
                         reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
@@ -3186,7 +3189,8 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
     respHdr->common.status = objectManager.writeObject(
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
             &rpcResult, &rpcResultPtr);
-
+    TimeTrace::record("ID %u: Wrote object, waiting for sync",
+                        rpc->worker->rpc->id);
     if (respHdr->common.status == STATUS_OK) {
         objectManager.syncChanges();
         rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is
@@ -3212,6 +3216,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             requestRemoveIndexEntries(oldObject);
         }
     }
+    TimeTrace::record("ID %u, leaving MasterService::write", rpc->worker->rpc->id);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
