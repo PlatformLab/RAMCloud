@@ -43,6 +43,8 @@ namespace RAMCloud {
 // nothing.
 static RejectRules defaultRejectRules;
 
+std::atomic<uint64_t> RamCloud::nextTimeToDumpTimeTrace(0);
+
 /**
  * Construct a RamCloud for a particular cluster.
  *
@@ -130,6 +132,26 @@ RamCloud::~RamCloud()
     delete realClientContext;
 
     delete transactionManager;
+}
+
+void
+RamCloud::periodicTimeTraceDump() {
+    // Dump TimeTrace if time is reached
+    uint64_t currentTime = Cycles::rdtsc();
+    uint64_t nextScheduledTime = nextTimeToDumpTimeTrace.load();
+    uint64_t newScheduledTime = currentTime + Cycles::fromSeconds(40);
+
+    // Need to initialize
+    if (nextScheduledTime == 0) {
+        // If we failed, then a different thread must have succeeded, so we can
+        // safely ignore the failure.
+        nextTimeToDumpTimeTrace.compare_exchange_strong(nextScheduledTime, newScheduledTime);
+    } else if (nextScheduledTime < currentTime) {
+        // Only dump if we succeed, otherwise some other thread will dump.
+        if (nextTimeToDumpTimeTrace.compare_exchange_strong(nextScheduledTime, newScheduledTime)) {
+            TimeTrace::printToLog();
+        }
+    }
 }
 
 /**
@@ -2019,6 +2041,7 @@ RamCloud::read(uint64_t tableId, const void* key, uint16_t keyLength,
 {
     ReadRpc rpc(this, tableId, key, keyLength, value, rejectRules);
     rpc.wait(version, objectExists);
+    periodicTimeTraceDump();
 }
 
 /**
@@ -2849,6 +2872,7 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
     WriteRpc rpc(this, tableId, key, keyLength, buf, length, rejectRules,
             async);
     rpc.wait(version);
+    periodicTimeTraceDump();
 }
 
 /**
@@ -2894,6 +2918,7 @@ RamCloud::write(uint64_t tableId, const void* key, uint16_t keyLength,
     WriteRpc rpc(this, tableId, key, keyLength, value, valueLength,
                     rejectRules, async);
     rpc.wait(version);
+    periodicTimeTraceDump();
 }
 
 /**
@@ -2944,6 +2969,7 @@ RamCloud::write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
     WriteRpc rpc(this, tableId, numKeys, keyList, buf, length, rejectRules,
             async);
     rpc.wait(version);
+    periodicTimeTraceDump();
 }
 
 /**
@@ -2993,6 +3019,7 @@ RamCloud::write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyList,
     WriteRpc rpc(this, tableId, numKeys, keyList, value,
             valueLength, rejectRules, async);
     rpc.wait(version);
+    periodicTimeTraceDump();
 }
 
 /**
