@@ -41,7 +41,7 @@
 namespace RAMCloud {
 // Uncomment the following line (or specify -D SMTT on the make command line)
 // to enable a bunch of time tracing in this module.
-// #define SMTT 1
+#define SMTT 1
 
 // Provides a shorthand way of invoking TimeTrace::record, compiled in or out
 // by the SMTT #ifdef.
@@ -148,6 +148,10 @@ WorkerManager::~WorkerManager()
 void
 WorkerManager::handleRpc(Transport::ServerRpc* rpc)
 {
+    // Since this method should only run in the dispatch thread, there is no
+    // need to synchronize this state.
+    static uint32_t nextRpcId = 1;
+
     // Find the service for this RPC.
     const WireFormat::RequestCommon* header;
     header = rpc->requestPayload.getStart<WireFormat::RequestCommon>();
@@ -200,13 +204,15 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
     }
 
     int level = RpcLevel::getLevel(WireFormat::Opcode(header->opcode));
-    timeTrace("handleRpc processing opcode %d", header->opcode);
 #ifdef LOG_RPCS
     LOG(NOTICE, "Received %s RPC at %lu with %u bytes",
             WireFormat::opcodeSymbol(header->opcode),
             reinterpret_cast<uint64_t>(rpc),
             rpc->requestPayload.size());
 #endif
+
+    rpc->id = nextRpcId++;
+    timeTrace("ID %u: Dispatching opcode %d", rpc->id, header->opcode);
 
     // See if we should start executing this request. Once we reach our
     // desired concurrency limit, only start a new request if its level
@@ -288,8 +294,6 @@ WorkerManager::poll()
         }
         foundWork = 1;
         Fence::enter();
-        timeTrace("dispatch thread starting cleanup for opcode %d, thread %d",
-                worker->opcode, worker->threadId);
 
         // The worker is either post-processing or idle; in either case,
         // there may be an RPC that we have to respond to. Save the RPC
@@ -339,6 +343,9 @@ WorkerManager::poll()
 
         // Now send the response, if any.
         if (rpc != NULL) {
+            timeTrace("ID %u: dispatch sending response for opcode %d, thread %d",
+                    rpc->id, worker->opcode, worker->threadId);
+
 #ifdef LOG_RPCS
             LOG(NOTICE, "Sending reply for %s at %lu with %u bytes",
                     WireFormat::opcodeSymbol(&rpc->requestPayload),
@@ -346,8 +353,8 @@ WorkerManager::poll()
                     rpc->replyPayload.size());
 #endif
             rpc->sendReply();
-            timeTrace("sent reply for opcode %d, thread %d",
-                    worker->threadId, worker->opcode);
+            timeTrace("ID %u: reply sent for opcode %d, thread %d",
+                    rpc->id, worker->threadId, worker->opcode);
 
         }
 
@@ -454,23 +461,26 @@ WorkerManager::workerMain(Worker* worker)
             Fence::enter();
             if (worker->rpc == WORKER_EXIT)
                 break;
-            timeTrace("worker thread %d received opcode %d", worker->threadId,
-                    worker->opcode);
+
+            Transport::ServerRpc* serverRpc = worker->rpc;
+            timeTrace("ID %u: Starting processing of opcode %d  on KT %d",
+                    serverRpc->id, worker->opcode, worker->threadId);
 
             worker->rpc->epoch = LogProtector::getCurrentEpoch();
             Service::Rpc rpc(worker, &worker->rpc->requestPayload,
                     &worker->rpc->replyPayload);
             Service::handleRpc(worker->context, &rpc);
 
+            // Update performance statistics.
+            uint64_t current = Cycles::rdtsc();
+            timeTrace("ID %u: took worker time %u ns",
+                    serverRpc->id, (uint32_t) Cycles::toNanoseconds(current - lastIdle));
+
             // Pass the RPC back to the dispatch thread for completion.
             Fence::leave();
             worker->state.store(Worker::POLLING);
-            timeTrace("worker thread %d completed opcode %d; "
-                    "dispatch thread signaled",
-                    worker->threadId, worker->opcode);
 
-            // Update performance statistics.
-            uint64_t current = Cycles::rdtsc();
+
             PerfStats::threadStats.workerActiveCycles += (current - lastIdle);
             lastIdle = current;
         }

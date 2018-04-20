@@ -78,6 +78,7 @@ class Transport {
             , replyPayload()
             , epoch(0)
             , activities(~0)
+            , id(0)
             , outstandingRpcListHook()
         {}
 
@@ -155,6 +156,13 @@ class Transport {
          */
         static const int READ_ACTIVITY = 1;
         static const int APPEND_ACTIVITY = 2;
+
+        /**
+         * An ID to track this Rpc as it migrates from the dispatch thread to
+         * the worker threads and back.
+         */
+        uint32_t id;
+
 
         /**
          * Hook for the list of active server RPCs that the ServerRpcPool class
