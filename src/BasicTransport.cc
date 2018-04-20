@@ -18,12 +18,13 @@
 #include "Service.h"
 #include "TimeTrace.h"
 #include "WorkerManager.h"
+#include "CoordinatorClient.h"
 
 namespace RAMCloud {
 
 // Change 0 -> 1 in the following line to compile detailed time tracing in
 // this transport.
-#define TIME_TRACE 0
+#define TIME_TRACE 1
 
 // Provides a cleaner way of invoking TimeTrace::record, with the code
 // conditionally compiled in or out by the TIME_TRACE #ifdef. Arguments
@@ -1122,8 +1123,6 @@ BasicTransport::handlePacket(Driver::Received* received)
                     request->transmitLimit = header->length;
                     clientRpc->accumulator.destroy();
                     clientRpc->scheduledMessage.destroy();
-                    LOG(WARNING, "client received RESTART, clientId %lu, sequence %lu, recipient = %s",
-                            header->common.rpcId.clientId, header->common.rpcId.sequence, request->recipient->toString().c_str());
                     TimeTrace::record("client received RESTART, clientId %u, sequence %u, "
                             "clientRpc->transmitPending %d, request->topChoice %d",
                             static_cast<uint32_t>(header->common.rpcId.clientId),
@@ -1135,6 +1134,10 @@ BasicTransport::handlePacket(Driver::Received* received)
                             static_cast<uint32_t>(header->common.rpcId.sequence),
                             static_cast<uint32_t>(topOutgoingMessages.size()),
                             transmitDataSlowPath);
+                    LOG(WARNING, "client received RESTART, clientId %lu, sequence %lu, recipient = %s, requestSize = %u",
+                            header->common.rpcId.clientId, header->common.rpcId.sequence, request->recipient->toString().c_str(),
+                            request->buffer->size());
+                    TimeTrace::printToLog();
                     if (!clientRpc->transmitPending) {
                         clientRpc->transmitPending = true;
                         outgoingRequests.push_back(*clientRpc);
@@ -1418,6 +1421,9 @@ BasicTransport::handlePacket(Driver::Received* received)
                     // ask the client to restart the RPC from scratch.
                     timeTrace("server requesting restart, clientId %u, "
                             "sequence %u",
+                            common->rpcId.clientId, common->rpcId.sequence);
+                    LOG(NOTICE, "server requesting RESTART from %s, clientId %lu, "
+                            "sequence %lu", received->sender->toString().c_str(),
                             common->rpcId.clientId, common->rpcId.sequence);
                     ResendHeader resend(header->common.rpcId, 0,
                             roundTripBytes, FROM_SERVER|RESTART);
@@ -1803,8 +1809,8 @@ BasicTransport::Poller::poll()
     // go back in time.
     if (numPackets > 0) {
         uint64_t ns = Cycles::toNanoseconds(startTime - lastPollTime);
-        timeTrace(startTime, "start of polling iteration %u, "
-                "last poll was %u ns ago", owner->iteration, ns);
+        TimeTrace::record(startTime, "start of polling iteration %u, "
+                "last poll was %u ns ago", static_cast<uint32_t>(owner->iteration), static_cast<uint32_t>(ns));
     }
     lastPollTime = Cycles::rdtsc();
 #endif
