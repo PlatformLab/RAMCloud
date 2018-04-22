@@ -126,6 +126,11 @@ Context::Context(bool hasDedicatedDispatchThread,
     }
 }
 
+bool
+Context::isClient() {
+    return dispatch->isClient();
+}
+
 /**
  * Destructor; just calls #destroy().
  */

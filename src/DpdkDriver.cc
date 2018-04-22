@@ -92,7 +92,6 @@ DpdkDriver::DpdkDriver()
     , portId(0)
     , mbufPool(NULL)
     , loopbackRing(NULL)
-    , hasHardwareFilter(true)
     , bandwidthMbps(10000)
     , highestPriorityAvail(7)
     , lowestPriorityAvail(0)
@@ -111,6 +110,14 @@ DpdkDriver::DpdkDriver()
 }
 #endif
 
+uint8_t DpdkDriver::nextQueueId = 0;
+std::mutex DpdkDriver::constructorMutex;
+rte_mempool* DpdkDriver::mbufPools[MAX_NUM_QUEUES];
+bool DpdkDriver::hasHardwareFilter = true; // Cleared if not applicable
+
+#define RSS_HASH_KEY_LENGTH 40
+static uint8_t hash_key[RSS_HASH_KEY_LENGTH] = { 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A};
+
 /*
  * Construct a DpdkDriver.
  *
@@ -127,164 +134,227 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     , locatorString()
     , localMac()
     , portId(0)
+    , queueId(0)
     , mbufPool(NULL)
     , loopbackRing(NULL)
-    , hasHardwareFilter(true)             // Cleared later if not applicable
-    , bandwidthMbps(10000)                // Default bandwidth = 10 gbs
+    , bandwidthMbps(9800)                // Default bandwidth = 10 gbs
     // Assume we are allowed to use all 8 ethernet priorities.
     , highestPriorityAvail(7)
     , lowestPriorityAvail(0)
     , fileLogger(NOTICE, "DPDK: ")
 {
+    std::lock_guard<std::mutex> guard(constructorMutex);
+    // On servers, this should always be 0
+    queueId = nextQueueId++;
     struct ether_addr mac;
     uint8_t numPorts;
     struct rte_eth_conf portConf;
     int ret;
-
     portId = downCast<uint8_t>(port);
-
-    // Initialize the DPDK environment with some default parameters.
-    // --file-prefix is needed to avoid false lock conflicts if servers
-    // run on different nodes, but with a shared NFS home directory.
-    // This is a bug in DPDK as of 9/2016; if the bug gets fixed, then
-    // the --file-prefix argument can be removed.
-    LOG(NOTICE, "Using DPDK version %s", rte_version());
-    char nameBuffer[1000];
-    if (gethostname(nameBuffer, sizeof(nameBuffer)) != 0) {
-        throw DriverException(HERE, format("gethostname failed: %s",
-                strerror(errno)));
-    }
-    nameBuffer[sizeof(nameBuffer)-1] = 0;   // Needed if name was too long.
-    const char *argv[] = {"rc", "--file-prefix", nameBuffer, "-c", "1",
+    fprintf(stderr, "QUEUEID = %d\n", queueId);
+    // This block should always run on servers
+    if (queueId == 0) {
+        // Initialize the DPDK environment with some default parameters.
+        // --file-prefix is needed to avoid false lock conflicts if servers
+        // run on different nodes, but with a shared NFS home directory.
+        // This is a bug in DPDK as of 9/2016; if the bug gets fixed, then
+        // the --file-prefix argument can be removed.
+        LOG(NOTICE, "Using DPDK version %s", rte_version());
+        char nameBuffer[1000];
+        if (gethostname(nameBuffer, sizeof(nameBuffer)) != 0) {
+            throw DriverException(HERE, format("gethostname failed: %s",
+                        strerror(errno)));
+        }
+        nameBuffer[sizeof(nameBuffer)-1] = 0;   // Needed if name was too long.
+        const char *argv[] = {"rc", "--file-prefix", nameBuffer, "-c", "1",
             "-n", "1", NULL};
-    int argc = static_cast<int>(sizeof(argv) / sizeof(argv[0])) - 1;
+        int argc = static_cast<int>(sizeof(argv) / sizeof(argv[0])) - 1;
 
-    rte_openlog_stream(fileLogger.getFile());
-    ret = rte_eal_init(argc, const_cast<char**>(argv));
-    if (ret < 0) {
-        throw DriverException(HERE, "rte_eal_init failed");
+        rte_openlog_stream(fileLogger.getFile());
+        ret = rte_eal_init(argc, const_cast<char**>(argv));
+        if (ret < 0) {
+            throw DriverException(HERE, "rte_eal_init failed");
+        }
+
+        // ensure that DPDK was able to detect a compatible and available NIC
+        numPorts = rte_eth_dev_count();
+
+        if (numPorts <= portId) {
+            throw DriverException(HERE, format(
+                        "Ethernet port %u doesn't exist (%u ports available)",
+                        portId, numPorts));
+        }
+
+        // Read the MAC address from the NIC via DPDK.
+        rte_eth_macaddr_get(portId, &mac);
+        localMac.construct(mac.addr_bytes);
+        locatorString = format("dpdk:mac=%s", localMac->toString().c_str());
+
+        // configure some default NIC port parameters
+        memset(&portConf, 0, sizeof(portConf));
+        portConf.rxmode.max_rx_pkt_len = ETHER_MAX_VLAN_FRAME_LEN;
+        if (!context->isClient()) {
+            // Server side only uses one queue
+            rte_eth_dev_configure(portId, 1, 1, &portConf);
+        } else {
+            portConf.rxmode.mq_mode = ETH_MQ_RX_RSS;
+            portConf.rx_adv_conf.rss_conf.rss_key = hash_key;
+            portConf.rx_adv_conf.rss_conf.rss_key_len = RSS_HASH_KEY_LENGTH;
+            portConf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_IP | ETH_RSS_UDP | ETH_RSS_TCP | ETH_RSS_SCTP;
+
+			
+            ret = rte_eth_dev_configure(portId, MAX_NUM_QUEUES, MAX_NUM_QUEUES, &portConf);
+            if (ret < 0) {
+                LOG(ERROR, "rte_eth_dev_configure failed with ret code %d (%s)\n", ret, strerror(ret));
+                abort();
+            }
+        }
+
+        // Set up a NIC/HW-based filter on the ethernet type so that only
+        // traffic to a particular port is received by this driver.
+        struct rte_eth_ethertype_filter filter;
+        ret = rte_eth_dev_filter_supported(portId, RTE_ETH_FILTER_ETHERTYPE);
+        if (ret < 0) {
+            LOG(NOTICE, "ethertype filter is not supported on port %u.", portId);
+            hasHardwareFilter = false;
+        } else {
+            memset(&filter, 0, sizeof(filter));
+            ret = rte_eth_dev_filter_ctrl(portId, RTE_ETH_FILTER_ETHERTYPE,
+                    RTE_ETH_FILTER_ADD, &filter);
+            if (ret < 0) {
+                LOG(WARNING, "failed to add ethertype filter\n");
+                hasHardwareFilter = false;
+            }
+        }
+
+        // setup and initialize the receive and transmit NIC queues,
+        // and activate the port.
+        if (!context->isClient()) {
+            // create an memory pool for accommodating packet buffers
+            mbufPool = createPool("mbuf_pool");
+            rte_eth_rx_queue_setup(portId, queueId, NDESC, 0, NULL, mbufPool);
+            rte_eth_tx_queue_setup(portId, queueId, NDESC, 0, NULL);
+        } else {
+            // Allocate enough memory for the maximum number of queues and set
+            // up all the queues before activating the port.
+            char poolName[100];
+            int ret;
+            for (int i = 0; i < MAX_NUM_QUEUES; i++) {
+                snprintf(poolName, sizeof(poolName), "mbufPool%d", i);
+                mbufPools[i] = createPool(poolName);
+                ret = rte_eth_rx_queue_setup(portId, i, NDESC, 0, NULL, mbufPools[i]);
+                if (ret < 0) {
+                    throw DriverException(HERE, format(
+                                "Failed to setup rx queue %d, ret %d (%s)", i,
+                                ret, strerror(ret)));
+                }
+                ret = rte_eth_tx_queue_setup(portId, i, NDESC, 0, NULL);
+                if (ret < 0) {
+                    throw DriverException(HERE, format(
+                                "Failed to setup tx queue %d, ret %d (%s)", i,
+                                ret, strerror(ret)));
+                }
+            }
+            // We own the first one, pool 0
+            mbufPool = mbufPools[queueId];
+        }
+
+        // set the MTU that the NIC port should support
+        ret = rte_eth_dev_set_mtu(portId, MAX_PAYLOAD_SIZE);
+        if (ret != 0) {
+            throw DriverException(HERE, format(
+                        "Failed to set the MTU on Ethernet port  %u: %s",
+                        portId, rte_strerror(rte_errno)));
+        }
+
+        ret = rte_eth_dev_start(portId);
+        if (ret != 0) {
+            throw DriverException(HERE, format(
+                        "Couldn't start port %u, error %d (%s)", portId,
+                        ret, strerror(ret)));
+        }
+
+        // Retrieve the link speed and compute information based on it.
+        struct rte_eth_link link;
+        rte_eth_link_get(portId, &link);
+        if (!link.link_status) {
+            throw DriverException(HERE, format(
+                        "Failed to detect a link on Ethernet port %u", portId));
+        }
+        if (link.link_speed != ETH_SPEED_NUM_NONE) {
+            // Be conservative about the link speed. We use bandwidth in
+            // QueueEstimator to estimate # bytes outstanding in the NIC's
+            // TX queue. If we overestimate the bandwidth, under high load,
+            // we may keep queueing packets faster than the NIC can consume,
+            // and build up a queue in the TX queue.
+            bandwidthMbps = (uint32_t) (link.link_speed * 0.98);
+        } else {
+            LOG(WARNING, "Can't retrieve network bandwidth from DPDK; "
+                    "using default of %d Mbps", bandwidthMbps);
+        }
+        queueEstimator.setBandwidth(bandwidthMbps);
+        maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthMbps)
+                * MAX_DRAIN_TIME / 8000.0);
+        uint32_t maxPacketSize = getMaxPacketSize();
+        if (maxTransmitQueueSize < 2*maxPacketSize) {
+            // Make sure that we advertise enough space in the transmit queue to
+            // prepare the next packet while the current one is transmitting.
+            maxTransmitQueueSize = 2*maxPacketSize;
+        }
+
+        // create an in-memory ring, used as a software loopback in order to handle
+        // packets that are addressed to the localhost.
+        loopbackRing = rte_ring_create("dpdk_loopback_ring", 4096,
+                SOCKET_ID_ANY, 0);
+        if (NULL == loopbackRing) {
+            throw DriverException(HERE, format(
+                        "Failed to allocate loopback ring: %s",
+                        rte_strerror(rte_errno)));
+        }
+
+        LOG(NOTICE, "DpdkDriver locator: %s, bandwidth: %d Mbits/sec, "
+                "maxTransmitQueueSize: %u bytes",
+                locatorString.c_str(), bandwidthMbps, maxTransmitQueueSize);
+
+        // DPDK during initialization (rte_eal_init()) pins the running thread
+        // to a single processor. This becomes a problem as the master worker
+        // threads are created after the initialization of the transport, and
+        // thus inherit the (very) restricted affinity to a single core. This
+        // essentially kills performance, as every thread is contenting for a
+        // single core. Revert this, by restoring the affinity to the default
+        // (all cores).
+        Util::clearCpuAffinity();
+    } else {
+        // If this is server code, then we made a mistake somewhere.
+        if (!context->isClient()) {
+            LOG(ERROR, "Dpdk invocation for secondary client thread invoked on master or coordinator.");
+            abort();
+        }
+        // Read the MAC address from the NIC via DPDK. This is needed across all threads.
+        rte_eth_macaddr_get(portId, &mac);
+        localMac.construct(mac.addr_bytes);
+        locatorString = format("dpdk:mac=%s", localMac->toString().c_str());
+
+        // create an memory pool for accommodating packet buffers
+        mbufPool  = mbufPools[queueId];
     }
-
-    // create an memory pool for accommodating packet buffers
-    mbufPool = rte_mempool_create("mbuf_pool", NB_MBUF,
+}
+// Create a memory pool for packet receive buffers and check for errors.
+struct rte_mempool*
+DpdkDriver::createPool(const char* name) {
+    struct rte_mempool* bufPool = rte_mempool_create(name, NB_MBUF,
             MBUF_SIZE, 32,
             sizeof32(struct rte_pktmbuf_pool_private),
             rte_pktmbuf_pool_init, NULL,
             rte_pktmbuf_init, NULL,
             rte_socket_id(), 0);
 
-    if (!mbufPool) {
+    if (!bufPool) {
         throw DriverException(HERE, format(
-                "Failed to allocate memory for packet buffers: %s",
-                rte_strerror(rte_errno)));
+                    "Failed to allocate memory for packet buffers: %s",
+                    rte_strerror(rte_errno)));
     }
-
-    // ensure that DPDK was able to detect a compatible and available NIC
-    numPorts = rte_eth_dev_count();
-
-    if (numPorts <= portId) {
-        throw DriverException(HERE, format(
-                "Ethernet port %u doesn't exist (%u ports available)",
-                portId, numPorts));
-    }
-
-    // Read the MAC address from the NIC via DPDK.
-    rte_eth_macaddr_get(portId, &mac);
-    localMac.construct(mac.addr_bytes);
-    locatorString = format("dpdk:mac=%s", localMac->toString().c_str());
-
-    // configure some default NIC port parameters
-    memset(&portConf, 0, sizeof(portConf));
-    portConf.rxmode.max_rx_pkt_len = ETHER_MAX_VLAN_FRAME_LEN;
-    rte_eth_dev_configure(portId, 1, 1, &portConf);
-
-    // Set up a NIC/HW-based filter on the ethernet type so that only
-    // traffic to a particular port is received by this driver.
-    struct rte_eth_ethertype_filter filter;
-    ret = rte_eth_dev_filter_supported(portId, RTE_ETH_FILTER_ETHERTYPE);
-    if (ret < 0) {
-        LOG(NOTICE, "ethertype filter is not supported on port %u.", portId);
-        hasHardwareFilter = false;
-    } else {
-        memset(&filter, 0, sizeof(filter));
-        ret = rte_eth_dev_filter_ctrl(portId, RTE_ETH_FILTER_ETHERTYPE,
-                RTE_ETH_FILTER_ADD, &filter);
-        if (ret < 0) {
-            LOG(WARNING, "failed to add ethertype filter\n");
-            hasHardwareFilter = false;
-          }
-    }
-
-    // setup and initialize the receive and transmit NIC queues,
-    // and activate the port.
-    rte_eth_rx_queue_setup(portId, 0, NDESC, 0, NULL, mbufPool);
-    rte_eth_tx_queue_setup(portId, 0, NDESC, 0, NULL);
-
-    // set the MTU that the NIC port should support
-    ret = rte_eth_dev_set_mtu(portId, MAX_PAYLOAD_SIZE);
-    if (ret != 0) {
-        throw DriverException(HERE, format(
-                "Failed to set the MTU on Ethernet port  %u: %s",
-                portId, rte_strerror(rte_errno)));
-    }
-
-    ret = rte_eth_dev_start(portId);
-    if (ret != 0) {
-        throw DriverException(HERE, format(
-                "Couldn't start port %u, error %d (%s)", portId,
-                ret, strerror(ret)));
-    }
-
-    // Retrieve the link speed and compute information based on it.
-    struct rte_eth_link link;
-    rte_eth_link_get(portId, &link);
-    if (!link.link_status) {
-        throw DriverException(HERE, format(
-                "Failed to detect a link on Ethernet port %u", portId));
-    }
-    if (link.link_speed != ETH_SPEED_NUM_NONE) {
-        // Be conservative about the link speed. We use bandwidth in
-        // QueueEstimator to estimate # bytes outstanding in the NIC's
-        // TX queue. If we overestimate the bandwidth, under high load,
-        // we may keep queueing packets faster than the NIC can consume,
-        // and build up a queue in the TX queue.
-        bandwidthMbps = (uint32_t) (link.link_speed * 0.98);
-    } else {
-        LOG(WARNING, "Can't retrieve network bandwidth from DPDK; "
-                "using default of %d Mbps", bandwidthMbps);
-    }
-    queueEstimator.setBandwidth(bandwidthMbps);
-    maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthMbps)
-            * MAX_DRAIN_TIME / 8000.0);
-    uint32_t maxPacketSize = getMaxPacketSize();
-    if (maxTransmitQueueSize < 2*maxPacketSize) {
-        // Make sure that we advertise enough space in the transmit queue to
-        // prepare the next packet while the current one is transmitting.
-        maxTransmitQueueSize = 2*maxPacketSize;
-    }
-
-    // create an in-memory ring, used as a software loopback in order to handle
-    // packets that are addressed to the localhost.
-    loopbackRing = rte_ring_create("dpdk_loopback_ring", 4096,
-            SOCKET_ID_ANY, 0);
-    if (NULL == loopbackRing) {
-        throw DriverException(HERE, format(
-                "Failed to allocate loopback ring: %s",
-                rte_strerror(rte_errno)));
-    }
-
-    LOG(NOTICE, "DpdkDriver locator: %s, bandwidth: %d Mbits/sec, "
-            "maxTransmitQueueSize: %u bytes",
-            locatorString.c_str(), bandwidthMbps, maxTransmitQueueSize);
-
-    // DPDK during initialization (rte_eal_init()) pins the running thread
-    // to a single processor. This becomes a problem as the master worker
-    // threads are created after the initialization of the transport, and
-    // thus inherit the (very) restricted affinity to a single core. This
-    // essentially kills performance, as every thread is contenting for a
-    // single core. Revert this, by restoring the affinity to the default
-    // (all cores).
-    Util::clearCpuAffinity();
+    return bufPool;
 }
 
 /**
@@ -340,7 +410,7 @@ DpdkDriver::receivePackets(uint32_t maxPackets,
 #endif
     // attempt to dequeue a batch of received packets from the NIC
     // as well as from the loopback ring.
-    uint32_t incomingPkts = rte_eth_rx_burst(portId, 0, mPkts,
+    uint32_t incomingPkts = rte_eth_rx_burst(portId, queueId, mPkts,
             downCast<uint16_t>(maxPackets));
     if (incomingPkts > 0) {
 #if TIME_TRACE
@@ -348,13 +418,17 @@ DpdkDriver::receivePackets(uint32_t maxPackets,
         TimeTrace::record("DpdkDriver received %u packets", incomingPkts);
 #endif
     }
-    uint32_t loopbackPkts = rte_ring_count(loopbackRing);
-    if (incomingPkts + loopbackPkts > maxPackets) {
-        loopbackPkts = maxPackets - incomingPkts;
-    }
-    for (uint32_t i = 0; i < loopbackPkts; i++) {
-        rte_ring_dequeue(loopbackRing,
-                reinterpret_cast<void**>(&mPkts[incomingPkts + i]));
+    uint32_t loopbackPkts = 0;
+    // ASSUME that loopback is unused, per discussion with Yilong.
+    if (loopbackRing) {
+        loopbackPkts = rte_ring_count(loopbackRing);
+        if (incomingPkts + loopbackPkts > maxPackets) {
+            loopbackPkts = maxPackets - incomingPkts;
+        }
+        for (uint32_t i = 0; i < loopbackPkts; i++) {
+            rte_ring_dequeue(loopbackRing,
+                    reinterpret_cast<void**>(&mPkts[incomingPkts + i]));
+        }
     }
     uint32_t totalPkts = incomingPkts + loopbackPkts;
 
@@ -541,17 +615,22 @@ DpdkDriver::sendPacket(const Address* addr,
     // loopback if src mac == dst mac
     if (!memcmp(static_cast<const MacAddress*>(addr)->address,
             localMac->address, 6)) {
-        int ret = rte_ring_enqueue(loopbackRing, mbuf);
-        if (unlikely(ret != 0)) {
-            LOG(WARNING, "rte_ring_enqueue returned %d; packet may be lost?",
-                    ret);
-            rte_pktmbuf_free(mbuf);
+        if (loopbackRing) {
+            int ret = rte_ring_enqueue(loopbackRing, mbuf);
+            if (unlikely(ret != 0)) {
+                LOG(WARNING, "rte_ring_enqueue returned %d; packet may be lost?",
+                        ret);
+                rte_pktmbuf_free(mbuf);
+            }
+            timeTrace("loopback packet enqueued");
+            return;
+        } else {
+            // ASSUME that loopback is unused, per discussion with Yilong.
+            LOG(WARNING, "Tried to use a NULL loopback ring");
         }
-        timeTrace("loopback packet enqueued");
-        return;
     }
 
-    uint32_t ret = rte_eth_tx_burst(portId, 0, &mbuf, 1);
+    uint32_t ret = rte_eth_tx_burst(portId, queueId, &mbuf, 1);
     if (unlikely(ret != 1)) {
         LOG(WARNING, "rte_eth_tx_burst returned %u; packet may be lost?", ret);
         // The congestion at the TX queue must be pretty bad if we got here:

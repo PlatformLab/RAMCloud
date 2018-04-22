@@ -19,6 +19,7 @@
 #define RAMCLOUD_DPDKDRIVER_H
 
 #include <vector>
+#include <mutex>
 
 #include "Dispatch.h"
 #include "Driver.h"
@@ -38,6 +39,8 @@
 // per-element size for the packet buffer memory pool
 #define MBUF_SIZE (2048 + static_cast<uint32_t>(sizeof(struct rte_mbuf)) \
                    + RTE_PKTMBUF_HEADROOM)
+
+#define MAX_NUM_QUEUES 8
 
 // Forward declarations, so we don't have to include DPDK headers here.
 struct rte_mempool;
@@ -81,6 +84,7 @@ class DpdkDriver : public Driver
     }
 
   PRIVATE:
+    struct rte_mempool* createPool(const char* name);
     /// The MTU (Maximum Transmission Unit) size of an Ethernet frame, which
     /// is the maximum size of the packet an Ethernet frame can carry in its
     /// payload.
@@ -146,16 +150,30 @@ class DpdkDriver : public Driver
     /// Stores the NIC's physical port id addressed by the instantiated driver.
     uint8_t portId;
 
+    /// Stores the RX and TX queue ID.
+    uint8_t queueId;
+
+    /// Store the next RX and TX queue ID to be given to the next instance of
+    /// DpdkDriver. When it is zero, we initialize dpdk.
+    static uint8_t nextQueueId;
+
+    /// Ensure only one DpdkDriver constructor runs at a time.
+    static std::mutex constructorMutex;
+
     /// Holds packet buffers that are dequeued from the NIC's HW queues
     /// via DPDK.
     struct rte_mempool* mbufPool;
+
+    /// Holds pointers to the mbufPools for future clients, up to MAX_NUM_QUEUES.
+    /// This allows initialization to occur in one place before activating.
+    static rte_mempool* mbufPools[MAX_NUM_QUEUES];
 
     /// Holds packets that are addressed to localhost instead of going through
     /// the HW queues.
     struct rte_ring* loopbackRing;
 
     /// Hardware packet filter is provided by the NIC
-    bool hasHardwareFilter;
+    static bool hasHardwareFilter;
 
     /// Effective network bandwidth, in Mbits/second.
     uint32_t bandwidthMbps;

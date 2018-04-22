@@ -64,6 +64,14 @@ class Dispatch {
         return (!hasDedicatedThread || ownerId == ThreadId::get());
     }
 
+    /**
+     * Returns true if this dispatch object is running in the client.
+     */
+    bool
+    isClient() {
+        return !hasDedicatedThread;
+    }
+
     int poll();
     void run() __attribute__ ((noreturn));
 

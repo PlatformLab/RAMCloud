@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <deque>
 #include "BasicTransport.h"
 #include "CycleCounter.h"
 #include "OptionParser.h"
@@ -101,22 +102,26 @@ static struct InfRcTransportFactory : public TransportFactory {
 #ifdef DPDK
 struct BasicDpdkTransportFactory : public TransportFactory {
     BasicDpdkTransportFactory()
-        : TransportFactory("basic+dpdk"), driver(NULL)  {}
+        : TransportFactory("basic+dpdk"), drivers()  {}
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
-        if (driver == NULL) {
+        if (drivers.empty()) {
             LOG(WARNING, "Tried to use basic+dpdk transport, but DPDK is "
                     "not enabled (did you specify the --dpdkPort "
                     "command-line option?)");
+            LOG(WARNING, "Otherwise, you ran out of DpdkDrivers on a client."
+                    " Maximum allowed DpdkDrivers = %d", MAX_NUM_QUEUES);
             throw TransportException(HERE, "DPDK is not enabled");
         }
+        DpdkDriver* driver = drivers.back();
+        drivers.pop_back();
         return new BasicTransport(context, localServiceLocator, driver, false,
                 generateRandom());
     }
-    void setDpdkDriver(DpdkDriver* driver) {
-        this->driver = driver;
+    void addDpdkDriver(DpdkDriver* driver) {
+        this->drivers.push_back(driver);
     }
-    DpdkDriver* driver;
+    std::deque<DpdkDriver*> drivers;
     DISALLOW_COPY_AND_ASSIGN(BasicDpdkTransportFactory);
 };
 static BasicDpdkTransportFactory basicDpdkTransportFactory;
@@ -154,16 +159,23 @@ TransportManager::TransportManager(Context* context)
 #endif
 #ifdef DPDK
     transportFactories.push_back(&basicDpdkTransportFactory);
+
+    // XXX: Hardcode Dpdk port for cloudlab m510 for now, until we fix Java
+    // to pass in the Dpdk port option.
+    // Note that this is constructed here instead of inside the factory to
+    // ensure that it gets constructed before UdpDriver. There is some peculiar
+    // interaction that causes machines to the drop packets on the Udp side if
+    // this is create after.
+    // Normal RC clients have options; Java clients do not, so we need to else
+    // to hardcode dpdk for YCSB.
     if (context->options != NULL) {
         int dpdkPort = context->options->getDpdkPort();
         if (dpdkPort >= 0) {
-            dpdkDriver = new DpdkDriver(context, dpdkPort);
-            basicDpdkTransportFactory.setDpdkDriver(dpdkDriver);
+            basicDpdkTransportFactory.addDpdkDriver(new DpdkDriver(context, dpdkPort));
         }
     } else {
         int dpdkPort = 1;
-        dpdkDriver = new DpdkDriver(context, dpdkPort);
-        basicDpdkTransportFactory.setDpdkDriver(dpdkDriver);
+        basicDpdkTransportFactory.addDpdkDriver(new DpdkDriver(context, dpdkPort));
     }
 #endif
     transports.resize(transportFactories.size(), NULL);
