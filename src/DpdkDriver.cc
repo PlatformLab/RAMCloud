@@ -154,9 +154,15 @@ DpdkDriver::DpdkDriver(Context* context, int port)
         throw DriverException(HERE, format("gethostname failed: %s",
                 strerror(errno)));
     }
+    // Add the dpdk port number to the prefix so that clients running on
+    // different virtual NICs will not collide on the prefix.
+    char portBuffer[32];
+    snprintf(portBuffer, sizeof(portBuffer), "-port%d-", portId);
+    strncat(nameBuffer, portBuffer, sizeof(portBuffer));
+
     nameBuffer[sizeof(nameBuffer)-1] = 0;   // Needed if name was too long.
     const char *argv[] = {"rc", "--file-prefix", nameBuffer, "-c", "1",
-            "-n", "1", NULL};
+            "-n", "1", "-m", "1",  NULL};
     int argc = static_cast<int>(sizeof(argv) / sizeof(argv[0])) - 1;
 
     rte_openlog_stream(fileLogger.getFile());
