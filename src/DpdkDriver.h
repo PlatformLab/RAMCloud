@@ -77,6 +77,7 @@ class DpdkDriver : public Driver
                             int priority = 0,
                             TransmitQueueState* txQueueState = NULL);
     virtual string getServiceLocator();
+    virtual void setBasicTransport(void* basicTransport);
 
     virtual Address* newAddress(const ServiceLocator* serviceLocator)
     {
@@ -85,6 +86,7 @@ class DpdkDriver : public Driver
 
   PRIVATE:
     struct rte_mempool* createPool(const char* name);
+    uint8_t getQueueId(uint64_t clientId);
     /// The MTU (Maximum Transmission Unit) size of an Ethernet frame, which
     /// is the maximum size of the packet an Ethernet frame can carry in its
     /// payload.
@@ -150,8 +152,13 @@ class DpdkDriver : public Driver
     /// Stores the NIC's physical port id addressed by the instantiated driver.
     uint8_t portId;
 
-    /// Stores the RX and TX queue ID.
+    /// Stores the TX queue ID.
     uint8_t queueId;
+
+    /// Store the RX queue ID. If it is false, then rely on the owner to use
+    /// loopback and forward to us. If it is true, then we own the rx queue and
+    /// must forward messages.
+    bool rxQueueOwned;
 
     /// Store the next RX and TX queue ID to be given to the next instance of
     /// DpdkDriver. When it is zero, we initialize dpdk.
@@ -172,8 +179,17 @@ class DpdkDriver : public Driver
     /// the HW queues.
     struct rte_ring* loopbackRing;
 
+    /// Holds pointers to the loopbackRings for future clients, up to
+    /// MAX_NUM_QUEUES.  This allows initialization to occur in one place
+    /// before activating the NIC.
+    static rte_ring* loopbackRings[MAX_NUM_QUEUES];
+
     /// Hardware packet filter is provided by the NIC
     static bool hasHardwareFilter;
+
+    // Map a queue ID to client ID so we can determine from client ID where to
+    // forward the packet.
+    static uint64_t queueIdToClientId[MAX_NUM_QUEUES];
 
     /// Effective network bandwidth, in Mbits/second.
     uint32_t bandwidthMbps;
@@ -190,6 +206,9 @@ class DpdkDriver : public Driver
 
     /// Used to redirect log entries from the DPDK log into the RAMCloud log.
     FileLogger fileLogger;
+
+    // Used for extracting client IDs out of messages.
+    void* basicTransport;
 
     DISALLOW_COPY_AND_ASSIGN(DpdkDriver);
 };

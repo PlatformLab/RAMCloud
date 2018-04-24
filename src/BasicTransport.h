@@ -60,6 +60,11 @@ class BasicTransport : public Transport {
         driver->registerMemory(base, bytes);
     }
 
+    // Utility function for the DpdkDriver to get the Client ID to map it a tx
+    // queue
+    uint64_t extractClientId(char* payload);
+    uint64_t getClientId();
+
   PRIVATE:
     /// As of 08/17, std::unordered_map is significantly slower than
     /// ska::flat_hash_map. According to the Perf benchmark, inserting
