@@ -113,11 +113,12 @@ DpdkDriver::DpdkDriver()
 #endif
 
 uint8_t DpdkDriver::nextQueueId = 0;
-std::mutex DpdkDriver::constructorMutex;
+std::mutex DpdkDriver::lifetimeMutex;
 struct rte_ring* DpdkDriver::loopbackRings[MAX_NUM_QUEUES];
 bool DpdkDriver::hasHardwareFilter = true; // Cleared if not applicable
 rte_mempool* DpdkDriver::mbufPools[MAX_NUM_QUEUES];
 uint64_t DpdkDriver::queueIdToClientId[MAX_NUM_QUEUES];
+std::unordered_set<DpdkDriver*> DpdkDriver::allInstances;
 
 /*
  * Construct a DpdkDriver.
@@ -146,7 +147,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     , fileLogger(NOTICE, "DPDK: ")
     , basicTransport(NULL)
 {
-    std::lock_guard<std::mutex> guard(constructorMutex);
+    std::lock_guard<std::mutex> guard(lifetimeMutex);
     // On servers, this should always be 0
     queueId = nextQueueId++;
     struct ether_addr mac;
@@ -351,6 +352,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     LOG(NOTICE, "DpdkDriver locator: %s, bandwidth: %d Mbits/sec, "
             "maxTransmitQueueSize: %u bytes",
             locatorString.c_str(), bandwidthMbps, maxTransmitQueueSize);
+    allInstances.insert(this);
 }
 // Create a memory pool for packet receive buffers and check for errors.
 struct rte_mempool*
@@ -375,15 +377,26 @@ DpdkDriver::createPool(const char* name) {
  */
 DpdkDriver::~DpdkDriver()
 {
+    std::lock_guard<std::mutex> guard(lifetimeMutex);
     if (packetBufsUtilized != 0)
         LOG(ERROR, "DpdkDriver deleted with %d packets still in use",
             packetBufsUtilized);
 
-    // Free the various allocated resources (e.g. ring, mempool) and close
-    // the NIC.
-    rte_eth_dev_stop(portId);
-    rte_eth_dev_close(portId);
-    rte_openlog_stream(NULL);
+    // Remove ourselves from allInstances
+    allInstances.erase(this);
+
+    // Pass off ownership of the rx queue
+    if (rxQueueOwned && !allInstances.empty()) {
+        (*allInstances.begin())->rxQueueOwned = true;
+    }
+
+    if (allInstances.empty()) {
+        // Free the various allocated resources (e.g. ring, mempool) and close
+        // the NIC.
+        rte_eth_dev_stop(portId);
+        rte_eth_dev_close(portId);
+        rte_openlog_stream(NULL);
+    }
 }
 
 // See docs in Driver class.
@@ -504,7 +517,10 @@ DpdkDriver::receivePackets(uint32_t maxPackets,
 
         // Packet was not destined for this instance, forward it to the right instance
         // Only forward it if we own the rx queue; otherwise we forward in a loop ==> infinite forwarding.
-        if (rxQueueOwned && clientQueueId != 0) {
+        // Unknowns clientIds will default to 0, and we should not forward
+        // unknowns IDs, since other client threads will not know how to deal
+        // with them any better than us.
+        if (rxQueueOwned && clientQueueId != queueId && clientQueueId != 0) {
             int ret = rte_ring_enqueue(loopbackRings[clientQueueId], m);
             if (unlikely(ret != 0)) {
                 LOG(WARNING, "rte_ring_enqueue returned %d; packet may be lost?",
