@@ -303,20 +303,6 @@ DpdkDriver::DpdkDriver(Context* context, int port)
             LOG(WARNING, "Can't retrieve network bandwidth from DPDK; "
                     "using default of %d Mbps", bandwidthMbps);
         }
-        queueEstimator.setBandwidth(bandwidthMbps);
-        maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthMbps)
-                * MAX_DRAIN_TIME / 8000.0);
-        uint32_t maxPacketSize = getMaxPacketSize();
-        if (maxTransmitQueueSize < 2*maxPacketSize) {
-            // Make sure that we advertise enough space in the transmit queue to
-            // prepare the next packet while the current one is transmitting.
-            maxTransmitQueueSize = 2*maxPacketSize;
-        }
-
-
-        LOG(NOTICE, "DpdkDriver locator: %s, bandwidth: %d Mbits/sec, "
-                "maxTransmitQueueSize: %u bytes",
-                locatorString.c_str(), bandwidthMbps, maxTransmitQueueSize);
 
         // Ensure that there are no accidental matches on this table.
         memset(queueIdToClientId, 0, sizeof(queueIdToClientId));
@@ -344,6 +330,27 @@ DpdkDriver::DpdkDriver(Context* context, int port)
         loopbackRing = loopbackRings[queueId];
         mbufPool = mbufPools[queueId];
     }
+
+    // NOTE: QueueEstimator bandwidth is currently overset for clients, since
+    // each RAMCloud instance has its own, but this seems to be helpful rather
+    // than harmful until we figure out how to do an actual multithreaded queue
+    // estimator.
+
+    // Every instance of DPDK needs to set the bandwidth on the queue
+    // estimator; forgetting to set this causes queue to never grow.
+    queueEstimator.setBandwidth(bandwidthMbps);
+    maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthMbps)
+            * MAX_DRAIN_TIME / 8000.0);
+    uint32_t maxPacketSize = getMaxPacketSize();
+    if (maxTransmitQueueSize < 2*maxPacketSize) {
+        // Make sure that we advertise enough space in the transmit queue to
+        // prepare the next packet while the current one is transmitting.
+        maxTransmitQueueSize = 2*maxPacketSize;
+    }
+
+    LOG(NOTICE, "DpdkDriver locator: %s, bandwidth: %d Mbits/sec, "
+            "maxTransmitQueueSize: %u bytes",
+            locatorString.c_str(), bandwidthMbps, maxTransmitQueueSize);
 }
 // Create a memory pool for packet receive buffers and check for errors.
 struct rte_mempool*
