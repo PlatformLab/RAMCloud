@@ -15,6 +15,7 @@
  */
 
 #include <deque>
+#include <mutex>
 #include "BasicTransport.h"
 #include "CycleCounter.h"
 #include "OptionParser.h"
@@ -100,11 +101,16 @@ static struct InfRcTransportFactory : public TransportFactory {
 #endif
 
 #ifdef DPDK
+// Methods in the following factory are stateful and may be accessed from
+// multiple threads using different RAMCloud clients can invoke them in
+// parallel.
+static std::mutex factoryMutex;
 struct BasicDpdkTransportFactory : public TransportFactory {
     BasicDpdkTransportFactory()
         : TransportFactory("basic+dpdk"), drivers()  {}
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
+        std::lock_guard<std::mutex> guard(factoryMutex);
         if (drivers.empty()) {
             LOG(WARNING, "Tried to use basic+dpdk transport, but DPDK is "
                     "not enabled (did you specify the --dpdkPort "
@@ -115,12 +121,13 @@ struct BasicDpdkTransportFactory : public TransportFactory {
         }
         DpdkDriver* driver = drivers.back();
         drivers.pop_back();
-        BasicTransport* basicTransport = new BasicTransport(context, localServiceLocator, driver, false,
+        BasicTransport* basicTransport = new BasicTransport(context, localServiceLocator, driver, true,
                 generateRandom());
         driver->setBasicTransport(basicTransport);
         return basicTransport;
     }
     void addDpdkDriver(DpdkDriver* driver) {
+        std::lock_guard<std::mutex> guard(factoryMutex);
         this->drivers.push_back(driver);
     }
     std::deque<DpdkDriver*> drivers;
@@ -173,9 +180,12 @@ TransportManager::TransportManager(Context* context)
     if (context->options != NULL) {
         int dpdkPort = context->options->getDpdkPort();
         if (dpdkPort >= 0) {
+            // Do not set dpdkDirver; BasicTransport should take care of destruction of the Driver it owns.
             basicDpdkTransportFactory.addDpdkDriver(new DpdkDriver(context, dpdkPort));
         }
     } else {
+        // Hack to get Dpdk running in Java bindings which don't pass a context
+        // with options.
         int dpdkPort = 1;
         basicDpdkTransportFactory.addDpdkDriver(new DpdkDriver(context, dpdkPort));
     }

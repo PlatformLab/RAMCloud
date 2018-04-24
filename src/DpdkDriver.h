@@ -19,6 +19,7 @@
 #define RAMCLOUD_DPDKDRIVER_H
 
 #include <vector>
+#include <unordered_set>
 #include <mutex>
 
 #include "Dispatch.h"
@@ -164,8 +165,20 @@ class DpdkDriver : public Driver
     /// DpdkDriver. When it is zero, we initialize dpdk.
     static uint8_t nextQueueId;
 
-    /// Ensure only one DpdkDriver constructor runs at a time.
-    static std::mutex constructorMutex;
+    // This is hack to enable easy handoff of the responsibility for the rx
+    // queue, which requires explicit destruction of a RAMCloud object that is
+    // no longer used; which fortunately YCSB does. It also ensures that we
+    // only run the DPDK deinitialization code exactly once, assuming that no
+    // instance of the DpdkDriver are destroyed before all instances are
+    // created.
+    // (A possibly better solution to the rx queue ownership problem might
+    // allow various instances trying to receive packets to bid for the
+    // ownership of the rx queue)
+    // This data structure is protected by lifetimeMutex.
+    static std::unordered_set<DpdkDriver*> allInstances;
+
+    /// Ensure only one DpdkDriver constructor or destructor runs at a time.
+    static std::mutex lifetimeMutex;
 
     /// Holds packet buffers that are dequeued from the NIC's HW queues
     /// via DPDK.
