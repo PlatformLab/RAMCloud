@@ -46,6 +46,7 @@
 #include "StringUtil.h"
 #include "TimeTrace.h"
 #include "Util.h"
+#include "BasicTransport.h"
 
 namespace RAMCloud
 {
@@ -96,6 +97,7 @@ DpdkDriver::DpdkDriver()
     , highestPriorityAvail(7)
     , lowestPriorityAvail(0)
     , fileLogger(NOTICE, "DPDK: ")
+    , basicTransport(NULL)
 {
     localMac.construct("01:23:45:67:89:ab");
     queueEstimator.setBandwidth(bandwidthMbps);
@@ -112,11 +114,10 @@ DpdkDriver::DpdkDriver()
 
 uint8_t DpdkDriver::nextQueueId = 0;
 std::mutex DpdkDriver::constructorMutex;
-rte_mempool* DpdkDriver::mbufPools[MAX_NUM_QUEUES];
+struct rte_ring* DpdkDriver::loopbackRings[MAX_NUM_QUEUES];
 bool DpdkDriver::hasHardwareFilter = true; // Cleared if not applicable
-
-#define RSS_HASH_KEY_LENGTH 40
-static uint8_t hash_key[RSS_HASH_KEY_LENGTH] = { 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A};
+rte_mempool* DpdkDriver::mbufPools[MAX_NUM_QUEUES];
+uint64_t DpdkDriver::queueIdToClientId[MAX_NUM_QUEUES];
 
 /*
  * Construct a DpdkDriver.
@@ -135,6 +136,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     , localMac()
     , portId(0)
     , queueId(0)
+    , rxQueueOwned(false)
     , mbufPool(NULL)
     , loopbackRing(NULL)
     , bandwidthMbps(9800)                // Default bandwidth = 10 gbs
@@ -142,6 +144,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     , highestPriorityAvail(7)
     , lowestPriorityAvail(0)
     , fileLogger(NOTICE, "DPDK: ")
+    , basicTransport(NULL)
 {
     std::lock_guard<std::mutex> guard(constructorMutex);
     // On servers, this should always be 0
@@ -154,6 +157,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     fprintf(stderr, "QUEUEID = %d\n", queueId);
     // This block should always run on servers
     if (queueId == 0) {
+        rxQueueOwned = true;
         // Initialize the DPDK environment with some default parameters.
         // --file-prefix is needed to avoid false lock conflicts if servers
         // run on different nodes, but with a shared NFS home directory.
@@ -197,13 +201,8 @@ DpdkDriver::DpdkDriver(Context* context, int port)
             // Server side only uses one queue
             rte_eth_dev_configure(portId, 1, 1, &portConf);
         } else {
-            portConf.rxmode.mq_mode = ETH_MQ_RX_RSS;
-            portConf.rx_adv_conf.rss_conf.rss_key = hash_key;
-            portConf.rx_adv_conf.rss_conf.rss_key_len = RSS_HASH_KEY_LENGTH;
-            portConf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_IP | ETH_RSS_UDP | ETH_RSS_TCP | ETH_RSS_SCTP;
-
-			
-            ret = rte_eth_dev_configure(portId, MAX_NUM_QUEUES, MAX_NUM_QUEUES, &portConf);
+            // Client side uses multiple tx queues and a single rx queue
+            ret = rte_eth_dev_configure(portId, 1, MAX_NUM_QUEUES, &portConf);
             if (ret < 0) {
                 LOG(ERROR, "rte_eth_dev_configure failed with ret code %d (%s)\n", ret, strerror(ret));
                 abort();
@@ -229,34 +228,46 @@ DpdkDriver::DpdkDriver(Context* context, int port)
 
         // setup and initialize the receive and transmit NIC queues,
         // and activate the port.
+
+        // create an memory pool for accommodating packet buffers
+        mbufPool = createPool("mbuf_pool");
+        rte_eth_rx_queue_setup(portId, queueId, NDESC, 0, NULL, mbufPool);
+
         if (!context->isClient()) {
-            // create an memory pool for accommodating packet buffers
-            mbufPool = createPool("mbuf_pool");
-            rte_eth_rx_queue_setup(portId, queueId, NDESC, 0, NULL, mbufPool);
             rte_eth_tx_queue_setup(portId, queueId, NDESC, 0, NULL);
+
+            // create an in-memory ring, used as a software loopback in order to handle
+            // packets that are addressed to the localhost.
+            loopbackRing = rte_ring_create("dpdk_loopback_ring", 4096,
+                    SOCKET_ID_ANY, 0);
+            if (NULL == loopbackRing) {
+                throw DriverException(HERE, format(
+                            "Failed to allocate loopback ring: %s",
+                            rte_strerror(rte_errno)));
+            }
         } else {
             // Allocate enough memory for the maximum number of queues and set
             // up all the queues before activating the port.
+            char loopback_ring_name[32];
             char poolName[100];
-            int ret;
-            for (int i = 0; i < MAX_NUM_QUEUES; i++) {
+
+
+            for (uint16_t i = 0; i < MAX_NUM_QUEUES; i++) {
+                rte_eth_tx_queue_setup(portId, i, NDESC, 0, NULL);
+                snprintf(loopback_ring_name, sizeof(loopback_ring_name), "dpdk_loopback_ring%d", i);
+                loopbackRings[i] =  rte_ring_create(loopback_ring_name, 4096,
+                        SOCKET_ID_ANY, 0);
+                if (NULL == loopbackRings[i]) {
+                    throw DriverException(HERE, format(
+                                "Failed to allocate loopback ring: %s",
+                                rte_strerror(rte_errno)));
+                }
                 snprintf(poolName, sizeof(poolName), "mbufPool%d", i);
                 mbufPools[i] = createPool(poolName);
-                ret = rte_eth_rx_queue_setup(portId, i, NDESC, 0, NULL, mbufPools[i]);
-                if (ret < 0) {
-                    throw DriverException(HERE, format(
-                                "Failed to setup rx queue %d, ret %d (%s)", i,
-                                ret, strerror(ret)));
-                }
-                ret = rte_eth_tx_queue_setup(portId, i, NDESC, 0, NULL);
-                if (ret < 0) {
-                    throw DriverException(HERE, format(
-                                "Failed to setup tx queue %d, ret %d (%s)", i,
-                                ret, strerror(ret)));
-                }
             }
-            // We own the first one, pool 0
-            mbufPool = mbufPools[queueId];
+            // We own the first ring, pool 0
+            loopbackRing = loopbackRings[0];
+            mbufPool = mbufPools[0];
         }
 
         // set the MTU that the NIC port should support
@@ -302,19 +313,13 @@ DpdkDriver::DpdkDriver(Context* context, int port)
             maxTransmitQueueSize = 2*maxPacketSize;
         }
 
-        // create an in-memory ring, used as a software loopback in order to handle
-        // packets that are addressed to the localhost.
-        loopbackRing = rte_ring_create("dpdk_loopback_ring", 4096,
-                SOCKET_ID_ANY, 0);
-        if (NULL == loopbackRing) {
-            throw DriverException(HERE, format(
-                        "Failed to allocate loopback ring: %s",
-                        rte_strerror(rte_errno)));
-        }
 
         LOG(NOTICE, "DpdkDriver locator: %s, bandwidth: %d Mbits/sec, "
                 "maxTransmitQueueSize: %u bytes",
                 locatorString.c_str(), bandwidthMbps, maxTransmitQueueSize);
+
+        // Ensure that there are no accidental matches on this table.
+        memset(queueIdToClientId, 0, sizeof(queueIdToClientId));
 
         // DPDK during initialization (rte_eal_init()) pins the running thread
         // to a single processor. This becomes a problem as the master worker
@@ -335,8 +340,9 @@ DpdkDriver::DpdkDriver(Context* context, int port)
         localMac.construct(mac.addr_bytes);
         locatorString = format("dpdk:mac=%s", localMac->toString().c_str());
 
-        // create an memory pool for accommodating packet buffers
-        mbufPool  = mbufPools[queueId];
+        // Get the ring we are assigned to.
+        loopbackRing = loopbackRings[queueId];
+        mbufPool = mbufPools[queueId];
     }
 }
 // Create a memory pool for packet receive buffers and check for errors.
@@ -394,6 +400,21 @@ DpdkDriver::getPacketOverhead()
     return ETHER_VLAN_HDR_LEN + ETHER_PACKET_OVERHEAD;
 }
 
+void
+DpdkDriver::setBasicTransport(void* basicTransport) {
+    this->basicTransport =  basicTransport;
+    queueIdToClientId[queueId] = ((BasicTransport*) basicTransport)->getClientId();
+}
+
+uint8_t
+DpdkDriver::getQueueId(uint64_t clientId) {
+    for (uint8_t i = 0; i < MAX_NUM_QUEUES; i++) {
+        if (queueIdToClientId[i] == clientId)
+            return i;
+    }
+    return 0;
+}
+
 // See docs in Driver class.
 void
 DpdkDriver::receivePackets(uint32_t maxPackets,
@@ -410,25 +431,28 @@ DpdkDriver::receivePackets(uint32_t maxPackets,
 #endif
     // attempt to dequeue a batch of received packets from the NIC
     // as well as from the loopback ring.
-    uint32_t incomingPkts = rte_eth_rx_burst(portId, queueId, mPkts,
-            downCast<uint16_t>(maxPackets));
-    if (incomingPkts > 0) {
+    uint32_t incomingPkts = 0;
+    // Only the instance that owns the rxQueue should be polling on it.
+    if (rxQueueOwned) {
+        incomingPkts = rte_eth_rx_burst(portId, 0, mPkts,
+                downCast<uint16_t>(maxPackets));
+        if (incomingPkts > 0) {
 #if TIME_TRACE
-        TimeTrace::record(timestamp, "DpdkDriver about to receive packets");
-        TimeTrace::record("DpdkDriver received %u packets", incomingPkts);
+            TimeTrace::record(timestamp, "DpdkDriver about to receive packets");
+            TimeTrace::record("DpdkDriver received %u packets", incomingPkts);
 #endif
+        }
     }
     uint32_t loopbackPkts = 0;
-    // ASSUME that loopback is unused, per discussion with Yilong.
-    if (loopbackRing) {
-        loopbackPkts = rte_ring_count(loopbackRing);
-        if (incomingPkts + loopbackPkts > maxPackets) {
-            loopbackPkts = maxPackets - incomingPkts;
-        }
-        for (uint32_t i = 0; i < loopbackPkts; i++) {
-            rte_ring_dequeue(loopbackRing,
-                    reinterpret_cast<void**>(&mPkts[incomingPkts + i]));
-        }
+    // Instances that do not own the rxQueue wil get all their packets through
+    // this loopback ring.
+    loopbackPkts = rte_ring_count(loopbackRing);
+    if (incomingPkts + loopbackPkts > maxPackets) {
+        loopbackPkts = maxPackets - incomingPkts;
+    }
+    for (uint32_t i = 0; i < loopbackPkts; i++) {
+        rte_ring_dequeue(loopbackRing,
+                reinterpret_cast<void**>(&mPkts[incomingPkts + i]));
     }
     uint32_t totalPkts = incomingPkts + loopbackPkts;
 
@@ -464,6 +488,25 @@ DpdkDriver::receivePackets(uint32_t maxPackets,
                 continue;
             }
         }
+
+        // XXX: Examine the payload to decide whether it should be handled by us or
+        // forwarded to a different thread.
+        uint64_t clientId = ((BasicTransport*)basicTransport)->extractClientId(payload);
+        // Perform a table lookup.
+        uint8_t clientQueueId = getQueueId(clientId);
+
+        // Packet was not destined for this instance, forward it to the right instance
+        // Only forward it if we own the rx queue; otherwise we forward in a loop ==> infinite forwarding.
+        if (rxQueueOwned && clientQueueId != 0) {
+            int ret = rte_ring_enqueue(loopbackRings[clientQueueId], m);
+            if (unlikely(ret != 0)) {
+                LOG(WARNING, "rte_ring_enqueue returned %d; packet may be lost?",
+                        ret);
+                rte_pktmbuf_free(m);
+            }
+            continue;
+        }
+
         PerfStats::threadStats.networkInputBytes += rte_pktmbuf_pkt_len(m);
 
         // By default, we would like to construct the Received object using

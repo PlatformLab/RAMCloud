@@ -115,8 +115,10 @@ struct BasicDpdkTransportFactory : public TransportFactory {
         }
         DpdkDriver* driver = drivers.back();
         drivers.pop_back();
-        return new BasicTransport(context, localServiceLocator, driver, false,
+        BasicTransport* basicTransport = new BasicTransport(context, localServiceLocator, driver, false,
                 generateRandom());
+        driver->setBasicTransport(basicTransport);
+        return basicTransport;
     }
     void addDpdkDriver(DpdkDriver* driver) {
         this->drivers.push_back(driver);

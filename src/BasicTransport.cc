@@ -927,6 +927,17 @@ BasicTransport::Session::sendRequest(Buffer* request, Buffer* response,
     }
 }
 
+uint64_t
+BasicTransport::extractClientId(char* payload) {
+    CommonHeader* common = reinterpret_cast<CommonHeader*>(payload);
+    return common->rpcId.clientId;
+}
+
+uint64_t
+BasicTransport::getClientId() {
+    return clientId;
+}
+
 /**
  * This method is invoked whenever a packet arrives. It is the top-level
  * dispatching method for dealing with incoming packets, both for requests
