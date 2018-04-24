@@ -138,6 +138,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     , portId(0)
     , queueId(0)
     , rxQueueOwned(false)
+    , isClient(false)
     , mbufPool(NULL)
     , loopbackRing(NULL)
     , bandwidthMbps(9800)                // Default bandwidth = 10 gbs
@@ -155,6 +156,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     struct rte_eth_conf portConf;
     int ret;
     portId = downCast<uint8_t>(port);
+    isClient = context->isClient();
     fprintf(stderr, "QUEUEID = %d\n", queueId);
     // This block should always run on servers
     if (queueId == 0) {
@@ -198,7 +200,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
         // configure some default NIC port parameters
         memset(&portConf, 0, sizeof(portConf));
         portConf.rxmode.max_rx_pkt_len = ETHER_MAX_VLAN_FRAME_LEN;
-        if (!context->isClient()) {
+        if (!isClient) {
             // Server side only uses one queue
             rte_eth_dev_configure(portId, 1, 1, &portConf);
         } else {
@@ -234,7 +236,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
         mbufPool = createPool("mbuf_pool");
         rte_eth_rx_queue_setup(portId, queueId, NDESC, 0, NULL, mbufPool);
 
-        if (!context->isClient()) {
+        if (!isClient) {
             rte_eth_tx_queue_setup(portId, queueId, NDESC, 0, NULL);
 
             // create an in-memory ring, used as a software loopback in order to handle
@@ -318,7 +320,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
         Util::clearCpuAffinity();
     } else {
         // If this is server code, then we made a mistake somewhere.
-        if (!context->isClient()) {
+        if (!isClient) {
             LOG(ERROR, "Dpdk invocation for secondary client thread invoked on master or coordinator.");
             abort();
         }
@@ -561,9 +563,14 @@ DpdkDriver::receivePackets(uint32_t maxPackets,
 void
 DpdkDriver::release(char *payload)
 {
-    // Must sync with the dispatch thread, since this method could potentially
-    // be invoked in a worker.
-    Dispatch::Lock _(context->dispatch);
+    Tub<Dispatch::Lock> dispatchLock;
+    if (!isClient) {
+        // Must sync with the dispatch thread, since this method could potentially
+        // be invoked in a worker.
+        // This is only needed on the server, and it is causing deadlocks when
+        // used concurrently with RamCloud client object destruction.
+        dispatchLock.construct(context->dispatch);
+    }
 
     packetBufsUtilized--;
     assert(packetBufsUtilized >= 0);
@@ -571,7 +578,7 @@ DpdkDriver::release(char *payload)
         rte_pktmbuf_free(payload_to_mbuf(payload));
     } else {
         packetBufPool.destroy(reinterpret_cast<PacketBuf*>(
-                payload - OFFSET_OF(PacketBuf, payload)));
+                    payload - OFFSET_OF(PacketBuf, payload)));
     }
 }
 
