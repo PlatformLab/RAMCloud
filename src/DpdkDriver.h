@@ -161,6 +161,8 @@ class DpdkDriver : public Driver
     /// must forward messages.
     bool rxQueueOwned;
 
+    bool isClient;
+
     /// Store the next RX and TX queue ID to be given to the next instance of
     /// DpdkDriver. When it is zero, we initialize dpdk.
     static uint8_t nextQueueId;
