@@ -1150,7 +1150,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                     LOG(WARNING, "client received RESTART, clientId %lu, sequence %lu, recipient = %s, requestSize = %u",
                             header->common.rpcId.clientId, header->common.rpcId.sequence, request->recipient->toString().c_str(),
                             request->buffer->size());
-                    TimeTrace::printToLog();
+                    // TimeTrace::printToLog();
                     if (!clientRpc->transmitPending) {
                         clientRpc->transmitPending = true;
                         outgoingRequests.push_back(*clientRpc);
