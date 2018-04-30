@@ -43,8 +43,26 @@
 
 namespace RAMCloud {
 
-#define TIME_TRACE 0
-// struct MasterService::Replica
+// Uncomment to enable TimeTraces for this file.
+#define TIME_TRACE 1
+
+// Provides a cleaner way of invoking TimeTrace::record, with the code
+// conditionally compiled in or out by the TIME_TRACE #ifdef. Arguments
+// are made uint64_t (as opposed to uin32_t) so the caller doesn't have to
+// frequently cast their 64-bit arguments into uint32_t explicitly: we will
+// help perform the casting internally.
+namespace {
+    inline void
+    timeTrace(const char* format,
+            uint64_t arg0 = 0, uint64_t arg1 = 0, uint64_t arg2 = 0,
+            uint64_t arg3 = 0)
+    {
+#if TIME_TRACE
+        TimeTrace::record(format, uint32_t(arg0), uint32_t(arg1),
+                uint32_t(arg2), uint32_t(arg3));
+#endif
+    }
+}
 
 /**
  * Constructor.
@@ -1722,6 +1740,7 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
         WireFormat::Read::Response* respHdr,
         Rpc* rpc)
 {
+    timeTrace("ID %u, starting MasterService::read", rpc->worker->rpc->id);
     using RAMCloud::Perf::ReadRPC_MetricSet;
     ReadRPC_MetricSet::Interval _(&ReadRPC_MetricSet::readRpcTime);
 
@@ -1748,6 +1767,7 @@ MasterService::read(const WireFormat::Read::Request* reqHdr,
         return;
 
     respHdr->length = rpc->replyPayload->size() - initialLength;
+    timeTrace("ID %u, leaving MasterService::read", rpc->worker->rpc->id);
 }
 
 /**
@@ -3150,6 +3170,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         WireFormat::Write::Response* respHdr,
         Rpc* rpc)
 {
+    timeTrace("ID %u, starting MasterService::write", rpc->worker->rpc->id);
     assert(reqHdr->rpcId > 0);
     UnackedRpcHandle rh(&unackedRpcResults,
                         reqHdr->lease, reqHdr->rpcId, reqHdr->ackId);
@@ -3193,16 +3214,12 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             object, &rejectRules, &respHdr->version, &oldObjectBuffer,
             &rpcResult, &rpcResultPtr, &logReference, rpc->worker->rpc->id);
 
-#if TIME_TRACE
-    TimeTrace::record("ID %u: Wrote object, waiting for sync on Core %d",
+    timeTrace("ID %u: Wrote object, waiting for sync on Core %d",
             rpc->worker->rpc->id, Arachne::core.kernelThreadId);
-#endif
     if (respHdr->common.status == STATUS_OK) {
         objectManager.syncChanges(logReference, rpc->worker->rpc->id);
-#if TIME_TRACE
-        TimeTrace::record("ID %u: Finished syncing on Core %d",
+        timeTrace("ID %u: Finished syncing on Core %d",
                 rpc->worker->rpc->id, Arachne::core.kernelThreadId);
-#endif
         rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is
                                            // written.
                                            // Otherwise, RPC state should reset
@@ -3216,10 +3233,8 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         objectManager.writeRpcResultOnly(&rpcResult, &rpcResultPtr);
         rh.recordCompletion(rpcResultPtr);
     }
-#if TIME_TRACE
-    TimeTrace::record("ID %u: Finished recording completion on Core %d",
+    timeTrace("ID %u: Finished recording completion on Core %d",
             rpc->worker->rpc->id, Arachne::core.kernelThreadId);
-#endif
 
     // If this is a overwrite, delete old index entries if any (this can
     // be done asynchronously after sending a reply).
@@ -3230,6 +3245,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             requestRemoveIndexEntries(oldObject);
         }
     }
+    timeTrace("ID %u, leaving MasterService::write", rpc->worker->rpc->id);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
