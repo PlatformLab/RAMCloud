@@ -24,6 +24,8 @@ namespace RAMCloud {
 
 uint64_t ReplicatedSegment::recoveryStart = 0;
 
+#define TIME_TRACE 1
+
 /**
  * Toggles ordering constraints on log replication operations. This must be
  * enabled to ensure that replicas are be consistent in future recoveries and
@@ -759,9 +761,12 @@ ReplicatedSegment::performWrite(Replica& replica)
             try {
                 replica.writeRpc->wait();
                 #if TIME_TRACE
+                uint64_t address = reinterpret_cast<uint64_t>(&replica.writeRpc);
                 if (syncingRpcId)
-                    TimeTrace::record("ID %u: Completed replication Rpc "
+                    TimeTrace::record("ID %u: Completed replication Rpc 0x%x%08x "
                         "on Core %d", syncingRpcId,
+                        static_cast<uint32_t>(address >> 32),
+                        static_cast<uint32_t>(address & 0xffffffff),
                         Arachne::core.kernelThreadId);
                 #endif
                 TEST_LOG("Write RPC finished for replica slot %ld",
@@ -955,6 +960,16 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             TEST_LOG("Sending write to backup %s",
                      replica.backupId.toString().c_str());
+            #if TIME_TRACE
+            if (syncingRpcId) {
+                uint64_t address = reinterpret_cast<uint64_t>(&replica.writeRpc);
+                TimeTrace::record("ID %u: About to send replication Rpc 0x%x%08x on Core %d",
+                    syncingRpcId,
+                    static_cast<uint32_t>(address >> 32),
+                    static_cast<uint32_t>(address & 0xffffffff),
+                    Arachne::core.kernelThreadId);
+            }
+            #endif
             replica.writeRpc.construct(context, replica.backupId, masterId,
                                        segmentId, queued.epoch,
                                        segment, offset, length,
@@ -963,9 +978,14 @@ ReplicatedSegment::performWrite(Replica& replica)
                                        replicaIsPrimary(replica),
                                        Arachne::getThreadId());
             #if TIME_TRACE
-            if (syncingRpcId)
-                TimeTrace::record("ID %u: Sent replication Rpc on Core %d",
-                    syncingRpcId, Arachne::core.kernelThreadId);
+            if (syncingRpcId) {
+                uint64_t address = reinterpret_cast<uint64_t>(&replica.writeRpc);
+                TimeTrace::record("ID %u: Sent replication Rpc 0x%x%08x on Core %d",
+                    syncingRpcId,
+                    static_cast<uint32_t>(address >> 32),
+                    static_cast<uint32_t>(address & 0xffffffff),
+                    Arachne::core.kernelThreadId);
+            }
             #endif
             if (replicaIsPrimary(replica)) {
                 PerfStats::threadStats.replicationRpcs++;
