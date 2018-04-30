@@ -1832,6 +1832,12 @@ BasicTransport::Poller::poll()
         uint64_t ns = Cycles::toNanoseconds(startTime - lastPollTime);
         TimeTrace::record(startTime, "start of polling iteration %u, "
                 "last poll was %u ns ago", static_cast<uint32_t>(owner->iteration), static_cast<uint32_t>(ns));
+        // TODO: Log every time this is over 100 us. Include numPackets and the actual time.
+        // Print the hardware coreId. Is the CoreId changing? It shouldn't be.
+        if (ns > 100000) {
+            LOG(ERROR, "Last poll time in BasicTransport was %lu ago, numPackets %u, coreId = %d", ns, numPackets, sched_getcpu());
+        }
+
     }
     lastPollTime = Cycles::rdtsc();
 #endif
