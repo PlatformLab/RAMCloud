@@ -228,7 +228,7 @@ ifeq ($(DPDK),yes)
 # Note: this configuration is not well tested and may not work.
 DPDK_SHARED ?= yes
 
-DPDK_TARGET  ?= x86_64-native-linuxapp-gcc
+DPDK_TARGET ?= x86_64-native-linuxapp-gcc
 COMFLAGS    += -DDPDK
 
 ifeq ($(DPDK_DIR),)
@@ -275,6 +275,9 @@ DPDK_AR_LIBS := $(DPDK_LIB_DIR)/libdpdk.a
 ## --whole-archive is required to link the pmd objects.
 LIBS := -Wl,--whole-archive $(DPDK_AR_LIBS) -Wl,--no-whole-archive -ldl $(LIBS)
 endif
+
+# libnuma required by eal_memory.c starting from DPDK 17.11
+LIBS += -lnuma
 
 # End of DPDK definitions
 # =======
