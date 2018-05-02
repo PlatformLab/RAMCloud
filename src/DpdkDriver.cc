@@ -114,6 +114,7 @@ DpdkDriver::DpdkDriver()
 
 uint8_t DpdkDriver::nextQueueId = 0;
 std::mutex DpdkDriver::lifetimeMutex;
+struct rte_ring* DpdkDriver::txLoopbackRing;
 struct rte_ring* DpdkDriver::loopbackRings[MAX_NUM_QUEUES];
 bool DpdkDriver::hasHardwareFilter = true; // Cleared if not applicable
 rte_mempool* DpdkDriver::mbufPools[MAX_NUM_QUEUES];
@@ -200,17 +201,12 @@ DpdkDriver::DpdkDriver(Context* context, int port)
         // configure some default NIC port parameters
         memset(&portConf, 0, sizeof(portConf));
         portConf.rxmode.max_rx_pkt_len = ETHER_MAX_VLAN_FRAME_LEN;
-        if (!isClient) {
-            // Server side only uses one queue
-            rte_eth_dev_configure(portId, 1, 1, &portConf);
-        } else {
-            // Client side uses multiple tx queues and a single rx queue
-            ret = rte_eth_dev_configure(portId, 1, MAX_NUM_QUEUES, &portConf);
-            if (ret < 0) {
-                LOG(ERROR, "rte_eth_dev_configure failed with ret code %d (%s)\n", ret, strerror(ret));
-                abort();
-            }
-        }
+
+        // Both client and server use only one queue for TX as well as one
+        // queue for RX; it seems that using multiple tx queues leads to
+        // incredibly degraded performance in the form of multi-milisecond
+        // client-side tail latencies
+        rte_eth_dev_configure(portId, 1, 1, &portConf);
 
         // Set up a NIC/HW-based filter on the ethernet type so that only
         // traffic to a particular port is received by this driver.
@@ -235,11 +231,10 @@ DpdkDriver::DpdkDriver(Context* context, int port)
         // create an memory pool for accommodating packet buffers
         mbufPool = createPool("mbuf_pool");
         rte_eth_rx_queue_setup(portId, queueId, NDESC, 0, NULL, mbufPool);
+        rte_eth_tx_queue_setup(portId, queueId, NDESC, 0, NULL);
 
         if (!isClient) {
-            rte_eth_tx_queue_setup(portId, queueId, NDESC, 0, NULL);
-
-            // create an in-memory ring, used as a software loopback in order to handle
+            // Create an in-memory ring, used as a software loopback in order to handle
             // packets that are addressed to the localhost.
             loopbackRing = rte_ring_create("dpdk_loopback_ring", 4096,
                     SOCKET_ID_ANY, 0);
@@ -254,9 +249,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
             char loopback_ring_name[32];
             char poolName[100];
 
-
             for (uint16_t i = 0; i < MAX_NUM_QUEUES; i++) {
-                rte_eth_tx_queue_setup(portId, i, NDESC, 0, NULL);
                 snprintf(loopback_ring_name, sizeof(loopback_ring_name), "dpdk_loopback_ring%d", i);
                 loopbackRings[i] =  rte_ring_create(loopback_ring_name, 4096,
                         SOCKET_ID_ANY, 0);
@@ -271,6 +264,10 @@ DpdkDriver::DpdkDriver(Context* context, int port)
             // We own the first ring, pool 0
             loopbackRing = loopbackRings[0];
             mbufPool = mbufPools[0];
+
+            // Create a loopback ring for tx on the client
+            txLoopbackRing = rte_ring_create("dpdk_tx_loopback", 4096,
+                        SOCKET_ID_ANY, 0);
         }
 
         // set the MTU that the NIC port should support
@@ -463,6 +460,28 @@ DpdkDriver::receivePackets(uint32_t maxPackets,
             TimeTrace::record(timestamp, "DpdkDriver about to receive packets");
             TimeTrace::record("DpdkDriver received %u packets", incomingPkts);
 #endif
+        }
+
+        // Only clients do need this; servers do not even have a txLoopbackRing
+        // allocated
+        if (isClient) {
+            // NOTE: Look for packets to send from the loopback
+            uint32_t numPacketsToSend = rte_ring_count(txLoopbackRing);
+            for (uint32_t i = 0; i < numPacketsToSend; i++) {
+                // Hopefully it is thread-safe to use the structure allocated from
+                // a different thread here. Otherwise we may get memory corruption.
+                struct rte_mbuf* mbuf;
+                rte_ring_dequeue(txLoopbackRing, reinterpret_cast<void**>(&mbuf));
+                uint32_t ret = rte_eth_tx_burst(portId, 0, &mbuf, 1);
+                if (unlikely(ret != 1)) {
+                    LOG(WARNING, "rte_eth_tx_burst returned %u; packet may be lost?", ret);
+                    // The congestion at the TX queue must be pretty bad if we got here:
+                    // set the queue size to be relatively large.
+                    queueEstimator.setQueueSize(maxTransmitQueueSize*2, Cycles::rdtsc());
+                    rte_pktmbuf_free(mbuf);
+                    return;
+                }
+            }
         }
     }
     uint32_t loopbackPkts = 0;
@@ -703,14 +722,25 @@ DpdkDriver::sendPacket(const Address* addr,
         }
     }
 
-    uint32_t ret = rte_eth_tx_burst(portId, queueId, &mbuf, 1);
-    if (unlikely(ret != 1)) {
-        LOG(WARNING, "rte_eth_tx_burst returned %u; packet may be lost?", ret);
-        // The congestion at the TX queue must be pretty bad if we got here:
-        // set the queue size to be relatively large.
-        queueEstimator.setQueueSize(maxTransmitQueueSize*2, Cycles::rdtsc());
-        rte_pktmbuf_free(mbuf);
-        return;
+    uint32_t ret = 1;
+    if (rxQueueOwned) {
+        ret = rte_eth_tx_burst(portId, 0, &mbuf, 1);
+        if (unlikely(ret != 1)) {
+            LOG(WARNING, "rte_eth_tx_burst returned %u; packet may be lost?", ret);
+            // The congestion at the TX queue must be pretty bad if we got here:
+            // set the queue size to be relatively large.
+            queueEstimator.setQueueSize(maxTransmitQueueSize*2, Cycles::rdtsc());
+            rte_pktmbuf_free(mbuf);
+            return;
+        }
+    } else {
+        // Put it on the loopback for the central sender to send out.
+        ret = rte_ring_enqueue(txLoopbackRing, mbuf);
+        if (unlikely(ret != 0)) {
+            LOG(WARNING, "rte_ring_enqueue returned %d; packet may be lost?",
+                    ret);
+            rte_pktmbuf_free(mbuf);
+        }
     }
     timeTrace("outgoing packet enqueued");
 #endif
