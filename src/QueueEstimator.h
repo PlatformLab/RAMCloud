@@ -17,6 +17,7 @@
 #define RAMCLOUD_QUEUEESTIMATOR_H
 
 #include "Cycles.h"
+#include "SpinLock.h"
 
 namespace RAMCloud {
 
@@ -59,6 +60,7 @@ class QueueEstimator {
         , currentTime(0)
         , idleSince(0)
         , queueSize(0)
+        , queueEstimatorLock("Queue Estimator Lock")
     {
         bandwidth = (static_cast<double>(mBitsPerSecond)*1e06/8.0)
                 / Cycles::perSecond();
@@ -81,7 +83,8 @@ class QueueEstimator {
     packetQueued(uint32_t length, uint64_t transmitTime,
             TransmitQueueState* txQueueState = NULL)
     {
-        getQueueSize(transmitTime);
+        std::lock_guard<SpinLock> guard(queueEstimatorLock);
+        getQueueSizeLocked(transmitTime);
         if (txQueueState != NULL) {
             txQueueState->idleTime =
                     (queueSize > 0) ? 0 : transmitTime - idleSince;
@@ -92,12 +95,12 @@ class QueueEstimator {
 
     /**
      * Returns an estimate of the number of untransmitted bytes still
-     * present in the NIC's queue.
+     * present in the NIC's queue. This method must be called with the lock held.
      * \param time
      *      Current time, in Cycles::rdtsc ticks.
      */
     uint32_t
-    getQueueSize(uint64_t time)
+    getQueueSizeLocked(uint64_t time)
     {
         // If the caller passes in a stale timestamp, just return the latest
         // queue size.
@@ -116,6 +119,12 @@ class QueueEstimator {
         return queueSize;
     }
 
+    uint32_t
+    getQueueSize(uint64_t time) {
+        std::lock_guard<SpinLock> guard(queueEstimatorLock);
+        return getQueueSizeLocked(time);
+    }
+
     /**
      * Called to provide information about the network bandwidth, which is
      * used to estimate how quickly packets are being transmitted.
@@ -125,6 +134,7 @@ class QueueEstimator {
     void
     setBandwidth(uint32_t mBitsPerSecond)
     {
+        std::lock_guard<SpinLock> guard(queueEstimatorLock);
         bandwidth = (static_cast<double>(mBitsPerSecond)*1e06/8.0)
                 / Cycles::perSecond();
     }
@@ -140,6 +150,7 @@ class QueueEstimator {
     void
     setQueueSize(uint32_t numBytes, uint64_t time)
     {
+        std::lock_guard<SpinLock> guard(queueEstimatorLock);
         currentTime = time;
         queueSize = numBytes;
     }
@@ -159,6 +170,9 @@ class QueueEstimator {
 
     /// The number of bytes in the transmit queue at currentTime.
     uint32_t queueSize;
+
+    // Monitor lock to protect this queueEstimator from concurrent access.
+    SpinLock queueEstimatorLock;
 
     DISALLOW_COPY_AND_ASSIGN(QueueEstimator);
 };

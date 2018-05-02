@@ -85,6 +85,16 @@ class DpdkDriver : public Driver
         return new MacAddress(serviceLocator->getOption<const char*>("mac"));
     }
 
+    // We override this method in DpdkDriver so that we can share one
+    // QueueEstimator for all DpdkDriver instances in the client.
+    // This QueueEstimator will be protected by a SpinLock.
+    virtual int
+    getTransmitQueueSpace(uint64_t currentTime)
+    {
+        return static_cast<int>(maxTransmitQueueSize) -
+                DpdkDriver::dpdkQueueEstimator.getQueueSize(currentTime);
+    }
+
   PRIVATE:
     struct rte_mempool* createPool(const char* name);
     uint8_t getQueueId(uint64_t clientId);
@@ -198,6 +208,9 @@ class DpdkDriver : public Driver
     /// MAX_NUM_QUEUES.  This allows initialization to occur in one place
     /// before activating the NIC.
     static rte_ring* loopbackRings[MAX_NUM_QUEUES];
+
+    /// Used to estimate # bytes outstanding in the NIC's transmit queue.
+    static QueueEstimator dpdkQueueEstimator;
 
     /// Hardware packet filter is provided by the NIC
     static bool hasHardwareFilter;

@@ -100,7 +100,7 @@ DpdkDriver::DpdkDriver()
     , basicTransport(NULL)
 {
     localMac.construct("01:23:45:67:89:ab");
-    queueEstimator.setBandwidth(bandwidthMbps);
+    dpdkQueueEstimator.setBandwidth(bandwidthMbps);
     maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthMbps)
             * MAX_DRAIN_TIME / 8000.0);
     uint32_t maxPacketSize = getMaxPacketSize();
@@ -119,6 +119,7 @@ bool DpdkDriver::hasHardwareFilter = true; // Cleared if not applicable
 rte_mempool* DpdkDriver::mbufPools[MAX_NUM_QUEUES];
 uint64_t DpdkDriver::queueIdToClientId[MAX_NUM_QUEUES];
 std::unordered_set<DpdkDriver*> DpdkDriver::allInstances;
+QueueEstimator DpdkDriver::dpdkQueueEstimator;
 
 /*
  * Construct a DpdkDriver.
@@ -307,6 +308,9 @@ DpdkDriver::DpdkDriver(Context* context, int port)
                     "using default of %d Mbps", bandwidthMbps);
         }
 
+        // There is one central queueEstimator, so we only need to set it once.
+        dpdkQueueEstimator.setBandwidth(bandwidthMbps);
+
         // Ensure that there are no accidental matches on this table.
         memset(queueIdToClientId, 0, sizeof(queueIdToClientId));
 
@@ -339,9 +343,6 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     // than harmful until we figure out how to do an actual multithreaded queue
     // estimator.
 
-    // Every instance of DPDK needs to set the bandwidth on the queue
-    // estimator; forgetting to set this causes queue to never grow.
-    queueEstimator.setBandwidth(bandwidthMbps);
     maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthMbps)
             * MAX_DRAIN_TIME / 8000.0);
     uint32_t maxPacketSize = getMaxPacketSize();
@@ -708,14 +709,14 @@ DpdkDriver::sendPacket(const Address* addr,
         LOG(WARNING, "rte_eth_tx_burst returned %u; packet may be lost?", ret);
         // The congestion at the TX queue must be pretty bad if we got here:
         // set the queue size to be relatively large.
-        queueEstimator.setQueueSize(maxTransmitQueueSize*2, Cycles::rdtsc());
+        dpdkQueueEstimator.setQueueSize(maxTransmitQueueSize*2, Cycles::rdtsc());
         rte_pktmbuf_free(mbuf);
         return;
     }
     timeTrace("outgoing packet enqueued");
 #endif
     lastTransmitTime = Cycles::rdtsc();
-    queueEstimator.packetQueued(physPacketLength, lastTransmitTime,
+    dpdkQueueEstimator.packetQueued(physPacketLength, lastTransmitTime,
             txQueueState);
     PerfStats::threadStats.networkOutputBytes += physPacketLength;
 }

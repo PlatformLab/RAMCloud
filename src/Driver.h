@@ -274,7 +274,7 @@ class Driver {
      *      if transport has ignored this method and transmitted too
      *      many bytes.
      */
-    VIRTUAL_FOR_TESTING int
+    virtual int
     getTransmitQueueSpace(uint64_t currentTime)
     {
         return static_cast<int>(maxTransmitQueueSize) -
