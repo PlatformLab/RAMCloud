@@ -24,7 +24,7 @@ namespace RAMCloud {
 
 uint64_t ReplicatedSegment::recoveryStart = 0;
 
-#define TIME_TRACE 1
+// #define TIME_TRACE 1
 
 /**
  * Toggles ordering constraints on log replication operations. This must be

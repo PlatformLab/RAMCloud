@@ -44,7 +44,7 @@
 namespace RAMCloud {
 
 // Uncomment to enable TimeTraces for this file.
-#define TIME_TRACE 1
+// #define TIME_TRACE 1
 
 // Provides a cleaner way of invoking TimeTrace::record, with the code
 // conditionally compiled in or out by the TIME_TRACE #ifdef. Arguments

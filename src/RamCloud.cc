@@ -35,7 +35,7 @@
 #include "ShortMacros.h"
 #include "TimeTrace.h"
 
-#define TIME_TRACE 1
+#define TIME_TRACE 0
 
 namespace RAMCloud {
 
