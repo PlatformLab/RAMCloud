@@ -442,6 +442,10 @@ void
 DpdkDriver::receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets)
 {
+    static uint64_t lastPollTime;
+    static bool foundPacketsAtLastPoll;
+    uint64_t readPacketsTime;
+
 #define MAX_PACKETS_AT_ONCE 32
     if (maxPackets > MAX_PACKETS_AT_ONCE) {
         maxPackets = MAX_PACKETS_AT_ONCE;
@@ -464,6 +468,7 @@ DpdkDriver::receivePackets(uint32_t maxPackets,
             TimeTrace::record("DpdkDriver received %u packets", incomingPkts);
 #endif
         }
+        readPacketsTime = Cycles::rdtsc();
     }
     uint32_t loopbackPkts = 0;
     // Instances that do not own the rxQueue wil get all their packets through
@@ -477,7 +482,7 @@ DpdkDriver::receivePackets(uint32_t maxPackets,
                 reinterpret_cast<void**>(&mPkts[incomingPkts + i]));
     }
     uint32_t totalPkts = incomingPkts + loopbackPkts;
-
+    uint32_t totalBytesReceived = 0;
     // Process received packets by constructing appropriate Received objects.
     for (uint32_t i = 0; i < totalPkts; i++) {
         struct rte_mbuf* m = mPkts[i];
@@ -556,7 +561,16 @@ DpdkDriver::receivePackets(uint32_t maxPackets,
         assert(length <= MAX_PAYLOAD_SIZE);
         receivedPackets->emplace_back(sender, this, length, payload);
         timeTrace("received packet processed, payload size %u", length);
+        totalBytesReceived += rte_pktmbuf_pkt_len(m);
     }
+    if (totalBytesReceived > 0) {
+        if (!foundPacketsAtLastPoll) {
+            TimeTrace::record(lastPollTime, "DpdkDriver: Looked for packets and found none");
+        }
+        TimeTrace::record(readPacketsTime, "DpdkDriver: Looked for packets and received %u bytes in %u packets", totalBytesReceived, totalPkts);
+    }
+    foundPacketsAtLastPoll = totalBytesReceived > 0;
+    lastPollTime = readPacketsTime;
 }
 
 // See docs in Driver class.
