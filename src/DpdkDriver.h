@@ -190,13 +190,9 @@ class DpdkDriver : public Driver
     /// This allows initialization to occur in one place before activating.
     static rte_mempool* mbufPools[MAX_NUM_QUEUES];
 
-    /// Used by the rxQueue owner to pass packets to this instance of the
-    /// DpdkDriver.
+    /// Holds packets that are addressed to localhost instead of going through
+    /// the HW queues.
     struct rte_ring* loopbackRing;
-
-    /// Used by non-owners of the tx queue to pass packets to send to the
-    /// owner.
-    static struct rte_ring* txLoopbackRing;
 
     /// Holds pointers to the loopbackRings for future clients, up to
     /// MAX_NUM_QUEUES.  This allows initialization to occur in one place
