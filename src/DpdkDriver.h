@@ -41,7 +41,7 @@
 #define MBUF_SIZE (2048 + static_cast<uint32_t>(sizeof(struct rte_mbuf)) \
                    + RTE_PKTMBUF_HEADROOM)
 
-#define MAX_NUM_QUEUES 8
+#define MAX_NUM_QUEUES 16
 
 // Forward declarations, so we don't have to include DPDK headers here.
 struct rte_mempool;
