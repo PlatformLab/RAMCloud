@@ -28,6 +28,7 @@
 #include "WorkerManager.h"
 #include "Arachne/Arachne.h"
 #include "Arachne/CorePolicy.h"
+#include "Arachne/DefaultCorePolicy.h"
 #include "FileLogger.h"
 #include "PerfUtils/Util.h"
 
@@ -170,8 +171,8 @@ main(int argc, const char *argv[]) {
     FileLogger arachneLogger(NOTICE, "ARACHNE: ");
     Arachne::setErrorStream(arachneLogger.getFile());
 
-    Arachne::minNumCores = 1;
-    Arachne::maxNumCores = 2;
+    Arachne::minNumCores = 8;
+    Arachne::maxNumCores = 8;
     Arachne::initCore = [] () {
         PerfStats::registerStats(&PerfStats::threadStats);
     };
@@ -180,6 +181,8 @@ main(int argc, const char *argv[]) {
     // the fact that the dispatch thread does not yield or terminate until we
     // are ready to do that experiment.
     PerfUtils::Util::pinAvailableCore();
-    realMain(argc, const_cast<char**>(argv));
+    Arachne::createThreadWithClass(
+            Arachne::DefaultCorePolicy::EXCLUSIVE,
+            &realMain, argc, const_cast<char**>(argv));
     Arachne::waitForTermination();
 }
