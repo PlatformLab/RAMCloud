@@ -231,7 +231,7 @@ OptionParser::setup(int argc, char* argv[])
              "0 means use transport-specific default.")
             ("dpdkPort",
              ProgramOptions::value<int>(&options.dpdkPort)->
-                default_value(0),
+                default_value(-1),
              "Selects the Ethernet port that the DPDK driver should use, "
              "or -1 if DPDK should not be enabled.")
             ("portTimeout",

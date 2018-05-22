@@ -34,6 +34,7 @@
 
 namespace RAMCloud {
 
+#if defined ENABLE_SPDLOG
 /**
  * Configuration for spdlog
  */
@@ -48,6 +49,7 @@ static const int SPDLOG_ASYNC_BUFFER_SIZE = 8192;
 static const char* SPDLOG_PATTERN = "%Y-%m-%d %T.%F: %l[%t] %v";
 
 /* END configuration for spdlog*/
+#endif
 
 /**
  * Friendly names for each #LogLevel value.
@@ -116,9 +118,11 @@ Logger::Logger(LogLevel level)
     LogCabinLogger::setup(level);
 #endif
 
+#if defined ENABLE_SPDLOG
     spdlog::set_async_mode(SPDLOG_ASYNC_BUFFER_SIZE);
     spdlog::set_pattern(SPDLOG_PATTERN);
     spdlog_async_logger = spdlog::stdout_color_mt("console");
+#endif
 }
 
 /**

@@ -606,4 +606,31 @@ TEST_F(TransactionTest, ReadOp_wait_afterCommit) {
     EXPECT_THROW(readOp.wait(), TxOpAfterCommit);
 }
 
+TEST_F(TransactionTest, ReadOp_wait_objectExists_true) {
+    // Makes sure that the point of the read is when wait is called.
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    Key key(tableId1, "0", 1);
+    EXPECT_TRUE(task->findCacheEntry(key) == NULL);
+
+    Buffer value;
+    bool objectExists = false;
+    Transaction::ReadOp
+            readOp(transaction.get(), tableId1, "0", 1, &value, true);
+    readOp.wait(&objectExists);
+    EXPECT_TRUE(objectExists);
+}
+
+TEST_F(TransactionTest, ReadOp_wait_objectExists_false) {
+    Key key(tableId1, "0", 1);
+    EXPECT_TRUE(task->findCacheEntry(key) == NULL);
+
+    Buffer value;
+    bool objectExists = true;
+    Transaction::ReadOp
+            readOp(transaction.get(), tableId1, "0", 1, &value, true);
+    readOp.wait(&objectExists);
+    EXPECT_FALSE(objectExists);
+}
+
 }  // namespace RAMCloud

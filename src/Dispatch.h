@@ -76,6 +76,10 @@ class Dispatch {
     /// waiting for RPCs to complete.
     volatile uint64_t currentTime;
 
+    /// How many times the poll method has been invoked. Only used for
+    /// debugging purpose in the dispatch thread; not thread-safe.
+    uint64_t iteration;
+
     void startProfiler(const uint64_t totalElements);
 
     void stopProfiler();

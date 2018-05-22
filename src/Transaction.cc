@@ -118,13 +118,16 @@ Transaction::commitAndSync()
  * \param[out] value
  *      After a successful return, this Buffer will hold the
  *      contents of the desired object - only the value portion of the object.
+ * \param[out] objectExists
+ *      If non-NULL, the ObjectDoesntExistException is not thrown and a flag
+ *      indicating the existence of the object is returned here.
  */
 void
 Transaction::read(uint64_t tableId, const void* key, uint16_t keyLength,
-        Buffer* value)
+        Buffer* value, bool* objectExists)
 {
     ReadOp readOp(this, tableId, key, keyLength, value);
-    readOp.wait();
+    readOp.wait(objectExists);
 }
 
 /**
@@ -333,9 +336,13 @@ Transaction::ReadOp::isReady()
  * transaction until wait is called (e.g. if commit is called before wait,
  * this operation will not be included).  Behavior when calling wait more than
  * once is undefined.
+ *
+ * \param[out] objectExists
+ *      If non-NULL, the ObjectDoesntExistException is not thrown and a flag
+ *      indicating the existence of the object is returned here.
  */
 void
-Transaction::ReadOp::wait()
+Transaction::ReadOp::wait(bool* objectExists)
 {
     if (expect_false(transaction->commitStarted)) {
         throw TxOpAfterCommit(HERE);
@@ -346,8 +353,10 @@ Transaction::ReadOp::wait()
     Key keyObj(tableId, keyBuf, 0, keyLength);
     ClientTransactionTask::CacheEntry* entry = task->findCacheEntry(keyObj);
 
+    // Assume we found the object exists unless we find out otherwise.
+    bool objectFound = true;
+
     if (entry == NULL) {
-        bool objectExists = true;
         uint64_t version;
         uint32_t dataLength = 0;
         const void* data = NULL;
@@ -357,12 +366,9 @@ Transaction::ReadOp::wait()
             // If no entry exists in cache an rpc must have been issued.
             assert(singleRequest->readRpc);
 
-            try {
-                singleRequest->readRpc->wait(&version);
+            singleRequest->readRpc->wait(&version, &objectFound);
+            if (objectFound)
                 data = buf->getValue(&dataLength);
-            } catch (ObjectDoesntExistException& e) {
-                objectExists = false;
-            }
         } else {
             assert(batchedRequest);
             // If no entry exists in cache a batch must have been assigned.
@@ -379,7 +385,7 @@ Transaction::ReadOp::wait()
                     data = buf->getValue(&dataLength);
                     break;
                 case STATUS_OBJECT_DOESNT_EXIST:
-                    objectExists = false;
+                    objectFound = false;
                     break;
                 default:
                     RAMCLOUD_LOG(ERROR,
@@ -394,7 +400,7 @@ Transaction::ReadOp::wait()
 
         entry = task->insertCacheEntry(keyObj, data, dataLength);
         entry->type = ClientTransactionTask::CacheEntry::READ;
-        if (objectExists) {
+        if (objectFound) {
             entry->rejectRules.doesntExist = true;
             entry->rejectRules.givenVersion = version;
             entry->rejectRules.versionNeGiven = true;
@@ -402,16 +408,25 @@ Transaction::ReadOp::wait()
             // Object did not exists at the time of the read so remember to
             // reject (abort) the transaction if it does exist.
             entry->rejectRules.exists = true;
-            throw ObjectDoesntExistException(HERE);
+            objectFound = false;
         }
 
     } else if (entry->type == ClientTransactionTask::CacheEntry::REMOVE) {
         // Read after remove; object would no longer exist.
-        throw ObjectDoesntExistException(HERE);
+        objectFound = false;
     } else if (entry->type == ClientTransactionTask::CacheEntry::READ
             && entry->rejectRules.exists) {
         // Read after read resulting in object DNE; object still DNE.
-        throw ObjectDoesntExistException(HERE);
+        objectFound = false;
+    }
+
+    if (objectExists == NULL) {
+        if (!objectFound)
+            throw ObjectDoesntExistException(HERE);
+    } else {
+        *objectExists = objectFound;
+        if (!objectFound)
+            return;
     }
 
     uint32_t dataLength;

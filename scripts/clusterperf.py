@@ -37,6 +37,7 @@ benchmark.
 from __future__ import division, print_function
 from common import *
 import cluster
+import collections
 import config
 import log
 import glob
@@ -91,6 +92,73 @@ def get_client_log(
         if not re.match('([0-9]+\.[0-9]+) ', line):
             result += line
     return result
+
+def print_percentiles_from_logs():
+    """
+    Print the min., median, 90%-tile, 99%-tile, and max. of the data in the
+    clients' log files (where "data" consists of comma-separated numbers stored
+    in all of the lines of the log file that are not RAMCloud log messages).
+    """
+
+    # Read the log files and extract the collected samples.
+    samplesOfSize = collections.OrderedDict()
+    numGenSamples = {}
+    globResult = glob.glob('%s/latest/client*.log' % options.log_dir)
+    if len(globResult) == 0:
+        raise Exception("couldn't find log files for clients")
+    result = "";
+    leader = '>>> '
+    for logfile in globResult:
+        for line in open(logfile, 'r'):
+            if re.match(leader, line):
+                continue
+            if not re.match('([0-9]+\.[0-9]+) ', line):
+                # The first number of each line is a unique identifier for
+                # all the samples in this line. For example, if we are
+                # recording the completion times of echo RPCs, then this
+                # identifier could be the size of the message. The second
+                # number is the total number of samples we have generated
+                # in the experiment. Note that this number could be way larger
+                # than the number of samples that follow because it's neither
+                # feasible nor necessary to record every single sample.
+                # We need just enough to calculate the percentiles.
+                samples = None
+                count = None
+                for value in line.split(","):
+                    try:
+                        if samples is None:
+                            size = int(value)
+                            if size not in samplesOfSize:
+                                samplesOfSize[size] = []
+                            samples = samplesOfSize[size]
+                        elif count is None:
+                            count = int(value)
+                            if size not in numGenSamples:
+                                numGenSamples[size] = 0
+                            numGenSamples[size] += count
+                        else:
+                            samples.append(float(value))
+                    except ValueError, e:
+                        # print("Skipping, couldn't parse %s" % line)
+                        pass
+
+    # Print the count and percentiles of each sample collection.
+    print("#   Size   Samples       Min    Median       90%       99%     99.9%       Max\n"
+          "#-----------------------------------------------------------------------------")
+    for size, samples in samplesOfSize.iteritems():
+        samples.sort()
+        length = len(samples)
+        if length == 0:
+            continue
+        print("%8d  %8d  %8.1f  %8.1f  %8.1f  %8.1f  %8.1f  %8.1f" % (
+                size,
+                numGenSamples[size],
+                samples[0],
+                samples[int(length * .5)],
+                samples[int(length * .9)] if length >= 10 else .0,
+                samples[int(length * .99)] if length >= 100 else .0,
+                samples[int(length * .999)] if length >= 1000 else .0,
+                samples[-1]))
 
 def print_cdf_from_log(
         index = 1                 # Client index (0 for first client,
@@ -250,7 +318,6 @@ def run_test(
         'log_dir':     options.log_dir,
         'server_log_dir': options.server_log_dir,
         'log_level':   options.log_level,
-        'backup_disks_per_server': options.backup_disks_per_server,
         'num_servers': options.num_servers,
         'replicas':    options.replicas,
         'timeout':     options.timeout,
@@ -258,7 +325,8 @@ def run_test(
         'transport':   options.transport,
         'disjunct':    options.disjunct,
         'verbose':     options.verbose,
-        'superuser':   options.superuser
+        'superuser':   options.superuser,
+        'disk'     :   options.disk
     }
     # Provide a default value for num_servers here.  This is better
     # than defaulting it in the OptionParser below, because tests can
@@ -287,8 +355,14 @@ def run_test(
         client_args['--warmup'] = options.warmup
     if options.workload != None:
         client_args['--workload'] = options.workload
+    if options.messageSizeCDF != None:
+        client_args['--messageSizeCDF'] = options.messageSizeCDF
+    if options.targetTput != None:
+        client_args['--targetTput'] = options.targetTput
     if options.targetOps != None:
         client_args['--targetOps'] = options.targetOps
+    if options.maxSessions:
+        client_args['--maxSessions'] = options.maxSessions
     if options.txSpan != None:
         client_args['--txSpan'] = options.txSpan
     if options.asyncReplication != None:
@@ -359,6 +433,20 @@ def echo(name, options, cluster_args, client_args):
         cluster_args['num_servers'] = 1
     default(name, options, cluster_args, client_args)
 
+def echoWorkload(name, options, cluster_args, client_args):
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '-t 4000'
+    if cluster_args['timeout'] < 250:
+        cluster_args['timeout'] = 250
+    cluster_args['replicas'] = 0
+    if options.num_servers == None:
+        cluster_args['num_servers'] = 1
+    cluster.run(client='%s/apps/ClusterPerf %s %s' %
+                       (config.hooks.get_remote_obj_path(),
+                        flatten_args(client_args), name), **cluster_args)
+    print("# Generated by 'clusterperf.py echoWorkload'\n#\n")
+    print_percentiles_from_logs()
+
 def indexBasic(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '--maxCores 2 --totalMasterMemory 1500'
@@ -409,18 +497,14 @@ def indexMultiple(name, options, cluster_args, client_args):
         client_args['--numIndexes'] = len(getHosts()) - 1
     else:
         client_args['--numIndexes'] = 10
-
-    cluster.run(client='%s/apps/ClusterPerf %s %s' %
-               (config.hooks.get_remote_obj_path(),
-                flatten_args(client_args), name), **cluster_args)
-    print(get_client_log(), end='')
+    default(name, options, cluster_args, client_args)
 
 def indexScalability(name, options, cluster_args, client_args):
     if 'master_args' not in cluster_args:
         cluster_args['master_args'] = '--maxCores 3'
     if cluster_args['timeout'] < 360:
         cluster_args['timeout'] = 360
-    cluster_args['backup_disks_per_server'] = 0
+    cluster_args['disk'] = None
     cluster_args['replicas'] = 0
     # Number of concurrent rpcs to do per indexlet
     if '--count' not in client_args:
@@ -550,11 +634,7 @@ def multiOp(name, options, cluster_args, client_args):
     if options.num_servers == None:
         cluster_args['num_servers'] = len(getHosts())
     client_args['--numTables'] = cluster_args['num_servers'];
-    cluster.run(client='%s/apps/ClusterPerf %s %s' %
-            (config.hooks.get_remote_obj_path(),
-             flatten_args(client_args), name),
-            **cluster_args)
-    print(get_client_log(), end='')
+    default(name, options, cluster_args, client_args)
 
 def netBandwidth(name, options, cluster_args, client_args):
     if 'num_clients' not in cluster_args:
@@ -570,7 +650,7 @@ def netBandwidth(name, options, cluster_args, client_args):
     default(name, options, cluster_args, client_args)
 
 def readAllToAll(name, options, cluster_args, client_args):
-    cluster_args['backup_disks_per_server'] = 0
+    cluster_args['disk'] = None
     cluster_args['replicas'] = 0
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = len(getHosts())
@@ -632,7 +712,7 @@ def readLoaded(name, options, cluster_args, client_args):
     default(name, options, cluster_args, client_args)
 
 def readRandom(name, options, cluster_args, client_args):
-    cluster_args['backup_disks_per_server'] = 0
+    cluster_args['disk'] = None
     cluster_args['replicas'] = 0
     if 'num_clients' not in cluster_args:
         cluster_args['num_clients'] = 16
@@ -762,7 +842,7 @@ def migrateLoaded(name, options, cluster_args, client_args):
         cluster_args['num_servers'] = servers
 
         # Use two backups per server for more disk bandwidth.
-        defaultTo(cluster_args, 'backup_disks_per_server', 2)
+        defaultTo(cluster_args, 'disk', default_disks)
 
         # Need lots of mem for big workload and migration.
         defaultTo(cluster_args, 'master_args',
@@ -820,7 +900,6 @@ simple_tests = [
     Test("basic", basic),
     Test("broadcast", broadcast),
     Test("echo_basic", echo),
-    Test("echo_incast", echo),
     Test("multiRead_colocation", default),
     Test("netBandwidth", netBandwidth),
     Test("readAllToAll", readAllToAll),
@@ -828,6 +907,7 @@ simple_tests = [
 ]
 
 graph_tests = [
+    Test("echo_workload", echoWorkload),
     Test("indexBasic", indexBasic),
     Test("indexRange", indexRange),
     Test("indexMultiple", indexMultiple),
@@ -883,6 +963,10 @@ if __name__ == '__main__':
             metavar='True/False',
             help='Do not colocate clients on a node (servers are never '
                   'colocated, regardless of this option)')
+    parser.add_option('--disks', default=default_disks, metavar='DISKS',
+            dest="disk",
+            help='Server arguments to specify disks used for backup; '
+                  'format is -f followed by a comma separated list.')
     parser.add_option('--debug', action='store_true', default=False,
             help='Pause after starting servers but before running '
                  'clients to enable debugging setup')
@@ -898,10 +982,6 @@ if __name__ == '__main__':
             choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
             metavar='L', dest='log_level',
             help='Controls degree of logging in servers')
-    parser.add_option('-b', '--numBackupDisks', type=int, default=2,
-            metavar='N', dest='backup_disks_per_server',
-            help='Number of backup disks to use on each server host '
-                 '(0, 1, or 2)')
     parser.add_option('-r', '--replicas', type=int, default=3,
             metavar='N',
             help='Number of disk backup copies for each segment')
@@ -931,12 +1011,29 @@ if __name__ == '__main__':
     parser.add_option('-w', '--warmup', type=int,
             help='Number of times to execute operating before '
             'starting measurements')
-    parser.add_option('--workload', default='YCSB-A',
+    parser.add_option('--workload', default=None,
             choices=['YCSB-A', 'YCSB-B', 'YCSB-C', 'WRITE-ONLY'],
             help='Name of workload to run on extra clients to generate load')
+    parser.add_option('--messageSizeCDF', default=None,
+            help='Path to the message size CDF file. The first line of the '
+                 'file contains the average message size. After that, each '
+                 'line consists of two numbers x and y separated by '
+                 'whitespace(s), meaning that the probability of messages '
+                 'that are less than or equal to x bytes is y (y <= 1). All '
+                 'lines must be sorted by the second number and the last line '
+                 'must have y = 1. See benchmarks/homa/messageSizeCDFs for '
+                 'example CDF files used in the HomaTransport paper.')
+    parser.add_option('--maxSessions', type=int, default=1,
+            help='Max. number of sessions opened between each client-server'
+                 ' pair. This is useful to reduce head-of-line blocking in '
+                 'running transport benchmarks using stream-based protocols '
+                 '(e.g., tcp, infrc)')
     parser.add_option('--targetOps', type=int,
             help='Operations per second that each load generating client '
             'will try to achieve')
+    parser.add_option('--targetTput', type=float,
+            help='Network throughput, in Gbps, each load generating client '
+                 'will try to achieve')
     parser.add_option('--txSpan', type=int,
                     help='Number servers a transaction should span.')
     parser.add_option('--asyncReplication',

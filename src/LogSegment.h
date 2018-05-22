@@ -302,7 +302,7 @@ class LogSegment : public Segment {
     /// that bundled our replication traffic with theirs). The point is to allow
     /// batching of objects during backup writes when there are multiple threads
     /// appending to the log.
-    uint32_t syncedLength;
+    std::atomic<uint32_t> syncedLength;
 
     /// Timestamp when this segment was last compacted or created. Used by the
     /// cleaner to decide when to scan for dead tombstones. Sometimes segments

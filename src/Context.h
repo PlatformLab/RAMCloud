@@ -97,7 +97,7 @@ class Context {
     // Holds command-line options, or NULL if no options are available.
     // Memory for this is managed by whoever created this object; we can
     // assume this is static.
-    CommandLineOptions* options;
+    CommandLineOptions* const options;
 
     // Variables below this point are used only in servers.  They are
     // always NULL on clients.
@@ -137,6 +137,12 @@ class Context {
     // NULL except on coordinators. Owned elsewhere;
     // not freed by this class.
     MasterRecoveryManager* recoveryManager;
+
+    // On masters, it points to a permanently mapped region of read-only
+    // memory that can be used as zero-copy source buffer for transmission;
+    // its size is guaranteed to be large enough to hold the largest
+    // request/reply message of an RPC.
+    const void* masterZeroCopyRegion;
 
     /**
      * Returns the BackupService associated with this context, if

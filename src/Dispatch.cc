@@ -64,6 +64,7 @@ Syscall* Dispatch::sys = &defaultSyscall;
  */
 Dispatch::Dispatch(bool hasDedicatedThread)
     : currentTime(0)
+    , iteration(0)
     , pollers()
     , files()
     , epollFd(-1)
@@ -159,7 +160,7 @@ Dispatch::poll()
     }
     if (((currentTime - previous) > slowPollerCycles) && (previous != 0)
             && hasDedicatedThread) {
-        LOG(WARNING, "Long gap in dispatcher: %.1f ms",
+        LOG(WARNING, "Long gap in dispatcher: %.2f ms",
                 Cycles::toSeconds(currentTime - previous)*1e03);
     }
     if (lockNeeded.load() != 0) {
@@ -203,7 +204,7 @@ Dispatch::poll()
         counter.stop();
         if (ticks > slowPollerCycles) {
             double ms = Cycles::toSeconds(ticks) * 1000;
-            LOG(NOTICE, "Poller %s (%u) took awhile: %.1f ms",
+            LOG(NOTICE, "Poller %s (%u) took awhile: %.2f ms",
                 pollers[i]->pollerName.c_str(), i, ms);
         }
 #endif
@@ -297,6 +298,7 @@ Dispatch::poll()
             }
         }
     }
+    iteration++;
     return result;
 }
 

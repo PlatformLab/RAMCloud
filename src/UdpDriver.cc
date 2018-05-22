@@ -64,8 +64,6 @@ UdpDriver::UdpDriver(Context* context,
     , mutex("UdpDriver")
     , locatorString()
     , bandwidthGbps(10)                   // Default bandwidth = 10 gbs
-    , queueEstimator(0)
-    , maxTransmitQueueSize(0)
     , readerThread()
     , readerThreadExit(false)
 {
@@ -167,13 +165,6 @@ UdpDriver::getMaxPacketSize()
 }
 
 // See docs in Driver class.
-int
-UdpDriver::getTransmitQueueSpace(uint64_t currentTime)
-{
-    return maxTransmitQueueSize - queueEstimator.getQueueSize(currentTime);
-}
-
-// See docs in Driver class.
 void
 UdpDriver::receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets)
@@ -226,7 +217,8 @@ UdpDriver::sendPacket(const Address* addr,
                       const void* header,
                       uint32_t headerLen,
                       Buffer::Iterator* payload,
-                      int priority)
+                      int priority,
+                      TransmitQueueState* txQueueState)
 {
     if (socketFd == -1)
         return;
@@ -263,7 +255,8 @@ UdpDriver::sendPacket(const Address* addr,
         LOG(WARNING, "UdpDriver error sending to socket: %s", strerror(errno));
         return;
     }
-    queueEstimator.packetQueued(totalLength, Cycles::rdtsc());
+    lastTransmitTime = Cycles::rdtsc();
+    queueEstimator.packetQueued(totalLength, lastTransmitTime, txQueueState);
     assert(static_cast<size_t>(r) == totalLength);
 }
 

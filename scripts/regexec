@@ -10,4 +10,4 @@ export LD_LIBRARY_PATH=~/bin:/usr/local/lib:$LD_LIBRARY_PATH
 echo $$ > $pidfile
 shift
 shift
-exec $*
+exec env $*

@@ -564,6 +564,8 @@ TEST_F(AdminServiceTest, serverControl_getTimeTrace) {
 TEST_F(AdminServiceTest, serverControl_logTimeTrace) {
     Buffer output;
 
+    Cycles::mockTscValue = 100;
+    Cycles::mockCyclesPerSec = 2000000000;
     TimeTrace::reset();
     TimeTrace::record("sample");
     AdminClient::serverControl(&context, serverId, WireFormat::LOG_TIME_TRACE,
@@ -579,6 +581,7 @@ TEST_F(AdminServiceTest, serverControl_logTimeTrace) {
                         numRegex, "");
 
     EXPECT_EQ(
+        "printInternal: Starting TSC , cyclesPerSec  | "
         "printInternal:      . ns (+   . ns): sample | serverControl: \r\n"
         "Wrote  events (. MB) in . seconds (. seconds spent "
             "compressing)\r\n"
@@ -594,6 +597,8 @@ TEST_F(AdminServiceTest, serverControl_logTimeTrace) {
         "The compression ratio was .-.x ( bytes in,  bytes out,"
             "  pad bytes)\n",
         result);
+    Cycles::mockTscValue = 0;
+    Cycles::mockCyclesPerSec = 0;
 }
 
 TEST_F(AdminServiceTest, serverControl_getCacheTrace) {

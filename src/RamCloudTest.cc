@@ -201,11 +201,9 @@ TEST_F(RamCloudTest, concurrentAsyncRpc) {
 TEST_F(RamCloudTest, echo_basics) {
     Buffer echo;
     ramcloud->echo("mock:host=master1", "abcdef", 6, 6, &echo);
-    EXPECT_EQ("      ", TestUtil::toString(&echo));
     EXPECT_EQ(6U, echo.size());
 
     ramcloud->echo("mock:host=master2", "ghijkl", 6, 6, &echo);
-    EXPECT_EQ("      ", TestUtil::toString(&echo));
     EXPECT_EQ(6U, echo.size());
 }
 
@@ -523,6 +521,61 @@ TEST_F(RamCloudTest, read) {
     EXPECT_EQ("new value", string(reinterpret_cast<const char*>(
                         value.getRange(0, value.size())),
                         value.size()));
+}
+
+TEST_F(RamCloudTest, read_objectExists) {
+    Buffer value;
+    uint64_t version;
+    bool objectExists = true;
+
+    ramcloud->read(tableId1, "0", 1, &value, NULL, &version, &objectExists);
+    EXPECT_FALSE(objectExists);
+
+    EXPECT_THROW(ramcloud->read(tableId1, "0", 1, &value, NULL, &version),
+        ObjectDoesntExistException);
+
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    ramcloud->read(tableId1, "0", 1, &value, NULL, &version, &objectExists);
+    EXPECT_TRUE(objectExists);
+
+    ramcloud->dropTable("table1");
+
+    EXPECT_THROW(ramcloud->read(tableId1, "0", 1, &value, NULL, &version,
+                                &objectExists),
+            TableDoesntExistException);
+    EXPECT_THROW(ramcloud->read(tableId1, "0", 1, &value, NULL, &version),
+            TableDoesntExistException);
+}
+
+TEST_F(RamCloudTest, readKeysAndValue_objectExists) {
+    ObjectBuffer keysAndValue;
+    uint64_t version;
+    bool objectExists = true;
+
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue, NULL, &version,
+                               &objectExists);
+    EXPECT_FALSE(objectExists);
+
+    EXPECT_THROW(
+            ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue, NULL,
+                                       &version),
+            ObjectDoesntExistException);
+
+    ramcloud->write(tableId1, "0", 1, "abcdef", 6);
+
+    ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue, NULL, &version,
+                               &objectExists);
+    EXPECT_TRUE(objectExists);
+
+    ramcloud->dropTable("table1");
+
+    EXPECT_THROW(ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue,
+                                            NULL, &version),
+            TableDoesntExistException);
+    EXPECT_THROW(ramcloud->readKeysAndValue(tableId1, "0", 1, &keysAndValue,
+                                            NULL, &version, &objectExists),
+            TableDoesntExistException);
 }
 
 TEST_F(RamCloudTest, remove) {

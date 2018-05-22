@@ -171,6 +171,24 @@ class RpcWrapper : public Transport::RpcNotifier {
     void docForWait();
 
     /**
+     * Return the header from the request. This method should not be invoked
+     * unless allocHeader has been invoked.
+     *
+     * \tparam RpcType
+     *      A type from WireFormat, such as WireFormat::Read; determines
+     *      the type of the result.
+     * \return
+     *      An RPC-specific request header.
+     */
+    template <typename RpcType>
+    const typename RpcType::Request*
+    getRequestHeader()
+    {
+        assert(request.size() >= sizeof(typename RpcType::Request));
+        return request.getOffset<const typename RpcType::Request>(0);
+    }
+
+    /**
      * Assuming that isReady has returned true, this method will return
      * the header from the response. This method should not be invoked
      * unless isReady has returned true.
@@ -200,9 +218,7 @@ class RpcWrapper : public Transport::RpcNotifier {
      *      Current state of processing for this RPC.
      */
     RpcState getState() {
-        RpcState result = state;
-        Fence::lfence();
-        return result;
+        return state.load(std::memory_order_acquire);
     }
 
     virtual bool handleTransportError();
@@ -228,7 +244,7 @@ class RpcWrapper : public Transport::RpcNotifier {
     /// concurrently by wrapper methods running in one thread and transport
     /// code running in the dispatch thread (transports can only invoke the
     /// completed and failed methods).
-    Atomic<RpcState> state;
+    std::atomic<RpcState> state;
 
     /// Session on which RPC has been sent, or NULL if none.
     Transport::SessionRef session;

@@ -303,13 +303,14 @@ class Infiniband {
         uint16_t        remoteLid;      // Lid of peer; used in log messages.
         bool            response;       // True means this is a response, false
                                         // means this is a request.
+        uint64_t        rpcId;          // RPC identifier.
 
         BufferDescriptor(char *buffer, uint32_t bytes, ibv_mr *mr)
             : buffer(buffer), bytes(bytes), messageBytes(0), mr(mr),
-              remoteLid(0), response(false) {}
+              remoteLid(0), response(false), rpcId(0) {}
         BufferDescriptor()
             : buffer(NULL), bytes(0), messageBytes(0), mr(NULL),
-              remoteLid(0), response(false) {}
+              remoteLid(0), response(false), rpcId(0) {}
 
       private:
         DISALLOW_COPY_AND_ASSIGN(BufferDescriptor);

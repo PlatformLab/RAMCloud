@@ -96,7 +96,6 @@ main(int argc, char *argv[])
 {
     signal(SIGTERM, Perf::terminationHandler);
     Logger::installCrashBacktraceHandlers();
-    Context context(true);
     try {
         ServerConfig config = ServerConfig::forExecution();
         string masterTotalMemory, hashTableMemory;
@@ -257,6 +256,8 @@ main(int argc, char *argv[])
         LOG(NOTICE, "Command line: %s", args.c_str());
         LOG(NOTICE, "Server process id: %u", getpid());
 
+        Context context(true, &optionParser.options);
+
         if (masterOnly && backupOnly)
             DIE("Can't specify both -B and -M options");
 
@@ -343,20 +344,15 @@ main(int argc, char *argv[])
 
         return 0;
     } catch (const Exception& e) {
-        LOG(ERROR, "Fatal error in server at %s: %s",
-            context.transportManager->getListeningLocatorsString().c_str(),
-            e.what());
+        LOG(ERROR, "Fatal error in server: %s", e.what());
         Logger::get().sync();
         return 1;
     } catch (const std::exception& e) {
-        LOG(ERROR, "Fatal error in server at %s: %s",
-            context.transportManager->getListeningLocatorsString().c_str(),
-            e.what());
+        LOG(ERROR, "Fatal error in server: %s", e.what());
         Logger::get().sync();
         return 1;
     } catch (...) {
-        LOG(ERROR, "Unknown fatal error in server at %s",
-            context.transportManager->getListeningLocatorsString().c_str());
+        LOG(ERROR, "Unknown fatal error in server");
         Logger::get().sync();
         return 1;
     }

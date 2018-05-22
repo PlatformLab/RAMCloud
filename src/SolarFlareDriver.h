@@ -50,7 +50,6 @@ class SolarFlareDriver : public Driver {
                               const ServiceLocator* localServiceLocator);
     virtual ~SolarFlareDriver();
     virtual uint32_t getMaxPacketSize();
-    virtual int getTransmitQueueSpace(uint64_t currentTime);
     virtual void receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets);
     virtual void release(char* payload);
@@ -58,7 +57,8 @@ class SolarFlareDriver : public Driver {
                             const void* header,
                             uint32_t headerLen,
                             Buffer::Iterator* payload,
-                            int priority = 0);
+                            int priority = 0,
+                            TransmitQueueState* txQueueState = NULL);
     virtual string getServiceLocator();
     virtual Driver::Address* newAddress(const ServiceLocator& serviceLocator);
 
@@ -245,13 +245,6 @@ class SolarFlareDriver : public Driver {
 
     /// Effective network bandwidth, in Gbits/second.
     int bandwidthGbps;
-
-    /// Used to estimate # bytes outstanding in the NIC's transmit queue.
-    QueueEstimator queueEstimator;
-
-    /// Upper limit on how many bytes should be queued for transmission
-    /// at any given time.
-    uint32_t maxTransmitQueueSize;
 
     void refillRxRing();
     void handleReceived(int packetId, int packetLen,

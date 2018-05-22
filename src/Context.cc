@@ -89,6 +89,11 @@ Context::Context(bool hasDedicatedDispatchThread,
     , coordinatorServerList(NULL)
     , tableManager(NULL)
     , recoveryManager(NULL)
+#if HOMA_BENCHMARK
+    , masterZeroCopyRegion(NULL)
+#else
+    , masterZeroCopyRegion(Memory::xmalloc(HERE, Transport::MAX_RPC_LEN))
+#endif
 {
     try {
         Cycles::init();
@@ -180,6 +185,11 @@ Context::destroy()
     coordinatorServerList = NULL;
 
     tableManager = NULL;
+
+#if !HOMA_BENCHMARK
+    free(const_cast<void*>(masterZeroCopyRegion));
+    masterZeroCopyRegion = NULL;
+#endif
 }
 
 } // namespace RAMCloud

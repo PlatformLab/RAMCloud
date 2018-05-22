@@ -80,8 +80,6 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
     , localMac()
     , locatorString()
     , bandwidthGbps(32)                   // Default bandwidth in gbs
-    , queueEstimator(0)
-    , maxTransmitQueueSize(0)
     , zeroCopyStart(NULL)
     , zeroCopyEnd(NULL)
     , zeroCopyRegion(NULL)
@@ -263,13 +261,6 @@ InfUdDriver::getTransmitBuffer()
     return bd;
 }
 
-// See Driver.h for documentation
-int
-InfUdDriver::getTransmitQueueSpace(uint64_t currentTime)
-{
-    return maxTransmitQueueSize - queueEstimator.getQueueSize(currentTime);
-}
-
 /**
  * Check the NIC to see if it is ready to return transmit buffers
  * from previously-transmit packets. If there are any available,
@@ -347,7 +338,8 @@ InfUdDriver::sendPacket(const Driver::Address* addr,
                         const void* header,
                         uint32_t headerLen,
                         Buffer::Iterator* payload,
-                        int priority)
+                        int priority,
+                        TransmitQueueState* txQueueState)
 {
     uint32_t totalLength = headerLen +
                            (payload ? payload->size() : 0);
@@ -433,7 +425,9 @@ InfUdDriver::sendPacket(const Driver::Address* addr,
     TimeTrace::record("sent packet with %u bytes, %d free buffers",
             totalLength, downCast<int>(txPool->freeBuffers.size()));
 #endif
-    queueEstimator.packetQueued(bd->packetLength, Cycles::rdtsc());
+    lastTransmitTime = Cycles::rdtsc();
+    queueEstimator.packetQueued(bd->packetLength, lastTransmitTime,
+            txQueueState);
     PerfStats::threadStats.networkOutputBytes += bd->packetLength;
 
     // Every once in a while, see if we can reclaim used transmit buffers.
