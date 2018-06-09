@@ -1084,9 +1084,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 OutgoingMessage* request = &clientRpc->request;
                 if (header->offset > request->transmitLimit) {
                     request->transmitLimit = header->offset;
-                    if (!request->topChoice) {
-                        transmitDataSlowPath = true;
-                    }
+                    transmitDataSlowPath |= !request->topChoice;
                 }
                 return;
             }
@@ -1117,26 +1115,28 @@ BasicTransport::handlePacket(Driver::Received* received)
                         header->offset, header->length);
                 OutgoingMessage* request = &clientRpc->request;
                 if (header->common.flags & RESTART) {
-                    clientRpc->response->reset();
-                    request->transmitOffset = 0;
-                    request->transmitLimit = header->length;
-                    clientRpc->accumulator.destroy();
-                    clientRpc->scheduledMessage.destroy();
+                    // Reset the RPC to its pristine state.
                     if (!clientRpc->transmitPending) {
                         clientRpc->transmitPending = true;
                         outgoingRequests.push_back(*clientRpc);
-                        maintainTopOutgoingMessages(request);
-                    } else if (request->topChoice) {
+                    }
+                    if (request->topChoice) {
                         request->topChoice = false;
                         erase(topOutgoingMessages, clientRpc->request);
-                        maintainTopOutgoingMessages(request);
                     }
+                    request->transmitOffset = 0;
+                    request->transmitLimit = header->length;
+                    maintainTopOutgoingMessages(request);
+                    clientRpc->response->reset();
+                    clientRpc->accumulator.destroy();
+                    clientRpc->scheduledMessage.destroy();
                     return;
                 }
                 uint32_t resendEnd = header->offset + header->length;
                 if (resendEnd > request->transmitLimit) {
                     // Needed in case a GRANT packet was lost.
                     request->transmitLimit = resendEnd;
+                    transmitDataSlowPath |= !request->topChoice;
                 }
                 if ((header->offset >= request->transmitOffset)
                         || ((Cycles::rdtsc() - request->lastTransmitTime)
@@ -1355,9 +1355,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 OutgoingMessage* response = &serverRpc->response;
                 if (header->offset > response->transmitLimit) {
                     response->transmitLimit = header->offset;
-                    if (!response->topChoice) {
-                        transmitDataSlowPath = true;
-                    }
+                    transmitDataSlowPath |= !response->topChoice;
                 }
                 return;
             }
@@ -1405,6 +1403,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                 if (resendEnd > response->transmitLimit) {
                     // Needed in case GRANT packet was lost.
                     response->transmitLimit = resendEnd;
+                    transmitDataSlowPath |= !response->topChoice;
                 }
                 if (!serverRpc->sendingResponse
                         || (header->offset >= response->transmitOffset)

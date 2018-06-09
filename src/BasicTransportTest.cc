@@ -836,12 +836,17 @@ TEST_F(BasicTransportTest,
     EXPECT_EQ(10lu, request->transmitLimit);
     driver->outputLog.clear();
 
+    transport.transmitDataSlowPath = false;
+    bool topChoice = request->topChoice;
+    request->topChoice = false;
     handlePacket("mock:server=1", BasicTransport::ResendHeader(
             BasicTransport::RpcId(666, 1), 10, 8, BasicTransport::FROM_SERVER));
+    request->topChoice = topChoice;
     EXPECT_EQ("ACK FROM_CLIENT, rpcId 666.1",
             driver->outputLog);
     EXPECT_EQ(18u, request->transmitLimit);
     EXPECT_EQ(10u, request->transmitOffset);
+    EXPECT_TRUE(transport.transmitDataSlowPath);
 }
 TEST_F(BasicTransportTest, handlePacket_resendFromServer_sendAck) {
     driver->transmitQueueSpace = 0;
@@ -1132,12 +1137,17 @@ TEST_F(BasicTransportTest,
     serverRpc->sendReply();
 
     driver->outputLog.clear();
+    transport.transmitDataSlowPath = false;
+    bool topChoice = serverRpc->response.topChoice;
+    serverRpc->response.topChoice = false;
     handlePacket("mock:client=1",
             BasicTransport::ResendHeader(BasicTransport::RpcId(100, 101),
             15, 8, BasicTransport::FROM_CLIENT));
+    serverRpc->response.topChoice = topChoice;
     EXPECT_EQ("ACK FROM_SERVER, rpcId 100.101", driver->outputLog);
     EXPECT_EQ(15u, serverRpc->response.transmitOffset);
     EXPECT_EQ(23u, serverRpc->response.transmitLimit);
+    EXPECT_TRUE(transport.transmitDataSlowPath);
 }
 TEST_F(BasicTransportTest, handlePacket_resendFromClient_sendAck) {
     driver->transmitQueueSpace = 0;
