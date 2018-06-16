@@ -87,6 +87,7 @@ DpdkDriver::DpdkDriver()
     : context(NULL)
     , packetBufPool()
     , packetBufsUtilized(0)
+    , payloadsToRelease()
     , locatorString()
     , localMac()
     , portId(0)
@@ -124,6 +125,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
     : context(context)
     , packetBufPool()
     , packetBufsUtilized(0)
+    , payloadsToRelease()
     , locatorString()
     , localMac()
     , portId(0)
@@ -292,6 +294,7 @@ DpdkDriver::DpdkDriver(Context* context, int port)
  */
 DpdkDriver::~DpdkDriver()
 {
+    releaseHint(-1);
     if (packetBufsUtilized != 0)
         LOG(ERROR, "DpdkDriver deleted with %d packets still in use",
             packetBufsUtilized);
@@ -424,14 +427,26 @@ DpdkDriver::release(char *payload)
     // Must sync with the dispatch thread, since this method could potentially
     // be invoked in a worker.
     Dispatch::Lock _(context->dispatch);
+    payloadsToRelease.push_back(payload);
+}
 
-    packetBufsUtilized--;
-    assert(packetBufsUtilized >= 0);
-    if (packet_buf_type(payload) == DPDK_MBUF) {
-        rte_pktmbuf_free(payload_to_mbuf(payload));
-    } else {
-        packetBufPool.destroy(reinterpret_cast<PacketBuf*>(
-                payload - OFFSET_OF(PacketBuf, payload)));
+// See docs in Driver class.
+void
+DpdkDriver::releaseHint(int maxCount)
+{
+    while ((maxCount != 0) && !payloadsToRelease.empty()) {
+        maxCount--;
+        char* payload = payloadsToRelease.back();
+        payloadsToRelease.pop_back();
+
+        packetBufsUtilized--;
+        assert(packetBufsUtilized >= 0);
+        if (packet_buf_type(payload) == DPDK_MBUF) {
+            rte_pktmbuf_free(payload_to_mbuf(payload));
+        } else {
+            packetBufPool.destroy(reinterpret_cast<PacketBuf*>(
+                    payload - OFFSET_OF(PacketBuf, payload)));
+        }
     }
 }
 
@@ -482,8 +497,8 @@ DpdkDriver::sendPacket(const Address* addr,
         uint32_t numMbufsInUse = rte_mempool_in_use_count(mbufPool);
         RAMCLOUD_CLOG(WARNING,
                 "Failed to allocate a packet buffer; dropping packet; "
-                "%u mbufs available, %u mbufs in use",
-                numMbufsAvail, numMbufsInUse);
+                "%u mbufs available, %u mbufs in use, %lu payloads to release",
+                numMbufsAvail, numMbufsInUse, payloadsToRelease.size());
         return;
     }
 

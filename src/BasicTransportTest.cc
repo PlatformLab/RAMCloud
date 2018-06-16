@@ -1276,22 +1276,13 @@ TEST_F(BasicTransportTest, MessageAccumulator_destructor) {
     handlePacket("mock:client=1",
             BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 25, 15,
             unscheduledBytes, BasicTransport::FROM_CLIENT), "01234");
-    handlePacket("mock:client=1",
-            BasicTransport::DataHeader(BasicTransport::RpcId(100, 101), 25, 0,
-            unscheduledBytes, BasicTransport::FROM_CLIENT), "xxxxx");
     BasicTransport::ServerRpc* serverRpc =
             transport.incomingRpcs[BasicTransport::RpcId(100, 101)];
     EXPECT_TRUE(serverRpc->accumulator);
     EXPECT_EQ(3u, serverRpc->accumulator->fragments.size());
-    EXPECT_EQ(1u, serverRpc->accumulator->assembledPayloads->size());
     EXPECT_EQ(0u, driver->releaseCount);
     transport.deleteServerRpc(serverRpc);
     EXPECT_EQ(3u, driver->releaseCount);
-    EXPECT_EQ(1u, transport.messagesToRelease.size());
-
-    transport.poller.poll();
-    EXPECT_EQ(4u, driver->releaseCount);
-    EXPECT_EQ(0u, transport.messagesToRelease.size());
 }
 
 TEST_F(BasicTransportTest, addPacket_basics) {

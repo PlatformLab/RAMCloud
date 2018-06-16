@@ -87,7 +87,6 @@ BasicTransport::BasicTransport(Context* context, const ServiceLocator* locator,
     , nextServerSequenceNumber(1)
     , receivedPackets()
     , messagesToGrant()
-    , messagesToRelease()
     , serverRpcPool()
     , clientRpcPool()
     , outgoingRpcs()
@@ -152,13 +151,6 @@ BasicTransport::~BasicTransport()
         // deleteClientRpc.
         it++;
         deleteClientRpc(clientRpc);
-    }
-
-    // Release all retained payloads after reclaiming all RPC objects.
-    for (MessageAccumulator::Payloads* message : messagesToRelease) {
-        for (char* payload : *message) {
-            driver->release(payload);
-        }
     }
 
     if (driverOwner) {
@@ -1023,8 +1015,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                     header = received->getOffset<DataHeader>(0);
                 }
                 if (!clientRpc->accumulator) {
-                    clientRpc->accumulator.construct(this, clientRpc->response,
-                            uint32_t(header->totalLength));
+                    clientRpc->accumulator.construct(this, clientRpc->response);
                     if (header->totalLength > header->unscheduledBytes) {
                         clientRpc->scheduledMessage.construct(
                                 clientRpc->rpcId, clientRpc->accumulator.get(),
@@ -1268,8 +1259,7 @@ BasicTransport::handlePacket(Driver::Received* received)
                     nextServerSequenceNumber++;
                     incomingRpcs[header->common.rpcId] = serverRpc;
                     serverRpc->accumulator.construct(this,
-                            &serverRpc->requestPayload,
-                            uint32_t(header->totalLength));
+                            &serverRpc->requestPayload);
                     if (header->totalLength > header->unscheduledBytes) {
                         serverRpc->scheduledMessage.construct(
                                 serverRpc->rpcId, serverRpc->accumulator.get(),
@@ -1544,20 +1534,14 @@ BasicTransport::ServerRpc::sendReply()
  *      The complete message will be assembled here; caller should ensure
  *      that this is initially empty. The caller owns the storage for this
  *      and must ensure that it persists as long as this object persists.
- * \param totalLength
- *      Length of the message.
  */
 BasicTransport::MessageAccumulator::MessageAccumulator(BasicTransport* t,
-        Buffer* buffer, uint32_t totalLength)
+        Buffer* buffer)
     : t(t)
-    , assembledPayloads(new Payloads())
     , buffer(buffer)
     , fragments()
 {
     assert(buffer->size() == 0);
-    int numPackets = totalLength / t->maxDataPerPacket +
-            (totalLength % t->maxDataPerPacket == 0 ? 0 : 1);
-    assembledPayloads->reserve(numPackets);
 }
 
 /**
@@ -1573,7 +1557,6 @@ BasicTransport::MessageAccumulator::~MessageAccumulator()
         t->driver->release(fragment.header);
     }
     fragments.clear();
-    t->messagesToRelease.push_back(assembledPayloads);
 }
 
 /**
@@ -1628,10 +1611,9 @@ BasicTransport::MessageAccumulator::addPacket(DataHeader *header,
         MessageFragment fragment(header, length);
         do {
             char* payload = reinterpret_cast<char*>(fragment.header);
-            buffer->appendExternal(payload + sizeof32(DataHeader),
-                    fragment.length);
-            assembledPayloads->push_back(payload);
-
+            Driver::PayloadChunk::appendToBuffer(buffer,
+                    payload + sizeof32(DataHeader), fragment.length,
+                    t->driver, payload);
             FragmentMap::iterator it = fragments.find(buffer->size());
             if (it == fragments.end()) {
                 return true;
@@ -1839,40 +1821,31 @@ BasicTransport::Poller::poll()
     uint32_t totalBytesSent = t->tryToTransmitData();
     result = totalBytesSent > 0 ? 1 : result;
 
-    // See if we should release a few retained payloads to the driver.
-    // As of 02/2017, releasing one payload to the DpdkDriver takes ~65ns.
-    // If we have received up to MAX_PACKETS packets, then there may be more
-    // packets outstanding in the NIC's RX queue and we should skip returning
-    // payloads to get to the next poll ASAP. On the other hand, if we haven't
-    // found anything useful to do in this method up till now, try to release
-    // more payloads.
-    uint32_t releaseCount = 0;
-    if (numPackets < MAX_PACKETS) {
-        const uint32_t maxRelease = result ? 1 : 5;
-        while (!t->messagesToRelease.empty()) {
-            MessageAccumulator::Payloads* message =
-                    t->messagesToRelease.back();
-            while (!message->empty() && (releaseCount < maxRelease)) {
-                char* payload = message->back();
-                message->pop_back();
-                t->driver->release(payload);
-                releaseCount++;
-                result = 1;
-            }
 
-            if (message->empty()) {
-                t->messagesToRelease.pop_back();
-                delete message;
-            } else {
-                break;
-            }
-        }
+    // Provide a hint to the driver on how many packet buffers to release.
+    // We try to release only a few packet buffers from large messages at
+    // a time to avoid jitters. As of 02/2017, releasing one packet buffer
+    // in the DPDK library takes ~65ns.
+    int maxRelease;
+    if (!result) {
+        // We haven't found anything useful to do in this method up till now.
+        // Try to release more packet buffers.
+        maxRelease = 16;
+    } else if (numPackets == MAX_PACKETS) {
+        // We received MAX_PACKETS packets, so there may be more packets
+        // outstanding in the NIC's rx queue. Let's skip the release to get
+        // to the next poll ASAP.
+        maxRelease = 0;
+    } else {
+        // Common case: release as many packets as received.
+        maxRelease = numPackets;
     }
+    t->driver->releaseHint(maxRelease);
 
     if (result) {
         timeTrace("end of polling iteration %u, received %u packets, "
-                "transmitted %u bytes, released %u packet buffers",
-                owner->iteration, numPackets, totalBytesSent, releaseCount);
+                "transmitted %u bytes", owner->iteration, numPackets,
+                totalBytesSent);
     }
     return result;
 }

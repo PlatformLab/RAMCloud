@@ -326,6 +326,21 @@ class Driver {
     }
 
     /**
+     * A hint from the transport that it's a good time for the driver to
+     * actually recycle the resources of a few packet buffers.
+     *
+     * Note: there is no guarantee that the driver will follow this hint.
+     * For instance, a driver can simply ignore this hint and perform the
+     * release whenever the ownership of a packet buffer is returned via
+     * #release (which is the default behavior).
+     *
+     * \param maxCount
+     *      The maximum number of packet buffers to release.
+     *      -1 means unlimited.
+     */
+    virtual void releaseHint(int maxCount) {}
+
+    /**
      * This method is invoked by transports to tell a driver that it should
      * release a packet buffer back to the NIC. It is needed because some
      * drivers may use zero-copy techniques when packets arrive, passing the

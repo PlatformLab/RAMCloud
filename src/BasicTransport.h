@@ -160,8 +160,7 @@ class BasicTransport : public Transport {
      */
     class MessageAccumulator {
       public:
-        MessageAccumulator(BasicTransport* t, Buffer* buffer,
-                uint32_t totalLength);
+        MessageAccumulator(BasicTransport* t, Buffer* buffer);
         ~MessageAccumulator();
         bool addPacket(DataHeader *header, uint32_t length);
         uint32_t requestRetransmission(BasicTransport *t,
@@ -170,13 +169,6 @@ class BasicTransport : public Transport {
 
         /// Transport that is managing this object.
         BasicTransport* t;
-
-        /// Holds all of the packets that have been received for the message
-        /// so far in order, up to the first packet that has not been received.
-        /// Upon destruction, these packets are passed to t->messagesToRelease,
-        /// and incrementally deleted in the polling loop to avoid jitters.
-        using Payloads = std::vector<char*>;
-        Payloads* assembledPayloads;
 
         /// Used to assemble the complete message. It holds all of the
         /// data that has been received for the message so far, up to the
@@ -715,12 +707,6 @@ class BasicTransport : public Transport {
     /// Holds incoming messages we are about to grant. Always empty, except
     /// when the poll method is receiving and processing incoming packets.
     std::vector<ScheduledMessage*> messagesToGrant;
-
-    /// Holds multi-packet messages that are in the process of being deleted.
-    /// A multi-packet message was released inside ~MessageAccumulator at one
-    /// shot, but that caused significant jitters when the message is large.
-    /// Now the packets are gradually released in the poll method.
-    std::vector<MessageAccumulator::Payloads*> messagesToRelease;
 
     /// Pool allocator for our ServerRpc objects.
     ServerRpcPool<ServerRpc> serverRpcPool;
