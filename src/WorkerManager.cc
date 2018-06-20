@@ -39,17 +39,17 @@
 // #define LOG_RPCS 1
 
 namespace RAMCloud {
-// Uncomment the following line (or specify -D SMTT on the make command line)
+// Uncomment the following line (or specify -D WMTT on the make command line)
 // to enable a bunch of time tracing in this module.
-// #define SMTT 1
+// #define WMTT 1
 
 // Provides a shorthand way of invoking TimeTrace::record, compiled in or out
-// by the SMTT #ifdef.
+// by the WMTT #ifdef.
 void
 WorkerManager::timeTrace(const char* format,
         uint32_t arg0, uint32_t arg1, uint32_t arg2, uint32_t arg3)
 {
-#ifdef SMTT
+#ifdef WMTT
     TimeTrace::record(format, arg0, arg1, arg2, arg3);
 #endif
 }
