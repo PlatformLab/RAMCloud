@@ -28,3 +28,7 @@ tags
 # Ignore IDE files
 /.idea/
 /nbproject/
+
+# CMake
+CMakeLists.txt
+cmake-*/

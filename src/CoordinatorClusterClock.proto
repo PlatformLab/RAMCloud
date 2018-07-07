@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+syntax = "proto2";
+
 package RAMCloud.ProtoBuf;
 
 // This message is used to store overall state about the CoordinatorClusterClock

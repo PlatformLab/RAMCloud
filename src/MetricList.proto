@@ -13,6 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+syntax = "proto2";
+
 package RAMCloud.ProtoBuf;
 
 /// A list containing one or more performance counters from a RAMCloud
