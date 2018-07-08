@@ -27,10 +27,10 @@ if [ ! -d ./deps ]; then mkdir deps; fi
 
 if [ ! -d ./deps/${DPDK} ];
 then
-	cd deps;
-	wget --no-clobber ${DPDK_SRC}
-	tar zxvf ${DPDK}.tar.gz
-	cd ..
+    cd deps;
+    wget --no-clobber ${DPDK_SRC}
+    tar zxvf ${DPDK}.tar.gz
+    cd ..
 fi
 ln -sfn deps/${DPDK} dpdk
 

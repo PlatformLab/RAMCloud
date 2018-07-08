@@ -78,7 +78,7 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
     , lid(0)
     , qpn(0)
     , localMac()
-    , locatorString()
+    , locatorString("infud:")
     , bandwidthGbps(32)                   // Default bandwidth in gbs
     , zeroCopyStart(NULL)
     , zeroCopyEnd(NULL)

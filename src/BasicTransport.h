@@ -181,7 +181,7 @@ class BasicTransport : public Transport {
             /// Driver::steal.
             DataHeader *header;
 
-            /// # of bytes of message data available at payload.
+            /// # bytes of message data available at payload.
             uint32_t length;
 
             MessageFragment()
@@ -213,9 +213,8 @@ class BasicTransport : public Transport {
     class ScheduledMessage {
       public:
         ScheduledMessage(RpcId rpcId, MessageAccumulator* accumulator,
-                uint32_t unscheduledBytes,
-                const Driver::Address* senderAddress, uint32_t totalLength,
-                uint8_t whoFrom);
+                uint32_t unscheduledBytes, const Driver::Address* senderAddress,
+                uint32_t totalLength, uint8_t whoFrom);
         ~ScheduledMessage();
 
         /// Holds state of partially-received multi-packet messages.
@@ -270,7 +269,7 @@ class BasicTransport : public Transport {
 
         /// The number of bytes in the message that it's OK for us to transmit.
         /// Bytes after this cannot be transmitted until we receive a GRANT for
-        /// them.
+        /// them. Must be always smaller than or equal to the message size.
         uint32_t transmitLimit;
 
         /// True means this message is among the sender's top outgoing
@@ -296,7 +295,7 @@ class BasicTransport : public Transport {
             , serverRpc(serverRpc)
             , recipient(recipient)
             , transmitOffset(0)
-            , transmitLimit(t->roundTripBytes)
+            , transmitLimit()
             , topChoice(false)
             , lastTransmitTime(0)
             , outgoingMessageLinks()
@@ -452,7 +451,7 @@ class BasicTransport : public Transport {
         GRANT                  = 22,
         LOG_TIME_TRACE         = 23,
         RESEND                 = 24,
-        ACK                    = 25,
+        BUSY                   = 25,
         ABORT                  = 26,
         BOGUS                  = 27,      // Used only in unit tests.
         // If you add a new opcode here, you must also do the following:
@@ -587,21 +586,21 @@ class BasicTransport : public Transport {
     } __attribute__((packed));
 
     /**
-     * Describes the wire format for ACK packets. These packets are used
+     * Describes the wire format for BUSY packets. These packets are used
      * to let the recipient know that the sender is still alive; they
      * don't trigger any actions on the receiver except resetting timers.
      */
-    struct AckHeader {
+    struct BusyHeader {
         CommonHeader common;         // Common header fields.
 
-        explicit AckHeader(RpcId rpcId, uint8_t flags)
-            : common(PacketOpcode::ACK, rpcId, flags) {}
+        explicit BusyHeader(RpcId rpcId, uint8_t flags)
+            : common(PacketOpcode::BUSY, rpcId, flags) {}
     } __attribute__((packed));
 
     /**
      * Describes the wire format for ABORT packets. These packets are used
      * to let the server know that the client has cancelled the RPC. They
-     * are neccessary to avoid spurious warning messages in the log.
+     * are necessary to avoid spurious warning messages in the log.
      */
     struct AbortHeader {
         CommonHeader common;         // Common header fields.
@@ -646,7 +645,6 @@ class BasicTransport : public Transport {
     template<typename T>
     void sendControlPacket(const Driver::Address* recipient, const T* packet);
     uint32_t tryToTransmitData();
-    void augmentTopOutgoingMessageSet();
     void maintainTopOutgoingMessages(OutgoingMessage* candidate);
 
     /// Shared RAMCloud information.
