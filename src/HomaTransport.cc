@@ -2431,7 +2431,7 @@ HomaTransport::tryToSchedule(ScheduledMessage* message)
  * scheduler needs to 1) update its active message list and 2) send out
  * a GRANT.
  *
- * \param message
+ * \param scheduledMessage
  *      NULL means the data packet belongs to a unscheduled message;
  *      otherwise, it is the scheduled message that receives the data
  *      packet.
