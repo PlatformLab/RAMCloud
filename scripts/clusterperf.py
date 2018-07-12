@@ -316,6 +316,7 @@ def run_test(
     cluster_args = {
         'debug':       options.debug,
         'log_dir':     options.log_dir,
+        'config_dir':  options.config_dir,
         'log_level':   options.log_level,
         'num_servers': options.num_servers,
         'replicas':    options.replicas,
@@ -956,6 +957,9 @@ if __name__ == '__main__':
             dest='log_dir',
             help='Top level directory for log files; the files for '
                  'each invocation will go in a subdirectory.')
+    parser.add_option('--configDir', default='config', metavar='DIR',
+            dest='config_dir',
+            help='Directory containing RAMCloud configuration files.')
     parser.add_option('-l', '--logLevel', default='NOTICE',
             choices=['DEBUG', 'NOTICE', 'WARNING', 'ERROR', 'SILENT'],
             metavar='L', dest='log_level',

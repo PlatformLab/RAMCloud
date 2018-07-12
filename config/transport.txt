@@ -1,0 +1,8 @@
+# This is the configuration file for all RAMCloud transports. Each line of this
+# file (except comments) specifies the configuration of one transport, in the
+# same format as service locators. For example, the following line specifies
+# the configuration of homa+dpdk used to run W3 in the Homa paper:
+#     homa+dpdk:rttMicros=8,unschedPrio=4,degreeOC=4,numPrio=8,unschedPrioCutoffs=469.5521.15267
+#
+# Note: configurations in this file override configurations passed in from the
+# command-line.

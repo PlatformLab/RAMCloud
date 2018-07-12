@@ -75,6 +75,7 @@ class MockDriver : public Driver {
     MockDriver();
     explicit MockDriver(HeaderToString headerToString);
     virtual ~MockDriver();
+    virtual int getHighestPacketPriority() { return 7; }
     virtual uint32_t getMaxPacketSize() { return MAX_PAYLOAD_SIZE; }
 #if TESTING
     virtual int getTransmitQueueSpace(uint64_t currentTime) {

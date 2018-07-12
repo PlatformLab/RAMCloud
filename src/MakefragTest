@@ -73,6 +73,7 @@ TESTS_SRCFILES := \
 		  src/FileLoggerTest.cc \
 		  src/HashTableTest.cc \
 		  src/HistogramTest.cc \
+		  src/HomaTransportTest.cc \
 		  src/IndexKeyTest.cc \
 		  src/IndexletManagerTest.cc \
 		  src/IndexLookupTest.cc \

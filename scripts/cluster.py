@@ -54,24 +54,32 @@ server_locator_templates = {
     'tcp-1g': 'tcp:host=%(host1g)s,port=%(port)d',
     'basic+udp': 'basic+udp:host=%(host)s,port=%(port)d',
     'basic+udp-1g': 'basic+udp:host=%(host1g)s,port=%(port)d',
+    'homa+udp': 'homa+udp:host=%(host)s,port=%(port)d',
+    'homa+udp-1g': 'homa+udp:host=%(host1g)s,port=%(port)d',
     'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
     'infrc': 'infrc:host=%(host)s,port=%(port)d',
     'basic+infud': 'basic+infud:host=%(host1g)s',
+    'homa+infud': 'homa+infud:host=%(host1g)s',
     'unreliable+infud': 'unreliable+infud:host=%(host1g)s',
     'unreliable+infeth': 'unreliable+infeth:mac=00:11:22:33:44:%(id)02x',
     'basic+dpdk': 'basic+dpdk:',
+    'homa+dpdk': 'homa+dpdk:',
 }
 coord_locator_templates = {
     'tcp': 'tcp:host=%(host)s,port=%(port)d',
     'tcp-1g': 'tcp:host=%(host1g)s,port=%(port)d',
     'basic+udp': 'basic+udp:host=%(host)s,port=%(port)d',
     'basic+udp-1g': 'basic+udp:host=%(host1g)s,port=%(port)d',
+    'homa+udp': 'homa+udp:host=%(host)s,port=%(port)d',
+    'homa+udp-1g': 'homa+udp:host=%(host1g)s,port=%(port)d',
     'unreliable+udp': 'unreliable+udp:host=%(host)s,port=%(port)d',
     'infrc': 'infrc:host=%(host)s,port=%(port)d',
     # Coordinator uses udp even when rest of cluster uses infud
     # or dpdk.
     'basic+infud': 'basic+udp:host=%(host)s,port=%(port)d',
+    'homa+infud': 'homa+udp:host=%(host)s,port=%(port)d',
     'basic+dpdk': 'basic+udp:host=%(host)s,port=%(port)d',
+    'homa+dpdk': 'homa+udp:host=%(host)s,port=%(port)d',
 }
 
 def server_locator(transport, host, port=server_port):
@@ -538,6 +546,8 @@ def run(
                                    # log files.  A separate subdirectory
                                    # will be created in this directory
                                    # for the log files from this run.
+        config_dir='config',       # Directory containing RAMCloud
+                                   # configuration files.
         client=None,               # Command-line to invoke for each client
                                    # additional arguments will be prepended
                                    # with configuration information such as
@@ -631,6 +641,11 @@ def run(
             master_args += ' --dpdkPort %d' % dpdk_port
             if client:
                 client += ' --dpdkPort %d' % dpdk_port
+        if config_dir is not None:
+            coordinator_args += ' --configDir %s' % config_dir
+            master_args += ' --configDir %s' % config_dir
+            if client:
+                client += ' --configDir %s' % config_dir
 
         if not coordinator_host:
             coordinator_host = cluster.hosts[-1]
@@ -728,6 +743,10 @@ if __name__ == '__main__':
             dest='log_dir',
             help='Top level directory for log files; the files for '
                  'each invocation will go in a subdirectory.')
+    parser.add_option('--configDir', default='config',
+            metavar='DIR',
+            dest='config_dir',
+            help='Directory containing RAMCloud configuration files.')
     parser.add_option('--masterArgs', metavar='ARGS', default='',
             dest='master_args',
             help='Additional command-line arguments to pass to '
