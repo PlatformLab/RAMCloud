@@ -98,10 +98,17 @@ class RpcWrapper : public Transport::RpcNotifier {
     typename RpcType::Request*
     allocHeader()
     {
-        assert(request.size() == 0);
+        return allocHeader<RpcType>(&request);
+    }
+
+    template <typename RpcType>
+    static typename RpcType::Request*
+    allocHeader(Buffer* request)
+    {
+        assert(request->size() == 0);
         RpcLevel::checkCall(RpcType::opcode);
         typename RpcType::Request* reqHdr =
-                request.emplaceAppend<typename RpcType::Request>();
+                request->emplaceAppend<typename RpcType::Request>();
         // Don't allow this method to be used for RPCs that use
         // RequestCommonWithId as the header; use the other form
         // with targetId instead.
@@ -111,6 +118,36 @@ class RpcWrapper : public Transport::RpcNotifier {
         memset(reqHdr, 0, sizeof(*reqHdr));
         reqHdr->common.opcode = RpcType::opcode;
         reqHdr->common.service = RpcType::service;
+        return reqHdr;
+    }
+
+    template <typename RpcType>
+    typename RpcType::Request*
+    allocHeader(uint32_t opId)
+    {
+        assert(request.size() == 0);
+        RpcLevel::checkCall(RpcType::opcode);
+        typename RpcType::Request* reqHdr =
+                request.emplaceAppend<typename RpcType::Request>();
+        memset(reqHdr, 0, sizeof(*reqHdr));
+        reqHdr->common.opcode = RpcType::opcode;
+        reqHdr->common.service = RpcType::service;
+        reqHdr->common.opId = opId;
+        return reqHdr;
+    }
+
+    template <typename RpcType>
+    static typename RpcType::Request*
+    allocHeader(Buffer* request, uint32_t opId)
+    {
+        assert(request->size() == 0);
+        RpcLevel::checkCall(RpcType::opcode);
+        typename RpcType::Request* reqHdr =
+                request->emplaceAppend<typename RpcType::Request>();
+        memset(reqHdr, 0, sizeof(*reqHdr));
+        reqHdr->common.opcode = RpcType::opcode;
+        reqHdr->common.service = RpcType::service;
+        reqHdr->common.opId = opId;
         return reqHdr;
     }
 
@@ -259,6 +296,9 @@ class RpcWrapper : public Transport::RpcNotifier {
     /// don't have to recompute it.  Guaranteed to actually refer to at
     /// least responseHeaderLength bytes if the RPC succeeds.
     const WireFormat::ResponseCommon* responseHeader;
+
+    friend class TreeBcast;
+    friend class AllShuffle;
 
     DISALLOW_COPY_AND_ASSIGN(RpcWrapper);
 };

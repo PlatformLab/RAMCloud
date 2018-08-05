@@ -22,6 +22,7 @@
 #include "ClientException.h"
 #include "Buffer.h"
 #include "ServerId.h"
+#include "Transport.h"
 #include "WireFormat.h"
 #include "PerfCounter.h"
 
@@ -165,6 +166,21 @@ class Service {
         // block is used in a given RPC.
     }
 
+    /**
+     * Dummy method that "verifies" the server id for RPCs that don't
+     * actually require verification: this method is a no-op.
+     *
+     * \param common
+     *      The common header area from an incoming RPC.
+     */
+    void
+    checkServerId(const WireFormat::RequestCommonWithOpId* common)
+    {
+        // This method does nothing; it exists so that the callHandler
+        // template doesn't need to worry about which type of common
+        // block is used in a given RPC.
+    }
+
   public:
     /// The identifier assigned to this server by the coordinator.  If the
     /// server has not yet enlisted, or if the serverId isn't relevant for
@@ -180,7 +196,47 @@ class Service {
      */
     virtual void initOnceEnlisted() { }
 
+  PROTECTED:
+    /**
+     * A record for a collective operation.
+     */
+    struct CollectiveOpRecord {
+        explicit CollectiveOpRecord()
+            : op(NULL), serverRpcList() {}
+
+        template <typename Op>
+        Op* getOp() { return static_cast<Op*>(op); }
+
+        // FIXME: introduce a base abstract class for all collective ops.
+        void* op;
+
+        /// Incoming RPCs targeting the not-yet created collective operation
+        /// object. Always emtpy when op is non-null.
+        std::vector<Transport::ServerRpc*> serverRpcList;
+
+        DISALLOW_COPY_AND_ASSIGN(CollectiveOpRecord)
+    };
+
+    CollectiveOpRecord* getCollectiveOpRecord(int opId)
+    {
+        CollectiveOpTable::iterator it = collectiveOpTable.find(opId);
+        if (it == collectiveOpTable.end()) {
+            // FIXME: why can't I do this
+//            collectiveOpTable.emplace(opId);
+            collectiveOpTable[opId].construct();
+            return collectiveOpTable[opId].get();
+        } else {
+            return it->second.get();
+        }
+    }
+
+    using CollectiveOpTable = std::unordered_map<int, Tub<CollectiveOpRecord>>;
+//    using CollectiveOpTable = std::unordered_map<int, CollectiveOpRecord>;
+    CollectiveOpTable collectiveOpTable;
+
+  private:
     friend class BindTransport;
+    friend class WorkerManager;
     DISALLOW_COPY_AND_ASSIGN(Service);
 };
 

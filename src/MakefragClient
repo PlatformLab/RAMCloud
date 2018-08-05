@@ -27,8 +27,11 @@ endif
 CLIENT_SRCFILES := \
 		   src/AbstractServerList.cc \
 		   src/AdminClient.cc \
+		   src/AllGather.cc \
+		   src/AllShuffle.cc \
 		   src/ArpCache.cc \
 		   src/BasicTransport.cc \
+		   src/Broadcast.cc \
 		   src/Buffer.cc \
 		   src/CRamCloud.cc \
 		   src/CacheTrace.cc \
@@ -51,6 +54,7 @@ CLIENT_SRCFILES := \
 		   src/ExternalStorage.cc \
 		   src/FailSession.cc \
 		   src/FileLogger.cc \
+		   src/Gather.cc \
 		   src/HomaTransport.cc \
 		   src/IndexKey.cc \
 		   src/IndexLookup.cc \
@@ -69,6 +73,7 @@ CLIENT_SRCFILES := \
 		   src/MacIpAddress.cc \
 		   src/MasterClient.cc \
 		   src/Memory.cc \
+		   src/MilliSortClient.cc \
 		   src/MultiOp.cc \
 		   src/MultiIncrement.cc \
 		   src/MultiRead.cc \

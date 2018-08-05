@@ -33,6 +33,7 @@ serviceTypeSymbol(ServiceType type) {
         case BACKUP_SERVICE:        return "BACKUP_SERVICE";
         case COORDINATOR_SERVICE:   return "COORDINATOR_SERVICE";
         case ADMIN_SERVICE:         return "ADMIN_SERVICE";
+        case MILLISORT_SERVICE:     return "MILLISORT_SERVICE";
         default:                    return "INVALID_SERVICE";
     }
 }
@@ -122,6 +123,13 @@ opcodeSymbol(uint32_t opcode)
         case TX_REQUEST_ABORT:             return "TX_REQUEST_ABORT";
         case TX_HINT_FAILED:               return "TX_HINT_FAILED";
         case ECHO:                         return "ECHO";
+        case INIT_MILLISORT:               return "INIT_MILLISORT";
+        case START_MILLISORT:              return "START_MILLISORT";
+        case BCAST_TREE:                   return "BCAST_TREE";
+        case GATHER_FLAT:                  return "GATHER_FLAT";
+        case ALL_GATHER:                   return "ALL_GATHER";
+        case ALL_SHUFFLE:                  return "ALL_SHUFFLE";
+        case SEND_DATA:                    return "SEND_DATA";
         case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
     }
 

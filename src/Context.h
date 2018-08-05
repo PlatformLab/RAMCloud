@@ -36,6 +36,7 @@ class ExternalStorage;
 class Logger;
 class MasterRecoveryManager;
 class MasterService;
+class MilliSortService;
 class MockContextMember;
 class ObjectFinder;
 class PortAlarmTimer;
@@ -172,6 +173,16 @@ class Context {
     getMasterService() {
         return reinterpret_cast<MasterService*>(
                 services[WireFormat::MASTER_SERVICE]);
+    }
+
+    /**
+     * Returns the MilliSortService associated with this context, if there is one,
+     * or NULL if there is none.
+     */
+    MilliSortService*
+    getMilliSortService() {
+        return reinterpret_cast<MilliSortService*>(
+                services[WireFormat::MILLISORT_SERVICE]);
     }
 
   PRIVATE:

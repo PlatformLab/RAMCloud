@@ -42,6 +42,7 @@ Server::Server(Context* context, const ServerConfig* config)
     , master()
     , backup()
     , adminService()
+    , millisortService()
     , enlistTimer()
 {
     context->coordinatorSession->setLocation(
@@ -165,6 +166,11 @@ Server::createAndRegisterServices()
                                &config);
     }
 
+    if (config.services.has(WireFormat::MILLISORT_SERVICE)) {
+        LOG(NOTICE, "Starting MilliSort service");
+        millisortService.construct(context, &config);
+    }
+
     return formerServerId;
 }
 
@@ -206,6 +212,8 @@ Server::enlist(ServerId replacingId)
         master->setServerId(serverId);
     if (backup)
         backup->setServerId(serverId);
+    if (millisortService)
+        millisortService->setServerId(serverId);
 
     if (config.detectFailures) {
         failureDetector.construct(context, serverId);

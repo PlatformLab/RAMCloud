@@ -180,6 +180,9 @@ TimeTraceUtil::initQueueLengthMessages()
             case WireFormat::ServiceType::ADMIN_SERVICE:
                 typeString = "Admin";
                 break;
+            case WireFormat::ServiceType::MILLISORT_SERVICE:
+                typeString = "MilliSort";
+                break;
             default:
                 typeString = "Unknown";
         }

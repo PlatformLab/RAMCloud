@@ -105,10 +105,13 @@ class WorkerManager : Dispatch::Poller {
     // queued here, not sent to workers.
     std::queue<Transport::ServerRpc*> testRpcs;
 
+    std::vector<Transport::ServerRpc*> collectiveOpRpcs;
+
     static void workerMain(Worker* worker);
     static Syscall *sys;
 
     friend class Worker;
+    friend class MilliSortService;
     DISALLOW_COPY_AND_ASSIGN(WorkerManager);
 };
 

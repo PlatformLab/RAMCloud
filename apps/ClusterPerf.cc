@@ -48,10 +48,11 @@
 #include <unordered_set>
 namespace po = boost::program_options;
 
-#include "BasicTransport.h"
 #include "btreeRamCloud/Btree.h"
 #include "ClientLeaseAgent.h"
 #include "IndexLookup.h"
+#include "MilliSortClient.h"
+#include "ObjectPool.h"
 #include "TimeTrace.h"
 #include "Transaction.h"
 #include "Util.h"
@@ -266,6 +267,11 @@ void getDist(std::vector<uint64_t>& times, TimeDist* dist)
     }
 }
 
+/// Holds information about all available servers in the cluster. Each server
+/// is described as a (ServiceLocator, ServiceMask) pair indexed by its
+/// ServerId.
+using ServerMap = std::map<ServerId, std::pair<std::string, ServiceMask>>;
+
 /**
  * Obtain a list of available servers in the cluster from the coordinator.
  *
@@ -275,20 +281,20 @@ void getDist(std::vector<uint64_t>& times, TimeDist* dist)
  *      server Id.
  */
 void
-getServerList(std::map<uint64_t, std::pair<string, ServiceMask>>* servers)
+getServerList(ServerMap* servers)
 {
     servers->clear();
     ProtoBuf::ServerList serverList;
-    CoordinatorClient::getServerList(cluster->clientContext, &serverList);
+    CoordinatorClient::getServerList(context, &serverList);
     for (int i = 0; i < serverList.server_size(); i++) {
         const ProtoBuf::ServerList_Entry* server = &serverList.server(i);
         if (ServerStatus(server->status()) != ServerStatus::UP) {
             continue;
         }
 
-        (*servers)[server->server_id()] = std::make_pair(
-                server->service_locator(),
-                ServiceMask::deserialize(server->services()));
+        ServerId id(server->server_id());
+        ServiceMask serviceMask(ServiceMask::deserialize(server->services()));
+        (*servers)[id] = std::make_pair(server->service_locator(), serviceMask);
     }
 }
 
@@ -1351,7 +1357,7 @@ echoMessageAsync(const vector<string> receivers, const char* message,
     vector<MultiConnection*> servers;
     for (string serviceLocator : receivers) {
         servers.push_back(new MultiConnection(serviceLocator,
-                cluster->clientContext->transportManager));
+                context->transportManager));
     }
 
     // Max # concurrent RPCs sent to the transport sub-system. This is
@@ -2968,20 +2974,21 @@ echo_basic()
     }
 
     // Choose the first master server in the server list as the receiver.
-    using ServerMap = std::map<uint64_t, std::pair<string, ServiceMask>>;
     ServerMap servers;
     getServerList(&servers);
     string receiverLocator;
     ServerMap::iterator it;
     for (it = servers.begin(); it != servers.end(); it++) {
-        if (it->second.second.has(WireFormat::MASTER_SERVICE)) {
+        ServiceMask serviceMask = it->second.second;
+        if (serviceMask.has(WireFormat::MASTER_SERVICE)) {
             break;
         }
     }
     if (it != servers.end()) {
+        ServerId serverId = it->first;
         receiverLocator = it->second.first;
-        LOG(NOTICE, "Choose server %lu at %s as the receiver", it->first,
-                receiverLocator.c_str());
+                LOG(NOTICE, "Choose server %lu at %s as the receiver",
+                serverId.getId(), receiverLocator.c_str());
     } else {
         LOG(ERROR, "No master server available");
         return;
@@ -3053,12 +3060,12 @@ echo_workload()
 #endif
     // Get all servers available in the cluster.
     vector<string> serverLocators;
-    using ServerMap = std::map<uint64_t, std::pair<string, ServiceMask>>;
     ServerMap servers;
     getServerList(&servers);
     ServerMap::iterator it;
     for (it = servers.begin(); it != servers.end(); it++) {
-        if (it->second.second.has(WireFormat::MASTER_SERVICE)) {
+        ServiceMask serviceMask = it->second.second;
+        if (serviceMask.has(WireFormat::MASTER_SERVICE)) {
             serverLocators.push_back(it->second.first);
         }
     }
@@ -6337,7 +6344,7 @@ void interferenceCommon(bool read)
             }
             startTime[i] = now;
         }
-        cluster->clientContext->dispatch->poll();
+        context->dispatch->poll();
     }
     done:
 
@@ -7288,6 +7295,38 @@ workloadThroughput()
     }
 }
 
+/// This benchmark runs a prototype implementation of the MilliSort application
+/// inside RAMCloud and measures its end-to-end latency.
+void
+millisort()
+{
+    ServerId rootServer(1, 0);
+    uint32_t dataTuplesPerServer = 100;
+    uint32_t nodesPerGroup = 4;
+
+    // Normally, cluster->serverList is NULL on clients. Get it from the
+    // coordinator.
+    ServerList serverList(context);
+    ProtoBuf::ServerList list;
+    CoordinatorClient::getServerList(context, &list);
+    serverList.applyServerList(list);
+
+    // Initialize the experiment.
+    InitMilliSortRpc initRpc(context, rootServer, dataTuplesPerServer,
+            nodesPerGroup);
+    initRpc.wait();
+    LOG(NOTICE, "Initialized %d millisort service nodes",
+            initRpc.getNodesInited());
+
+    //
+    uint64_t startTime = Cycles::rdtsc();
+    StartMilliSortRpc startRpc(context, rootServer);
+    startRpc.wait();
+    uint64_t totalCycles = Cycles::rdtsc() - startTime;
+    printf("MilliSort request finished in %.1f us\n",
+            Cycles::toSeconds(totalCycles) * 1e6);
+}
+
 // The following struct and table define each performance test in terms of
 // a string name and a function that implements the test.
 struct TestInfo {
@@ -7338,6 +7377,7 @@ TestInfo tests[] = {
     {"writeInterference", writeInterference},
     {"writeThroughput", writeThroughput},
     {"workloadThroughput", workloadThroughput},
+    {"millisort", millisort},
 };
 
 int

@@ -787,6 +787,13 @@ def workloadDist(name, options, cluster_args, client_args):
         else:
             print_cdf_from_log()
 
+def millisort(name, options, cluster_args, client_args):
+    cluster_args['num_clients'] = 1
+    if 'master_args' not in cluster_args:
+        cluster_args['master_args'] = '--maxCores 6'
+
+    default(name, options, cluster_args, client_args)
+
 def defaultTo(config, field, value):
     """If the field is already in the config dict, do nothing, else set field
     in the dict to value.  """
@@ -887,6 +894,7 @@ simple_tests = [
     Test("netBandwidth", netBandwidth),
     Test("readAllToAll", readAllToAll),
     Test("readNotFound", default),
+    Test("millisort", millisort),
 ]
 
 graph_tests = [
@@ -1094,6 +1102,7 @@ if __name__ == '__main__':
                         "indexBasic",
                         "indexMultiple",
                         "transaction_oneMaster"
+                        "millisort"
                 ]
             for name in args:
                 for test in simple_tests:

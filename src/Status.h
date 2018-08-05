@@ -142,7 +142,14 @@ typedef enum Status {
     /// Indicates that a client tried to perform transaction operations after
     /// the transaction commit had already started.
     STATUS_TX_OP_AFTER_COMMIT           = 33,
-    STATUS_MAX_VALUE                    = 33,
+
+    /// FIXME
+    STATUS_SORTING_IN_PROGRESS          = 34,
+    STATUS_MILLISORT_UNINITIALIZED      = 35,
+    STATUS_MILLISORT_REDUNDANT_DATA     = 36,
+    STATUS_MILLISORT_ERROR              = 37,
+
+    STATUS_MAX_VALUE                    = 37,
 
     // Note: if you add a new status value you must make the following
     // additional updates:

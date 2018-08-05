@@ -39,6 +39,7 @@ enum ServiceType {
     BACKUP_SERVICE,
     COORDINATOR_SERVICE,
     ADMIN_SERVICE,
+    MILLISORT_SERVICE,
     INVALID_SERVICE, // One higher than the max.
 };
 
@@ -130,7 +131,14 @@ enum Opcode {
     TX_REQUEST_ABORT            = 78,
     TX_HINT_FAILED              = 79,
     ECHO                        = 80,
-    ILLEGAL_RPC_TYPE            = 81, // 1 + the highest legitimate Opcode
+    INIT_MILLISORT              = 81,
+    START_MILLISORT             = 82,
+    BCAST_TREE                  = 83,
+    GATHER_FLAT                 = 84,
+    ALL_GATHER                  = 85,
+    ALL_SHUFFLE                 = 86,
+    SEND_DATA                   = 87,
+    ILLEGAL_RPC_TYPE            = 88, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -189,6 +197,15 @@ struct RequestCommonWithId {
 } __attribute__((packed));
 
 /**
+ * Some RPCs include an explicit collective op id in the header.
+ */
+struct RequestCommonWithOpId {
+    uint16_t opcode;              /// Opcode of operation to be performed.
+    uint16_t service;             /// ServiceType to invoke for this rpc.
+    uint32_t opId;                /// Unique identifier for this collective op.
+} __attribute__((packed));
+
+/**
  * Each RPC response starts with this structure.
  */
 struct ResponseCommon {
@@ -237,6 +254,119 @@ struct RetryResponse {
 // All fields are little endian.
 
 // The RPCs below are in alphabetical order
+
+struct InitMilliSort {
+    static const Opcode opcode = INIT_MILLISORT;
+    static const ServiceType service = MILLISORT_SERVICE;
+    struct Request {
+        RequestCommon common;
+        /// # tuples on each server.
+        uint32_t dataTuplesPerServer;
+        /// # nodes assigned to each pivot server (including itself).
+        uint32_t nodesPerPivotServer;
+        /// True if this RPC is initiated from an external client outside the
+        /// MilliSort service nodes.
+        bool fromClient;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        /// # nodes initialized in response to this RPC. Should always be 1
+        /// if #fromClient is false.
+        int32_t numNodesInited;
+    } __attribute__((packed));
+};
+
+struct StartMilliSort {
+    static const Opcode opcode = START_MILLISORT;
+    static const ServiceType service = MILLISORT_SERVICE;
+    struct Request {
+        RequestCommon common;
+        /// True if this RPC is initiated from an external client outside the
+        /// MilliSort service nodes.
+        bool fromClient;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct TreeBcast {
+    static const Opcode opcode = BCAST_TREE;
+    static const ServiceType service = MILLISORT_SERVICE;
+    struct Request {
+        RequestCommon common;
+
+        /// Unique identifier of the communication group that contains the
+        /// nodes participating in the broadcast.
+        int32_t groupId;
+
+        /// Rank of the initial broadcaster within the communication group
+        /// identified by #groupId. Only meaningful if #invokeBroadcast is
+        /// false.
+        int32_t root;
+
+        /// # bytes in the response header of the payload RPC.
+        uint32_t payloadResponseHeaderLength;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct FlatGather {
+    static const Opcode opcode = GATHER_FLAT;
+    static const ServiceType service = MILLISORT_SERVICE;
+    struct Request {
+        RequestCommonWithOpId common;
+
+        /// Unique identifier of the collective operation.
+//        uint32_t opId;
+
+        /// Rank of the sender within the communication group associated with
+        /// this gather operation.
+        uint32_t senderId;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct SendData {
+    static const Opcode opcode = SEND_DATA;
+    static const ServiceType service = MILLISORT_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint32_t dataId;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct AllGather {
+    static const Opcode opcode = ALL_GATHER;
+    static const ServiceType service = MILLISORT_SERVICE;
+    struct Request {
+        RequestCommonWithOpId common;
+        uint32_t numSenders;
+        uint32_t senderId;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct AllShuffle {
+    static const Opcode opcode = ALL_SHUFFLE;
+    static const ServiceType service = MILLISORT_SERVICE;
+    struct Request {
+        RequestCommonWithOpId common;
+        uint32_t senderId;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+    } __attribute__((packed));
+};
 
 struct BackupFree {
     static const Opcode opcode = BACKUP_FREE;

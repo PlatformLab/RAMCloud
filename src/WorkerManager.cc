@@ -21,6 +21,7 @@
 #include "Initialize.h"
 #include "LogProtector.h"
 #include "MasterService.h"
+#include "MilliSortService.h"
 #include "PerfStats.h"
 #include "RawMetrics.h"
 #include "RpcLevel.h"
@@ -36,7 +37,7 @@
 // unstable. The additional file IO on the dispatch thread will cause service
 // gaps that prevent servers from responding to pings quickly enough to prevent
 // eviction from the cluster.
-// #define LOG_RPCS 1
+ #define LOG_RPCS 1
 
 namespace RAMCloud {
 // Uncomment the following line (or specify -D WMTT on the make command line)
@@ -98,6 +99,7 @@ WorkerManager::WorkerManager(Context* context, uint32_t maxCores)
     , rpcsWaiting(0)
     , testingSaveRpcs(0)
     , testRpcs()
+    , collectiveOpRpcs()
 {
     levels.resize(RpcLevel::maxLevel() + 1);
 
@@ -199,6 +201,22 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
         return;
     }
 
+    if ((header->opcode >= WireFormat::GATHER_FLAT) &&
+            (header->opcode <= WireFormat::ALL_SHUFFLE)) {
+        MilliSortService* millisort = context->getMilliSortService();
+        WireFormat::RequestCommonWithOpId* reqHdr =
+                rpc->requestPayload.getStart<WireFormat::RequestCommonWithOpId>();
+        Service::CollectiveOpRecord* record =
+                millisort->getCollectiveOpRecord(reqHdr->opId);
+        if (record->op == NULL) {
+            record->serverRpcList.push_back(rpc);
+//            LOG(WARNING, "%s RPC from op %u arrives early, record %p, op %p",
+//                    WireFormat::opcodeSymbol(header->opcode), reqHdr->opId,
+//                    record, record->op);
+            return;
+        }
+    }
+
     int level = RpcLevel::getLevel(WireFormat::Opcode(header->opcode));
     timeTrace("handleRpc processing opcode %d", header->opcode);
 #ifdef LOG_RPCS
@@ -224,6 +242,8 @@ WorkerManager::handleRpc(Transport::ServerRpc* rpc)
                 levels[level].waitingRpcs.push(rpc);
                 rpcsWaiting++;
                 timeTrace("RPC deferred; threads busy");
+                LOG(WARNING, "RPC deferred; threads busy, busyThreads %lu, maxCores %u",
+                        busyThreads.size(), maxCores);
                 return;
             }
         }
@@ -273,6 +293,13 @@ WorkerManager::idle()
 int
 WorkerManager::poll()
 {
+    // TODO: kind of a hack for collective op
+    for (auto collectiveOpRpc : collectiveOpRpcs) {
+        handleRpc(collectiveOpRpc);
+    }
+    collectiveOpRpcs.clear();
+    // end of hack
+
     int foundWork = 0;
 
     // Each iteration of the following loop checks the status of one active

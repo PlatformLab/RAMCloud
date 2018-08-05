@@ -78,6 +78,9 @@ callees = {
     "TX_REQUEST_ABORT":      ["BACKUP_WRITE"],
     "WRITE":                 ["BACKUP_WRITE", "INSERT_INDEX_ENTRY",
                               "REMOVE_INDEX_ENTRY"],
+    # FIXME: Not sure we want to fix those RpcLevel::checkCall warnings.
+    # "INIT_MILLISORT":        ["INIT_MILLISORT"],
+    # "START_MILLISORT":       ["START_MILLISORT"],
 }
 
 # The following dictionary maps from the name of an opcode to its

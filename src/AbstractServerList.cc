@@ -53,6 +53,9 @@ AbstractServerList::~AbstractServerList()
         if (trackers[i])
             trackers[i]->setParent(NULL);
     }
+
+    // Undo the assignment in the constructor.
+    context->serverList = NULL;
 }
 
 /**

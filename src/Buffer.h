@@ -271,6 +271,15 @@ class Buffer {
 
     uint32_t peek(uint32_t offset, void** returnPtr);
     void prependChunk(Chunk* chunk);
+
+    template<typename T>
+    inline T*
+    read(uint32_t* offset) {
+        T* result = static_cast<T*>(getRange(*offset, sizeof(T)));
+        *offset += sizeof32(T);
+        return result;
+    }
+
     virtual void reset();
 
     /**

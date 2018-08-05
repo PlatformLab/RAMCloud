@@ -44,6 +44,8 @@ SHARED_SRCFILES := \
 		   src/AbstractServerList.cc \
 		   src/AdminClient.cc \
 		   src/AdminService.cc \
+		   src/AllGather.cc \
+		   src/AllShuffle.cc \
 		   src/ArpCache.cc \
 		   src/BasicTransport.cc \
 		   src/CacheTrace.cc \
@@ -59,6 +61,7 @@ SHARED_SRCFILES := \
 		   src/BackupClient.cc \
 		   src/BackupFailureMonitor.cc \
 		   src/BackupSelector.cc \
+		   src/Broadcast.cc \
 		   src/Buffer.cc \
 		   src/CleanableSegmentManager.cc \
 		   src/ClientException.cc \
@@ -77,6 +80,7 @@ SHARED_SRCFILES := \
 		   src/FailureDetector.cc \
 		   src/FailSession.cc \
 		   src/FileLogger.cc \
+		   src/Gather.cc \
 		   src/HashTable.cc \
 		   src/HomaTransport.cc \
 		   src/IndexKey.cc \
@@ -106,6 +110,8 @@ SHARED_SRCFILES := \
 		   src/MasterTableMetadata.cc \
 		   src/Memory.cc \
 		   src/MemoryMonitor.cc \
+		   src/MilliSortClient.cc \
+		   src/MilliSortService.cc \
 		   src/MinCopysetsBackupSelector.cc \
 		   src/MultiOp.cc \
 		   src/MultiIncrement.cc \

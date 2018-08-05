@@ -1,0 +1,5 @@
+#!/bin/bash
+# The script copies modified information from this directory on my laptop to rcmaster.
+rsync -rtv --exclude-from=rsync-exclude.txt ./apps yilongl@rcmaster.scs.stanford.edu:RAMCloud/
+rsync -rtv --exclude-from=rsync-exclude.txt ./src yilongl@rcmaster.scs.stanford.edu:RAMCloud/
+rsync -rtv --exclude-from=rsync-exclude.txt ./scripts yilongl@rcmaster.scs.stanford.edu:RAMCloud/

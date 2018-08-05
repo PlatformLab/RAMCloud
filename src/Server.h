@@ -22,6 +22,7 @@
 #include "CoordinatorSession.h"
 #include "FailureDetector.h"
 #include "MasterService.h"
+#include "MilliSortService.h"
 #include "ServerConfig.h"
 #include "ServerId.h"
 #include "ServerList.h"
@@ -108,6 +109,12 @@ class Server {
      * See config.services.
      */
     Tub<AdminService> adminService;
+
+    /**
+     * The MilliSortService running on this Server, if requested, else empty.
+     * See config.services.
+     */
+    Tub<MilliSortService> millisortService;
 
     // The class and variable below are used to run enlistment in a
     // worker thread, so that post-enlistment initialization doesn't
