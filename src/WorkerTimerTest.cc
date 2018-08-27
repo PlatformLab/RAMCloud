@@ -364,9 +364,15 @@ TEST_F(WorkerTimerTest, checkTimers_basics) {
     DummyWorkerTimer timer3("timer3", &dispatch);
     DummyWorkerTimer timer4("timer4", &dispatch);
     waitForWorkerProgress();               // Thread startup
+
+    // Stagger the start times so they get sorted
+    Cycles::mockTscValue = 100;
     timer1.start(1000);
+    Cycles::mockTscValue = 101;
     timer2.start(600);
+    Cycles::mockTscValue = 102;
     timer3.start(1100);
+    Cycles::mockTscValue = 103;
     timer4.start(500);
     WorkerTimer::Lock lock(WorkerTimer::mutex);
 

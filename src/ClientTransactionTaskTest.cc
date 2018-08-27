@@ -44,6 +44,28 @@ class MockClientTransactionRpcWrapper
 
 class ClientTransactionTaskTest : public ::testing::Test {
   public:
+    /**
+     * Simple class that disables the WorkerTimer Handlers at construction and
+     * re-enables them at destruction. This class can be used by tests to
+     * disable the timer for the duration of the tests by including it as the
+     * first item on the Test's initializer list. This way, the handlers will
+     * be disabled at the beginning of the test and re-enabled at the very end.
+     *
+     * This class was primarily designed to deal with the fact that some
+     * WorkerTimers (namely TransactionRegistryCleaner) have destructors that
+     * will deadlock with their handlers.
+     */
+    struct WorkerTimerDisabler {
+        WorkerTimerDisabler() {
+            WorkerTimer::disableTimerHandlers = true;
+        }
+
+        ~WorkerTimerDisabler() {
+            WorkerTimer::disableTimerHandlers = false;
+        }
+    };
+
+    WorkerTimerDisabler disableWorkerTimer;
     TestLog::Enable logEnabler;
     Context context;
     MockCluster cluster;
@@ -60,7 +82,8 @@ class ClientTransactionTaskTest : public ::testing::Test {
     Tub<ClientTransactionTask> transactionTask;
 
     ClientTransactionTaskTest()
-        : logEnabler()
+        : disableWorkerTimer()
+        , logEnabler()
         , context()
         , cluster(&context)
         , ramcloud()

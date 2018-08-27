@@ -825,7 +825,13 @@ MasterService::initOnceEnlisted()
     objectManager.initOnceEnlisted();
 
     unackedRpcResults.startCleaner();
+    // The TransactionManager has a destructor that can deadlock with its
+    // WorkerTimer handler. Since this deadlock only occurs in tests where
+    // services are repeatedly constructed and destructed, we forgo starting
+    // the cleaner by default.
+#ifndef TESTING
     transactionManager.startCleaner();
+#endif
 
     initCalled = true;
 }
