@@ -16,7 +16,6 @@ SSE ?= sse4.2
 ARCH ?= native
 COMPILER ?= gnu
 CCACHE ?= no
-GLIBCXX_USE_CXX11_ABI ?= no
 LINKER ?= default
 SANITIZER ?= none
 VALGRIND ?= no
@@ -62,15 +61,6 @@ DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
 OPTFLAG := -O3
 DEBUGFLAGS := -DNDEBUG
-endif
-
-# Starting from GCC 5.1, libstdc++ introduced a new library ABI. To maintain
-# backwards compatibility, the _GLIBCXX_USE_CXX11_ABI macro is used to select
-# whether the declarations in the library headers use the old or new ABI.
-ifeq ($(GLIBCXX_USE_CXX11_ABI),yes)
-BASECFLAGS += -D_GLIBCXX_USE_CXX11_ABI=1
-else
-BASECFLAGS += -D_GLIBCXX_USE_CXX11_ABI=0
 endif
 
 COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
