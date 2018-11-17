@@ -76,6 +76,7 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
     , qp()
     , ibPhysicalPort(ethernet ? 2 : 1)
     , lid(0)
+    , mtu(0)
     , qpn(0)
     , localMac()
     , locatorString("infud:")
@@ -95,6 +96,7 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
             try {
                 localMac.construct(sl->getOption<const char*>("mac"));
                 macAddressProvided = true;
+                mtu = 1514;
             } catch (ServiceLocator::NoSuchKeyException& e) {}
         }
 
@@ -110,6 +112,8 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
             bandwidthGbps = sl->getOption<int>("gbs");
         } catch (ServiceLocator::NoSuchKeyException& e) {}
     }
+    infiniband = realInfiniband.construct(ibDeviceName);
+    mtu = infiniband->getMtu(ibPhysicalPort);
     queueEstimator.setBandwidth(1000*bandwidthGbps);
     maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthGbps)
             * MAX_DRAIN_TIME / 8.0);
@@ -124,8 +128,6 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
 
     if (ethernet && !macAddressProvided)
         localMac.construct(MacAddress::RANDOM);
-
-    infiniband = realInfiniband.construct(ibDeviceName);
 
     // Allocate buffer pools.
     uint32_t bufSize = (maxPacketSize +
@@ -212,9 +214,7 @@ InfUdDriver::~InfUdDriver()
 uint32_t
 InfUdDriver::getMaxPacketSize()
 {
-    const uint32_t eth = 1500 + 14 - sizeof32(EthernetHeader);
-    const uint32_t inf = 2048 - GRH_SIZE;
-    return localMac ? eth : inf;
+    return localMac ? mtu - sizeof32(EthernetHeader) : mtu - GRH_SIZE;
 }
 
 /**

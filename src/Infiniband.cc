@@ -141,6 +141,37 @@ Infiniband::getLid(int port)
 }
 
 /**
+ * Obtain the MTU enabled on this port to transmit and receive.
+ *
+ * \param[in] port
+ *      Port on the device we're looking up. This value is typically 1, except
+ *      on adapters with multiple physical ports.
+ * \return
+ *      The active MTU, in bytes.
+ * \throw
+ *      TransportException if the port cannot be queried.
+ */
+uint32_t
+Infiniband::getMtu(int port)
+{
+    ibv_port_attr ipa;
+    int ret = ibv_query_port(device.ctxt, downCast<uint8_t>(port), &ipa);
+    if (ret) {
+        RAMCLOUD_LOG(ERROR, "ibv_query_port failed on port %u\n", port);
+        throw TransportException(HERE, ret);
+    }
+    switch (ipa.active_mtu) {
+        case IBV_MTU_256:   return 256;
+        case IBV_MTU_512:   return 512;
+        case IBV_MTU_1024:  return 1024;
+        case IBV_MTU_2048:  return 2048;
+        case IBV_MTU_4096:  return 4096;
+        default:
+            DIE("Illegal enum ibv_mtu value %u", ipa.active_mtu);
+    }
+}
+
+/**
  * Try to receive a message from the given Queue Pair if one
  * is available. Do not block.
  *

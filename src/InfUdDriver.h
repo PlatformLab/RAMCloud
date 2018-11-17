@@ -227,6 +227,10 @@ class InfUdDriver : public Driver {
     /// network; roughly equivalent to a host address.
     int lid;
 
+    /// Active maximum MTU enabled on #ibPhysicalPort to transmit and receive.
+    /// This is the maximum message size that an UD QP can transmit.
+    uint32_t mtu;
+
     /// Unique identifier for qp, among all queue pairs allocated by
     /// this machine.
     int qpn;
