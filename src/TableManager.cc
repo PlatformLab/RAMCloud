@@ -109,7 +109,7 @@ TableManager::Index::~Index()
  *      \a splitKey belong to the other.
  * \param splitKeyLength
  *      Length of splitKey in bytes.
- * 
+ *
  * \throw NoSuchIndexlet
  *      If the indexlet being split, or the index for which the indexlet
  *      is being split doesn't exist anymore.
@@ -157,8 +157,7 @@ TableManager::coordSplitAndMigrateIndexlet(
             index->tableId, index->indexId, index->nextIndexletIdSuffix++));
     uint64_t newBackingTableId =
             createTable(lock, newBackingTableName.c_str(), 1, newOwner);
-    IdMap::iterator itd = idMap.find(newBackingTableId);
-    assert(itd != idMap.end());
+    assert(idMap.find(newBackingTableId) != idMap.end());
 
     MasterClient::prepForIndexletMigration(
             context, newOwner, tableId, indexId, newBackingTableId,
@@ -382,7 +381,7 @@ TableManager::debugString(bool shortForm)
  * Delete the table with the given name. All existing data for the table will
  * be deleted, and the table's name will no longer exist in the directory
  * of tables.
- * 
+ *
  * \param name
  *      Name of the table that is to be dropped.
  */
@@ -1153,7 +1152,7 @@ TableManager::dropIndex(const Lock& lock, uint64_t tableId, uint8_t indexId)
  * Delete the table with the given name. All existing data for the table will
  * be deleted, and the table's name will no longer exist in the directory
  * of tables.
- * 
+ *
  * \param lock
  *      Ensures that the caller holds the monitor lock; not actually used.
  * \param name
