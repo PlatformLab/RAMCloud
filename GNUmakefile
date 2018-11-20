@@ -410,10 +410,10 @@ PREPROC_DIR=$(NANOLOG_DIR)/preprocessor
 # The second parameter $(2) should be the input filename (*.cc)
 # The optional third parameter $(3) is any additional options compiler options.
 define run-cxx-nanolog
-	$(CXX) -E -I $(RUNTIME_DIR) $(2) -o $(2).i $(3) && \
+	$(CXX) -E $(2) -o $(2).i $(3) -I $(RUNTIME_DIR) && \
 	mkdir -p generated && \
 	python $(PREPROC_DIR)/parser.py --mapOutput="generated/$(2).map" $(2).i && \
-	$(CXX) -I $(RUNTIME_DIR) -c -o $(1) $(2).ii $(3) && \
+	$(CXX)  -c -o $(1) $(2).ii $(3) -I $(RUNTIME_DIR) && \
 	rm -f $(2).i $(2).ii generated/GeneratedCode.cc $(2).d
 endef
 
