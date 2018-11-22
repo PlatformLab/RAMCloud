@@ -49,13 +49,20 @@ struct LargeBlockOfMemory {
      * and zeros them. The memory is aligned to a gigabyte boundary.
      * \param length
      *      The number of bytes of memory to allocate.
+     * \param hugepage
+     *      True if we are allowed to use hugepage memory.
      * \throw FatalError
      *      If the memory could not be allocated.
      */
-    explicit LargeBlockOfMemory(size_t length)
+    explicit LargeBlockOfMemory(size_t length, bool hugepage = false)
         : length(length)
-        , block(static_cast<T*>(mmapGigabyteAligned(length, MAP_ANONYMOUS)))
+        , block()
     {
+        int flags = MAP_ANONYMOUS;
+        if (hugepage) {
+            flags |= MAP_HUGETLB;
+        }
+        block = static_cast<T*>(mmapGigabyteAligned(length, flags));
         if (block == MAP_FAILED) {
             if (length == 0)
                 return;

@@ -90,7 +90,8 @@ ObjectManager::ObjectManager(Context* context, ServerId* serverId,
     , segmentManager(context, config, serverId,
                      allocator, replicaManager, masterTableMetadata)
     , log(context, config, this, &segmentManager, &replicaManager)
-    , objectMap(config->master.hashTableBytes / HashTable::bytesPerCacheLine())
+    , objectMap(config->master.hashTableBytes / HashTable::bytesPerCacheLine(),
+            config->master.useHugepages)
     , anyWrites(false)
     , hashTableBucketLocks()
     , lockTable(1000, log)

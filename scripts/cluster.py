@@ -581,6 +581,7 @@ def run(
         enable_logcabin=False,     # Do not enable logcabin.
         dpdk_port=None,            # Do not enable DpdkDriver.
         superuser=False,           # Do not start cluster as superuser by default.
+        hugepage=False,            # Do not use hugepage memory by default.
         valgrind=False,            # Do not run under valgrind
         valgrind_args='',          # Additional arguments for valgrind
         disjunct=False,            # Disjunct entities on a server
@@ -636,6 +637,9 @@ def run(
         cluster.enable_logcabin = enable_logcabin
         cluster.disjunct = disjunct
         cluster.hosts = getHosts()
+        if hugepage:
+            # Only the master can take advantage of the hugepage
+            master_args += ' --hugepage'
         if dpdk_port is not None:
             coordinator_args += ' --dpdkPort %d' % dpdk_port
             master_args += ' --dpdkPort %d' % dpdk_port
@@ -782,6 +786,8 @@ if __name__ == '__main__':
             help='Disjunct entities (disable collocation) on each server')
     parser.add_option('--superuser', action='store_true', default=False,
             help='Start the cluster and clients as superuser')
+    parser.add_option('--hugepage', action='store_true', default=False,
+            help='Allow servers to use hugepage memory')
 
     (options, args) = parser.parse_args()
 

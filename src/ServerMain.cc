@@ -230,6 +230,9 @@ main(int argc, char *argv[])
                 default_value("500"),
              "Percentage or megabytes of system memory for master log & "
              "hash table")
+            ("hugepage",
+             ProgramOptions::bool_switch(&config.master.useHugepages),
+             "Whether to use hugepage memory to allocate LargeBlockOfMemory")
             ("useMinCopysets",
              ProgramOptions::value<bool>(&config.master.useMinCopysets)->
                 default_value(false),

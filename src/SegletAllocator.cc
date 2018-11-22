@@ -43,7 +43,7 @@ SegletAllocator::SegletAllocator(const ServerConfig* config)
       cleanerPoolReserve(0),
       defaultPool(),
       segletToSegmentTable(),
-      block(config->master.logBytes)
+      block(config->master.logBytes, config->master.useHugepages)
 {
     assert(BitOps::isPowerOfTwo(segletSize));
     uint8_t* segletBlock = block.get();

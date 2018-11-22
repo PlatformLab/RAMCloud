@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "BoostIntrusive.h"
-#include "LargeBlockOfMemory.h"
 #include "LogSegment.h"
 #include "Histogram.h"
 #include "ReplicaManager.h"

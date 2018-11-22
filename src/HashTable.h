@@ -217,7 +217,7 @@ class HashTable {
         friend class HashTable;
     };
 
-    explicit HashTable(uint64_t numBuckets);
+    explicit HashTable(uint64_t numBuckets, bool useHugepages = false);
     ~HashTable();
     void lookup(KeyHash keyHash, Candidates& candidates);
     void insert(KeyHash keyHash, uint64_t reference);

@@ -257,12 +257,14 @@ HashTable::Candidates::isDone()
  * \param[in] numBuckets
  *      The number of buckets in the new hash table. This should be a power
  *      of two.
+ * \param[in] useHugepages
+ *      True if we should use hugepage memory to back the hashtable.
  * \throw Exception
  *      An exception is thrown if numBuckets is 0.
  */
-HashTable::HashTable(uint64_t numBuckets)
+HashTable::HashTable(uint64_t numBuckets, bool useHugepages)
     : numBuckets(BitOps::powerOfTwoLessOrEqual(numBuckets))
-    , buckets(this->numBuckets * sizeof(CacheLine))
+    , buckets(this->numBuckets * sizeof(CacheLine), useHugepages)
 {
     if (numBuckets != this->numBuckets) {
         RAMCLOUD_LOG(DEBUG,

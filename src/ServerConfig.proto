@@ -85,11 +85,15 @@ message ServerConfig {
         /// Number of replicas to keep per segment stored on backups.
         required fixed32 num_replicas = 9;
 
+        /// Specifies whether to use hugepage memory to allocate
+        /// LargeBlockOfMemory.
+        required bool use_hugepages = 10;
+
         /// Specifies whether to use MinCopysets or random replication.
-        required bool use_mincopysets = 10;
+        required bool use_mincopysets = 11;
 
         /// If true, allow replication to local backup.
-        required bool use_local_backup = 11;
+        required bool use_local_backup = 12;
     }
 
     /// The server's MasterService configuration, if it is running one.

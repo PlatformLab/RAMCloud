@@ -326,6 +326,7 @@ def run_test(
         'disjunct':    options.disjunct,
         'verbose':     options.verbose,
         'superuser':   options.superuser,
+        'hugepage':    options.hugepage,
         'disk'     :   options.disk
     }
     # Provide a default value for num_servers here.  This is better
@@ -1058,6 +1059,8 @@ if __name__ == '__main__':
                  'timestamps along with their durations.')
     parser.add_option('--superuser', action='store_true', default=False,
             help='Start the cluster and clients as superuser')
+    parser.add_option('--hugepage', action='store_true', default=False,
+            help='Allow servers to use hugepage memory')
     (options, args) = parser.parse_args()
 
     if options.parse:

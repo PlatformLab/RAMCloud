@@ -236,6 +236,7 @@ struct ServerConfig {
             , cleanerWriteCostThreshold(0)
             , cleanerThreadCount(1)
             , numReplicas(0)
+            , useHugepages(false)
             , useMinCopysets(false)
             , allowLocalBackup(false)
         {}
@@ -255,6 +256,7 @@ struct ServerConfig {
             , cleanerWriteCostThreshold()
             , cleanerThreadCount()
             , numReplicas()
+            , useHugepages()
             , useMinCopysets()
             , allowLocalBackup()
         {}
@@ -274,6 +276,7 @@ struct ServerConfig {
             config.set_cleaner_write_cost_threshold(cleanerWriteCostThreshold);
             config.set_cleaner_thread_count(cleanerThreadCount);
             config.set_num_replicas(numReplicas);
+            config.set_use_hugepages(useHugepages);
             config.set_use_mincopysets(useMinCopysets);
             config.set_use_local_backup(allowLocalBackup);
         }
@@ -294,6 +297,7 @@ struct ServerConfig {
             cleanerWriteCostThreshold = config.cleaner_write_cost_threshold();
             cleanerThreadCount = config.cleaner_thread_count();
             numReplicas = config.num_replicas();
+            useHugepages = config.use_hugepages();
             useMinCopysets = config.use_mincopysets();
             allowLocalBackup = config.use_local_backup();
         }
@@ -332,6 +336,10 @@ struct ServerConfig {
 
         /// Number of replicas to keep per segment stored on backups.
         uint32_t numReplicas;
+
+        /// Specifies whether to use hugepage memory to allocate
+        /// LargeBlockOfMemory.
+        bool useHugepages;
 
         /// Specifies whether to use MinCopysets replication or random
         /// replication.
