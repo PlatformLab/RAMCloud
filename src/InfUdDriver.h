@@ -21,6 +21,8 @@
 #ifndef RAMCLOUD_INFUDDRIVER_H
 #define RAMCLOUD_INFUDDRIVER_H
 
+#include <deque>
+
 #include "Common.h"
 #include "Dispatch.h"
 #include "Driver.h"
@@ -153,7 +155,17 @@ class InfUdDriver : public Driver {
     static const uint32_t MAX_RX_QUEUE_DEPTH = 1000;
 
     /// Maximum number of transmit buffers that may be outstanding at once.
-    static const uint32_t MAX_TX_QUEUE_DEPTH = 50;
+    static const uint32_t MAX_TX_QUEUE_DEPTH = 128;
+
+    /// Post a signaled send request, which generates a work completion entry
+    /// when it completes, after posting SIGNALED_SEND_PERIOD-1 unsignaled send
+    /// requests. The signal period should be small enough compared to the total
+    /// number of transmit buffers (i.e., MAX_TX_QUEUE_DEPTH) so that the sender
+    /// won't get blocked at getTransmitBuffer waiting for the completion signal
+    /// of the last send request.
+    /// As of 11/2018, refilling 64 transmit buffers takes only ~250ns on our
+    /// rc machines.
+    static const int SIGNALED_SEND_PERIOD = 64;
 
     /*
      * Note that in UD mode, Infiniband receivers prepend a 40-byte
@@ -205,6 +217,9 @@ class InfUdDriver : public Driver {
     /// Packet buffers used to transmit outgoing packets.
     Tub<BufferPool> txPool;
 
+    /// Transmit buffers currently in the possession of the HCA.
+    std::deque<BufferDescriptor*> txBuffersInHca;
+
     /// This value appears to be used for security. Each outgoing datagram
     /// contains a QKey, which must match a QKey values stored with the
     /// receiving queue pair.  This driver simply hard-wires this value.
@@ -243,7 +258,7 @@ class InfUdDriver : public Driver {
     /// Our ServiceLocator, including the dynamic lid and qpn
     string locatorString;
 
-    // Effective network bandwidth, in Gbits/second.
+    // Effective outgoing network bandwidth, in Gbits/second.
     int bandwidthGbps;
 
     /// Address of the first byte of the "zero-copy region". This is an area
@@ -261,8 +276,8 @@ class InfUdDriver : public Driver {
     /// NULL if there is no zero-copy region.
     ibv_mr* zeroCopyRegion;
 
-    /// Used to invoke reapTransmitBuffers after every Nth packet is sent.
-    int sendsSinceLastReap;
+    /// Used to post a signaled send request after every Nth packet is sent.
+    int sendsSinceLastSignal;
 
     DISALLOW_COPY_AND_ASSIGN(InfUdDriver);
 };
