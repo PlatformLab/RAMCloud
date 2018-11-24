@@ -417,7 +417,7 @@ define run-cxx-nanolog
 	rm -f $(2).i $(2).ii generated/GeneratedCode.cc $(2).d
 endef
 
-RUNTIME_CXX_FLAGS= -std=c++11 -O3 -DNDEBUG -g -fPIC
+RUNTIME_CXX_FLAGS= -std=c++11 -O3 -DNDEBUG -g -fPIC -DPREPROCESSOR_NANOLOG
 NANO_LOG_LIBRARY_LIBS=-lrt -pthread
 
 RUNTIME_DEPS=$(wildcard $(RUNTIME_DIR)/*.h)
