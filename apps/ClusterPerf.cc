@@ -80,6 +80,11 @@ static int clientIndex;
 // to determine how many times to invoke a particular operation.
 static int count;
 
+// Value of the "--concurrentOps" command-line option: used by some tests
+// to limit the max number of concurrent operations that can be outstanding.
+// Must be a positive integer.
+static int numConcurrentOps;
+
 // Value of the "--size" command-line option: used by some tests to
 // determine the number of bytes in each object.  -1 means the option
 // wasn't specified, so each test should pick an appropriate default.
@@ -179,6 +184,8 @@ struct TimeDist {
                                   // or 0 if no such measurement.
     double bandwidth;             // Average throughput in bytes/sec., or 0
                                   // if no such measurement.
+    double bandwidth0;            // Average throughput in another direction,
+                                  // in bytes/sec., or 0 if no such measurement.
 };
 
 // Forward declarations:
@@ -671,7 +678,7 @@ printBandwidth(const char* name, double bandwidth, const char* description)
     double kb = 1024.0;
     printf("%-20s ", name);
     if (bandwidth > gb) {
-        printf("%5.1f GB/s ", bandwidth/gb);
+        printf("%5.3f GB/s ", bandwidth/gb);
     } else if (bandwidth > mb) {
         printf("%5.1f MB/s ", bandwidth/mb);
     } else if (bandwidth >kb) {
@@ -1117,12 +1124,12 @@ readObject(uint64_t tableId, const void* key, uint16_t keyLength,
 }
 
 /**
- * Send and receive fixed-size messages to a server back-to-back,
- * return information about the distribution of message round-trip times
- * and network bandwidth.
+ * Send and receive fixed-size messages to a list of servers in a round-robin
+ * fashion, return information about the distribution of message round-trip
+ * times and network bandwidth.
  *
- * \param receiver
- *      Service locator of the recipient.
+ * \param receivers
+ *      Service locators of the recipients.
  * \param message
  *      Address of the first byte of the message to be sent; must contain at
  *      least length bytes.
@@ -1130,8 +1137,10 @@ readObject(uint64_t tableId, const void* key, uint16_t keyLength,
  *      Size of the message to be sent, in bytes.
  * \param echoLength
  *      Size of the message to be echoed, in bytes.
- * \param iteration
- *      Send this many messages.
+ * \param count
+ *      Number of echo RPCs to send.
+ * \param maxOutstandingRpcs
+ *      Max number of concurrent echo RPCs that are outstanding.
  * \param timeLimit
  *      Maximum time (in seconds) to spend on this test: if this much
  *      time elapses, then less iterations will be run.
@@ -1140,37 +1149,94 @@ readObject(uint64_t tableId, const void* key, uint16_t keyLength,
  *      Information about how long the echos took.
  */
 TimeDist
-echoMessage(string receiver, const char* message, uint32_t length,
-        uint32_t echoLength, uint32_t iteration, double timeLimit)
+echoMessage(std::vector<string> receivers, const char* message, uint32_t length,
+        uint32_t echoLength, uint32_t count, int maxOutstandingRps,
+        double timeLimit)
 {
     std::vector<uint64_t> times;
     times.reserve(100000);
-    Buffer buffer;
 
     // Each iteration of the following loop invokes an Echo RPC and records
     // its completion time.
-    Transport::SessionRef session =
-            context->transportManager->getSession(receiver);
+    std::vector<Transport::SessionRef> sessions;
+    for (string receiver : receivers) {
+        sessions.push_back(context->transportManager->getSession(receiver));
+    }
+    auto nextSession = sessions.begin();
     uint64_t startTime = Cycles::rdtsc();
     uint64_t deadline = startTime + Cycles::fromSeconds(timeLimit);
-    uint64_t count;
-    for (count = 0; count < iteration; count++) {
+    uint32_t completedRpcs = 0;
+    int outstandingRpcs = 0;
+    std::vector<Tub<EchoRpc>*> freeTubs;
+    std::list<Tub<EchoRpc>*> rpcsInProgress;
+    std::vector<Tub<EchoRpc>*> readyRpcs;
+    while (true) {
         uint64_t now = Cycles::rdtsc();
-        if (now >= deadline) {
-            LOG(WARNING, "time expired after %lu iterations", count);
+        bool stop = (now >= deadline) || (completedRpcs >= count);
+        if (stop && rpcsInProgress.empty()) {
+            if (now >= deadline) {
+                LOG(WARNING, "time expired after %u RPCs completed",
+                        completedRpcs);
+            }
             break;
         }
 
-        EchoRpc rpc(cluster, session, message, length, echoLength, &buffer);
-        rpc.wait();
-        times.push_back(rpc.getCompletionTime());
+        if (context->dispatch->poll()) {
+            for (auto it = rpcsInProgress.begin(); it != rpcsInProgress.end();)
+            {
+                EchoRpc* rpc = (*it)->get();
+                if (!rpc->isReady()) {
+                    it++;
+                    continue;
+                }
+
+                readyRpcs.push_back(*it);
+                it = rpcsInProgress.erase(it);
+                times.push_back(rpc->getCompletionTime());
+                completedRpcs++;
+                outstandingRpcs--;
+                double megaSecs = Cycles::toSeconds(times.back())*1024*1024;
+                LOG(DEBUG, "TX throughput %.1fMB/s, RX throughput %.1fMB/s",
+                        length / megaSecs, echoLength / megaSecs);
+            }
+        }
+
+        // Send out new RPCs before destroying the ready ones as large responses
+        // can be expensive to destroy.
+        while (!stop && (outstandingRpcs < maxOutstandingRps)) {
+            Tub<EchoRpc>* rpc;
+            if (freeTubs.empty()) {
+                rpc = new Tub<EchoRpc>();
+            } else {
+                rpc = freeTubs.back();
+                freeTubs.pop_back();
+            }
+            rpc->construct(cluster, *nextSession, message, length, echoLength,
+                    nullptr);
+            nextSession++;
+            if (nextSession == sessions.end()) {
+                nextSession = sessions.begin();
+            }
+            rpcsInProgress.push_back(rpc);
+            outstandingRpcs++;
+        }
+
+        // Destroy RPCs that are completed.
+        while (!readyRpcs.empty()) {
+            Tub<EchoRpc>* rpc = readyRpcs.back();
+            readyRpcs.pop_back();
+            rpc->destroy();
+            freeTubs.push_back(rpc);
+        }
     }
     uint64_t totalCycles = Cycles::rdtsc() - startTime;
 
     TimeDist result;
     getDist(times, &result);
-    double totalTxBytes = length * static_cast<double>(count);
+    double totalTxBytes = length * static_cast<double>(completedRpcs);
+    double totalRxBytes = echoLength * static_cast<double>(completedRpcs);
     result.bandwidth = totalTxBytes/Cycles::toSeconds(totalCycles);
+    result.bandwidth0 = totalRxBytes/Cycles::toSeconds(totalCycles);
     return result;
 }
 
@@ -2437,7 +2503,7 @@ basic()
         return;
     Buffer input, output;
 #define NUM_SIZES 5
-    int sizes[NUM_SIZES] = {100, 1000, 10000, 100000, 1000000};
+    int sizes[NUM_SIZES] = {100, 1024, 10*1024, 100*1024, 1024*1024};
     TimeDist readDists[NUM_SIZES], writeDists[NUM_SIZES];
     const char* ids[NUM_SIZES] = {"100", "1K", "10K", "100K", "1M"};
     const uint16_t keyLength = 30;
@@ -2463,7 +2529,7 @@ basic()
         cluster->logMessageAll(NOTICE,
                 "Starting read test for %d-byte objects", size);
         readDists[i] = readRandomObjects(dataTable, numObjects, keyLength,
-                100000, 2.0);
+                100000, 10.0);
 
         LOG(NOTICE, "Starting write test for %d-byte objects", size);
         cluster->logMessageAll(NOTICE,
@@ -2949,7 +3015,8 @@ echo_basic()
     vector<string> ids;
     char name[50], description[50];
 
-    // Read message sizes from the CDF file if provided.
+    // Read incoming message sizes from the CDF file if provided. Use 30B
+    // outgoing messages to be consistent with the basic benchmark.
     if (!messageSizeCDF.empty()) {
         std::ifstream inFile(messageSizeCDF);
         double avgMessageSize;
@@ -2957,40 +3024,38 @@ echo_basic()
         double probability;
         inFile >> avgMessageSize;
         while (inFile >> size >> probability) {
-            outgoingSizes.push_back(size);
+            outgoingSizes.push_back(30);
             incomingSizes.push_back(size);
             ids.push_back(std::to_string(size));
         }
     } else {
-        outgoingSizes = {0, 100, 1000, 10000, 100000, 1000000};
-        incomingSizes = {0, 100, 1000, 10000, 100000, 1000000};
-        ids = {"0", "100", "1K", "10K", "100K", "1M"};
+        outgoingSizes = {30, 30, 30, 30, 30};
+        incomingSizes = {100, 1024, 10*1024, 100*1024, 1024*1024};
+        ids = {"100", "1K", "10K", "100K", "1M"};
     }
 
     // Choose the first master server in the server list as the receiver.
     using ServerMap = std::map<uint64_t, std::pair<string, ServiceMask>>;
     ServerMap servers;
     getServerList(&servers);
-    string receiverLocator;
+    std::vector<string> receiverLocators;
     ServerMap::iterator it;
     for (it = servers.begin(); it != servers.end(); it++) {
         if (it->second.second.has(WireFormat::MASTER_SERVICE)) {
-            break;
+            receiverLocators.push_back(it->second.first);
         }
     }
-    if (it != servers.end()) {
-        receiverLocator = it->second.first;
-        LOG(NOTICE, "Choose server %lu at %s as the receiver", it->first,
-                receiverLocator.c_str());
-    } else {
+    if (receiverLocators.empty()) {
         LOG(ERROR, "No master server available");
         return;
     }
+    LOG(NOTICE, "%lu master servers available", receiverLocators.size());
 
     // Allocate and register memory for the request messages to enable
     // zero-copy TX if possible.
-    uint32_t largestSize =
-            *std::max_element(outgoingSizes.begin(), outgoingSizes.end());
+    uint32_t largestSize = std::max(1024u * 1024u,
+            *std::max_element(outgoingSizes.begin(), outgoingSizes.end()));
+
     const string message(largestSize, 'x');
     context->transportManager->registerMemory(
             const_cast<char*>(message.data()), message.length());
@@ -2998,13 +3063,14 @@ echo_basic()
     // Each iteration through the following loop measures the round-trip time
     // of a particular message size.
     for (uint i = 0; i < outgoingSizes.size(); i++) {
-        LOG(NOTICE, "Starting echo test for %d-byte reuqest messages",
-                outgoingSizes[i]);
+        LOG(NOTICE, "Starting echo test for %d-byte response messages",
+                incomingSizes[i]);
         cluster->logMessageAll(NOTICE,
-                "Starting echo test for %d-byte request messages",
-                outgoingSizes[i]);
-        echoDists.push_back(echoMessage(receiverLocator, message.data(),
-                outgoingSizes[i], incomingSizes[i], 1000, 10.0));
+                "Starting echo test for %d-byte response messages",
+                incomingSizes[i]);
+        echoDists.push_back(echoMessage(receiverLocators, message.data(),
+                outgoingSizes[i], incomingSizes[i], 10000, numConcurrentOps,
+                10.0));
     }
     Logger::get().sync();
 
@@ -3035,8 +3101,8 @@ echo_basic()
         }
         snprintf(name, sizeof(name), "echoBw%s", ids[i].c_str());
         snprintf(description, sizeof(description),
-                "bandwidth sending %sB messages", ids[i].c_str());
-        printBandwidth(name, dist->bandwidth, description);
+                "bandwidth receiving %sB messages", ids[i].c_str());
+        printBandwidth(name, dist->bandwidth0, description);
     }
 }
 
@@ -7359,6 +7425,8 @@ try
                 "Index of this client (first client is 0)")
         ("count,c", po::value<int>(&count)->default_value(100000),
                 "Number of times to invoke operation for test")
+        ("concurrentOps", po::value<int>(&numConcurrentOps)->default_value(1),
+                "Max number of pending concurrent operations")
         ("numClients", po::value<int>(&numClients)->default_value(1),
                 "Total number of clients running")
         ("numVClients", po::value<int>(&numVClients)->default_value(1),

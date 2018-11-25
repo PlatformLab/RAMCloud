@@ -346,6 +346,8 @@ def run_test(
     client_args = {}
     if options.count != None:
         client_args['--count'] = options.count
+    if options.concurrentOps != None:
+        client_args['--concurrentOps'] = options.concurrentOps
     if options.size != None:
         client_args['--size'] = options.size
     if options.numObjects != None:
@@ -943,6 +945,8 @@ if __name__ == '__main__':
     parser.add_option('-c', '--count', type=int,
             metavar='N', dest='count',
             help='Number of times to perform the operation')
+    parser.add_option('--concurrentOps', type=int,
+            help='Max number of pending concurrent operations')
     parser.add_option('--disjunct', action='store_true', default=False,
             metavar='True/False',
             help='Do not colocate clients on a node (servers are never '

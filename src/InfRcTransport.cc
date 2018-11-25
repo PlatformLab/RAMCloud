@@ -139,7 +139,7 @@ namespace {
 /// Copying large amount of data could result in significant jitters that
 /// affect the tail slowdown of short messages. Log a WARNING message
 /// whenever the bytes being copied exceeds this threshold.
-#define LARGE_COPIED_BYTES 1000000
+#define LARGE_COPIED_BYTES (1024*1024)
 
 //------------------------------
 // InfRcTransport class
@@ -1170,8 +1170,13 @@ InfRcTransport::sendZeroCopy(uint64_t nonce, Buffer* message, QueuePair* qp,
             memcpy(unaddedEnd, it.getData(), it.getLength());
             unaddedEnd += it.getLength();
             if (it.getLength() > LARGE_COPIED_BYTES) {
-                LOG(WARNING, "zero-copy TX not applicable, copied %u bytes",
-                        it.getLength());
+                LOG(WARNING, "zero-copy TX not applicable, copied %u bytes; "
+                        "0-copy range %lu-%lu, message chunk range %lu-%lu, "
+                        "sgesUsed %u, chunksUsed %u, lastChunkIndex %u",
+                        it.getLength(),
+                        logMemoryBase, logMemoryBase + logMemoryBytes,
+                        addr, addr + it.getLength(), sgesUsed, chunksUsed,
+                        lastChunkIndex);
             }
         }
         it.next();
