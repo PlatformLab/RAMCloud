@@ -303,7 +303,7 @@ class EchoRpc : public RpcWrapper {
     EchoRpc(RamCloud* ramcloud, Transport::SessionRef session,
             const void* message, uint32_t length, uint32_t echoLength,
             Buffer* reply = NULL, Callback* callback = NULL,
-            uint64_t startTime = 0);
+            uint64_t arrivalTime = 0);
     ~EchoRpc();
     virtual void completed();
     virtual void failed();

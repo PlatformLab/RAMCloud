@@ -213,9 +213,9 @@ string formatTime(double seconds)
     } else if (seconds < 1.0e-03) {
         return format("%5.1f us", 1e06*seconds);
     } else if (seconds < 1.0) {
-        return format("%5.1f ms", 1e03*seconds);
+        return format("%5.2f ms", 1e03*seconds);
     } else {
-        return format("%5.1f s ", seconds);
+        return format("%5.2f s ", seconds);
     }
 }
 
@@ -1616,17 +1616,17 @@ echoMessageAsync(const vector<string> receivers, const char* message,
 
                 // If the message was delayed due to throttling, we need to
                 // set its start time to when the message actually arrived.
-                uint64_t rpcStartTime = 0;
+                uint64_t rpcArrivalTime = 0;
                 if (sendDelayedMessage) {
-                    rpcStartTime = delayedMessages.front().second;
-                    LOG(DEBUG, "RPC was delayed %.2f us", Cycles::toSeconds(
-                            Cycles::rdtsc() - rpcStartTime)*1e6);
+                    rpcArrivalTime = delayedMessages.front().second;
                     delayedMessages.pop_front();
+                    LOG(DEBUG, "RPC was delayed %.2f us", Cycles::toSeconds(
+                            Cycles::rdtsc() - rpcArrivalTime)*1e6);
                 }
 
                 EchoRpc* echo = echoRpcPool.construct(cluster, session,
                         message, length, length, static_cast<Buffer*>(NULL),
-                        new Callback(emptySlot, &readyQueue), rpcStartTime);
+                        new Callback(emptySlot, &readyQueue), rpcArrivalTime);
                 outstandingRpcs[emptySlot].construct(messageId, multiConn,
                         sessionId, echo);
                 numOutstandingRpcs++;

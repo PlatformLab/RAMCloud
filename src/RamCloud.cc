@@ -519,10 +519,10 @@ EchoRpc::EchoRpc(RamCloud* ramcloud, const char* serviceLocator,
  */
 EchoRpc::EchoRpc(RamCloud* ramcloud, Transport::SessionRef session,
         const void* message, uint32_t length, uint32_t echoLength,
-        Buffer* reply, Callback* callback, uint64_t startTime)
+        Buffer* reply, Callback* callback, uint64_t arrivalTime)
     : RpcWrapper(sizeof(WireFormat::Echo::Response), reply)
     , callback(callback)
-    , startTime(startTime == 0 ? Cycles::rdtsc() : startTime)
+    , startTime(arrivalTime ? arrivalTime : Cycles::rdtsc())
     , endTime(~0u)
     , ramcloud(ramcloud)
 {
@@ -557,15 +557,13 @@ EchoRpc::completed() {
     // Change 0 to 1 to enable code for debugging bad tail latencies of
     // short messages.
 #if 0
-    uint64_t rttCycles = endTime - startTime;
-#define BAD_TAIL_LATENCY (Cycles::fromMicroseconds(100))
-#define SHORT_MESSAGE_LENGTH 100
     const WireFormat::Echo::Request* reqHdr =
             getRequestHeader<WireFormat::Echo>();
-    if ((reqHdr->length < SHORT_MESSAGE_LENGTH) &&
-            (rttCycles > BAD_TAIL_LATENCY)) {
-        uint32_t rttMicros = uint32_t(Cycles::toMicroseconds(rttCycles));
-        TimeTrace::record(endTime, "Bad tail latency %u us", rttMicros);
+    uint32_t roundTripNs = downCast<uint32_t>(
+            Cycles::toNanoseconds(endTime - startTime));
+    if ((reqHdr->length < 100) && (roundTripNs > 15000)) {
+        TimeTrace::record(endTime, "Bad tail latency %u ns, size %u,",
+                roundTripNs, reqHdr->length);
     }
 #endif
 }

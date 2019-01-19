@@ -37,28 +37,30 @@ def main():
 
     # Read median and 99%-tile tail RPC time of all message sizes from file
     # Example format:
-    #    Size  Samples  Min  Median  90%  99%  99.9%  Max
+    #    Size  Samples  Min  Average  Median  90%  99%  99.9%  Max
     num_samples = {}
-    rpc_time_median = {}
-    rpc_time_tail = {}
+    average = {}
+    median = {}
+    tail = {}
     total_samples = 0.0
     with open(experiment_data) as f:
         for line in f.readlines():
             data = line.strip(' ').split()
-            if len(data) != 8:
+            if len(data) != 9:
                 continue
             data = [float(x) for x in data]
 
-            size, num_samples[size], _, rpc_time_median[size], _, rpc_time_tail[size] = data[:6]
+            size, num_samples[size], _, average[size], median[size], _, tail[size] = data[:7]
             total_samples += num_samples[size]
 
     # Print out RPC slowdowns
     for size in sorted(num_samples.iterkeys()):
-        print("%s %s %s %8d %5d %10.7f %8.2f %8.2f" % (experiment_name,
+        print("%s %s %s %8d %5d %10.7f %8.2f %8.2f %8.2f" % (experiment_name,
                 load_factor, workload, size, num_samples[size],
                 num_samples[size] / total_samples,
-                rpc_time_median[size] / rpc_time_min[size],
-                rpc_time_tail[size] / rpc_time_min[size]))
+                average[size] / rpc_time_min[size],
+                median[size] / rpc_time_min[size],
+                tail[size] / rpc_time_min[size]))
 
 if __name__ == '__main__':
     main()

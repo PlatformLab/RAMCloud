@@ -102,8 +102,8 @@ def create(numPanesPerWindow, commands, layout = 'tiled', executeBeforeAttach = 
    if not numPanesPerWindow  > 0: 
        print "Forkbomb attempt detected!"
        return
-   if numPanesPerWindow > 30:
-       print "Number per window must be less than 30!"
+   if numPanesPerWindow > 50:
+       print "Number per window must be less than or equal to 50!"
        return
    tmux = True
    if not os.environ.get('TMUX'): # Session exist

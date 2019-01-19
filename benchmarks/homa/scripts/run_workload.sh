@@ -35,7 +35,27 @@ plot_slowdown=benchmarks/homa/scripts/slowdownImpl.r            # R script used 
 
 # Encode configurations for different experiments (ordered roughly in
 # decreasing slowdown of short messages).
-if [ $workload == 'W3' ]
+if [ $workload == 'W1' ]
+then
+    plot_label=(Basic HomaP1 HomaP2 HomaP4 HomaP8)
+    protocol=(basic homa homa homa homa)
+    driver=(dpdk dpdk dpdk dpdk dpdk)
+    params=(""
+            "rttMicros=8,numPrio=1,unschedPrio=1,degreeOC=1"
+            "rttMicros=8,numPrio=2,unschedPrio=1,degreeOC=1"
+            "rttMicros=8,numPrio=4,unschedPrio=3,degreeOC=1,unschedPrioCutoffs=11.126"
+            "rttMicros=8,numPrio=8,unschedPrio=7,degreeOC=1,unschedPrioCutoffs=11.126.279.484.820.1543")
+elif [ $workload == 'W2' ]
+then
+    plot_label=(Basic HomaP1 HomaP2 HomaP4 HomaP8)
+    protocol=(basic homa homa homa homa)
+    driver=(dpdk dpdk dpdk dpdk dpdk)
+    params=(""
+            "rttMicros=8,numPrio=1,unschedPrio=1,degreeOC=3"
+            "rttMicros=8,numPrio=2,unschedPrio=1,degreeOC=3"
+            "rttMicros=8,numPrio=4,unschedPrio=3,degreeOC=3,unschedPrioCutoffs=269.366"
+            "rttMicros=8,numPrio=8,unschedPrio=5,degreeOC=3,unschedPrioCutoffs=269.366.512.2156")
+elif [ $workload == 'W3' ]
 then
     plot_label=(Basic HomaP1 HomaP2 HomaP4 HomaP8)
     protocol=(basic homa homa homa homa)
@@ -45,7 +65,7 @@ then
             "rttMicros=8,numPrio=2,unschedPrio=1,degreeOC=4"
             "rttMicros=8,numPrio=4,unschedPrio=2,degreeOC=4,unschedPrioCutoffs=469"
             "rttMicros=8,numPrio=8,unschedPrio=4,degreeOC=4,unschedPrioCutoffs=469.5521.15267")
-elif [ $workload == 'W4' ] || [ $workload == 'W5' ]
+elif [ $workload == 'W4' ] || [ $workload == 'W5' ] || [ $workload == 'W7' ]
 then
     plot_label=(Basic HomaP1 HomaP2 HomaP4 HomaP8)
     protocol=(basic homa homa homa homa)
@@ -55,6 +75,26 @@ then
             "rttMicros=8,numPrio=2,unschedPrio=1,degreeOC=7"
             "rttMicros=8,numPrio=4,unschedPrio=1,degreeOC=7"
             "rttMicros=8,numPrio=8,unschedPrio=1,degreeOC=7")
+elif [ $workload == 'W6' ]
+then
+    plot_label=(Basic HomaP1 HomaP2 HomaP4 HomaP8)
+    protocol=(basic homa homa homa homa)
+    driver=(dpdk dpdk dpdk dpdk dpdk)
+    params=(""
+            "rttMicros=8,numPrio=1,unschedPrio=1,degreeOC=4"
+            "rttMicros=8,numPrio=2,unschedPrio=1,degreeOC=4"
+            "rttMicros=8,numPrio=4,unschedPrio=2,degreeOC=4,unschedPrioCutoffs=3436"
+            "rttMicros=8,numPrio=8,unschedPrio=4,degreeOC=4,unschedPrioCutoffs=3436.11175.21047")
+elif [ $workload == 'W8' ]
+then
+    plot_label=(Basic HomaP1 HomaP2 HomaP4 HomaP8)
+    protocol=(basic homa homa homa homa)
+    driver=(dpdk dpdk dpdk dpdk dpdk)
+    params=(""
+            "rttMicros=8,numPrio=1,unschedPrio=1,degreeOC=6"
+            "rttMicros=8,numPrio=2,unschedPrio=1,degreeOC=6"
+            "rttMicros=8,numPrio=4,unschedPrio=2,degreeOC=6,unschedPrioCutoffs=18024"
+            "rttMicros=8,numPrio=8,unschedPrio=2,degreeOC=6,unschedPrioCutoffs=18024")
 else
     printf "Unknown workload: $workload\n" && exit
 fi
@@ -72,7 +112,7 @@ for (( i = 0; i < ${#protocol[@]}; i++ )); do
     echo $transport:${params[i]} > $transport_config
     baseline_data=${transport}_${workload}_baseline.txt
 
-    for target_tput in 4.8 7.6; do
+    for target_tput in 2.9 4.8 7.6; do
         load_factor=`echo $target_tput*$bandwidthGbps/1 | bc`
         echo "====================================="
         printf "Running experiment (%s, %s, %s)\n" "${plot_label[i]}" "$workload" "$load_factor"
@@ -81,7 +121,6 @@ for (( i = 0; i < ${#protocol[@]}; i++ )); do
         cmd="scripts/clusterperf.py --superuser --dpdkPort 1 --replicas 0 --disjunct --transport $transport --servers $num_servers --clients $num_clients --messageSizeCDF $workload_cdf --seconds $duration --targetTput $target_tput --verbose echo_workload > $out_dir/$experiment_data"
         echo "command: $cmd"
         eval $cmd
-        cp logs/latest/client1*.log $out_dir/client1.$profile.log
         cd $out_dir; ../$compute_slowdown $baseline_data $experiment_data >> $rpc_slowdown_data; cd ..
     done
 done

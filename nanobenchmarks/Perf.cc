@@ -1538,6 +1538,21 @@ double memcpyCachedDst10000()
     return memcpyShared(10000, true, false);
 }
 
+double memcpyCachedSrc100()
+{
+    return memcpyShared(100, false, true);
+}
+
+double memcpyCachedSrc1000()
+{
+    return memcpyShared(1000, false, true);
+}
+
+double memcpyCachedSrc10000()
+{
+    return memcpyShared(10000, false, true);
+}
+
 double memcpyCold100()
 {
     return memcpyShared(100, true, true);
@@ -2454,6 +2469,12 @@ TestInfo tests[] = {
      "memcpy 1000 bytes with hot/fixed dst and cold src"},
     {"memcpyCachedDst10000", memcpyCachedDst10000,
      "memcpy 10000 bytes with hot/fixed dst and cold src"},
+    {"memcpyCachedSrc100", memcpyCachedSrc100,
+     "memcpy 100 bytes with hot/fixed src and cold dst"},
+    {"memcpyCachedSrc1000", memcpyCachedSrc1000,
+     "memcpy 1000 bytes with hot/fixed src and cold dst"},
+    {"memcpyCachedSrc10000", memcpyCachedSrc10000,
+     "memcpy 10000 bytes with hot/fixed src and cold dst"},
     {"memcpyCold100", memcpyCold100,
      "memcpy 100 bytes with cold dst and src"},
     {"memcpyCold1000", memcpyCold1000,

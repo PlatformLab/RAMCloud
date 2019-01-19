@@ -143,17 +143,18 @@ def print_percentiles_from_logs():
                         pass
 
     # Print the count and percentiles of each sample collection.
-    print("#   Size   Samples       Min    Median       90%       99%     99.9%       Max\n"
-          "#-----------------------------------------------------------------------------")
+    print("#   Size   Samples       Min       Avg       50%       90%       99%     99.9%       Max\n"
+          "#---------------------------------------------------------------------------------------")
     for size, samples in samplesOfSize.iteritems():
         samples.sort()
         length = len(samples)
         if length == 0:
             continue
-        print("%8d  %8d  %8.1f  %8.1f  %8.1f  %8.1f  %8.1f  %8.1f" % (
+        print("%8d  %8d  %8.1f  %8.1f  %8.1f  %8.1f  %8.1f  %8.1f  %8.1f" % (
                 size,
                 numGenSamples[size],
                 samples[0],
+                sum(samples) / length,
                 samples[int(length * .5)],
                 samples[int(length * .9)] if length >= 10 else .0,
                 samples[int(length * .99)] if length >= 100 else .0,
