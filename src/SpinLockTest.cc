@@ -68,7 +68,7 @@ TEST(SpinLockTest, threadBlocks) {
     // available.
     std::thread thread(blockingChild, &lock);
     TestUtil::waitForLog();
-    EXPECT_EQ("lock: Waiting on SpinLock", TestLog::get());
+    EXPECT_EQ("debugLongWaitAndDeadlock: Waiting on SpinLock", TestLog::get());
 
     // Make sure that the child thread eventually completes once we
     // release the lock.
@@ -130,14 +130,14 @@ TEST(SpinLockTest, printWarning) {
     // Wait for a thread to block on the lock.
     std::thread thread(blockingChild, &lock);
     TestUtil::waitForLog();
-    EXPECT_EQ("lock: Waiting on SpinLock", TestLog::get());
+    EXPECT_EQ("debugLongWaitAndDeadlock: Waiting on SpinLock", TestLog::get());
 
     // Advance time, make sure that the thread prints a message.
     TestLog::reset();
     Cycles::mockTscValue += ticksPerSecond;
     TestUtil::waitForLog();
-    EXPECT_EQ("lock: SpinLockTest SpinLock locked for one second; deadlock\?",
-            TestLog::get());
+    EXPECT_EQ("debugLongWaitAndDeadlock: SpinLockTest SpinLock locked for one "
+            "second; deadlock\?", TestLog::get());
     EXPECT_EQ(ticksPerSecond, lock.contendedTicks);
 
     // Release the lock, make sure the thread acquires it.

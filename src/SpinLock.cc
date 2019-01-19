@@ -13,11 +13,10 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <mutex>
 #include <unordered_set>
 
-#include "Common.h"
 #include "Cycles.h"
+#include "Logger.h"
 #include "SpinLock.h"
 
 namespace RAMCloud {
@@ -71,66 +70,6 @@ SpinLock::~SpinLock()
 }
 
 /**
- * Acquire the SpinLock; blocks the thread (by continuously polling the lock)
- * until the lock has been acquired.
- */
-void
-SpinLock::lock()
-{
-    uint64_t startOfContention = 0;
-
-    while (mutex.test_and_set(std::memory_order_acquire)) {
-        if (startOfContention == 0) {
-            startOfContention = Cycles::rdtsc();
-            if (logWaits) {
-                RAMCLOUD_TEST_LOG("Waiting on SpinLock");
-            }
-        } else {
-            uint64_t now = Cycles::rdtsc();
-            if (Cycles::toSeconds(now - startOfContention) > 1.0) {
-                RAMCLOUD_LOG(WARNING,
-                        "%s SpinLock locked for one second; deadlock?",
-                        name.c_str());
-                contendedTicks += now - startOfContention;
-                startOfContention = now;
-            }
-        }
-    }
-
-    if (startOfContention != 0) {
-        contendedTicks += (Cycles::rdtsc() - startOfContention);
-        contendedAcquisitions++;
-    }
-    acquisitions++;
-}
-
-/**
- * Try to acquire the SpinLock; does not block the thread and returns
- * immediately.
- *
- * \return
- *      True if the lock was successfully acquired, false if it was already
- *      owned by some other thread.
- */
-bool
-SpinLock::try_lock()
-{
-    // test_and_set sets the flag to true and returns the previous value;
-    // if it's True, someone else is owning the lock.
-    return !mutex.test_and_set(std::memory_order_acquire);
-}
-
-/**
- * Release the SpinLock.  The caller must previously have acquired the
- * lock with a call to #lock or #try_lock.
- */
-void
-SpinLock::unlock()
-{
-    mutex.clear(std::memory_order_release);
-}
-
-/**
  * Change the name of the SpinLock. The name is intended to give some hint as
  * to the purpose of the lock, where it was declared, etc.
  *
@@ -177,6 +116,36 @@ SpinLock::numLocks()
 {
     std::lock_guard<std::mutex> lock(*SpinLockTable::lock());
     return downCast<int>(SpinLockTable::allLocks()->size());
+}
+
+/**
+ * Log a warning if we have been stuck at acquiring the lock for too long;
+ * intended primarily for debugging.
+ *
+ * This method is extracted from SpinLock::lock to avoid having to include
+ * "Logger.h" in the header file.
+ *
+ * \param[out] startOfContention
+ *      Time, in rdtsc ticks, when we first tried to acquire the lock.
+ */
+void
+SpinLock::debugLongWaitAndDeadlock(uint64_t* startOfContention)
+{
+    if (*startOfContention == 0) {
+        *startOfContention = Cycles::rdtsc();
+        if (logWaits) {
+            RAMCLOUD_TEST_LOG("Waiting on SpinLock");
+        }
+    } else {
+        uint64_t now = Cycles::rdtsc();
+        if (now >= *startOfContention + uint64_t(Cycles::perSecond())) {
+            RAMCLOUD_LOG(WARNING,
+                    "%s SpinLock locked for one second; deadlock?",
+                    name.c_str());
+            contendedTicks += now - *startOfContention;
+            *startOfContention = now;
+        }
+    }
 }
 
 } // namespace RAMCloud

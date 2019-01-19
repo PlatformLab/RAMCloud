@@ -98,7 +98,7 @@ TEST_F(InfUdDriverTest, gbsOption) {
 
     ServiceLocator serverLocator2("basic+infud:gbs=1");
     InfUdDriver driver2(&context, &serverLocator2, false);
-    EXPECT_EQ(4016u, driver2.maxTransmitQueueSize);
+    EXPECT_EQ(8112u, driver2.maxTransmitQueueSize);
     Cycles::mockCyclesPerSec = 0;
 }
 

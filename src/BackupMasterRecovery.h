@@ -16,6 +16,7 @@
 #ifndef RAMCLOUD_BACKUPMASTERRECOVERY_H
 #define RAMCLOUD_BACKUPMASTERRECOVERY_H
 
+#include "Atomic.h"
 #include "Common.h"
 #include "BackupStorage.h"
 #include "Log.h"

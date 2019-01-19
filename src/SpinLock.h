@@ -18,8 +18,8 @@
 
 #include <mutex>
 #include <atomic>
+#include <x86intrin.h>
 
-#include "Atomic.h"
 #include "SpinLockStatistics.pb.h"
 
 namespace RAMCloud {
@@ -39,9 +39,61 @@ class SpinLock {
   public:
     explicit SpinLock(string name);
     virtual ~SpinLock();
-    void lock();
-    bool try_lock();
-    void unlock();
+
+    /**
+     * Acquire the SpinLock; blocks the thread (by continuously polling the
+     * lock) until the lock has been acquired.
+     */
+    inline void
+    lock() {
+        uint64_t startOfContention = 0;
+        do {
+            // mutex.exchange() always invalidates the cache line mutex resides
+            // in, regardless of whether it succeeded in updating the value or
+            // not. To avoid bogus cache invalidation traffic, wait until we
+            // observe the lock to be free. This technique is usually called the
+            // Test-And-Test-And-Set (TTAS) optimization.
+            while (mutex.load(std::memory_order_relaxed)) {
+                debugLongWaitAndDeadlock(&startOfContention);
+            }
+        } while (mutex.exchange(1, std::memory_order_acquire));
+
+        if (startOfContention != 0) {
+            contendedTicks += (__rdtsc() - startOfContention);
+            contendedAcquisitions++;
+        }
+        acquisitions++;
+    }
+
+    /**
+     * Try to acquire the SpinLock; does not block the thread and returns
+     * immediately.
+     *
+     * \return
+     *      True if the lock was successfully acquired, false if it was already
+     *      owned by some other thread.
+     */
+    inline bool
+    try_lock()
+    {
+        if (mutex.load(std::memory_order_relaxed)) {
+            return false;
+        }
+        // exchange returns the previous value of the variable; if it's true,
+        // someone else is owning the lock.
+        return !mutex.exchange(1, std::memory_order_acquire);
+    }
+
+    /**
+     * Release the SpinLock.  The caller must previously have acquired the
+     * lock with a call to #lock or #try_lock.
+     */
+    inline void
+    unlock()
+    {
+        mutex.store(0, std::memory_order_release);
+    }
+
     void setName(string name);
     static void getStatistics(ProtoBuf::SpinLockStatistics* stats);
     static int numLocks();
@@ -53,8 +105,10 @@ class SpinLock {
     typedef std::lock_guard<SpinLock> Guard;
 
   PRIVATE:
+    void debugLongWaitAndDeadlock(uint64_t* startOfContention);
+
     /// Implements the lock: False means free, True means locked.
-    std::atomic_flag mutex;
+    std::atomic_bool mutex;
 
     /// Descriptive name for this SpinLock. Used to identify the purpose of
     /// the lock, what it protects, where it exists in the codebase, etc.
