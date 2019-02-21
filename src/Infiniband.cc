@@ -939,6 +939,14 @@ Infiniband::Address::~Address() {
     // forever in the ahMap cache.
 }
 
+uint64_t
+Infiniband::Address::getHash() const
+{
+    uint64_t hash = lid;
+    hash = (hash << 32) + qpn;
+    return hash;
+}
+
 /**
  * Return a string describing the contents of this Address (host
  * address & port).

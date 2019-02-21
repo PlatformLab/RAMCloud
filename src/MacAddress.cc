@@ -18,16 +18,6 @@
 namespace RAMCloud {
 
 /**
- * Create a new address from 6 bytes.
- * \param raw
- *      The raw bytes.
- */
-MacAddress::MacAddress(const uint8_t raw[6])
-{
-    memcpy(address, raw, 6);
-}
-
-/**
  * Create a new address from a string representation.
  * \param macStr
  *      A MAC address like "01:23:45:67:89:ab". Uppercase is also allowed.
@@ -47,12 +37,6 @@ MacAddress::MacAddress(const char* macStr)
         address[i] = downCast<uint8_t>(bytes[i]);
 }
 
-MacAddress::MacAddress(const MacAddress& other)
-    : Address()
-{
-    memcpy(address, other.address, 6);
-}
-
 /**
  * Generate a random MAC address.
  * Guaranteed to not be a multicast address and in the locally administered mac
@@ -70,6 +54,18 @@ MacAddress::MacAddress(Random _)
     address[0] |= 0x02;
 }
 
+uint64_t
+MacAddress::getHash() const
+{
+    // The following code implements the djb2 hash function found at:
+    // http://www.cse.yorku.ca/~oz/hash.html.
+    uint64_t hash = 5381;
+    for (uint8_t c : address) {
+        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+    }
+    return hash;
+}
+
 inline string
 MacAddress::toString() const
 {
@@ -78,20 +74,6 @@ MacAddress::toString() const
              address[0], address[1], address[2],
              address[3], address[4], address[5]);
     return buf;
-}
-
-/**
- * \return
- *      True if the MacAddress consists of all zero bytes, false if not.
- */
-bool
-MacAddress::isNull() const
-{
-    if (address[0] == 0 && address[1] == 0 && address[2] == 0 &&
-            address[3] == 0 && address[4] == 0 && address[5] == 0)
-        return true;
-    else
-        return false;
 }
 
 } // namespace RAMCloud

@@ -21,6 +21,7 @@
 
 #include "Common.h"
 #include "Buffer.h"
+#include "Dispatch.h"
 #include "QueueEstimator.h"
 
 #undef CURRENT_LOG_MODULE
@@ -47,6 +48,12 @@ class Driver {
 
       public:
         virtual ~Address() {}
+
+        /**
+         * Return a 64-bit unsigned integer hash of this Address (for debugging,
+         * logging, and fast equality test).
+         */
+        virtual uint64_t getHash() const = 0;
 
         /**
          * Return a string describing the contents of this Address (for
@@ -214,9 +221,17 @@ class Driver {
     /// Create a protected short alias to be used in Driver subclasses.
     using TransmitQueueState = QueueEstimator::TransmitQueueState;
 
-    explicit Driver()
-        : lastTransmitTime(0)
+    /**
+     * Driver constructor.
+     *
+     * \param context
+     *      Overall information about the RAMCloud server or client.
+     */
+    explicit Driver(Context* context)
+        : context(context)
+        , lastTransmitTime(0)
         , maxTransmitQueueSize(0)
+        , packetsToRelease()
         , queueEstimator(0)
     {
         // Default: no throttling of transmissions (probably not a good idea).
@@ -307,65 +322,47 @@ class Driver {
     }
 
     /**
-     * Return ownership of a packet buffer back to the driver.
+     * Release the packet buffers previously enqueued by Driver::returnPacket
+     * so their associated resources can be recycled.
      *
-     * Invoked by a transport when it has finished processing the data
-     * in an incoming packet; used by drivers to recycle packet buffers
-     * at a safe time.
+     * Invoked by a transport in its poll method.
+     */
+    virtual void release() = 0;
+
+    /**
+     * Return ownership of a packet buffer back to the driver so the packet
+     * buffer can be safely released later.
+     *
+     * This method is usually invoked by a transport when it has finished
+     * processing the data in an incoming packet. This method can also be
+     * invoked by an RPC client when it has finished processing the RPC reply.
+     * Note that this method does *NOT* actually release the packet buffer;
+     * the transport must invoke Driver::release in its poll method for that
+     * to happen.
+     *
+     * Defining this method here as inline allows the compiler to remove
+     * unnecessary synchronization when it's called from the dispatch thread,
+     * which is the common case.
      *
      * \param payload
      *      The first byte of a packet that was previously "stolen"
      *      (i.e., the payload field from the Received object used to
      *      pass the packet to the transport when it was received).
+     * \param isDispatchThread
+     *      True if this method is invoked from the dispatch thread.
      */
-    virtual void release(char *payload) = 0;
-
-    template<typename T>
-    void release(T* payload) {
-        release(reinterpret_cast<char*>(payload));
-    }
-
-    /**
-     * A hint from the transport that it's a good time for the driver to
-     * actually recycle the resources of a few packet buffers.
-     *
-     * Note: there is no guarantee that the driver will follow this hint.
-     * For instance, a driver can simply ignore this hint and perform the
-     * release whenever the ownership of a packet buffer is returned via
-     * #release (which is the default behavior).
-     *
-     * \param maxCount
-     *      The maximum number of packet buffers to release.
-     *      -1 means unlimited.
-     */
-    virtual void releaseHint(int maxCount) {}
-
-    /**
-     * This method is invoked by transports to tell a driver that it should
-     * release a packet buffer back to the NIC. It is needed because some
-     * drivers may use zero-copy techniques when packets arrive, passing the
-     * input packet buffer to the transport instead of copying the data into
-     * a separate buffer. The zero-copy approach can potentially cause the NIC
-     * to run out of packet buffers (e.g. if several very long messages are
-     * being received but none is yet complete). Transports must detect
-     * excessive use of packet buffers and invoke this method on some
-     * of the incoming packets. If received is currently occupying one of
-     * the NIC's packet buffers (i.e. it hasn't already been copied), the
-     * driver must copy the packet into a separate copy in memory (e.g.
-     * Driver::PacketBuf) so it can release the packet buffer back to the
-     * NIC. If this packet has already been copied out of the NIC's buffer,
-     * then the method does nothing. This method must not be invoked if the
-     * transport has retained a pointer to data in the original packet (e.g.
-     * by calling getRange or getOffset, or by accessing payload).
-     *
-     * \param received
-     *      An incoming packet which contains the packet buffer to copy.
-     */
-    virtual void releaseHwPacketBuf(Driver::Received* received)
+    VIRTUAL_FOR_TESTING void
+    returnPacket(void* payload, bool isDispatchThread = true)
     {
-        // The default implementation does nothing. It can be used by drivers
-        // that don't support zero-copy RX or have sufficient hardware-managed
-        // packet buffers.
+        if (isDispatchThread) {
+            assert(context->dispatch->isDispatchThread());
+            packetsToRelease.push_back(static_cast<char*>(payload));
+        } else {
+            // Must sync with the dispatch thread, since this method could
+            // be invoked from a worker thread (e.g. in ~PayloadChunk).
+            Dispatch::Lock _(context->dispatch);
+            packetsToRelease.push_back(static_cast<char*>(payload));
+        }
     }
 
     /**
@@ -507,6 +504,9 @@ class Driver {
     static const uint32_t MAX_DRAIN_TIME = 2000;
 
   PROTECTED:
+    /// Shared RAMCloud information.
+    Context* context;
+
     /// The most recent time that the driver handed a packet to the NIC,
     /// in rdtsc ticks.
     uint64_t lastTransmitTime;
@@ -515,8 +515,14 @@ class Driver {
     /// at any given time.
     uint32_t maxTransmitQueueSize;
 
+    /// Holds incoming packets that have been processed by the transport and
+    /// can be safely released by the driver.
+    std::vector<char*> packetsToRelease;
+
     /// Used to estimate # bytes outstanding in the NIC's transmit queue.
     QueueEstimator queueEstimator;
+
+    DISALLOW_COPY_AND_ASSIGN(Driver)
 };
 
 /**

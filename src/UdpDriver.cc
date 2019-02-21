@@ -56,12 +56,12 @@ Syscall* UdpDriver::sys = &defaultSyscall;
  */
 UdpDriver::UdpDriver(Context* context,
         const ServiceLocator* localServiceLocator)
-    : context(context)
+    : Driver(context)
     , socketFd(-1)
     , packetBatches()
     , currentBatch(0)
     , packetBufPool()
-    , mutex("UdpDriver")
+    , mutex("UdpDriver::packetBufPool")
     , locatorString("udp:")
     , bandwidthGbps(10)                   // Default bandwidth = 10 gbs
     , readerThread()
@@ -133,8 +133,11 @@ UdpDriver::~UdpDriver()
     for (int batch = 0; batch < 2; batch++) {
         for (int i = 0; i < PacketBatch::MAX_PACKETS; i++) {
             if (packetBatches[batch].buffers[i] != NULL) {
-                release(packetBatches[batch].buffers[i]->payload);
-                packetBatches[batch].buffers[i] = NULL;
+                // No need to sync before acessing packetBufPool since we have
+                // joined readerThread in close().
+                char* payload = packetBatches[batch].buffers[i]->payload;
+                packetBufPool.destroy(reinterpret_cast<PacketBuf*>(
+                        payload - OFFSET_OF(PacketBuf, payload)));
             }
         }
     }
@@ -201,14 +204,18 @@ UdpDriver::receivePackets(uint32_t maxPackets,
 
 // See docs in Driver class.
 void
-UdpDriver::release(char *payload)
+UdpDriver::release()
 {
     SpinLock::Guard guard(mutex);
 
-    // Note: the payload is actually contained in a PacketBuf structure,
-    // which we return to a pool for reuse later.
-    packetBufPool.destroy(
-        reinterpret_cast<PacketBuf*>(payload - OFFSET_OF(PacketBuf, payload)));
+    while (!packetsToRelease.empty()) {
+        // Note: the payload is actually contained in a PacketBuf structure,
+        // which we return to a pool for reuse later.
+        char* payload = packetsToRelease.back();
+        packetsToRelease.pop_back();
+        packetBufPool.destroy(reinterpret_cast<PacketBuf*>(
+                payload - OFFSET_OF(PacketBuf, payload)));
+    }
 }
 
 // See docs in Driver class.

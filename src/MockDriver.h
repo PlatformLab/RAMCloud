@@ -41,6 +41,9 @@ class MockDriver : public Driver {
         bool operator==(const MockAddress& other) const {
             return (this->address == other.address);
         }
+        uint64_t getHash() const {
+            return std::hash<std::string>{}(address);
+        }
         string toString() const {
             return address;
         }
@@ -72,8 +75,7 @@ class MockDriver : public Driver {
     /// The type of a customer header serializer.  See headerToString.
     typedef string (*HeaderToString)(const void*, uint32_t);
 
-    MockDriver();
-    explicit MockDriver(HeaderToString headerToString);
+    explicit MockDriver(Context* context, HeaderToString headerToString);
     virtual ~MockDriver();
     virtual int getHighestPacketPriority() { return 7; }
     virtual uint32_t getMaxPacketSize() { return MAX_PAYLOAD_SIZE; }
@@ -84,7 +86,23 @@ class MockDriver : public Driver {
 #endif
     virtual void receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets);
-    virtual void release(char *payload);
+    virtual void release()
+    {
+        // Nothing to do; packet bufs are directly released in returnPacket
+        // when testing.
+        assert(packetsToRelease.empty());
+    }
+#if TESTING
+    /**
+     * Counts number of times returnPacket is called to allow unit tests
+     * to check that Driver resources are properly reclaimed.
+     */
+    virtual void returnPacket(void* payload, bool isDispatchThread) {
+        delete reinterpret_cast<PacketBuf*>(static_cast<char*>(payload) -
+                OFFSET_OF(PacketBuf, payload));
+        releaseCount++;
+    }
+#endif
     virtual void sendPacket(const Address* addr,
                             const void* header,
                             uint32_t headerLen,

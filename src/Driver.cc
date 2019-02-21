@@ -25,8 +25,8 @@ uint32_t Driver::Received::stealCount = 0;
  */
 Driver::Received::~Received()
 {
-    if (payload && driver)
-        driver->release(payload);
+    if (payload)
+        driver->returnPacket(payload);
 }
 
 /**
@@ -52,7 +52,7 @@ Driver::Received::getRange(uint32_t offset, uint32_t length)
 
 /**
  * Return a pointer to the raw data received from the Driver, obligating
- * the caller to return the resources to the Driver using Driver::release()
+ * the caller to return the resources to the Driver using Driver::returnPacket
  * when the resources are no longer in use.
  *
  * This is generally used with PayloadChunk to allow Driver allocated memory
@@ -95,9 +95,9 @@ Driver::Received::steal(uint32_t *len)
  *      The length in bytes of the region starting at data that is a
  *      subregion of the payload.
  * \param driver
- *      The Driver to release() this payload to on Buffer destruction.
+ *      The Driver to returnPacket() this payload to on Buffer destruction.
  * \param payload
- *      The address to release() to the Driver on destruction.
+ *      The address to returnPacket() to the Driver on destruction.
  */
 Driver::PayloadChunk*
 Driver::PayloadChunk::appendToBuffer(Buffer* buffer,
@@ -116,7 +116,7 @@ Driver::PayloadChunk::appendToBuffer(Buffer* buffer,
 Driver::PayloadChunk::~PayloadChunk()
 {
     if (driver) {
-        driver->release(payload);
+        driver->returnPacket(payload, false);
     }
 }
 

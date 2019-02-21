@@ -160,7 +160,8 @@ class BasicTransport : public Transport {
      */
     class MessageAccumulator {
       public:
-        MessageAccumulator(BasicTransport* t, Buffer* buffer);
+        MessageAccumulator(BasicTransport* t, Buffer* buffer,
+                uint32_t totalLength);
         ~MessageAccumulator();
         bool addPacket(DataHeader *header, uint32_t length);
         uint32_t requestRetransmission(BasicTransport *t,
@@ -260,9 +261,6 @@ class BasicTransport : public Transport {
         ClientRpc* clientRpc;
         ServerRpc* serverRpc;
 
-        /// Where to send the message.
-        const Driver::Address* recipient;
-
         /// Offset within the message of the next byte we should transmit to
         /// the recipient; all preceding bytes have already been sent.
         uint32_t transmitOffset;
@@ -288,12 +286,10 @@ class BasicTransport : public Transport {
         uint32_t unscheduledBytes;
 
         OutgoingMessage(ClientRpc* clientRpc, ServerRpc* serverRpc,
-                BasicTransport* t, Buffer* buffer,
-                const Driver::Address* recipient)
+                BasicTransport* t, Buffer* buffer)
             : buffer(buffer)
             , clientRpc(clientRpc)
             , serverRpc(serverRpc)
-            , recipient(recipient)
             , transmitOffset(0)
             , transmitLimit()
             , topChoice(false)
@@ -351,7 +347,7 @@ class BasicTransport : public Transport {
         ClientRpc(Session* session, uint64_t sequence, Buffer* request,
                 Buffer* response, RpcNotifier* notifier)
             : session(session)
-            , request(this, NULL, session->t, request, session->serverAddress)
+            , request(this, NULL, session->t, request)
             , response(response)
             , notifier(notifier)
             , rpcId(session->t->clientId, sequence)
@@ -388,6 +384,10 @@ class BasicTransport : public Transport {
         /// (e.g., it's being executed); we use this flag to indicate that
         /// this RPC should be removed at the server's earliest convenience.
         bool cancelled;
+
+        /// Address of the client to which the RPC response will be sent.
+        /// Not owned by this class.
+        const Driver::Address* clientAddress;
 
         /// Unique identifier for this RPC.
         RpcId rpcId;
@@ -426,12 +426,13 @@ class BasicTransport : public Transport {
             : t(transport)
             , sequence(sequence)
             , cancelled(false)
+            , clientAddress(clientAddress)
             , rpcId(rpcId)
             , silentIntervals(0)
             , requestComplete(false)
             , sendingResponse(false)
             , accumulator()
-            , response(NULL, this, transport, &replyPayload, clientAddress)
+            , response(NULL, this, transport, &replyPayload)
             , scheduledMessage()
             , timerLinks()
             , outgoingResponseLinks()
@@ -665,16 +666,6 @@ class BasicTransport : public Transport {
 
     /// Maximum # bytes of message data that can fit in one packet.
     CONST uint32_t maxDataPerPacket;
-
-    /// Messages smaller than or equal to this many bytes are received in
-    /// a zero-copy fashion in their entireties, if the underlying driver
-    /// permits. The larger this number is set, the more hardware packet
-    /// buffers we will likely retain at any given time, and the more we
-    /// deviate from the SRPT policy. If this number is set too large, we
-    /// may run out of hardware packet buffers and have to stop receiving
-    /// packets (even worse, we can't complete any message to free up the
-    /// hardware packet buffers; thus, a deadlock!).
-    const uint32_t messageZeroCopyThreshold;
 
     /// Maximum # bytes of a message that we consider as small. For small
     /// messages, the tryToTransmitData mechanism takes more time then just

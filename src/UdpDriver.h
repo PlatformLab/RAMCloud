@@ -46,7 +46,7 @@ class UdpDriver : public Driver {
     virtual uint32_t getMaxPacketSize();
     virtual void receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets);
-    virtual void release(char *payload);
+    virtual void release();
     virtual void sendPacket(const Address* addr,
                             const void* header,
                             uint32_t headerLen,
@@ -120,9 +120,6 @@ class UdpDriver : public Driver {
             }
         }
     };
-
-    /// Shared RAMCloud information.
-    Context* context;
 
     /// File descriptor of the UDP socket this driver uses for communication.
     /// -1 means socket was closed because of error.

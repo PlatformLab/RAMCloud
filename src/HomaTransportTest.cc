@@ -36,7 +36,7 @@ class HomaTransportTest : public ::testing::Test {
 
     HomaTransportTest()
         : context(false)
-        , driver(new MockDriver(HomaTransport::headerToString))
+        , driver(new MockDriver(&context, HomaTransport::headerToString))
         , transport(&context, NULL, driver, true, 666)
         , address1("mock:node=1")
         , address2("mock:node=2")
@@ -213,7 +213,7 @@ TEST_F(HomaTransportTest, getRoundTripBytes_bogusGbsOption) {
     EXPECT_EQ(5000u, transport.getRoundTripBytes(&locator));
     EXPECT_EQ("getRoundTripBytes: Bad HomaTransport gbs option value 'xyz' "
             "(expected positive integer); ignoring option | getRoundTripBytes: "
-            "roundTripMicros 4, gBitsPerSec 10, roundTripBytes 5000",
+            "roundTripMicros 4, mBitsPerSec 10000, roundTripBytes 5000",
             TestLog::get());
 
     ServiceLocator locator2("mock:gbs=99foo,rttMicros=4");
@@ -221,7 +221,7 @@ TEST_F(HomaTransportTest, getRoundTripBytes_bogusGbsOption) {
     EXPECT_EQ(5000u, transport.getRoundTripBytes(&locator2));
     EXPECT_EQ("getRoundTripBytes: Bad HomaTransport gbs option value '99foo' "
             "(expected positive integer); ignoring option | getRoundTripBytes: "
-            "roundTripMicros 4, gBitsPerSec 10, roundTripBytes 5000",
+            "roundTripMicros 4, mBitsPerSec 10000, roundTripBytes 5000",
             TestLog::get());
 }
 TEST_F(HomaTransportTest, getRoundTripBytes_noRttOption) {
@@ -236,7 +236,7 @@ TEST_F(HomaTransportTest, getRoundTripBytes_bogusRttOption) {
     EXPECT_EQ(8000u, transport.getRoundTripBytes(&locator));
     EXPECT_EQ("getRoundTripBytes: Bad HomaTransport rttMicros option value "
             "'xyz' (expected positive integer); ignoring option | "
-            "getRoundTripBytes: roundTripMicros 8, gBitsPerSec 8, "
+            "getRoundTripBytes: roundTripMicros 8, mBitsPerSec 8000, "
             "roundTripBytes 8000", TestLog::get());
 
     ServiceLocator locator2("mock:gbs=8,rttMicros=5zzz");
@@ -244,7 +244,7 @@ TEST_F(HomaTransportTest, getRoundTripBytes_bogusRttOption) {
     EXPECT_EQ(8000u, transport.getRoundTripBytes(&locator2));
     EXPECT_EQ("getRoundTripBytes: Bad HomaTransport rttMicros option value "
             "'5zzz' (expected positive integer); ignoring option | "
-            "getRoundTripBytes: roundTripMicros 8, gBitsPerSec 8, "
+            "getRoundTripBytes: roundTripMicros 8, mBitsPerSec 8000, "
             "roundTripBytes 8000", TestLog::get());
 }
 TEST_F(HomaTransportTest, getRoundTripBytes_roundUpToEvenPackets) {
@@ -732,7 +732,7 @@ TEST_F(HomaTransportTest, handlePacket_dataFromServer_basics) {
     EXPECT_EQ("abcde12345", TestUtil::toString(&wrapper.response));
     EXPECT_EQ("", driver->outputLog);
     EXPECT_EQ(0lu, transport.outgoingRpcs.size());
-    EXPECT_EQ(2u, Driver::Received::stealCount);
+    EXPECT_EQ(1u, Driver::Received::stealCount);
 }
 TEST_F(HomaTransportTest, handlePacket_dataFromServer_extraData) {
     MockWrapper wrapper("message1");
@@ -1065,6 +1065,7 @@ TEST_F(HomaTransportTest, handlePacket_dataFromClient_extraBytes) {
             TestUtil::toString(&serverRpc->requestPayload));
 }
 TEST_F(HomaTransportTest, handlePacket_dataFromClient_dontIssueGrant) {
+    transport.maxDataPerPacket = 5;
     transport.roundTripBytes = 1000;
     transport.grantIncrement = 500;
     uint32_t unscheduledBytes = transport.roundTripBytes;
@@ -1381,7 +1382,7 @@ TEST_F(HomaTransportTest, addPacket_basics) {
     EXPECT_EQ(0u, serverRpc->accumulator->fragments.size());
     EXPECT_EQ("P0000P1111P2222P3333P4444",
             TestUtil::toString(&serverRpc->requestPayload));
-    EXPECT_EQ(5u, Driver::Received::stealCount);
+    EXPECT_EQ(3u, Driver::Received::stealCount);
 }
 TEST_F(HomaTransportTest, addPacket_skipRedundantPacket) {
     // Receive two duplicate packets that contain bytes 10-14.
@@ -1490,7 +1491,7 @@ TEST_F(HomaTransportTest, poll_incomingPackets) {
     HomaTransport::ServerRpc* serverRpc = it->second;
     EXPECT_EQ("0123456789ABCDE",
             TestUtil::toString(&serverRpc->requestPayload));
-    EXPECT_EQ(3u, Driver::Received::stealCount);
+    EXPECT_EQ(1u, Driver::Received::stealCount);
     EXPECT_EQ(1, result);
 }
 TEST_F(HomaTransportTest, poll_callCheckTimeouts) {
@@ -1559,8 +1560,8 @@ TEST_F(HomaTransportTest, poll_outgoingGrant) {
             HomaTransport::DataHeader(HomaTransport::RpcId(101, 102), 50, 0,
             unscheduledBytes, HomaTransport::FROM_CLIENT), "ABCDE");
     int result = transport.poller.poll();
-    EXPECT_EQ("GRANT FROM_SERVER, rpcId 100.101, offset 35, priority 0 | "
-            "GRANT FROM_SERVER, rpcId 101.102, offset 25, priority 1",
+    EXPECT_EQ("GRANT FROM_SERVER, rpcId 101.102, offset 25, priority 1 | "
+            "GRANT FROM_SERVER, rpcId 100.101, offset 35, priority 0",
             driver->outputLog);
     EXPECT_EQ(1, result);
     EXPECT_EQ(0u, transport.messagesToGrant.size());
@@ -1574,7 +1575,7 @@ TEST_F(HomaTransportTest, poll_outgoingPacket) {
     int result = transport.poller.poll();
     EXPECT_EQ("ALL_DATA FROM_CLIENT, rpcId 666.1 0123456789 (+5 more)",
             driver->outputLog);
-    EXPECT_EQ(1, result);
+    EXPECT_GT(result, 1);
 }
 TEST_F(HomaTransportTest, checkTimeouts_clientTransmissionNotStartedYet) {
     driver->transmitQueueSpace = 0;
@@ -1689,8 +1690,9 @@ TEST_F(HomaTransportTest, checkTimeouts_serverAbortsRequest) {
     EXPECT_EQ("", TestLog::get());
 
     transport.checkTimeouts();
-    EXPECT_EQ("deleteServerRpc: RpcId (100, 101)",
-            TestLog::get());
+    EXPECT_EQ("checkTimeouts: aborting unknown(25185) RPC from client "
+            "mock:client=1, sequence 101: timeout | "
+            "deleteServerRpc: RpcId (100, 101)", TestLog::get());
 }
 TEST_F(HomaTransportTest, checkTimeouts_sendResendFromServer) {
     transport.roundTripBytes = 100;

@@ -36,7 +36,7 @@ class BasicTransportTest : public ::testing::Test {
 
     BasicTransportTest()
         : context(false)
-        , driver(new MockDriver(BasicTransport::headerToString))
+        , driver(new MockDriver(&context, BasicTransport::headerToString))
         , transport(&context, NULL, driver, true, 666)
         , address1("mock:node=1")
         , address2("mock:node=2")
@@ -660,7 +660,7 @@ TEST_F(BasicTransportTest, handlePacket_dataFromServer_basics) {
     EXPECT_EQ("abcde12345", TestUtil::toString(&wrapper.response));
     EXPECT_EQ("", driver->outputLog);
     EXPECT_EQ(0lu, transport.outgoingRpcs.size());
-    EXPECT_EQ(2u, Driver::Received::stealCount);
+    EXPECT_EQ(1u, Driver::Received::stealCount);
 }
 TEST_F(BasicTransportTest, handlePacket_dataFromServer_extraData) {
     MockWrapper wrapper("message1");
@@ -987,6 +987,7 @@ TEST_F(BasicTransportTest, handlePacket_dataFromClient_extraBytes) {
             TestUtil::toString(&serverRpc->requestPayload));
 }
 TEST_F(BasicTransportTest, handlePacket_dataFromClient_dontIssueGrant) {
+    transport.maxDataPerPacket = 5;
     transport.roundTripBytes = 1000;
     transport.grantIncrement = 500;
     uint32_t unscheduledBytes = transport.roundTripBytes;
@@ -1300,7 +1301,7 @@ TEST_F(BasicTransportTest, addPacket_basics) {
     EXPECT_EQ(0u, serverRpc->accumulator->fragments.size());
     EXPECT_EQ("P0000P1111P2222P3333P4444",
             TestUtil::toString(&serverRpc->requestPayload));
-    EXPECT_EQ(5u, Driver::Received::stealCount);
+    EXPECT_EQ(3u, Driver::Received::stealCount);
 }
 TEST_F(BasicTransportTest, addPacket_skipRedundantPacket) {
     // Receive two duplicate packets that contain bytes 10-14.
@@ -1409,7 +1410,7 @@ TEST_F(BasicTransportTest, poll_incomingPackets) {
     BasicTransport::ServerRpc* serverRpc = it->second;
     EXPECT_EQ("0123456789ABCDE",
             TestUtil::toString(&serverRpc->requestPayload));
-    EXPECT_EQ(3u, Driver::Received::stealCount);
+    EXPECT_EQ(1u, Driver::Received::stealCount);
     EXPECT_EQ(1, result);
 }
 TEST_F(BasicTransportTest, poll_callCheckTimeouts) {
@@ -1478,8 +1479,8 @@ TEST_F(BasicTransportTest, poll_outgoingGrant) {
             BasicTransport::DataHeader(BasicTransport::RpcId(100, 102), 100, 0,
             unscheduledBytes, BasicTransport::FROM_CLIENT), "ABCDE");
     int result = transport.poller.poll();
-    EXPECT_EQ("GRANT FROM_SERVER, rpcId 100.101, offset 40 | "
-            "GRANT FROM_SERVER, rpcId 100.102, offset 30",
+    EXPECT_EQ("GRANT FROM_SERVER, rpcId 100.102, offset 30 | "
+            "GRANT FROM_SERVER, rpcId 100.101, offset 40",
             driver->outputLog);
     EXPECT_EQ(1, result);
     EXPECT_EQ(0u, transport.messagesToGrant.size());
@@ -1493,7 +1494,7 @@ TEST_F(BasicTransportTest, poll_outgoingPacket) {
     int result = transport.poller.poll();
     EXPECT_EQ("ALL_DATA FROM_CLIENT, rpcId 666.1 0123456789 (+5 more)",
             driver->outputLog);
-    EXPECT_EQ(1, result);
+    EXPECT_GT(result, 1);
 }
 TEST_F(BasicTransportTest, checkTimeouts_clientTransmissionNotStartedYet) {
     driver->transmitQueueSpace = 0;

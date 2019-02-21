@@ -65,9 +65,7 @@ class DpdkDriver : public Driver
     virtual uint32_t getPacketOverhead();
     virtual void receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets);
-    virtual void release(char *payload);
-    virtual void releaseHint(int maxCount);
-    virtual void releaseHwPacketBuf(Driver::Received* received);
+    virtual void release();
     virtual void sendPacket(const Address* addr,
                             const void* header,
                             uint32_t headerLen,
@@ -110,37 +108,8 @@ class DpdkDriver : public Driver
             {1 << 13, 0 << 13, 2 << 13, 3 << 13, 4 << 13, 5 << 13, 6 << 13,
              7 << 13};
 
-    /// See docs in Driver class. The additional headroom space is used to
-    /// store the packet buf type.
-    typedef Driver::PacketBuf<MacAddress, MAX_PAYLOAD_SIZE,
-            PACKETBUF_TYPE_SIZE> PacketBuf;
-
-    /**
-     * This enum defines two types of DpdkDriver::PacketBuf that differ on
-     * their backing memory. Used to implement the zero-copy RX mechanism.
-     */
-    enum PacketBufType {
-        /// The memory is allocated from #mbufPool and the packet buf is
-        /// constructed in a zero-copy fashion.
-        DPDK_MBUF,
-        /// The memory is allocated from #packetBufPool and the packet buf is
-        /// constructed in a copy-out fashion.
-        RAMCLOUD_PACKET_BUF
-    };
-
-    Context* context;
-
-    /// Holds packet buffers that are no longer in use, for use in future
-    /// requests; saves the overhead of calling malloc/free for each request.
-    ObjectPool<PacketBuf> packetBufPool;
-
     /// Tracks number of outstanding allocated payloads.  For detecting leaks.
     int packetBufsUtilized;
-
-    /// Holds packet buffers that the transport has done processing and
-    /// returned. These packet buffers are recycled incrementally to avoid
-    /// jitters.
-    std::vector<char*> payloadsToRelease;
 
     /// The original ServiceLocator string. May be empty if the constructor
     /// argument was NULL. May also differ if dynamic ports are used.

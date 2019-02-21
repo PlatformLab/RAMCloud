@@ -252,6 +252,7 @@ class Infiniband {
                     "' couldn't be converted to Infiniband address: " + msg) {}
         };
 
+        uint64_t getHash() const;
         string toString() const;
 
         Address(Infiniband& infiniband, int physicalPort,

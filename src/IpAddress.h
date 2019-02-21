@@ -61,6 +61,7 @@ class IpAddress : public Driver::Address {
     explicit IpAddress(const uint32_t ip, const uint16_t port);
     IpAddress(const IpAddress& other)
         : Address(other), address(other.address) {}
+    uint64_t getHash() const;
     string toString() const;
     sockaddr address;
     private:

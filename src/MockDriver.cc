@@ -20,28 +20,18 @@
 namespace RAMCloud {
 
 /**
- * Construct a MockDriver which does not include the header in the outputLog.
- */
-MockDriver::MockDriver()
-            : headerToString(0)
-            , outputLog()
-            , sendPacketCount(0)
-            , releaseCount(0)
-            , incomingPackets()
-            , transmitQueueSpace(10000)
-{
-}
-
-/**
  * Construct a MockDriver with a custom serializer for the opaque header in
  * the outputLog.
  *
+ * \param context
+ *      RAMCloud context
  * \param headerToString
  *      A pointer to a function which serializes a Header into a format
  *      for prefixing packets in the outputLog.
  */
-MockDriver::MockDriver(HeaderToString headerToString)
-            : headerToString(headerToString)
+MockDriver::MockDriver(Context* context, HeaderToString headerToString)
+            : Driver(context)
+            , headerToString(headerToString)
             , outputLog()
             , sendPacketCount(0)
             , releaseCount(0)
@@ -55,20 +45,6 @@ MockDriver::~MockDriver()
     foreach (PacketBuf* packet, incomingPackets) {
         delete(packet);
     }
-}
-
-/**
- * Counts number of times release is called to allow unit tests to check
- * that Driver resources are properly reclaimed.
- *
- * See Driver::release().
- */
-void
-MockDriver::release(char *payload)
-{
-    delete reinterpret_cast<PacketBuf*>(payload - OFFSET_OF(
-            PacketBuf, payload));
-    releaseCount++;
 }
 
 /**

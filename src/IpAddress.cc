@@ -100,6 +100,16 @@ IpAddress::IpAddress(const uint32_t ip, const uint16_t port)
     addr->sin_addr.s_addr = htonl(ip);
     addr->sin_port = NTOHS(port);
 }
+
+uint64_t
+IpAddress::getHash() const
+{
+    const sockaddr_in* addr = reinterpret_cast<const sockaddr_in*>(&address);
+    uint64_t hash = addr->sin_addr.s_addr;
+    hash = (hash << 32) + addr->sin_port;
+    return hash;
+}
+
 /**
  * Return a string describing the contents of this IpAddress (host
  * address & port).

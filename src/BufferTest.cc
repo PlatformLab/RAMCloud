@@ -975,6 +975,21 @@ TEST_F(BufferTest, getOffset) {
     EXPECT_EQ('x', t2->c);
 }
 
+TEST_F(BufferTest, reserve) {
+    Buffer buffer;
+    uint32_t numBytes = 1500;
+    string largeStr(numBytes, 'x');
+    buffer.appendCopy(largeStr.c_str(), numBytes);
+    buffer.appendCopy(largeStr.c_str(), numBytes);
+    EXPECT_EQ(2u, buffer.getNumberChunks());
+
+    buffer.reset();
+    buffer.reserve(10000);
+    buffer.appendCopy(largeStr.c_str(), numBytes);
+    buffer.appendCopy(largeStr.c_str(), numBytes);
+    EXPECT_EQ(1u, buffer.getNumberChunks());
+}
+
 TEST_F(BufferTest, resetInternal_partial) {
     // Construct a Buffer in a character array; this is needed so that
     // the Buffer constructor doesn't get called after we do a partial
