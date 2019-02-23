@@ -25,10 +25,6 @@
 
 namespace RAMCloud {
 
-// Change 1 -> 0 in the following line to disable time tracing globally.
-// Used only in debugging.
-#define ENABLE_TIME_TRACE 1
-
 /**
  * This class implements a circular buffer of entries, each of which
  * consists of a fine-grain timestamp, a short descriptive string, and
@@ -53,6 +49,18 @@ namespace RAMCloud {
 class TimeTrace {
   public:
     class Buffer;
+
+    /**
+     * Return a thread-local buffer that can be used to record events from the
+     * calling thread, creating a new buffer if necessary.
+     */
+    static inline Buffer* getBuffer() {
+        if (expect_false(threadBuffer == NULL)) {
+            createThreadBuffer();
+        }
+        return threadBuffer;
+    }
+
     static string getTrace();
     static void printToLog();
     static void printToLogBackground(Dispatch* dispatch);
@@ -73,30 +81,19 @@ class TimeTrace {
      *      method. This pointer is stored in the time trace, so the caller must
      *      ensure that its contents will not change over its lifetime in the
      *      trace.
-     * \param arg0
-     *      Argument to use when printing a message about this event.
-     * \param arg1
-     *      Argument to use when printing a message about this event.
-     * \param arg2
-     *      Argument to use when printing a message about this event.
-     * \param arg3
-     *      Argument to use when printing a message about this event.
+     * \param args
+     *      Arguments to use when printing a message about this event.
      */
+    template<typename... Args>
     static inline void record(uint64_t timestamp, const char* format,
-            uint32_t arg0 = 0, uint32_t arg1 = 0, uint32_t arg2 = 0,
-            uint32_t arg3 = 0) {
-#if ENABLE_TIME_TRACE
-        if (threadBuffer == NULL) {
-            createThreadBuffer();
-        }
-        threadBuffer->record(timestamp, format, arg0, arg1, arg2, arg3);
-#endif
+            Args... args)
+    {
+        getBuffer()->record(timestamp, format, args...);
     }
-    static inline void record(const char* format, uint32_t arg0 = 0,
-            uint32_t arg1 = 0, uint32_t arg2 = 0, uint32_t arg3 = 0) {
-#if ENABLE_TIME_TRACE
-        record(Cycles::rdtsc(), format, arg0, arg1, arg2, arg3);
-#endif
+
+    template<typename... Args>
+    static inline void record(const char* format, Args... args) {
+        record(Cycles::rdtsc(), format, args...);
     }
 
     static void reset();
@@ -159,13 +156,7 @@ class TimeTrace {
       uint64_t timestamp;        // Time when a particular event occurred.
       const char* format;        // Format string describing the event.
                                  // NULL means that this entry is unused.
-      uint32_t arg0;             // Argument that may be referenced by format
-                                 // when printing out this event.
-      uint32_t arg1;             // Argument that may be referenced by format
-                                 // when printing out this event.
-      uint32_t arg2;             // Argument that may be referenced by format
-                                 // when printing out this event.
-      uint32_t arg3;             // Argument that may be referenced by format
+      uint32_t args[4];          // Arguments that may be referenced by format
                                  // when printing out this event.
     };
 
@@ -181,12 +172,53 @@ class TimeTrace {
         ~Buffer();
         string getTrace();
         void printToLog();
-        void record(uint64_t timestamp, const char* format, uint32_t arg0 = 0,
-                uint32_t arg1 = 0, uint32_t arg2 = 0, uint32_t arg3 = 0);
-        void record(const char* format, uint32_t arg0 = 0, uint32_t arg1 = 0,
-                uint32_t arg2 = 0, uint32_t arg3 = 0) {
-            record(Cycles::rdtsc(), format, arg0, arg1, arg2, arg3);
+
+        /**
+         * Record an event in the buffer.
+         *
+         * \param timestamp
+         *      Identifies the time at which the event occurred.
+         * \param format
+         *      A format string for snprintf that will be used, along with
+         *      arg0..arg3, to generate a human-readable message describing what
+         *      happened, when the time trace is printed. The message is generated
+         *      by calling snprintf as follows:
+         *      snprintf(buffer, size, format, arg0, arg1, arg2, arg3)
+         *      where format and arg0..arg3 are the corresponding arguments to this
+         *      method. This pointer is stored in the buffer, so the caller must
+         *      ensure that its contents will not change over its lifetime in the
+         *      trace.
+         * \param args
+         *      Arguments to use when printing a message about this event.
+         */
+        template<typename... Args>
+        inline void record(const char* format, Args... args)
+        {
+            record(Cycles::rdtsc(), format, args...);
         }
+
+        template<typename... Args>
+        inline void record(uint64_t timestamp, const char* format, Args... args)
+        {
+            uint32_t eventArgs[] = {args...};
+            if (expect_true(TimeTrace::activeReaders == 0)) {
+                Event* event = &events[nextIndex];
+                nextIndex = (nextIndex + 1) & BUFFER_MASK;
+
+                // There used to be code here for prefetching the next few
+                // events, in order to minimize cache misses on the array of
+                // events. However, performance measurements indicate that this
+                // actually slows things down by 2ns per invocation.
+                // prefetch(event+1, NUM_PREFETCH*sizeof(Event));
+
+                event->timestamp = timestamp;
+                event->format = format;
+                for (size_t i = 0; i < sizeof...(args); i++) {
+                    event->args[i] = eventArgs[i];
+                }
+            }
+        }
+
         void reset();
 
       PROTECTED:
@@ -205,6 +237,9 @@ class TimeTrace {
 
         // Holds information from the most recent calls to the record method.
         TimeTrace::Event events[BUFFER_SIZE];
+
+        // Identifier of the thread that owns this buffer.
+        int threadId;
 
         friend class TimeTrace;
         DISALLOW_COPY_AND_ASSIGN(Buffer);

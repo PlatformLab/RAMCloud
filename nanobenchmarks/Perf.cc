@@ -1884,8 +1884,21 @@ double randomTest()
     return Cycles::toSeconds(stop - start)/count;
 }
 
-// Measure the cost of reading the fine-grain cycle counter.
+// Measure the cost of reading the fine-grain cycle counter using rdtsc.
 double rdtscTest()
+{
+    int count = 1000000;
+    uint64_t start = Cycles::rdtscp();
+    uint64_t total = 0;
+    for (int i = 0; i < count; i++) {
+        total += Cycles::rdtsc();
+    }
+    uint64_t stop = Cycles::rdtscp();
+    return Cycles::toSeconds(stop - start)/count;
+}
+
+// Measure the cost of reading the fine-grain cycle counter using rdtscp.
+double rdtscpTest()
 {
     int count = 1000000;
     uint64_t start = Cycles::rdtscp();
@@ -2179,11 +2192,11 @@ double throwSwitch()
 double timeTrace()
 {
     int count = 100000;
-    TimeTrace::Buffer trace;
-    trace.record("warmup record");
+    TimeTrace::Buffer* trace = TimeTrace::getBuffer();
+    trace->record("warmup record");
     uint64_t start = Cycles::rdtscp();
     for (int i = 0; i < count; i++) {
-        trace.record("sample TimeTrace record");
+        trace->record("sample TimeTrace record");
     }
     uint64_t stop = Cycles::rdtscp();
     return Cycles::toSeconds(stop - start)/count;
@@ -2502,7 +2515,9 @@ TestInfo tests[] = {
     {"random", randomTest,
      "Generate 64-bit random number (Arachne version)"},
     {"rdtsc", rdtscTest,
-     "Read the fine-grain cycle counter"},
+     "Read the fine-grain cycle counter using rdtsc"},
+    {"rdtscp", rdtscpTest,
+     "Read the fine-grain cycle counter using rdtscp"},
     {"segmentEntrySort", segmentEntrySort,
      "Sort a Segment full of avg. 100-byte Objects by age"},
     {"segmentIterator", segmentIterator<50, 150>,
