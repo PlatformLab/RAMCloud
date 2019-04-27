@@ -411,12 +411,10 @@ DpdkDriver::sendPacket(const Address* addr,
     struct rte_mbuf* mbuf = rte_pktmbuf_alloc(mbufPool);
 #endif
     if (unlikely(NULL == mbuf)) {
-        RAMCLOUD_CLOG(WARNING,
-                "Failed to allocate a packet buffer; dropping packet; "
+        DIE("Failed to allocate a packet buffer; dropping packet; "
                 "%u mbufs available, %u mbufs in use",
                 rte_mempool_avail_count(mbufPool),
                 rte_mempool_in_use_count(mbufPool));
-        return;
     }
 
 #if TESTING

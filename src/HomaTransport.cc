@@ -1818,6 +1818,11 @@ HomaTransport::MessageAccumulator::addPacket(DataHeader *header,
             } else {
                 buffer->appendCopy(payload + sizeof32(DataHeader),
                         fragment.length);
+                if (fragment.header != header) {
+                    // This packet was retained earlier due to out-of-order
+                    // arrival and must be returned to driver now.
+                    t->driver->returnPacket(payload);
+                }
             }
             FragmentMap::iterator it = fragments.find(buffer->size());
             if (it == fragments.end()) {

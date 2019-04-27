@@ -3024,13 +3024,13 @@ echo_basic()
         double probability;
         inFile >> avgMessageSize;
         while (inFile >> size >> probability) {
-            outgoingSizes.push_back(30);
+            outgoingSizes.push_back(size);
             incomingSizes.push_back(size);
             ids.push_back(std::to_string(size));
         }
     } else {
         outgoingSizes = {30, 30, 30, 30, 30};
-        incomingSizes = {100, 1024, 10*1024, 100*1024, 1024*1024};
+        incomingSizes = {100, 1000, 10*1000, 100*1000, 1000000};
         ids = {"100", "1K", "10K", "100K", "1M"};
     }
 
