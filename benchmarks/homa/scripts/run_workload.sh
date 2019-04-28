@@ -122,6 +122,9 @@ for (( i = 0; i < ${#protocol[@]}; i++ )); do
         echo "command: $cmd"
         eval $cmd
         cd $out_dir; ../$compute_slowdown $baseline_data $experiment_data >> $rpc_slowdown_data; cd ..
+
+        # Remove client logs (which can be huge) to save disk space.
+        rm -rf logs/latest/client*
     done
 done
 
