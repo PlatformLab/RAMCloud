@@ -141,6 +141,52 @@ Infiniband::getLid(int port)
 }
 
 /**
+ * Obtain the link speed on this port to transmit and receive.
+ *
+ * \param[in] port
+ *      Port on the device we're looking up. This value is typically 1, except
+ *      on adapters with multiple physical ports.
+ * \return
+ *      The bandwidth, in Gbps.
+ * \throw
+ *      TransportException if the port cannot be queried.
+ */
+uint32_t
+Infiniband::getBandwidthGbps(int port)
+{
+    ibv_port_attr ipa;
+    int ret = ibv_query_port(device.ctxt, downCast<uint8_t>(port), &ipa);
+    if (ret) {
+        RAMCLOUD_LOG(ERROR, "ibv_query_port failed on port %d", port);
+        throw TransportException(HERE, ret);
+    }
+    // The meaning of fields active_width and active_speed can be found at:
+    // https://www.rdmamojo.com/2012/07/21/ibv_query_port/
+    uint32_t gbps = 1;
+    switch (ipa.active_width) {
+        case 1: gbps = 1; break;
+        case 2: gbps = 4; break;
+        case 4: gbps = 8; break;
+        case 8: gbps = 12; break;
+        default:
+            LOG(ERROR, "unexpected active width %u on port %d",
+                    ipa.active_width, port);
+    }
+    switch (ipa.active_speed) {
+        case 1:  gbps = gbps*5/2; break;
+        case 2:  gbps *= 5; break;
+        case 4:
+        case 8:  gbps *= 10; break;
+        case 16: gbps *= 14; break;
+        case 32: gbps *= 25; break;
+        default:
+            LOG(ERROR, "unexpected active speed %u on port %d",
+                    ipa.active_speed, port);
+    }
+    return gbps;
+}
+
+/**
  * Obtain the MTU enabled on this port to transmit and receive.
  *
  * \param[in] port

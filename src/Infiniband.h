@@ -456,8 +456,8 @@ class Infiniband {
 
     int
     getLid(int port);
-    uint32_t
-    getMtu(int port);
+    uint32_t getBandwidthGbps(int port);
+    uint32_t getMtu(int port);
 
     BufferDescriptor*
     tryReceive(QueuePair* qp, Tub<Address>* sourceAddress = NULL);
