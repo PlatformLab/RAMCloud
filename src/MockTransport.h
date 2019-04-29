@@ -13,8 +13,9 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#pragma GCC diagnostic ignored "-Wconversion"
 #include <gtest/gtest.h>
-
+#pragma GCC diagnostic warning "-Wconversion"
 #include <queue>
 
 #include "ServiceLocator.h"

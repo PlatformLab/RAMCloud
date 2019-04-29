@@ -323,7 +323,9 @@ class HashTableTest : public ::testing::Test {
         // fill in the "log" entries
         for (uint64_t i = 0; i < numEnt; i++) {
             string stringKey = format("%lu", i);
+#pragma GCC diagnostic ignored "-Waligned-new=all"
             values.push_back(new TestObject(tableId, stringKey));
+#pragma GCC diagnostic warning "-Waligned-new=all"
             Key key(values[i]->tableId,
                     values[i]->stringKeyPtr,
                     values[i]->stringKeyLength);

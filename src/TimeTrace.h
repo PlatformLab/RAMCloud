@@ -200,7 +200,9 @@ class TimeTrace {
         template<typename... Args>
         inline void record(uint64_t timestamp, const char* format, Args... args)
         {
+#pragma GCC diagnostic ignored "-Wnarrowing"
             uint32_t eventArgs[] = {args...};
+#pragma GCC diagnostic warning "-Wnarrowing"
             if (expect_true(TimeTrace::activeReaders == 0)) {
                 Event* event = &events[nextIndex];
                 nextIndex = (nextIndex + 1) & BUFFER_MASK;
