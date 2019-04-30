@@ -176,8 +176,6 @@ class TimeTrace {
         /**
          * Record an event in the buffer.
          *
-         * \param timestamp
-         *      Identifies the time at which the event occurred.
          * \param format
          *      A format string for snprintf that will be used, along with
          *      arg0..arg3, to generate a human-readable message describing what
