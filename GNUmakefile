@@ -151,6 +151,7 @@ INCLUDES := -I$(TOP)/src \
             -I$(TOP)/$(OBJDIR) \
             -I$(GTEST_DIR)/include \
             -I$(TOP)/arachne-all/Arachne/include \
+            -I$(TOP)/arachne-all/CoreArbiter/include \
             -I$(TOP)/arachne-all/PerfUtils/include \
             -I/usr/local/openonload-201405/src/include \
              $(NULL)

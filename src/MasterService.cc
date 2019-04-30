@@ -3215,11 +3215,11 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
             &rpcResult, &rpcResultPtr, &logReference, rpc->worker->rpc->id);
 
     timeTrace("ID %u: Wrote object, waiting for sync on Core %d",
-            rpc->worker->rpc->id, Arachne::core.kernelThreadId);
+            rpc->worker->rpc->id, Arachne::core.id);
     if (respHdr->common.status == STATUS_OK) {
         objectManager.syncChanges(logReference, rpc->worker->rpc->id);
         timeTrace("ID %u: Finished syncing on Core %d",
-                rpc->worker->rpc->id, Arachne::core.kernelThreadId);
+                rpc->worker->rpc->id, Arachne::core.id);
         rh.recordCompletion(rpcResultPtr); // Complete only if RpcResult is
                                            // written.
                                            // Otherwise, RPC state should reset
@@ -3234,7 +3234,7 @@ MasterService::write(const WireFormat::Write::Request* reqHdr,
         rh.recordCompletion(rpcResultPtr);
     }
     timeTrace("ID %u: Finished recording completion on Core %d",
-            rpc->worker->rpc->id, Arachne::core.kernelThreadId);
+            rpc->worker->rpc->id, Arachne::core.id);
 
     // If this is a overwrite, delete old index entries if any (this can
     // be done asynchronously after sending a reply).

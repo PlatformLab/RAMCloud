@@ -300,7 +300,7 @@ WorkerManager::workerMain(Transport::ServerRpc* serverRpc)
     try {
         timeTrace("ID %u: Starting processing of opcode %d  on KT %d, "
             "idInCore %d", serverRpc->id, serverRpc->header->opcode,
-            Arachne::core.kernelThreadId,
+            Arachne::core.id,
             Arachne::core.loadedContext->idInCore);
         Worker worker(context, serverRpc,
             WireFormat::Opcode(serverRpc->header->opcode));
