@@ -93,25 +93,18 @@ TimeTrace::printInternal(std::vector<TimeTrace::Buffer*>* buffers, string* s)
     }
 
     // Decide on the time of the first event to be included in the output.
-    // This is most recent of the oldest times in all the traces (a trace that
-    // never fills the buffer has an "oldest time" of 0). The idea here is to
-    // make sure that there's no missing data in what we print (if trace A goes
-    // back farther than trace B, skip the older events in trace A, since there
+    // This is most recent of the oldest times in all the traces (an empty
+    // trace has an "oldest time" of 0). The idea here is to make sure
+    // that there's no missing data in what we print (if trace A goes back
+    // farther than trace B, skip the older events in trace A, since there
     // might have been related events that were once in trace B but have since
     // been overwritten).
     uint64_t startTime = 0;
-    uint64_t minStartTime = ~0ul;
     for (uint32_t i = 0; i < buffers->size(); i++) {
         Event* event = &buffers->at(i)->events[current[i]];
-        minStartTime = std::min(minStartTime, event->timestamp);
-        if (current[i] > 0) {
-            if ((event->format != NULL) && (event->timestamp > startTime)) {
-                startTime = event->timestamp;
-            }
+        if ((event->format != NULL) && (event->timestamp > startTime)) {
+            startTime = event->timestamp;
         }
-    }
-    if (startTime == 0) {
-        startTime = minStartTime;
     }
     RAMCLOUD_LOG(NOTICE, "Starting TSC %lu, cyclesPerSec %.0f", startTime,
             Cycles::perSecond());
@@ -162,8 +155,13 @@ TimeTrace::printInternal(std::vector<TimeTrace::Buffer*>* buffers, string* s)
             if (s->length() != 0) {
                 s->append("\n");
             }
+#if TESTING
+            snprintf(message, sizeof(message), "%8.1f ns (+%6.1f ns): ",
+                    ns, ns - prevTime);
+#else
             snprintf(message, sizeof(message), "T%d %8.1f ns (+%6.1f ns): ",
                     buffer->threadId, ns, ns - prevTime);
+#endif
             s->append(message);
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
@@ -177,8 +175,13 @@ TimeTrace::printInternal(std::vector<TimeTrace::Buffer*>* buffers, string* s)
             snprintf(message, sizeof(message), event->format, event->args[0],
                      event->args[1], event->args[2], event->args[3]);
 #pragma GCC diagnostic pop
+#if TESTING
+            RAMCLOUD_LOG(NOTICE, "%8.1f ns (+%6.1f ns): %s",
+                    ns, ns - prevTime, message);
+#else
             RAMCLOUD_LOG(NOTICE, "T%d %8.1f ns (+%6.1f ns): %s",
                     buffer->threadId, ns, ns - prevTime, message);
+#endif
 
             // Make sure we're not monopolizing all of the buffer space
             // in the logger.

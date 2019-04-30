@@ -249,8 +249,9 @@ TEST_F(InfRcTransportTest, getRpcInfo) {
     InfRcTransport::InfRcSession* rawSession =
             reinterpret_cast<InfRcTransport::InfRcSession*>(session.get());
 
-    EXPECT_EQ("no active RPCs to server at infrc: host=localhost, port=11000",
-            rawSession-> getRpcInfo());
+    EXPECT_STREQ(
+            "no active RPCs to server at infrc: host=localhost, port=11000",
+            rawSession->getRpcInfo().c_str());
 
     // Arrange for 1 message on outstandingRpcs and 2 messages on
     // clientSendQueue.
@@ -269,8 +270,8 @@ TEST_F(InfRcTransportTest, getRpcInfo) {
     session->sendRequest(&rpc3.request, &rpc3.response, &rpc3);
     EXPECT_EQ(2U, client.clientSendQueue.size());
 
-    EXPECT_EQ("READ, REMOVE, INCREMENT to server at infrc: host=localhost, "
-            "port=11000", rawSession-> getRpcInfo());
+    EXPECT_STREQ("READ, REMOVE, INCREMENT to server at infrc: host=localhost, "
+            "port=11000", rawSession->getRpcInfo().c_str());
 }
 
 TEST_F(InfRcTransportTest, ClientRpc_sendRequest_sessionAborted) {

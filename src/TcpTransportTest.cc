@@ -28,7 +28,7 @@ class TcpTransportTest : public ::testing::Test {
     // underlying sendmsg() to break up the rpc into multiple sends. This value
     // is determined imperically by increasing it until sendMessage_largeBuffer
     // test stops mentioning that you have to increase the size of the message.
-    static const uint32_t largeBufferSize = 2540000;
+    static const uint32_t largeBufferSize = 5000000;
 
     Context context;
     WorkerManager* workerManager;

@@ -1511,7 +1511,7 @@ HomaTransport::OutgoingMessage::activate(HomaTransport* t)
     for (OutgoingMessageList::iterator it = t->activeOutgoingMessages.begin();
             it != t->activeOutgoingMessages.end(); it++) {
         OutgoingMessage* insertHere = &(*it);
-        if (remainingBytes <=
+        if (remainingBytes <
                 insertHere->buffer->size() - insertHere->transmitOffset) {
             insertBefore(t->activeOutgoingMessages, *this, *insertHere);
             return;
