@@ -2,10 +2,10 @@
 [![Build Status](https://travis-ci.org/PlatformLab/RAMCloud.svg?branch=master)](https://travis-ci.org/PlatformLab/RAMCloud)
 
 For up to date information on how to install and use RAMCloud, see the RAMCloud Wiki:
-https://ramcloud.stanford.edu/wiki/display/ramcloud
+https://ramcloud.atlassian.net/wiki/spaces/RAM/overview
 
 # What is RAMCloud?
-*note*: the following is an excerpt copied from the [RAMCloud wiki](https://ramcloud.stanford.edu/wiki/display/ramcloud)  on 1/22/16.
+*note*: the following is an excerpt copied from the [RAMCloud wiki](https://ramcloud.atlassian.net/wiki/spaces/RAM/overview)  on 1/22/16.
 
 RAMCloud is a new class of super-high-speed storage for large-scale datacenter applications. It is designed for applications in which a large number of servers in a datacenter need low-latency access to a large durable datastore. RAMCloud offers the following properties:
 - **Low Latency**: RAMCloud keeps all data in DRAM at all times, so applications can read RAMCloud objects remotely over a datacenter network in as little as 5μs. Writes take less than 15μs. Unlike systems such as memcached, applications never have to deal with cache misses or wait for disk/flash accesses. As a result, RAMCloud storage is 10-1000x faster than other available alternatives.
@@ -25,4 +25,4 @@ RAMCloud is also interesting from a research standpoint. Its two most important 
 The RAMCloud project is based in the Department of Computer Science at Stanford University.
 
 # Learn More about RAMCloud
-https://ramcloud.stanford.edu/wiki/display/ramcloud
+https://ramcloud.atlassian.net/wiki/spaces/RAM/overview
