@@ -7,6 +7,7 @@
 #
 # For more details about building C++ code bases with Travis CI see:
 # http://docs.travis-ci.com/user/languages/cpp/
+dist: trusty
 
 language: cpp
 
@@ -27,8 +28,6 @@ before_install:
  - git checkout ${TRAVIS_BRANCH}
  - sudo apt-get update
  - sudo apt-get install -y libzookeeper-mt-dev protobuf-compiler libprotobuf-dev libboost-all-dev
- - sudo apt-get remove -y openjdk*
- - sudo apt-get install -y openjdk-8-jdk
  - wget http://launchpadlibrarian.net/57653337/doxygen_1.7.1-2_amd64.deb
  - sudo dpkg -i doxygen_1.7.1-2_amd64.deb
 
