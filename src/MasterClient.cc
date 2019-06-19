@@ -1108,7 +1108,7 @@ TxHintFailedRpc::TxHintFailedRpc(
     reqHdr->leaseId = leaseId;
     reqHdr->clientTxId = clientTransactionId;
     reqHdr->participantCount = participantCount;
-    request.append(participants, sizeof32(WireFormat::TxParticipant)
+    request.appendCopy(participants, sizeof32(WireFormat::TxParticipant)
                                  * participantCount);
     send();
 }
