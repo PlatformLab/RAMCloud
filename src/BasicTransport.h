@@ -252,6 +252,10 @@ class BasicTransport : public Transport {
      */
     class OutgoingMessage {
       public:
+        /// True if we have not transmitted every byte up to transmitLimit
+        /// (and this object is linked in t->activeOutgoingMessages).
+        bool active;
+
         /// Holds the contents of the message.
         Buffer* buffer;
 
@@ -270,16 +274,11 @@ class BasicTransport : public Transport {
         /// them. Must be always smaller than or equal to the message size.
         uint32_t transmitLimit;
 
-        /// True means this message is among the sender's top outgoing
-        /// messages with fewest bytes left (and this object is linked in
-        /// t->topOutgoingMessages).
-        bool topChoice;
-
         /// Cycles::rdtsc time of the most recent time that we transmitted
         /// data bytes of the message.
         uint64_t lastTransmitTime;
 
-        /// Used to link this object into t->topOutgoingMessages.
+        /// Used to link this object into t->activeOutgoingMessages.
         IntrusiveListHook outgoingMessageLinks;
 
         /// # bytes that can be sent unilaterally.
@@ -287,18 +286,19 @@ class BasicTransport : public Transport {
 
         OutgoingMessage(ClientRpc* clientRpc, ServerRpc* serverRpc,
                 BasicTransport* t, Buffer* buffer)
-            : buffer(buffer)
+            : active(false)
+            , buffer(buffer)
             , clientRpc(clientRpc)
             , serverRpc(serverRpc)
             , transmitOffset(0)
             , transmitLimit()
-            , topChoice(false)
             , lastTransmitTime(0)
             , outgoingMessageLinks()
             , unscheduledBytes(t->roundTripBytes)
         {}
 
         virtual ~OutgoingMessage() {}
+        void activate(BasicTransport* t);
 
       PRIVATE:
         DISALLOW_COPY_AND_ASSIGN(OutgoingMessage);
@@ -642,11 +642,10 @@ class BasicTransport : public Transport {
     static string opcodeSymbol(uint8_t opcode);
     uint32_t sendBytes(const Driver::Address* address, RpcId rpcId,
             Buffer* message, uint32_t offset, uint32_t maxBytes,
-            uint32_t unscheduedBytes, uint8_t flags, bool partialOK = false);
+            uint32_t unscheduedBytes, uint8_t flags);
     template<typename T>
     void sendControlPacket(const Driver::Address* recipient, const T* packet);
     uint32_t tryToTransmitData();
-    void maintainTopOutgoingMessages(OutgoingMessage* candidate);
 
     /// Shared RAMCloud information.
     Context* context;
@@ -719,22 +718,11 @@ class BasicTransport : public Transport {
             OutgoingRequestList;
     OutgoingRequestList outgoingRequests;
 
-    /// Holds the sender's top K outgoing messages with the fewest bytes
-    /// remaining to be transmitted. K varies dynamically but is limited to
-    /// a small constant so that scanning the list is efficient. This is used
-    /// to handle situations where there are very large numbers of outgoing
-    /// messages: the sender only needs to scan this list in the common case
-    /// of transmitting a message (i.e., at least one message in this list has
-    /// bytes ready to transmit).
+    /// List of active outgoing messages (i.e., those with grants available)
+    /// sorted in ascending order of remaining bytes.
     INTRUSIVE_LIST_TYPEDEF(OutgoingMessage, outgoingMessageLinks)
             OutgoingMessageList;
-    OutgoingMessageList topOutgoingMessages;
-
-    /// Is there any message outside t->topOutgoingMessages that has bytes
-    /// ready to be transmitted? If yes, when all messages in our top outgoing
-    /// message set are waiting for grants, we have to scan all outgoing
-    /// messages to find the next message to transmit.
-    bool transmitDataSlowPath;
+    OutgoingMessageList activeOutgoingMessages;
 
     /// An RPC is in this map if (a) is one for which we are the server,
     /// (b) at least one byte of the request message has been received, and
