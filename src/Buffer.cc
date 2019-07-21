@@ -906,6 +906,28 @@ Buffer::Iterator::operator=(const Iterator& other)
 }
 
 /**
+ * Move the current iterator position forward by a number of bytes.
+ */
+void
+Buffer::Iterator::advance(uint32_t bytes)
+{
+    assert(bytesLeft >= bytes);
+    while (bytes > 0) {
+        if (currentLength > bytes) {
+            // The bytes left in the current chunk is *strictly* larger than
+            // the offset; no need to advance to the next chunk.
+            currentData += bytes;
+            currentLength -= bytes;
+            bytesLeft -= bytes;
+            return;
+        }
+        // Advance to the next chunk.
+        bytes -= currentLength;
+        next();
+    }
+}
+
+/**
  * Count the number of distinct chunks of storage covered by the
  * remaining bytes of this iterator.
  */

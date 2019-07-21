@@ -27,6 +27,8 @@
 #include "Cycles.h"
 #include "BitOps.h"
 #include "InfUdDriver.h"
+#include "NetUtil.h"
+#include "OptionParser.h"
 #include "PcapFile.h"
 #include "PerfStats.h"
 #include "ServiceLocator.h"
@@ -35,8 +37,7 @@
 
 namespace RAMCloud {
 
-// Change 0 -> 1 in the following line to enable time tracing in
-// this driver.
+// Change 0 -> 1 in the following line to enable time tracing in this driver.
 #define TIME_TRACE 0
 
 // Provides a cleaner way of invoking TimeTrace::record, with the code
@@ -57,6 +58,12 @@ namespace {
     }
 }
 
+using EthernetHeader = NetUtil::EthernetHeader;
+
+// Size of the Ethernet frame header (currently excluding the optional VLAN tag)
+#define ETH_HEADER_SIZE sizeof32(EthernetHeader)
+
+
 /**
  * Construct an InfUdDriver.
  *
@@ -66,74 +73,49 @@ namespace {
  *      Service locator for transport that will be using this driver.
  *      May contain any of the following parameters, which are used
  *      to configure the new driver:
- *      dev -      Infiniband device name to use.
- *      devPort -  Infiniband port to use.
- *      gbs -      Bandwidth of the Infiniband network, in Gbits/sec.
- *                 Used for estimating transmit queue lengths.
- *      mac -      MAC address for this host; if ethernet is true.
- *      Specifies the Infiniband device and physical port to use.
- *      If NULL, the first device and port are used by default.
- * \param ethernet
- *      True means this driver sends and receives raw Ethernet packets
- *      using the Ethernet port. False means this driver sends and receives
- *      Infiniband unreliable datagrams, using the Infiniband port.
+ *      hca -      Infiniband device name to use.
+ *      port -     Infiniband port to use.
+ *      eth -      Ethernet interface name to use. Only meaningful if
+ *                 option "hca" is not specified.
  */
-InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
-        bool ethernet)
+InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl)
     : Driver(context)
     , realInfiniband()
     , infiniband()
+    , loopbackPkts()
     , rxPool()
     , rxBuffersInHca(0)
     , rxBufferLogThreshold(0)
     , txPool()
     , txBuffersInHca()
-    , QKEY(ethernet ? 0 : 0xdeadbeef)
+    , QKEY(0xdeadbeef)
     , rxcq(0)
     , txcq(0)
     , qp()
-    , ibPhysicalPort(ethernet ? 2 : 1)
+    , ibPhysicalPort()
     , lid(0)
     , mtu(0)
     , qpn(0)
     , localMac()
     , locatorString("infud:")
     , bandwidthGbps(~0u)
+    , sendRequests()
+    , sendsSinceLastSignal(0)
     , zeroCopyStart(NULL)
     , zeroCopyEnd(NULL)
     , zeroCopyRegion(NULL)
-    , sendsSinceLastSignal(0)
 {
-    const char *ibDeviceName = NULL;
-    bool macAddressProvided = false;
+    ServiceLocator config = readDriverConfigFile();
+    const char* ibDeviceName = config.getOption<const char*>("hca", NULL);
+    const char* ethIfName = config.getOption<const char*>("eth", NULL);
+    ibPhysicalPort = config.getOption<int>("port", 1);
+    LOG(NOTICE, "InfUdDriver config: %s", config.getOriginalString().c_str());
 
-    if (sl != NULL) {
-        locatorString = sl->getDriverLocatorString();
-
-        if (ethernet) {
-            try {
-                localMac.construct(sl->getOption<const char*>("mac"));
-                macAddressProvided = true;
-                mtu = 1514;
-            } catch (ServiceLocator::NoSuchKeyException& e) {}
-        }
-
-        try {
-            ibDeviceName   = sl->getOption<const char *>("dev");
-        } catch (ServiceLocator::NoSuchKeyException& e) {}
-
-        try {
-            ibPhysicalPort = sl->getOption<int>("devport");
-        } catch (ServiceLocator::NoSuchKeyException& e) {}
-
-        try {
-            bandwidthGbps = sl->getOption<int>("gbs");
-        } catch (ServiceLocator::NoSuchKeyException& e) {}
-    }
+    // Open and initialize the specified device.
     infiniband = realInfiniband.construct(ibDeviceName);
 #if 1
     bandwidthGbps = std::min(bandwidthGbps,
-            static_cast<int>(infiniband->getBandwidthGbps(ibPhysicalPort)));
+            infiniband->getBandwidthGbps(ibPhysicalPort));
 #else
     // As of 11/2018, the network bandwidth of our RC machines at Stanford is
     // actually limited by the effective bandwidth of PCIe 2.0x4, which should
@@ -150,9 +132,16 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
     // This is because the throughput of the HCA has non-negligible variation:
     // when it's running faster than 24Gbps, we don't want the transport to
     // throttle the throughput and leave the HCA idle.
-    bandwidthGbps = std::min(bandwidthGbps, 26);
+    bandwidthGbps = std::min(bandwidthGbps, 26u);
 #endif
-    mtu = infiniband->getMtu(ibPhysicalPort);
+    bool ethernet = ethIfName;
+    mtu = ethernet ? (1500 + ETH_HEADER_SIZE) :
+            infiniband->getMtu(ibPhysicalPort);
+    if (ethernet) {
+        localMac.construct(NetUtil::getLocalMac(ethIfName).c_str());
+    }
+
+    // Setup queue estimator
     queueEstimator.setBandwidth(1000*bandwidthGbps);
     maxTransmitQueueSize = (uint32_t) (static_cast<double>(bandwidthGbps)
             * MAX_DRAIN_TIME / 8.0);
@@ -162,15 +151,13 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
         // prepare the next packet while the current one is transmitting.
         maxTransmitQueueSize = 2*maxPacketSize;
     }
-    LOG(NOTICE, "InfUdDriver bandwidth: %d Gbits/sec, maxTransmitQueueSize: "
-            "%u bytes", bandwidthGbps, maxTransmitQueueSize);
-
-    if (ethernet && !macAddressProvided)
-        localMac.construct(MacAddress::RANDOM);
+    LOG(NOTICE, "InfUdDriver bandwidth: %u Gbits/sec, maxTransmitQueueSize: "
+            "%u bytes, maxPacketSize %u bytes", bandwidthGbps,
+            maxTransmitQueueSize, maxPacketSize);
 
     // Allocate buffer pools.
     uint32_t bufSize = (maxPacketSize +
-        (localMac ? sizeof32(EthernetHeader) : GRH_SIZE));
+        (localMac ? ETH_HEADER_SIZE : GRH_SIZE));
     bufSize = BitOps::powerOfTwoGreaterOrEqual(bufSize);
     uint64_t start = Cycles::rdtsc();
 
@@ -199,7 +186,7 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
         throw DriverException(HERE, errno);
     }
 
-    qp = infiniband->createQueuePair(localMac ? IBV_QPT_RAW_ETH
+    qp = infiniband->createQueuePair(localMac ? IBV_QPT_RAW_PACKET
                                               : IBV_QPT_UD,
                                      ibPhysicalPort, NULL,
                                      txcq, rxcq, MAX_TX_QUEUE_DEPTH,
@@ -218,8 +205,7 @@ InfUdDriver::InfUdDriver(Context* context, const ServiceLocator *sl,
             locatorString += ",";
         }
         if (localMac) {
-            if (!macAddressProvided)
-                locatorString += "mac=" + localMac->toString();
+            locatorString += "mac=" + localMac->toString();
         } else {
             locatorString += format("lid=%u,qpn=%u", lid, qpn);
         }
@@ -253,7 +239,7 @@ InfUdDriver::~InfUdDriver()
 uint32_t
 InfUdDriver::getMaxPacketSize()
 {
-    return localMac ? mtu - sizeof32(EthernetHeader) : mtu - GRH_SIZE;
+    return localMac ? mtu - ETH_HEADER_SIZE : mtu - GRH_SIZE;
 }
 
 /**
@@ -271,7 +257,7 @@ InfUdDriver::BufferDescriptor*
 InfUdDriver::getTransmitBuffer()
 {
     // if we've drained our free tx buffer pool, we must wait.
-    if (txPool->freeBuffers.empty()) {
+    if (unlikely(txPool->freeBuffers.empty())) {
         reapTransmitBuffers();
         if (txPool->freeBuffers.empty()) {
             // We are temporarily out of buffers. Time how long it takes
@@ -279,9 +265,12 @@ InfUdDriver::getTransmitBuffer()
             // time is a bad sign); in the normal case this code should
             // not be invoked.
             uint64_t start = Cycles::rdtsc();
+            uint32_t count = 1;
             while (txPool->freeBuffers.empty()) {
                 reapTransmitBuffers();
+                count++;
             }
+            timeTrace("TX buffers refilled after polling CQ %u times", count);
             double waitMillis = 1e03 * Cycles::toSeconds(Cycles::rdtsc()
                     - start);
             if (waitMillis > 1.0)  {
@@ -298,6 +287,36 @@ InfUdDriver::getTransmitBuffer()
 }
 
 /**
+ * Read the driver configuration file (if there is one) and parse the infud
+ * config to return a service locator.
+ */
+ServiceLocator
+InfUdDriver::readDriverConfigFile()
+{
+    string configDir = "config";
+    if (context->options) {
+        configDir = context->options->getConfigDir();
+    }
+    std::ifstream configFile(configDir + "/driver.conf");
+    Tub<ServiceLocator> config;
+    if (configFile.is_open()) {
+        std::string sl;
+        try {
+            while (std::getline(configFile, sl)) {
+                if ((sl.find('#') == 0) || (sl.find("infud") == string::npos)) {
+                    // Skip comments and irrelevant lines.
+                    continue;
+                }
+                return ServiceLocator(sl);
+            }
+        } catch (ServiceLocator::BadServiceLocatorException&) {
+            LOG(ERROR, "Ignored bad driver configuration: '%s'", sl.c_str());
+        }
+    }
+    return ServiceLocator("infud:");
+}
+
+/**
  * Check the NIC to see if it is ready to return transmit buffers
  * from previously-transmit packets. If there are any available,
  * reclaim them. This method also detects and logs transmission errors.
@@ -307,7 +326,7 @@ InfUdDriver::reapTransmitBuffers()
 {
 #define MAX_TO_RETRIEVE 4
     ibv_wc retArray[MAX_TO_RETRIEVE];
-    int cqes = infiniband->pollCompletionQueue(txcq, MAX_TO_RETRIEVE, retArray);
+    int cqes = ibv_poll_cq(txcq, MAX_TO_RETRIEVE, retArray);
     if (cqes) {
         timeTrace("polling TX completion queue returned %d CQEs", cqes);
     }
@@ -371,7 +390,7 @@ InfUdDriver::release()
         char* payload = packetsToRelease.back();
         packetsToRelease.pop_back();
         if (localMac) {
-            payload -= sizeof(EthernetHeader);
+            payload -= ETH_HEADER_SIZE;
         } else {
             payload -= GRH_SIZE;
         }
@@ -381,6 +400,50 @@ InfUdDriver::release()
         assert(payload == bd->buffer);
         rxPool->freeBuffers.push_back(bd);
     }
+}
+
+/**
+ * Optimized code path for sending packets that are addressed to ourselves
+ * without actually transmitting bytes over the NIC.
+ */
+void
+InfUdDriver::sendLoopbackPacket(const void* header, uint32_t headerLen,
+        Buffer::Iterator* messageIt, uint32_t payloadSize)
+{
+    // This method bypasses the underlying NIC driver: the payload is copied
+    // directly into a receive buffer and delivered via the loopback queue
+    // mechanism. Note: as of 07/2019, we haven't been able to send loopback
+    // packets in raw ethernet mode with ibv_post_send on CloudLab xl170.
+    assert(localMac.get());
+    if (unlikely(rxPool->freeBuffers.empty())) {
+        DIE("No receive buffer available for loopback packets");
+    }
+
+    BufferDescriptor* bd = rxPool->freeBuffers.back();
+    rxPool->freeBuffers.pop_back();
+    bd->packetLength = ETH_HEADER_SIZE + headerLen + payloadSize;
+
+    // Optimization: for loopback packets, no need to build the ethernet header
+    char* dst = bd->buffer + ETH_HEADER_SIZE;
+    memcpy(dst, header, headerLen);
+    dst += headerLen;
+
+    uint32_t bytesToCopy = payloadSize;
+    while (bytesToCopy > 0) {
+        // The current buffer chunk contains the rest of the packet.
+        if (messageIt->getLength() >= bytesToCopy) {
+            memcpy(dst, messageIt->getData(), bytesToCopy);
+            messageIt->advance(bytesToCopy);
+            break;
+        }
+
+        memcpy(dst, messageIt->getData(), messageIt->getLength());
+        dst += messageIt->getLength();
+        bytesToCopy -= messageIt->getLength();
+        messageIt->next();
+    }
+
+    loopbackPkts.push_back(bd);
 }
 
 /*
@@ -394,28 +457,38 @@ InfUdDriver::sendPacket(const Driver::Address* addr,
                         int priority,
                         TransmitQueueState* txQueueState)
 {
-    uint32_t totalLength = headerLen +
-                           (payload ? payload->size() : 0);
+    uint32_t payloadSize = payload ? payload->size() : 0;
+    uint32_t totalLength = headerLen + payloadSize;
     assert(totalLength <= getMaxPacketSize());
 
+    // In raw ethernet mode, loopback packets must be handled specially on
+    // CloudLab xl170 machines.
+    const MacAddress* destMac = static_cast<const MacAddress*>(addr);
+    if (unlikely(localMac && destMac->equal(*localMac.get()))) {
+        sendLoopbackPacket(header, headerLen, payload, payloadSize);
+        return;
+    }
+
+    // Grab a free packet buffer.
     BufferDescriptor* bd = getTransmitBuffer();
     bd->packetLength = totalLength;
 
-    // Create the Infiniband work request.
-    char *p = bd->buffer;
+    // Construct the ethernet header when running in raw ethernet mode.
+    char *dst = bd->buffer;
     if (localMac) {
-        auto& ethHdr = *new(p) EthernetHeader;
-        memcpy(ethHdr.destAddress,
-               static_cast<const MacAddress*>(addr)->address, 6);
-        memcpy(ethHdr.sourceAddress, localMac->address, 6);
-        ethHdr.etherType = HTONS(0x8001);
-        ethHdr.length = downCast<uint16_t>(totalLength);
-        p += sizeof(ethHdr);
-        bd->packetLength += sizeof32(ethHdr);
+        EthernetHeader* ethHdr = reinterpret_cast<EthernetHeader*>(dst);
+        MacAddress::copy(ethHdr->destAddress, destMac->address);
+        MacAddress::copy(ethHdr->srcAddress, localMac->address);
+        ethHdr->etherType = HTONS(NetUtil::EthPayloadType::RAMCLOUD);
+        dst += ETH_HEADER_SIZE;
+        bd->packetLength += ETH_HEADER_SIZE;
     }
-    memcpy(p, header, headerLen);
-    p += headerLen;
 
+    // Copy transport header into packet buffer.
+    memcpy(dst, header, headerLen);
+    dst += headerLen;
+
+    // Copy payload into packet buffer or apply zero-copy when approapriate.
     ibv_sge sges[2];
     sges[0].addr = reinterpret_cast<uint64_t>(bd->buffer);
     sges[0].length = bd->packetLength;
@@ -438,28 +511,28 @@ InfUdDriver::sendPacket(const Driver::Address* addr,
             numSges = 2;
             break;
         } else {
-            memcpy(p, currentChunk, payload->getLength());
-            p += payload->getLength();
+            memcpy(dst, currentChunk, payload->getLength());
+            dst += payload->getLength();
             timeTrace("0-copy not applicable; copied %u bytes",
                     payload->getLength());
         }
         payload->next();
     }
 
-    ibv_send_wr workRequest;
-    memset(&workRequest, 0, sizeof(workRequest));
-
-    // This id is used to locate the BufferDescriptor from the
-    // completion notification.
+    // Create the IB work request. wr_id is used to locate the BufferDescriptor
+    // from the completion notification.
+    ibv_send_wr workRequest = {};
     workRequest.wr_id = reinterpret_cast<uint64_t>(bd);
-    const Address* address = static_cast<const Address*>(addr);
-    workRequest.wr.ud.ah = address->getHandle();
-    workRequest.wr.ud.remote_qpn = address->getQpn();
-    workRequest.wr.ud.remote_qkey = QKEY;
     workRequest.next = NULL;
     workRequest.sg_list = sges;
     workRequest.num_sge = numSges;
     workRequest.opcode = IBV_WR_SEND;
+    if (!localMac) {
+        const Address* address = static_cast<const Address*>(addr);
+        workRequest.wr.ud.ah = address->ah;
+        workRequest.wr.ud.remote_qpn = address->qpn;
+        workRequest.wr.ud.remote_qkey = QKEY;
+    }
     sendsSinceLastSignal++;
     if (sendsSinceLastSignal >= SIGNALED_SEND_PERIOD) {
         workRequest.send_flags = IBV_SEND_SIGNALED;
@@ -472,18 +545,15 @@ InfUdDriver::sendPacket(const Driver::Address* addr,
     if (bd->packetLength <= Infiniband::MAX_INLINE_DATA)
         workRequest.send_flags |= IBV_SEND_INLINE;
 
-    timeTrace("before postSend in InfUdDriver");
     ibv_send_wr *bad_txWorkRequest;
+    lastTransmitTime = Cycles::rdtsc();
     if (ibv_post_send(qp->qp, &workRequest, &bad_txWorkRequest)) {
-        LOG(WARNING, "Error posting transmit packet: %s", strerror(errno));
-        txPool->freeBuffers.push_back(bd);
-        return;
+        DIE("Error posting transmit packet: %s", strerror(errno));
     } else {
         txBuffersInHca.push_back(bd);
     }
-    timeTrace("sent packet with %u bytes, %d free buffers",
-            totalLength, downCast<int>(txPool->freeBuffers.size()));
-    lastTransmitTime = Cycles::rdtsc();
+    timeTrace("sent packet with %u bytes, %u free buffers", totalLength,
+            txPool->freeBuffers.size());
     queueEstimator.packetQueued(bd->packetLength, lastTransmitTime,
             txQueueState);
     PerfStats::threadStats.networkOutputBytes += bd->packetLength;
@@ -496,19 +566,37 @@ void
 InfUdDriver::receivePackets(uint32_t maxPackets,
             std::vector<Received>* receivedPackets)
 {
+    // Attempt to receive loopback packets first (only in raw ethernet mode).
+    if (unlikely(!loopbackPkts.empty())) {
+        assert(localMac.get());
+        do {
+            BufferDescriptor* bd = loopbackPkts.front();
+            loopbackPkts.pop_front();
+            receivedPackets->emplace_back(localMac.get(), this,
+                    bd->packetLength - ETH_HEADER_SIZE,
+                    bd->buffer + ETH_HEADER_SIZE);
+            maxPackets--;
+        } while (!loopbackPkts.empty() && (maxPackets > 0));
+    }
+
     static const int MAX_COMPLETIONS = 50;
     ibv_wc wc[MAX_COMPLETIONS];
     uint32_t maxToReceive = (maxPackets < MAX_COMPLETIONS) ? maxPackets
             : MAX_COMPLETIONS;
-    int numPackets = infiniband->pollCompletionQueue(qp->rxcq,
-            maxToReceive, wc);
+    int numPackets = ibv_poll_cq(qp->rxcq, maxToReceive, wc);
     if (numPackets <= 0) {
-        if (numPackets < 0) {
-            LOG(ERROR, "pollCompletionQueue failed with result %d", numPackets);
+        if (unlikely(numPackets < 0)) {
+            LOG(ERROR, "ibv_poll_cq failed with result %d", numPackets);
         }
         return;
     }
     timeTrace("InfUdDriver received %d packets", numPackets);
+
+    rxBuffersInHca -= numPackets;
+    if (unlikely(rxBuffersInHca == 0)) {
+        RAMCLOUD_CLOG(WARNING, "Infiniband receiver temporarily ran "
+                "out of packet buffers; could result in dropped packets");
+    }
 
     // First, prefetch the initial bytes of all the incoming packets. This
     // allows us to process multiple cache misses concurrently, which improves
@@ -520,29 +608,24 @@ InfUdDriver::receivePackets(uint32_t maxPackets,
         prefetch(bd->buffer,
                 incoming->byte_len > 256 ? 256 : incoming->byte_len);
     }
-    refillReceiver();
-    timeTrace("receive queue refilled");
 
-    rxBuffersInHca -= numPackets;
-    if (rxBuffersInHca == 0) {
-        RAMCLOUD_CLOG(WARNING, "Infiniband receiver temporarily ran "
-                "out of packet buffers; could result in dropped packets");
-    }
+    // Give the RX queue a chance to replenish.
+    refillReceiver();
 
     // Each iteration of the following loop processes one incoming packet.
     for (int i = 0; i < numPackets; i++) {
         ibv_wc* incoming = &wc[i];
         BufferDescriptor *bd =
                 reinterpret_cast<BufferDescriptor*>(incoming->wr_id);
-        if (incoming->status != IBV_WC_SUCCESS) {
-            LOG(ERROR, "Infiniband receive error (%d: %s)",
-                incoming->status,
-                infiniband->wcStatusToString(incoming->status));
-            goto error;
+        if (unlikely(incoming->status != IBV_WC_SUCCESS)) {
+            DIE("Infiniband receive error (%d: %s)", incoming->status,
+                    infiniband->wcStatusToString(incoming->status));
         }
 
         bd->packetLength = incoming->byte_len;
-        if (bd->packetLength < (localMac ? 60 : GRH_SIZE)) {
+#define MIN_ETH_FRAME_SIZE (ETH_HEADER_SIZE + 46)
+        uint32_t minPacketLength = localMac ? MIN_ETH_FRAME_SIZE : GRH_SIZE;
+        if (unlikely(bd->packetLength < minPacketLength)) {
             LOG(ERROR, "received impossibly short packet: %d bytes",
                     bd->packetLength);
             goto error;
@@ -552,19 +635,27 @@ InfUdDriver::receivePackets(uint32_t maxPackets,
         if (localMac) {
             EthernetHeader* ethHdr = reinterpret_cast<EthernetHeader*>(
                     bd->buffer);
-            if (ethHdr->length + sizeof(EthernetHeader) > bd->packetLength) {
-                LOG(ERROR, "corrupt packet (data length %d, packet length %d",
-                        ethHdr->length, bd->packetLength);
-                goto error;
-            }
-            bd->macAddress.construct(ethHdr->sourceAddress);
-            uint32_t length = ethHdr->length;
+            assert(NTOHS(ethHdr->etherType) ==
+                    NetUtil::EthPayloadType::RAMCLOUD);
+            bd->macAddress.construct(ethHdr->srcAddress);
             receivedPackets->emplace_back(bd->macAddress.get(), this,
-                    length, bd->buffer + sizeof(EthernetHeader));
+                    bd->packetLength - ETH_HEADER_SIZE,
+                    bd->buffer + ETH_HEADER_SIZE);
         } else {
-            bd->infAddress.construct(*infiniband,
-                    ibPhysicalPort, incoming->slid, incoming->src_qp);
-            receivedPackets->emplace_back(bd->infAddress.get(), this,
+            ibv_ah* ah;
+            auto it = infiniband->ahMap.find(incoming->slid);
+            if (unlikely(it == infiniband->ahMap.end())) {
+                Infiniband::Address infAddress(*infiniband, ibPhysicalPort,
+                        incoming->slid, incoming->src_qp);
+                ah = infAddress.getHandle();
+            } else {
+                ah = it->second;
+            }
+
+            static_assert(GRH_SIZE >= sizeof(Address), "Not enough space");
+            new(bd->buffer) Address(ah, incoming->src_qp);
+            receivedPackets->emplace_back(
+                    reinterpret_cast<Address*>(bd->buffer), this,
                     bd->packetLength - GRH_SIZE, bd->buffer + GRH_SIZE);
         }
         continue;
@@ -591,40 +682,54 @@ InfUdDriver::getBandwidth()
     return bandwidthGbps*1000;
 }
 
-
 /**
  * Fill up the HCA's queue of pending receive buffers.
  */
 void
 InfUdDriver::refillReceiver()
 {
-    while ((rxBuffersInHca < MAX_RX_QUEUE_DEPTH)
-            && !rxPool->freeBuffers.empty()) {
+    // Always refill in the batch of REFILL_BATCH to amortize the cost of
+    // ibv_post_recv.
+    static const uint32_t REFILL_BATCH = 16;
+    uint32_t maxRefill = std::min(MAX_RX_QUEUE_DEPTH - rxBuffersInHca,
+            downCast<uint32_t>(rxPool->freeBuffers.size()));
+    if (maxRefill < REFILL_BATCH) {
+        return;
+    }
+
+    // Create a linked list of receive requests to be posted to the RX queue.
+    ibv_recv_wr receiveRequests[REFILL_BATCH];
+    ibv_sge sges[REFILL_BATCH];
+    for (uint32_t i = 0; i < REFILL_BATCH; i++) {
         BufferDescriptor* bd = rxPool->freeBuffers.back();
         rxPool->freeBuffers.pop_back();
-        rxBuffersInHca++;
-
-        ibv_sge isge = {reinterpret_cast<uint64_t>(bd->buffer), bd->length,
-                bd->memoryRegion->lkey};
-        ibv_recv_wr workRequest;
-        memset(&workRequest, 0, sizeof(workRequest));
-        workRequest.wr_id   = reinterpret_cast<uint64_t>(bd);
-        workRequest.next    = NULL;
-        workRequest.sg_list = &isge;
-        workRequest.num_sge = 1;
-
-        ibv_recv_wr *badWorkRequest;
-        if (ibv_post_recv(qp->qp, &workRequest, &badWorkRequest) != 0) {
-            DIE("Couldn't post Infiniband receive buffer: %s",
-                    strerror(errno));
-        }
+        sges[i] = {
+            .addr   = reinterpret_cast<uint64_t>(bd->buffer),
+            .length = bd->length,
+            .lkey   = bd->memoryRegion->lkey
+        };
+        receiveRequests[i] = {
+            .wr_id   = reinterpret_cast<uint64_t>(bd),
+            .next    = &receiveRequests[i + 1],
+            .sg_list = &sges[i],
+            .num_sge = 1
+        };
     }
+    receiveRequests[REFILL_BATCH-1].next = NULL;
+    rxBuffersInHca += REFILL_BATCH;
+
+    ibv_recv_wr *badWorkRequest;
+    if (ibv_post_recv(qp->qp, receiveRequests, &badWorkRequest) != 0) {
+        DIE("Couldn't post Infiniband receive buffer: %s",
+                strerror(errno));
+    }
+    timeTrace("receive queue refilled");
 
     // Generate log messages every time buffer usage reaches a significant new
     // high. Running out of buffers is a bad thing, so we want warnings in the
     // log long before that happens.
     uint32_t freeBuffers = downCast<uint32_t>(rxPool->freeBuffers.size());
-    if (freeBuffers <= rxBufferLogThreshold) {
+    if (unlikely(freeBuffers <= rxBufferLogThreshold)) {
         double percentUsed = 100.0*static_cast<double>(
                 TOTAL_RX_BUFFERS - freeBuffers)/TOTAL_RX_BUFFERS;
         LOG((percentUsed >= 80.0) ? WARNING : NOTICE,

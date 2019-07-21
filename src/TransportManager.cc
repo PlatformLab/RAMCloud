@@ -105,7 +105,7 @@ static struct BasicInfUdTransportFactory : public TransportFactory {
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new BasicTransport(context, localServiceLocator,
-                new InfUdDriver(context, localServiceLocator, false), true,
+                new InfUdDriver(context, localServiceLocator), true,
                 generateRandom());
     }
 } basicInfUdTransportFactory;
@@ -116,7 +116,7 @@ static struct HomaInfUdTransportFactory : public TransportFactory {
     Transport* createTransport(Context* context,
             const ServiceLocator* localServiceLocator) {
         return new HomaTransport(context, localServiceLocator,
-                new InfUdDriver(context, localServiceLocator, false), true,
+                new InfUdDriver(context, localServiceLocator), true,
                 generateRandom());
     }
 } homaInfUdTransportFactory;

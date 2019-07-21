@@ -63,9 +63,8 @@ TEST_F(InfUdDriverTest, basics) {
     // Send a packet from a client-style driver to a server-style
     // driver.
     ServiceLocator serverLocator("basic+infud:");
-    InfUdDriver server(&context, &serverLocator, false);
-    InfUdDriver *client =
-            new InfUdDriver(&context, NULL, false);
+    InfUdDriver server(&context, &serverLocator);
+    InfUdDriver *client = new InfUdDriver(&context, NULL);
     ServiceLocator sl(server.getServiceLocator());
     Driver::Address* serverAddress = client->newAddress(&sl);
 
@@ -86,20 +85,6 @@ TEST_F(InfUdDriverTest, basics) {
     server.sendPacket(recv->sender, "h:", 2, &iterator2);
     EXPECT_STREQ("h:response", receivePacket(client));
     delete serverAddress;
-}
-
-TEST_F(InfUdDriverTest, gbsOption) {
-    Cycles::mockCyclesPerSec = 2e09;
-    ServiceLocator serverLocator("basic+infud:gbs=40");
-    InfUdDriver driver(&context, &serverLocator, false);
-    EXPECT_EQ(2.5, driver.queueEstimator.bandwidth);
-    EXPECT_EQ(40, driver.bandwidthGbps);
-    EXPECT_EQ(10000u, driver.maxTransmitQueueSize);
-
-    ServiceLocator serverLocator2("basic+infud:gbs=1");
-    InfUdDriver driver2(&context, &serverLocator2, false);
-    EXPECT_EQ(8112u, driver2.maxTransmitQueueSize);
-    Cycles::mockCyclesPerSec = 0;
 }
 
 }  // namespace RAMCloud

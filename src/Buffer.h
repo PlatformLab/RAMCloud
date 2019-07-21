@@ -486,6 +486,7 @@ class Buffer {
         Iterator(const Iterator& other);
         ~Iterator();
         Iterator& operator=(const Iterator& other);
+        void advance(uint32_t bytes);
 
         /**
          * Return a pointer to the first byte of the data that is available

@@ -34,11 +34,7 @@ struct MacAddress : public Driver::Address {
      */
     explicit MacAddress(const uint8_t raw[6])
     {
-        // Hand-optimized version of memcpy(address, raw, 6).
-        char* dst = (char*)address + 6; // NOLINT
-        const char* src = (const char*)raw + 6;
-        *((uint32_t*)(dst - 6)) = *((const uint32_t*)(src - 6)); // NOLINT
-        *((uint16_t*)(dst - 2)) = *((const uint16_t*)(src - 2)); // NOLINT
+        copy(address, raw);
     }
 
     MacAddress(const MacAddress& other)
@@ -46,6 +42,22 @@ struct MacAddress : public Driver::Address {
 
     explicit MacAddress(const char* macStr);
     explicit MacAddress(Random _);
+
+    bool equal(const MacAddress& other) const
+    {
+        return (*(const uint32_t*)(address + 0) ==
+                *(const uint32_t*)(other.address + 0)) &&
+               (*(const uint16_t*)(address + 4) ==
+                *(const uint16_t*)(other.address + 4));
+    }
+
+    static void
+    copy(uint8_t dst[6], const uint8_t src[6])
+    {
+        // Hand-optimized version of memcpy(dst, src, 6).
+        *((uint32_t*)(dst + 0)) = *((const uint32_t*)(src + 0)); // NOLINT
+        *((uint16_t*)(dst + 4)) = *((const uint16_t*)(src + 4)); // NOLINT
+    }
 
     uint64_t getHash() const;
     string toString() const;

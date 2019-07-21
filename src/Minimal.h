@@ -104,6 +104,9 @@ string vformat(const char* format, va_list ap)
 #define expect_true(expr)   __builtin_expect((expr), true)
 #define expect_false(expr)   __builtin_expect((expr), false)
 
+#define likely(x) __builtin_expect((x), 1)
+#define unlikely(x) __builtin_expect((x), 0)
+
 /**
  * Return the size of the given type as a uint32_t. This convenience macro
  * tavoids having downcasts everywhere we take sizeof, which returns size_t,

@@ -162,7 +162,7 @@ AbstractServerList::getSession(ServerId id)
                 actualId = AdminClient::getServerId(context, session);
             } catch (TransportException& e) {
                 // Can't even communicate with the server; fail the session.
-                RAMCLOUD_LOG(NOTICE,
+                RAMCLOUD_LOG(WARNING,
                         "couldn't verify server id for %s: connection failed",
                         id.toString().c_str());
                 return FailSession::get();
@@ -171,7 +171,7 @@ AbstractServerList::getSession(ServerId id)
                 break;
             }
             if (actualId.isValid()) {
-                RAMCLOUD_LOG(NOTICE, "server for locator %s has incorrect id "
+                RAMCLOUD_LOG(WARNING, "server for locator %s has incorrect id "
                         "(expected %s, got %s); discarding session",
                         locator.c_str(), id.toString().c_str(),
                         actualId.toString().c_str());
@@ -180,7 +180,7 @@ AbstractServerList::getSession(ServerId id)
             // If we get here, it means that the server doesn't yet know its
             // id (it must not have completed the enlistment process yet).
             // Keep trying.
-            RAMCLOUD_CLOG(NOTICE, "retrying server id check for %s: "
+            RAMCLOUD_CLOG(WARNING, "retrying server id check for %s: "
                     "server not yet enlisted", id.toString().c_str());
             Cycles::sleep(1000);
         }

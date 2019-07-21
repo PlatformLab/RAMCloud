@@ -17,6 +17,12 @@
 #include <netinet/in.h>
 #include <infiniband/verbs.h>
 
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Weffc++"
+#include "flat_hash_map.h"
+#pragma GCC diagnostic warning "-Wconversion"
+#pragma GCC diagnostic warning "-Weffc++"
+
 #include "Common.h"
 #include "Driver.h"
 #include "MacAddress.h"
@@ -289,7 +295,7 @@ class Infiniband {
         Infiniband& infiniband; // Infiniband instance under which this address
                                 // is valid.
         int physicalPort;   // physical port number on local device
-        uint16_t lid;       // local id (address)
+        uint16_t lid;       // local id (address) of the remote HCA
         uint32_t qpn;       // queue pair number
         mutable ibv_ah* ah; // address handle, may be NULL
     };
@@ -356,6 +362,8 @@ class Infiniband {
             , descriptors()
         {
             const size_t bytes = bufferSize * bufferCount;
+            RAMCLOUD_LOG(NOTICE, "allocating %.2f MB for buffer descriptors",
+                    double(bytes)*1e-6);
             basePointer = Memory::xmemalign(HERE, 4096, bytes);
 
             ibv_mr *mr = ibv_reg_mr(pd.pd, basePointer, bytes,
@@ -454,16 +462,9 @@ class Infiniband {
                     uint32_t maxRecvWr,
                     uint32_t QKey = 0);
 
-    int
-    getLid(int port);
+    int getLid(int port);
     uint32_t getBandwidthGbps(int port);
     uint32_t getMtu(int port);
-
-    BufferDescriptor*
-    tryReceive(QueuePair* qp, Tub<Address>* sourceAddress = NULL);
-
-    BufferDescriptor*
-    receive(QueuePair* qp, Tub<Address>* sourceAddress = NULL);
 
     void
     postReceive(QueuePair* qp, BufferDescriptor* bd);
@@ -513,7 +514,12 @@ class Infiniband {
     // (as of 11/2015, these calls take 40-50us!). These entries are never
     // garbage collected, but there will be only one entry per host (and the
     // lids are only 16 bits), so the memory usage should be tolerable.
-    typedef std::unordered_map<uint16_t, ibv_ah*> AddressHandleMap;
+#if __cplusplus >= 201402L
+    // ska::flat_hash_map requires c++14 features to compile.
+    using AddressHandleMap = ska::flat_hash_map<uint16_t, ibv_ah*>;
+#else
+    using AddressHandleMap = std::unordered_map<uint16_t, ibv_ah*>;
+#endif
     AddressHandleMap ahMap;
 
     uint64_t totalAddressHandleAllocCalls;

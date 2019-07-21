@@ -15,6 +15,7 @@
 
 #include "CycleCounter.h"
 #include "Infiniband.h"
+#include "NetUtil.h"
 #include "RawMetrics.h"
 #include "ShortMacros.h"
 #include "Transport.h"
@@ -215,76 +216,6 @@ Infiniband::getMtu(int port)
         default:
             DIE("Illegal enum ibv_mtu value %u", ipa.active_mtu);
     }
-}
-
-/**
- * Try to receive a message from the given Queue Pair if one
- * is available. Do not block.
- *
- * \param[in] qp
- *      The queue pair to poll for a received message.
- * \param[in] sourceAddress
- *      Optional. If not NULL, store the sender's address here. 
- * \return
- *      NULL if no message is available. Otherwise, a pointer to
- *      a BufferDescriptor containing the message.
- * \throw TransportException
- *      if polling failed.  
- */
-Infiniband::BufferDescriptor*
-Infiniband::tryReceive(QueuePair *qp, Tub<Address>* sourceAddress)
-{
-    ibv_wc wc;
-    int r = ibv_poll_cq(qp->rxcq, 1, &wc);
-
-    if (r == 0)
-        return NULL;
-
-    if (r < 0) {
-        RAMCLOUD_LOG(ERROR, "ibv_poll_cq failed: %d", r);
-        throw TransportException(HERE, r);
-    }
-
-    if (wc.status != IBV_WC_SUCCESS) {
-        LOG(ERROR, "wc.status != IBV_WC_SUCCESS; is %d", wc.status);
-        throw TransportException(HERE, wc.status);
-    }
-
-    BufferDescriptor *bd = reinterpret_cast<BufferDescriptor*>(wc.wr_id);
-    bd->messageBytes = wc.byte_len;
-
-    if (sourceAddress != NULL) {
-        sourceAddress->construct(*this, qp->ibPhysicalPort,
-                                 wc.slid, wc.src_qp);
-    }
-
-    return bd;
-}
-
-/**
- * Try to receive a message from the given Queue Pair if one
- * is available. If one is not, keep trying.
- *
- * \param[in] qp
- *      The queue pair to poll for a received message.
- * \param[in] sourceAddress
- *      For UD queue pairs only. If not NULL, store the sender's
- *      address here. 
- * \return
- *      A pointer to a BufferDescriptor containing the message.
- * \throw TransportException
- *      if polling failed.  
- */
-Infiniband::BufferDescriptor *
-Infiniband::receive(QueuePair *qp, Tub<Address>* sourceAddress)
-{
-    BufferDescriptor *bd = NULL;
-
-    do {
-        bd = tryReceive(qp, sourceAddress);
-    } while (bd == NULL);
-
-    return bd;
 }
 
 /**
@@ -597,7 +528,7 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
       peerLid(0)
 {
     snprintf(peerName, sizeof(peerName), "?unknown?");
-    if (type != IBV_QPT_RC && type != IBV_QPT_UD && type != IBV_QPT_RAW_ETH)
+    if (type != IBV_QPT_RC && type != IBV_QPT_UD && type != IBV_QPT_RAW_PACKET)
         throw TransportException(HERE, "invalid queue pair type");
 
     ibv_qp_init_attr qpia;
@@ -616,8 +547,9 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
 
     qp = ibv_create_qp(pd, &qpia);
     if (qp == NULL) {
-        LOG(ERROR, "ibv_create_qp failed (%d prior creates, %d deletes)",
-                infiniband.totalQpCreates, infiniband.totalQpDeletes);
+        LOG(ERROR, "ibv_create_qp failed (%d prior creates, %d deletes): %s",
+                infiniband.totalQpCreates, infiniband.totalQpDeletes,
+                strerror(errno));
         throw TransportException(HERE, "failed to create queue pair");
     }
     infiniband.totalQpCreates++;
@@ -641,7 +573,7 @@ Infiniband::QueuePair::QueuePair(Infiniband& infiniband, ibv_qp_type type,
         mask |= IBV_QP_QKEY;
         mask |= IBV_QP_PKEY_INDEX;
         break;
-    case IBV_QPT_RAW_ETH:
+    case IBV_QPT_RAW_PACKET:
         break;
     default:
         assert(0);
@@ -760,7 +692,7 @@ void
 Infiniband::QueuePair::activate(const Tub<MacAddress>& localMac)
 {
     ibv_qp_attr qpa;
-    if (type != IBV_QPT_UD && type != IBV_QPT_RAW_ETH)
+    if (type != IBV_QPT_UD && type != IBV_QPT_RAW_PACKET)
         throw TransportException(HERE, "activate() called on wrong qp type");
 
     if (getState() != IBV_QPS_INIT) {
@@ -771,32 +703,66 @@ Infiniband::QueuePair::activate(const Tub<MacAddress>& localMac)
     // now switch to RTR
     memset(&qpa, 0, sizeof(qpa));
     qpa.qp_state = IBV_QPS_RTR;
-
-    int ret = ibv_modify_qp(qp, &qpa, IBV_QP_STATE);
+    int rtr_flags = IBV_QP_STATE;
+    int ret = ibv_modify_qp(qp, &qpa, rtr_flags);
     if (ret) {
-        LOG(ERROR, "failed to transition to RTR state");
+        LOG(ERROR, "failed to transition to RTR state: %s", strerror(errno));
         throw TransportException(HERE, ret);
     }
 
     // now move to RTS state
     qpa.qp_state = IBV_QPS_RTS;
-    int flags = IBV_QP_STATE;
-    if (type != IBV_QPT_RAW_ETH) {
+    int rts_flags = IBV_QP_STATE;
+    if (type != IBV_QPT_RAW_PACKET) {
         qpa.sq_psn = initialPsn;
-        flags |= IBV_QP_SQ_PSN;
+        rts_flags |= IBV_QP_SQ_PSN;
     }
-    ret = ibv_modify_qp(qp, &qpa, flags);
+    ret = ibv_modify_qp(qp, &qpa, rts_flags);
     if (ret) {
-        LOG(ERROR, "failed to transition to RTS state");
+        LOG(ERROR, "failed to transition to RTS state: %s", strerror(errno));
         throw TransportException(HERE, ret);
     }
 
-    if (type == IBV_QPT_RAW_ETH) {
-        ibv_gid mgid;
-        memset(&mgid, 0, sizeof(mgid));
-        memcpy(&mgid.raw[10], localMac->address, 6);
-        if (ibv_attach_mcast(qp, &mgid, 0)) {
-            LOG(ERROR, "failed to bind to mac address");
+    // For raw ethernet QP, register a flow steering rule that accepts all
+    // RAMCloud packets (identified by EtherType field) addressed to us.
+    if (type == IBV_QPT_RAW_PACKET) {
+        const uint8_t* local_mac = localMac->address;
+        struct raw_eth_flow_attr {
+            struct ibv_flow_attr attr;
+            struct ibv_flow_spec_eth spec_eth;
+        } __attribute__((packed)) flow_attr = {
+            .attr = {
+                .comp_mask = 0,
+                .type = IBV_FLOW_ATTR_NORMAL,
+                .size = sizeof(flow_attr),
+                .priority = 0,
+                .num_of_specs = 1,
+                .port = downCast<uint8_t>(ibPhysicalPort),
+                .flags = 0,
+            },
+            .spec_eth = {
+                .type = IBV_FLOW_SPEC_ETH,
+                .size = sizeof(struct ibv_flow_spec_eth),
+                .val = {
+                    .dst_mac = { local_mac[0], local_mac[1], local_mac[2],
+                                 local_mac[3], local_mac[4], local_mac[5] },
+                    .src_mac = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+                    .ether_type = HTONS(NetUtil::EthPayloadType::RAMCLOUD),
+                    .vlan_tag = 0,
+                },
+                .mask = {
+                    .dst_mac = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
+                    .src_mac = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+                    .ether_type = 0xFFFF,
+                    .vlan_tag = 0,
+                }
+            }
+        };
+
+        struct ibv_flow *eth_flow;
+        eth_flow = ibv_create_flow(qp, &flow_attr.attr);
+        if (!eth_flow) {
+            LOG(ERROR, "failed to attach steering flow: %s", strerror(errno));
             throw TransportException(HERE, ret);
         }
     }

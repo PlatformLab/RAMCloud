@@ -41,11 +41,10 @@ namespace RAMCloud {
  */
 class InfUdDriver : public Driver {
     typedef Infiniband::QueuePair QueuePair;
-    typedef Infiniband::Address Address;
 
   public:
     explicit InfUdDriver(Context* context,
-            const ServiceLocator* localServiceLocator, bool ethernet);
+            const ServiceLocator* localServiceLocator);
     virtual ~InfUdDriver();
     virtual void dumpStats() { infiniband->dumpStats(); }
     virtual uint32_t getMaxPacketSize();
@@ -60,16 +59,60 @@ class InfUdDriver : public Driver {
                             TransmitQueueState* txQueueState = NULL);
     virtual string getServiceLocator();
 
-    virtual Driver::Address* newAddress(const ServiceLocator* serviceLocator) {
+    virtual Address* newAddress(const ServiceLocator* serviceLocator) {
         if (localMac) {
             return new MacAddress(
                 serviceLocator->getOption<const char*>("mac"));
         } else {
-            return new Address(*infiniband, ibPhysicalPort, serviceLocator);
+            Infiniband::Address ibAddress(*infiniband, ibPhysicalPort,
+                    serviceLocator);
+            return new Address(ibAddress.getHandle(), ibAddress.getQpn());
         }
     }
 
   PRIVATE:
+    ServiceLocator readDriverConfigFile();
+    void sendLoopbackPacket(const void* header, uint32_t headerLen,
+            Buffer::Iterator* messageIt, uint32_t payloadSize);
+
+    /**
+     * Identifies the infiniband address of an UD queue pair.
+     */
+    struct Address : public Driver::Address {
+        explicit Address(ibv_ah* ah, uint32_t qpn)
+            : Driver::Address()
+            , ah(ah)
+            , qpn(qpn)
+        {}
+
+        Address(const Address& other)
+            : Address(other.ah, other.qpn) {}
+
+        virtual ~Address() {}
+
+        Address&
+        operator=(const Address& other)
+        {
+            ah = other.ah;
+            qpn = other.qpn;
+            return *this;
+        }
+
+        virtual uint64_t getHash() const {
+            return (uint64_t(qpn) << 32) || uint32_t(uint64_t(ah));
+        }
+
+        virtual string toString() const {
+            return format("%p:%u", ah, qpn);
+        }
+
+        /// Infiniband address handle that identifies the host machine.
+        /// Not owned by this class.
+        ibv_ah* ah;
+
+        /// Queue pair number within the host.
+        uint32_t qpn;
+    };
 
     /**
      * Stores information about a single packet buffer (used for both
@@ -97,14 +140,14 @@ class InfUdDriver : public Driver {
         /// be sent (or from which the packet was received).
         uint16_t remoteLid;
 
-        /// One of the following addresses is used for each received packet
-        /// to identify the sender. Not used for transmitted packets.
-        Tub<Address> infAddress;
+        /// Source MAC address of the received packet. Used to identify the
+        /// sender when operating in raw Ethernet mode. Not for transmitted
+        /// packets.
         Tub<MacAddress> macAddress;
 
         BufferDescriptor(char *buffer, uint32_t length, ibv_mr *region)
             : buffer(buffer), length(length), memoryRegion(region),
-              packetLength(0), remoteLid(0), infAddress(), macAddress() {}
+              packetLength(0), remoteLid(0), macAddress() {}
 
       private:
         DISALLOW_COPY_AND_ASSIGN(BufferDescriptor);
@@ -139,6 +182,21 @@ class InfUdDriver : public Driver {
         DISALLOW_COPY_AND_ASSIGN(BufferPool);
     };
 
+    /**
+     * Stores information about a work request that will be posted to the TX
+     * queue (i.e., a send request).
+     */
+    struct SendRequest {
+        /// Work request to be posted to the TX queue.
+        ibv_send_wr wr;
+
+        /// Scatter-gather list within the work request.
+        ibv_sge sges[2];
+
+        /// Packet buffer containing the data to send.
+        BufferDescriptor* bd;
+    };
+
     BufferDescriptor* getTransmitBuffer();
     void reapTransmitBuffers();
     void refillReceiver();
@@ -165,7 +223,7 @@ class InfUdDriver : public Driver {
     /// of the last send request.
     /// As of 11/2018, refilling 64 transmit buffers takes only ~250ns on our
     /// rc machines.
-    static const int SIGNALED_SEND_PERIOD = 64;
+    static const int SIGNALED_SEND_PERIOD = 16;
 
     /*
      * Note that in UD mode, Infiniband receivers prepend a 40-byte
@@ -176,15 +234,6 @@ class InfUdDriver : public Driver {
      */
     static const uint32_t GRH_SIZE = 40;
 
-    struct EthernetHeader {
-        uint8_t destAddress[6];
-        uint8_t sourceAddress[6];
-        uint16_t etherType;         // network order
-        uint16_t length;            // host order, length of payload,
-                                    // used to drop padding from end of short
-                                    // packets
-    } __attribute__((packed));
-
     /// See #infiniband.
     Tub<Infiniband> realInfiniband;
 
@@ -192,6 +241,10 @@ class InfUdDriver : public Driver {
     /// production use it points to #realInfiniband; for testing it points to a
     /// mock object.
     Infiniband* infiniband;
+
+    /// FIFO queue which holds packets addressed to the local host. Only used
+    /// in raw ethernet mode.
+    std::deque<BufferDescriptor*> loopbackPkts;
 
     /// Packet buffers used for receiving incoming packets.
     Tub<BufferPool> rxPool;
@@ -226,10 +279,12 @@ class InfUdDriver : public Driver {
     /// Queue pair object associated with rxcq and txcq.
     QueuePair* qp;
 
-    /// Physical port on the HCA used by this transport.
+    /// Physical port on the HCA used by this transport. Run `ibstatus` or
+    /// `ibv_devinfo` in command line to check what ports are available on
+    /// each HCA.
     int ibPhysicalPort;
 
-    /// Identifies our HCA uniquely among all those in the Infiband
+    /// Identifies our HCA uniquely among all those in the Infiniband
     /// network; roughly equivalent to a host address.
     int lid;
 
@@ -249,8 +304,17 @@ class InfUdDriver : public Driver {
     /// Our ServiceLocator, including the dynamic lid and qpn
     string locatorString;
 
-    // Effective outgoing network bandwidth, in Gbits/second.
-    int bandwidthGbps;
+    /// Effective outgoing network bandwidth, in Gbits/second.
+    uint32_t bandwidthGbps;
+
+    /// Holds send requests to be posted to the TX queue: one send request for
+    /// each outgoing packet. This is only used temporarily during #sendPackets,
+    /// but it's allocated here so that we only pay the cost for storage
+    /// allocation once.
+    std::vector<SendRequest> sendRequests;
+
+    /// Used to post a signaled send request after every Nth packet is sent.
+    int sendsSinceLastSignal;
 
     /// Address of the first byte of the "zero-copy region". This is an area
     /// of memory that is addressable directly by the HCA. When transmitting
@@ -266,9 +330,6 @@ class InfUdDriver : public Driver {
     /// Infiniband memory region associated with the zero-copy region, or
     /// NULL if there is no zero-copy region.
     ibv_mr* zeroCopyRegion;
-
-    /// Used to post a signaled send request after every Nth packet is sent.
-    int sendsSinceLastSignal;
 
     DISALLOW_COPY_AND_ASSIGN(InfUdDriver);
 };
