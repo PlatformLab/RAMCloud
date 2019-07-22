@@ -43,8 +43,8 @@ server_binary = '%s/server' % remote_obj_path
 ensure_servers_bin = '%s/apps/ensureServers' % remote_obj_path
 
 # Used to prepend debugging tool commands (e.g., valgrind) before the various
-# RAMCloud executables.
-prefix_command = ''
+# RAMCloud executables. Can be set by environment variable RC_PREFIX_CMD.
+prefix_command = os.environ.get('RC_PREFIX_CMD', '')
 
 # Info used to construct service locators for each of the transports
 # supported by RAMCloud.  In some cases the locator for the coordinator
