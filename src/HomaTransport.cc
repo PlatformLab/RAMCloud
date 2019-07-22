@@ -120,12 +120,12 @@ HomaTransport::HomaTransport(Context* context, const ServiceLocator* locator,
     nextTimeoutCheck = Cycles::rdtsc() + timerInterval;
 
     // Read Homa configuration from the transport configuration file
-    // (See config/transport.txt for documentation and examples).
+    // (See config/transport.conf for documentation and examples).
     string configDir = "config";
     if (context->options) {
         configDir = context->options->getConfigDir();
     }
-    std::ifstream configFile(configDir + "/transport.txt");
+    std::ifstream configFile(configDir + "/transport.conf");
     Tub<ServiceLocator> config;
     ServiceLocator* params = NULL;
     if (configFile.is_open()) {
