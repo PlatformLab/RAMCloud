@@ -122,7 +122,10 @@ endif
 # Failed deconstructor inlines are generating noise
 # -Winline
 
-LIBS := $(EXTRALIBS) $(LOGCABIN_LIB) $(ZOOKEEPER_LIB) \
+# Library paths that will be searched by the linker before default system
+# locations; one -L option for each search directory.
+LIB_PATHS ?=
+LIBS := $(LIB_PATHS) $(EXTRALIBS) $(LOGCABIN_LIB) $(ZOOKEEPER_LIB) \
 	-lpcrecpp -lboost_program_options \
 	-lprotobuf -lrt -lboost_filesystem -lboost_system \
 	-lpthread -lssl -lcrypto
