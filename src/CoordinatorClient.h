@@ -16,16 +16,20 @@
 #ifndef RAMCLOUD_COORDINATORCLIENT_H
 #define RAMCLOUD_COORDINATORCLIENT_H
 
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Weffc++"
 #include "MasterRecoveryInfo.pb.h"
 #include "ServerList.pb.h"
 #include "RecoveryPartition.pb.h"
 #include "TableConfig.pb.h"
+#include "ServerConfig.pb.h"
+#pragma GCC diagnostic warning "-Wconversion"
+#pragma GCC diagnostic warning "-Weffc++"
 
 #include "ClientException.h"
 #include "CoordinatorRpcWrapper.h"
 #include "ServiceMask.h"
 #include "ServerId.h"
-#include "ServerConfig.pb.h"
 
 namespace RAMCloud {
 

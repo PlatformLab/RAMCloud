@@ -16,8 +16,6 @@
 #ifndef RAMCLOUD_TRANSPORTFACTORY_H
 #define RAMCLOUD_TRANSPORTFACTORY_H
 
-#include <boost/foreach.hpp>
-
 #include "Common.h"
 #include "Transport.h"
 

@@ -21,7 +21,11 @@
 #include <sys/stat.h>
 #include <stdexcept>
 
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Weffc++"
 #include <boost/lexical_cast.hpp>
+#pragma GCC diagnostic warning "-Wconversion"
+#pragma GCC diagnostic warning "-Weffc++"
 
 #include "Cycles.h"
 #include "LogCabinLogger.h"

@@ -16,7 +16,13 @@
 #ifndef RAMCLOUD_OPTIONPARSER_H
 #define RAMCLOUD_OPTIONPARSER_H
 
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Weffc++"
+#pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
 #include <boost/program_options.hpp>
+#pragma GCC diagnostic warning "-Wconversion"
+#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic warning "-Wnon-virtual-dtor"
 
 #include "Transport.h"
 

@@ -16,7 +16,6 @@
 #ifndef RAMCLOUD_TRANSPORTMANAGER_H
 #define RAMCLOUD_TRANSPORTMANAGER_H
 
-#include <boost/foreach.hpp>
 #include <map>
 #include <set>
 

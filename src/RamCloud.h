@@ -24,9 +24,13 @@
 #include "OptionParser.h"
 #include "ServerMetrics.h"
 
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Weffc++"
 #include "LogMetrics.pb.h"
 #include "ServerConfig.pb.h"
 #include "ServerStatistics.pb.h"
+#pragma GCC diagnostic warning "-Wconversion"
+#pragma GCC diagnostic warning "-Weffc++"
 
 namespace RAMCloud {
 class ClientLeaseAgent;

@@ -16,8 +16,6 @@
 #include <list>
 #include <unordered_map>
 
-#include "ServerListEntry.pb.h"
-
 #include "Common.h"
 #include "ClientException.h"
 #include "CoordinatorServerList.h"

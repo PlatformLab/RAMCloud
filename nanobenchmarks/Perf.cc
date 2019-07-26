@@ -44,7 +44,13 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Weffc++"
 #include <boost/program_options.hpp>
+#pragma GCC diagnostic warning "-Wconversion"
+#pragma GCC diagnostic warning "-Weffc++"
+
 #if __cplusplus >= 201402L
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
@@ -368,7 +374,7 @@ template<int keyLength>
 static double bufferAppendCommon()
 {
     Buffer b;
-    char src[keyLength];
+    char src[keyLength] = {};
     int count = 1000000;
     uint64_t totalTime = 0;
     for (int i = 0; i < count; i++) {

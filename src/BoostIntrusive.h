@@ -21,8 +21,12 @@
 #ifndef RAMCLOUD_BOOSTINTRUSIVE_H
 #define RAMCLOUD_BOOSTINTRUSIVE_H
 
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Weffc++"
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/set.hpp>
+#pragma GCC diagnostic warning "-Wconversion"
+#pragma GCC diagnostic warning "-Weffc++"
 
 namespace RAMCloud {
 

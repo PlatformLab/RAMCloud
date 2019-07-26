@@ -18,12 +18,18 @@
 // file works in conjunction with coordinatorrecovery.py that in turn
 // uses cluster.py
 
-#include <thread>
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Weffc++"
+#pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
 #include <boost/program_options.hpp>
 #include <boost/version.hpp>
+#pragma GCC diagnostic warning "-Wconversion"
+#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic warning "-Wnon-virtual-dtor"
+
+#include <thread>
 #include <unordered_map>
 #include <iostream>
-namespace po = boost::program_options;
 
 #include "RamCloud.h"
 #include "CoordinatorClient.h"
@@ -34,8 +40,8 @@ namespace po = boost::program_options;
 #include "Util.h"
 #include "OptionParser.h"
 
+namespace po = boost::program_options;
 using namespace RAMCloud;
-
 
 enum OPERATIONS {
     START_SERVER = 0,                   // Start a new server

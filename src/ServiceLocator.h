@@ -17,12 +17,16 @@
 #define RAMCLOUD_SERVICELOCATOR_H
 
 #include <errno.h>
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Weffc++"
 #include <pcrecpp.h>
+#include <boost/lexical_cast.hpp>
+#pragma GCC diagnostic warning "-Wconversion"
+#pragma GCC diagnostic warning "-Weffc++"
 
 #include <map>
 #include <stdexcept>
 #include <vector>
-#include <boost/lexical_cast.hpp>
 
 #include "Common.h"
 
