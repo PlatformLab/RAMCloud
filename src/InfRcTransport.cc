@@ -750,7 +750,8 @@ InfRcTransport::clientTrySetupQueuePair(IpAddress& address)
                                                 ibPhysicalPort, clientSrq,
                                                 commonTxCq, clientRxCq,
                                                 MAX_TX_QUEUE_DEPTH,
-                                                MAX_SHARED_RX_QUEUE_DEPTH);
+                                                MAX_SHARED_RX_QUEUE_DEPTH,
+                                                MAX_TX_SGE_COUNT);
     uint64_t nonce = generateRandom();
     LOG(DEBUG, "starting to connect to %s via local port %d, nonce 0x%lx",
             inet_ntoa(sin->sin_addr), clientPort, nonce);
@@ -845,7 +846,8 @@ InfRcTransport::ServerConnectHandler::handleFileEvent(int events)
             transport->commonTxCq,
             transport->serverRxCq,
             MAX_TX_QUEUE_DEPTH,
-            MAX_SHARED_RX_QUEUE_DEPTH);
+            MAX_SHARED_RX_QUEUE_DEPTH,
+            MAX_TX_SGE_COUNT);
     qp->plumb(&incomingQpt);
     qp->setPeerName(incomingQpt.getPeerName());
     LOG(DEBUG, "New queue pair for %s:%u, nonce 0x%lx (total creates "

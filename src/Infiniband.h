@@ -186,6 +186,7 @@ class Infiniband {
                   ibv_cq *rxcq,
                   uint32_t maxSendWr,
                   uint32_t maxRecvWr,
+                  uint32_t maxSendSges,
                   uint32_t QKey = 0);
         // exists solely as superclass constructor for MockQueuePair derivative
         explicit QueuePair(Infiniband& infiniband)
@@ -460,6 +461,7 @@ class Infiniband {
                     ibv_cq *rxcq,
                     uint32_t maxSendWr,
                     uint32_t maxRecvWr,
+                    uint32_t maxSendSges,
                     uint32_t QKey = 0);
 
     int getLid(int port);
