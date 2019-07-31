@@ -322,6 +322,10 @@ InfUdDriver::readDriverConfigFile()
 void
 InfUdDriver::reapTransmitBuffers()
 {
+    // Fetch up to MAX_TO_RETRIEVE completion entries; each entry corresponds
+    // to SIGNALED_SEND_PERIOD completed send requests. Therefore, fetching
+    // up to 4 CQEs when SIGNALED_SEND_PERIOD is 32 means we may have to
+    // replenish up to 128 transmit buffers before return.
 #define MAX_TO_RETRIEVE 4
     ibv_wc retArray[MAX_TO_RETRIEVE];
     int cqes = ibv_poll_cq(txcq, MAX_TO_RETRIEVE, retArray);
@@ -361,8 +365,9 @@ InfUdDriver::registerMemory(void* base, size_t bytes)
 {
     // We can only remember one region (the first)
     if (zeroCopyRegion == NULL) {
-        zeroCopyRegion = ibv_reg_mr(infiniband->pd.pd, base, bytes,
-            IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
+        // Local read access is always enabled for MR; no more access flag is
+        // needed for zero-copy TX.
+        zeroCopyRegion = ibv_reg_mr(infiniband->pd.pd, base, bytes, 0);
         if (zeroCopyRegion == NULL) {
             LOG(ERROR, "ibv_reg_mr failed to register %lu bytes at %p",
                     bytes, base);
@@ -456,7 +461,8 @@ InfUdDriver::sendPacket(const Driver::Address* addr,
                         TransmitQueueState* txQueueState)
 {
     uint32_t payloadSize = payload ? payload->size() : 0;
-    uint32_t totalLength = headerLen + payloadSize;
+    const uint32_t totalLength =
+            (localMac ? ETH_HEADER_SIZE : 0) + headerLen + payloadSize;
     assert(totalLength <= getMaxPacketSize());
 
     // In raw ethernet mode, loopback packets must be handled specially on
@@ -471,7 +477,18 @@ InfUdDriver::sendPacket(const Driver::Address* addr,
     BufferDescriptor* bd = getTransmitBuffer();
     bd->packetLength = totalLength;
 
-    // Construct the ethernet header when running in raw ethernet mode.
+    // Create the IB work request. wr_id is used to locate the BufferDescriptor
+    // from the completion notification.
+    ibv_sge sges[2];
+    ibv_send_wr workRequest = {};
+    workRequest.wr_id = reinterpret_cast<uint64_t>(bd);
+    workRequest.sg_list = sges;
+    workRequest.num_sge = 1;
+    workRequest.next = NULL;
+    workRequest.opcode = IBV_WR_SEND;
+
+    // Construct the ethernet header when running in raw ethernet mode;
+    // otherwise, initialize the work request's UD destination.
     char *dst = bd->buffer;
     if (localMac) {
         EthernetHeader* ethHdr = reinterpret_cast<EthernetHeader*>(dst);
@@ -479,7 +496,11 @@ InfUdDriver::sendPacket(const Driver::Address* addr,
         MacAddress::copy(ethHdr->srcAddress, localMac->address);
         ethHdr->etherType = HTONS(NetUtil::EthPayloadType::RAMCLOUD);
         dst += ETH_HEADER_SIZE;
-        bd->packetLength += ETH_HEADER_SIZE;
+    } else {
+        const Address* address = static_cast<const Address*>(addr);
+        workRequest.wr.ud.ah = address->ah;
+        workRequest.wr.ud.remote_qpn = address->qpn;
+        workRequest.wr.ud.remote_qkey = QKEY;
     }
 
     // Copy transport header into packet buffer.
@@ -487,55 +508,40 @@ InfUdDriver::sendPacket(const Driver::Address* addr,
     dst += headerLen;
 
     // Copy payload into packet buffer or apply zero-copy when approapriate.
-    ibv_sge sges[2];
-    sges[0].addr = reinterpret_cast<uint64_t>(bd->buffer);
-    sges[0].length = bd->packetLength;
-    sges[0].lkey = bd->memoryRegion->lkey;
-    int numSges = 1;
+    sges[0] = {
+        .addr = reinterpret_cast<uint64_t>(bd->buffer),
+        .length = bd->packetLength,
+        .lkey = bd->memoryRegion->lkey
+    };
     while (payload && !payload->isDone()) {
         // Use zero copy for the last chunk of the packet, if it's in the
         // zero copy region and is large enough to justify the overhead
         // of an addition scatter-gather element.
         const char *currentChunk =
                 reinterpret_cast<const char*>(payload->getData());
-        if ((payload->getLength() >= 500)
+        uint32_t chunkSize = payload->getLength();
+        if ((chunkSize >= 500) && (chunkSize == payload->size())
                 && (currentChunk >= zeroCopyStart)
-                && ((currentChunk + payload->getLength()) <= zeroCopyEnd)
-                && (payload->getLength() >= payload->size())) {
-            sges[1].addr = reinterpret_cast<uint64_t>(currentChunk);
-            sges[1].length = payload->getLength();
-            sges[1].lkey = zeroCopyRegion->lkey;
-            sges[0].length -= payload->getLength();
-            numSges = 2;
+                && (currentChunk + chunkSize < zeroCopyEnd)) {
+            sges[1] = {
+                .addr = reinterpret_cast<uint64_t>(currentChunk),
+                .length = chunkSize,
+                .lkey = zeroCopyRegion->lkey
+            };
+            sges[0].length -= chunkSize;
+            workRequest.num_sge = 2;
             break;
         } else {
-            memcpy(dst, currentChunk, payload->getLength());
-            dst += payload->getLength();
-            timeTrace("0-copy not applicable; copied %u bytes",
-                    payload->getLength());
+            memcpy(dst, currentChunk, chunkSize);
+            dst += chunkSize;
+            timeTrace("0-copy not applicable; copied %u bytes", chunkSize);
         }
         payload->next();
     }
 
-    // Create the IB work request. wr_id is used to locate the BufferDescriptor
-    // from the completion notification.
-    ibv_send_wr workRequest = {};
-    workRequest.wr_id = reinterpret_cast<uint64_t>(bd);
-    workRequest.next = NULL;
-    workRequest.sg_list = sges;
-    workRequest.num_sge = numSges;
-    workRequest.opcode = IBV_WR_SEND;
-    if (!localMac) {
-        const Address* address = static_cast<const Address*>(addr);
-        workRequest.wr.ud.ah = address->ah;
-        workRequest.wr.ud.remote_qpn = address->qpn;
-        workRequest.wr.ud.remote_qkey = QKEY;
-    }
-    sendsSinceLastSignal++;
-    if (sendsSinceLastSignal >= SIGNALED_SEND_PERIOD) {
-        workRequest.send_flags = IBV_SEND_SIGNALED;
-        sendsSinceLastSignal = 0;
-    }
+    // Generate one completion notification for every batch of send requests.
+    sendsSinceLastSignal = (sendsSinceLastSignal + 1) % SIGNALED_SEND_PERIOD;
+    workRequest.send_flags |= sendsSinceLastSignal ? 0 : IBV_SEND_SIGNALED;
 
     // We can get a substantial latency improvement (nearly 2usec less per RTT)
     // by inlining data with the WQE for small messages. The Verbs library
@@ -550,7 +556,7 @@ InfUdDriver::sendPacket(const Driver::Address* addr,
     } else {
         txBuffersInHca.push_back(bd);
     }
-    timeTrace("sent packet with %u bytes, %u free buffers", totalLength,
+    timeTrace("sent packet with %u bytes, %u free buffers", bd->packetLength,
             txPool->freeBuffers.size());
     queueEstimator.packetQueued(bd->packetLength, lastTransmitTime,
             txQueueState);
@@ -762,6 +768,8 @@ InfUdDriver::BufferPool::BufferPool(Infiniband* infiniband,
     bufferMemory = reinterpret_cast<char*>(Memory::xmemalign(HERE, 4096,
             bytesToAllocate));
 
+    // Local write access is required by the receive buffers; this allows the
+    // NIC to write incoming data directly into the buffer memory.
     memoryRegion = ibv_reg_mr(infiniband->pd.pd, bufferMemory, bytesToAllocate,
                 IBV_ACCESS_LOCAL_WRITE);
     if (memoryRegion == NULL) {
