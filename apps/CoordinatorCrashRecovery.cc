@@ -18,6 +18,10 @@
 // file works in conjunction with coordinatorrecovery.py that in turn
 // uses cluster.py
 
+#include <thread>
+#include <iostream>
+#include <unordered_map>
+
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
@@ -26,10 +30,6 @@
 #pragma GCC diagnostic warning "-Wconversion"
 #pragma GCC diagnostic warning "-Weffc++"
 #pragma GCC diagnostic warning "-Wnon-virtual-dtor"
-
-#include <thread>
-#include <unordered_map>
-#include <iostream>
 
 #include "RamCloud.h"
 #include "CoordinatorClient.h"

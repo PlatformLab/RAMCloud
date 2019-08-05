@@ -7,12 +7,13 @@
 #
 # For more details about building C++ code bases with Travis CI see:
 # http://docs.travis-ci.com/user/languages/cpp/
-dist: trusty
+dist: xenial
 
 language: cpp
 
-compiler:
-  - gcc
+compiler: gcc
+
+jdk: openjdk8
 
 env:
 # Build Checks
@@ -30,6 +31,10 @@ before_install:
  - sudo apt-get install -y libzookeeper-mt-dev protobuf-compiler libprotobuf-dev libboost-all-dev
  - wget http://launchpadlibrarian.net/57653337/doxygen_1.7.1-2_amd64.deb
  - sudo dpkg -i doxygen_1.7.1-2_amd64.deb
+# Quick hack to change the default java to openjdk8; the jdk specification
+# doesn't work properly when the project language is not java.
+ - PATH=$(echo "$PATH" | sed -e 's/:\/usr\/local\/lib\/jvm\/openjdk11\/bin//')
+ - JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk-amd64
 
 ## For if we ever decide to support multiple GCC versions.
 # - if [[ ${GCC_VERSION} ]]; then

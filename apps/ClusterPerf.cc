@@ -39,18 +39,18 @@
 //  4. Add code for this test to clusterperf.py, following the instructions
 //     in that file.
 
+#include <random>
+#include <algorithm>
+#include <fstream>
+#include <iostream>
+#include <unordered_set>
+
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include <boost/program_options.hpp>
 #include <boost/version.hpp>
 #pragma GCC diagnostic warning "-Wconversion"
 #pragma GCC diagnostic warning "-Weffc++"
-
-#include <random>
-#include <algorithm>
-#include <fstream>
-#include <iostream>
-#include <unordered_set>
 namespace po = boost::program_options;
 
 #include "BasicTransport.h"

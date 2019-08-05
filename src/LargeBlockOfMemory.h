@@ -16,6 +16,10 @@
 #ifndef RAMCLOUD_LARGEBLOCKOFMEMORY_H
 #define RAMCLOUD_LARGEBLOCKOFMEMORY_H
 
+#include <sys/file.h>
+#include <sys/mman.h>
+#include <climits>
+
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include <boost/type_traits.hpp>
@@ -23,9 +27,6 @@
 #pragma GCC diagnostic warning "-Wconversion"
 #pragma GCC diagnostic warning "-Weffc++"
 
-#include <limits.h>
-#include <sys/file.h>
-#include <sys/mman.h>
 #include "Common.h"
 
 namespace RAMCloud {
