@@ -267,19 +267,13 @@ ftest: $(OBJDIR)/test
 zooTest: $(OBJDIR)/zooTest
 	$(OBJDIR)/zooTest
 
-ifeq ($(GLIBCXX_USE_CXX11_ABI),yes)
-GLIBCXX_ABI := -D_GLIBCXX_USE_CXX11_ABI=1
-else
-GLIBCXX_ABI := -D_GLIBCXX_USE_CXX11_ABI=0
-endif
-
 # The following target tries to compile a simple RAMCloud client app using
 # only installed files, in order to ensure that "make install" has pulled
 # together all the information needed by client apps. Note: this target
 # does *not* use the normal compilation flags, since we only want installed
 # info to be available.
 testInstall: install
-	$(CXX) --std=$(CXX_STANDARD) $(GLIBCXX_ABI) -g -DNDEBUG -Iinstall/include -I. \
+	$(CXX) --std=$(CXX_STANDARD) -g -DNDEBUG -Iinstall/include -I. \
 	        src/TestClient.cc -o $(OBJDIR)/TestClient -Linstall/lib/ramcloud/ \
 	        -lramcloud -Wl,-rpath=install/bin $(TEST_INSTALL_FLAGS)
 
