@@ -148,6 +148,7 @@ Status    rc_set_runtime_option(struct rc_client* client,
                                                   const char* option,
                                                   const char* value);
 void rc_testing_wait_for_all_tablets_normal(struct rc_client* client,
+                                            uint64_t tableId,
                                             uint64_t timeoutNs);
 void rc_set_log_file(const char* path);
 

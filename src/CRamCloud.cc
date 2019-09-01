@@ -941,9 +941,10 @@ rc_set_runtime_option(struct rc_client* client,
 
 void
 rc_testing_wait_for_all_tablets_normal(struct rc_client* client,
+                                       uint64_t tableId,
                                        uint64_t timeoutNs)
 {
-    client->client->testingWaitForAllTabletsNormal(timeoutNs);
+    client->client->testingWaitForAllTabletsNormal(tableId, timeoutNs);
 }
 
 void

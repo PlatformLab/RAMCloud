@@ -25,7 +25,7 @@ os.environ['LD_LIBRARY_PATH'] = common.obj_dir + ':' + os.environ['LD_LIBRARY_PA
 import unittest
 import signal
 
-hosts = common.hosts
+hosts = common.getHosts()
 
 def require_hosts(n):
     """Raise an exception if config.py (or localconfig.py) doesn't list enough
@@ -82,9 +82,9 @@ class ContextManagerTestCase(unittest.TestCase):
             except KeyboardInterrupt:
                 raise
             except self.failureException:
-                result.addFailure(self, self._exc_info())
+                result.addFailure(self, sys.exc_info())
             except:
-                result.addError(self, self._exc_info())
+                result.addError(self, sys.exc_info())
                 return
             if ok: result.addSuccess(self)
         finally:

@@ -166,7 +166,8 @@ def load_so():
                                                  ctypes.c_char_p]
     so.rc_set_runtime_option.restype = status
 
-    so.rc_testing_wait_for_all_tablets_normal.argtypes = [client, nanoseconds]
+    so.rc_testing_wait_for_all_tablets_normal.argtypes = [client, table,
+                                                          nanoseconds]
     so.rc_testing_wait_for_all_tablets_normal.restype = None
 
     so.rc_set_log_file.argtypes = [ctypes.c_char_p]
@@ -352,8 +353,8 @@ class RAMCloud(object):
     def testing_set_runtime_option(self, option, value):
         so.rc_set_runtime_option(self.client, option, value)
 
-    def testing_wait_for_all_tablets_normal(self, timeoutNs=2**64 - 1):
-        so.rc_testing_wait_for_all_tablets_normal(self.client, timeoutNs)
+    def testing_wait_for_all_tablets_normal(self, table_id, timeoutNs=2**64 - 1):
+        so.rc_testing_wait_for_all_tablets_normal(self.client, table_id, timeoutNs)
 
     def set_log_file(self, path):
         so.rc_set_log_file(path)

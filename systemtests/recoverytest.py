@@ -54,6 +54,7 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.servers = []
         self.cluster = cluster.Cluster()
         #self.cluster.verbose = True
+        self.cluster.enable_logcabin = False
         self.cluster.log_level = 'DEBUG'
         self.cluster.transport = 'infrc'
         self.cluster.__enter__()
@@ -70,8 +71,7 @@ class RecoveryTestCase(ContextManagerTestCase):
             for host in hosts[:self.num_hosts]:
                 self.servers.append(
                     self.cluster.start_server(
-                        host, args='--clusterName=%s %s' % (self.clusterName,
-                                                            syncArgs)))
+                        host, args=syncArgs))
                 # Hack below can be used to use different ports for all servers
                 #self.servers.append(
                 #    self.cluster.start_server(host,
@@ -111,24 +111,24 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.createTestValue()
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
-        self.rc.testing_kill(0, '0')
-        self.rc.testing_wait_for_all_tablets_normal()
+        self.rc.testing_kill(self.table, 'testKey')
+        self.rc.testing_wait_for_all_tablets_normal(self.table)
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
 
     @timeout()
-    def test_02_600M_recovery(self):
-        """Store 600 MB of objects on a master, crash that master,
+    def test_02_200M_recovery(self):
+        """Store 200 MB of objects on a master, crash that master,
         wait for recovery, then read a value from the recovery master.
         """
         self.createTestValue()
-        self.assertEqual(0, self.table)
-        self.rc.testing_fill(self.table, '0', 592950, 1024)
+        self.assertEqual(1, self.table)
+        self.rc.testing_fill(self.table, '0', 197650, 1024)
         expectedValue = (chr(0xcc) * 1024, 2)
         value = self.rc.read(self.table, '0')
         self.assertEqual(expectedValue, value)
-        self.rc.testing_kill(0, '0')
-        self.rc.testing_wait_for_all_tablets_normal()
+        self.rc.testing_kill(self.table, '0')
+        self.rc.testing_wait_for_all_tablets_normal(self.table)
         value = self.rc.read(self.table, '0')
         self.assertEqual(expectedValue, value)
 
@@ -141,8 +141,8 @@ class RecoveryTestCase(ContextManagerTestCase):
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
         self.rc.testing_set_runtime_option('failRecoveryMasters', '1')
-        self.rc.testing_kill(0, '0')
-        self.rc.testing_wait_for_all_tablets_normal()
+        self.rc.testing_kill(self.table, 'testKey')
+        self.rc.testing_wait_for_all_tablets_normal(self.table)
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
 
@@ -156,8 +156,8 @@ class RecoveryTestCase(ContextManagerTestCase):
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
         self.rc.testing_set_runtime_option('failRecoveryMasters', '1 1')
-        self.rc.testing_kill(0, '0')
-        self.rc.testing_wait_for_all_tablets_normal()
+        self.rc.testing_kill(self.table, 'testKey')
+        self.rc.testing_wait_for_all_tablets_normal(self.table)
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
 
@@ -182,8 +182,8 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.assertEqual(('testValue2', 2), value)
 
         self.rc.testing_set_runtime_option('failRecoveryMasters', '2')
-        self.rc.testing_kill(0, '0')
-        self.rc.testing_wait_for_all_tablets_normal()
+        self.rc.testing_kill(self.table, 'testKey')
+        self.rc.testing_wait_for_all_tablets_normal(self.table)
 
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
@@ -197,17 +197,18 @@ class RecoveryTestCase(ContextManagerTestCase):
         self.createTestValue()
         self.rc.create_table('elsewhere')
         self.elsewhereTable = self.rc.get_table_id('elsewhere')
+        self.rc.write(self.elsewhereTable, 'elsewhereKey', 'testValue')
 
         # Ensure the key was stored ok.
         value = self.rc.read(self.table, 'testKey')
         self.assertEqual(('testValue', 1), value)
 
         # Kill a backup.
-        self.rc.testing_kill(self.elsewhereTable, '0')
+        self.rc.testing_kill(self.elsewhereTable, 'elsewhereKey')
 
         # Crash the master
-        self.rc.testing_kill(self.table, '0')
-        self.rc.testing_wait_for_all_tablets_normal()
+        self.rc.testing_kill(self.table, 'testKey')
+        self.rc.testing_wait_for_all_tablets_normal(self.table)
 
         # Ensure the key was recovered.
         value = self.rc.read(self.table, 'testKey')
@@ -274,7 +275,7 @@ class RecoveryTestCase(ContextManagerTestCase):
             sys.stdout.flush()
             self.restart(server)
             time.sleep(5)
-            self.rc.testing_wait_for_all_tablets_normal(10 * 10**9)
+            self.rc.testing_wait_for_all_tablets_normal(self.table, 10 * 10**9)
             value = self.rc.read(self.table, 'testKey')
             self.assertEqual(('testValue', 1), value)
         print()
@@ -310,7 +311,7 @@ class RecoveryTestCase(ContextManagerTestCase):
             print('Restarting %s' % server.host)
             self.restart(server)
             time.sleep(timeToWaitForRecovery)
-            self.rc.testing_wait_for_all_tablets_normal(240 * 10**9)
+            self.rc.testing_wait_for_all_tablets_normal(self.table, 240 * 10**9)
             print('Doing test reads')
             for table in tables:
                 # These messages may be stale since they precede the actual read.
