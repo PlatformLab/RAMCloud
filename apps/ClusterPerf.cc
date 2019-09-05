@@ -45,12 +45,12 @@
 #include <iostream>
 #include <unordered_set>
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include <boost/program_options.hpp>
 #include <boost/version.hpp>
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic pop
 namespace po = boost::program_options;
 
 #include "BasicTransport.h"
@@ -62,6 +62,7 @@ namespace po = boost::program_options;
 #include "Util.h"
 
 #if __GNUC__ && (__GNUC__ >= 7)
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-truncation"
 #endif
 
@@ -7551,6 +7552,6 @@ catch (std::exception& e) {
 }
 
 #if __GNUC__ && (__GNUC__ >= 7)
-#pragma GCC diagnostic warning "-Wformat-truncation"
+#pragma GCC diagnostic pop
 #endif
 

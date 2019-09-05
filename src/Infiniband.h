@@ -17,11 +17,11 @@
 #include <netinet/in.h>
 #include <infiniband/verbs.h>
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include "flat_hash_map.h"
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic pop
 
 #include "Common.h"
 #include "Driver.h"

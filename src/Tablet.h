@@ -16,11 +16,11 @@
 #ifndef RAMCLOUD_TABLET_H
 #define RAMCLOUD_TABLET_H
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include "Tablets.pb.h"
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic pop
 
 #include "Common.h"
 #include "Log.h"

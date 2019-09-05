@@ -21,9 +21,10 @@
 #ifndef RAMCLOUD_TESTUTIL_H
 #define RAMCLOUD_TESTUTIL_H
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #include <gtest/gtest.h>
-#pragma GCC diagnostic warning "-Wconversion"
+#pragma GCC diagnostic pop
 #include <regex.h>
 #include <sstream>
 

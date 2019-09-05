@@ -461,6 +461,7 @@ PerfStats::parseStats(Buffer* rawData, std::vector<PerfStats>* results)
  *      Optional scale factor; if specified, each metric will be
  *      multiplied by this value before printing.
  */
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
 string
 PerfStats::formatMetric(PerfStats::Diff* diff, const char* metric,
@@ -475,7 +476,7 @@ PerfStats::formatMetric(PerfStats::Diff* diff, const char* metric,
     }
     return result;
 }
-#pragma GCC diagnostic warning "-Wformat-nonliteral"
+#pragma GCC diagnostic pop
 
 /**
  * Generates a formatted string containing the rate per second of a given
@@ -496,6 +497,7 @@ PerfStats::formatMetric(PerfStats::Diff* diff, const char* metric,
  *      Optional scale factor; if specified, each rate will be multiplied
  *      by this value before printing.
  */
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
 string
 PerfStats::formatMetricRate(PerfStats::Diff* diff, const char* metric,
@@ -523,7 +525,7 @@ PerfStats::formatMetricRate(PerfStats::Diff* diff, const char* metric,
     }
     return result;
 }
-#pragma GCC diagnostic warning "-Wformat-nonliteral"
+#pragma GCC diagnostic pop
 
 /**
  * Generates a formatted string containing the ratio of two metrics for
@@ -546,6 +548,7 @@ PerfStats::formatMetricRate(PerfStats::Diff* diff, const char* metric,
  *      Optional scale factor; if specified, each ratio will be
  *      multiplied by this value before printing.
  */
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
 string
 PerfStats::formatMetricRatio(PerfStats::Diff* diff, const char* metric1,
@@ -566,6 +569,6 @@ PerfStats::formatMetricRatio(PerfStats::Diff* diff, const char* metric1,
     }
     return result;
 }
-#pragma GCC diagnostic warning "-Wformat-nonliteral"
+#pragma GCC diagnostic pop
 
 }  // namespace RAMCloud

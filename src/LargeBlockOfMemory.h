@@ -20,12 +20,12 @@
 #include <sys/mman.h>
 #include <climits>
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include <boost/type_traits.hpp>
 #include <boost/utility/enable_if.hpp>
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic pop
 
 #include "Common.h"
 

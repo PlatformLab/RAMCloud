@@ -22,14 +22,13 @@
 #include <iostream>
 #include <unordered_map>
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
 #include <boost/program_options.hpp>
 #include <boost/version.hpp>
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
-#pragma GCC diagnostic warning "-Wnon-virtual-dtor"
+#pragma GCC diagnostic pop
 
 #include "RamCloud.h"
 #include "CoordinatorClient.h"

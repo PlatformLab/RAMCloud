@@ -21,11 +21,11 @@
 #include <sys/stat.h>
 #include <stdexcept>
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include <boost/lexical_cast.hpp>
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic pop
 
 #include "Cycles.h"
 #include "LogCabinLogger.h"
@@ -244,6 +244,7 @@ Logger::setLogLevel(string module, string level)
     }
     int moduleLevel;
 // The uninitialized variable is inside boost::lexical_cast.
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
     try {
         moduleLevel = boost::lexical_cast<int>(level);
@@ -261,7 +262,7 @@ Logger::setLogLevel(string module, string level)
         }
     }
     setLogLevel(static_cast<LogModule>(moduleIndex), moduleLevel);
-#pragma GCC diagnostic warning "-Wmaybe-uninitialized"
+#pragma GCC diagnostic pop
 }
 
 /**
@@ -322,6 +323,7 @@ void
 Logger::setLogLevels(string level)
 {
 // The uninitialized variable is inside boost::lexical_cast.
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
     // No lock needed: doesn't access Logger object.
     int moduleLevel;
@@ -341,7 +343,7 @@ Logger::setLogLevels(string level)
         }
     }
     setLogLevels(moduleLevel);
-#pragma GCC diagnostic warning "-Wmaybe-uninitialized"
+#pragma GCC diagnostic pop
 }
 
 /**

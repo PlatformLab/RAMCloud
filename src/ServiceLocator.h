@@ -17,12 +17,12 @@
 #define RAMCLOUD_SERVICELOCATOR_H
 
 #include <errno.h>
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include <pcrecpp.h>
 #include <boost/lexical_cast.hpp>
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic pop
 
 #include <map>
 #include <stdexcept>
@@ -203,9 +203,10 @@ class ServiceLocator {
  */
 template<typename T> T
 ServiceLocator::getOption(const string& key) const {
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
         return boost::lexical_cast<T>(getOption(key));
-#pragma GCC diagnostic warning "-Wmaybe-uninitialized"
+#pragma GCC diagnostic pop
 }
 
 /**

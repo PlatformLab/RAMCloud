@@ -26,6 +26,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #include <rte_config.h>
 #include <rte_common.h>
@@ -35,7 +36,7 @@
 #include <rte_memcpy.h>
 #include <rte_ring.h>
 #include <rte_version.h>
-#pragma GCC diagnostic warning "-Wconversion"
+#pragma GCC diagnostic pop
 
 #include "Common.h"
 #include "Cycles.h"

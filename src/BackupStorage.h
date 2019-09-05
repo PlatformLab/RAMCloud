@@ -16,11 +16,11 @@
 #ifndef RAMCLOUD_BACKUPSTORAGE_H
 #define RAMCLOUD_BACKUPSTORAGE_H
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include <boost/dynamic_bitset.hpp>
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic pop
 
 #include "Buffer.h"
 #include "Exception.h"
