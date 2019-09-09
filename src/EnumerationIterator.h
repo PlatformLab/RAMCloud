@@ -16,11 +16,11 @@
 #ifndef RAMCLOUD_ENUMERATIONITERATOR_H
 #define RAMCLOUD_ENUMERATIONITERATOR_H
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include "EnumerationIterator.pb.h"
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic pop
 
 #include "Common.h"
 #include "Buffer.h"

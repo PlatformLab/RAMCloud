@@ -20,11 +20,11 @@
 #include <atomic>
 #include <x86intrin.h>
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include "SpinLockStatistics.pb.h"
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic pop
 
 namespace RAMCloud {
 

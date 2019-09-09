@@ -13,11 +13,11 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include "MetricList.pb.h"
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic pop
 
 #include "Buffer.h"
 #include "ServerMetrics.h"

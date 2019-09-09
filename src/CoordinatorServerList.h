@@ -21,13 +21,13 @@
 #include <list>
 #include <deque>
 
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Weffc++"
 #include "MasterRecoveryInfo.pb.h"
 #include "ServerListEntry.pb.h"
 #include "ServerList.pb.h"
-#pragma GCC diagnostic warning "-Wconversion"
-#pragma GCC diagnostic warning "-Weffc++"
+#pragma GCC diagnostic pop
 
 #include "AbstractServerList.h"
 #include "CoordinatorUpdateManager.h"
