@@ -380,6 +380,35 @@ TEST_F(ServerTrackerTest, getChange_removedButServerNeverAdded) {
     EXPECT_EQ(0u, tr.changes.size());
 }
 
+TEST_F(ServerTrackerTest, getServerIdAtIndexWithService) {
+    Logger::get().setLogLevels(SILENT_LOG_LEVEL);
+
+    ServerDetails server;
+    ServerChangeEvent event;
+
+    EXPECT_FALSE(tr.getServerIdAtIndexWithService(
+        1, WireFormat::BACKUP_SERVICE).isValid());
+
+    upEvent(ServerId(1, 0));
+    EXPECT_FALSE(tr.getServerIdAtIndexWithService(
+        1, WireFormat::BACKUP_SERVICE).isValid());
+    EXPECT_TRUE(tr.getChange(server, event));
+
+    EXPECT_EQ(ServerId(1, 0),
+                  tr.getServerIdAtIndexWithService(1, WireFormat::BACKUP_SERVICE));
+    // No host available with this service bit set.
+    EXPECT_EQ(ServerId(),
+                  tr.getServerIdAtIndexWithService(1, WireFormat::MASTER_SERVICE));
+
+    // Ensure looping over empty list terminates.
+    removedEvent(ServerId(1, 0));
+    while (tr.getChange(server, event)) {
+        // Do nothing; just process all events.
+    }
+    EXPECT_FALSE(tr.getServerIdAtIndexWithService(
+        1, WireFormat::BACKUP_SERVICE).isValid());
+}
+
 TEST_F(ServerTrackerTest, getRandomServerIdWithService) {
     Logger::get().setLogLevels(SILENT_LOG_LEVEL);
 

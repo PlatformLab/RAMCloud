@@ -96,7 +96,7 @@ class CleanableSegmentManagerTest : public ::testing::Test {
           serverId(ServerId(57, 0)),
           serverList(&context),
           serverConfig(),
-          replicaManager(&context, &serverId, 0, false, false),
+          replicaManager(&context, &serverId, 0, false, false, false),
           allocator(serverConfig()),
           masterTableMetadata(),
           segmentManager(&context, serverConfig(), &serverId,

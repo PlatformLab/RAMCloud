@@ -122,6 +122,7 @@ TESTS_SRCFILES := \
 		  src/ParticipantListTest.cc \
 		  src/PerfCounterTest.cc \
 		  src/PerfStatsTest.cc \
+		  src/PlusOneBackupSelectorTest.cc \
 		  src/PortAlarm.cc \
 		  src/PortAlarmTest.cc \
 		  src/PreparedOpTest.cc \

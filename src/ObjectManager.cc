@@ -86,6 +86,7 @@ ObjectManager::ObjectManager(Context* context, ServerId* serverId,
     , replicaManager(context, serverId,
                      config->master.numReplicas,
                      config->master.useMinCopysets,
+                     config->master.usePlusOneBackup,
                      config->master.allowLocalBackup)
     , segmentManager(context, config, serverId,
                      allocator, replicaManager, masterTableMetadata)

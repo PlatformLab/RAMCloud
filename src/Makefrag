@@ -124,6 +124,7 @@ SHARED_SRCFILES := \
 		   src/PcapFile.cc \
 		   src/PerfCounter.cc \
 		   src/PerfStats.cc \
+		   src/PlusOneBackupSelector.cc \
 		   src/PortAlarm.cc \
 		   src/PreparedOp.cc \
 		   src/RamCloud.cc \

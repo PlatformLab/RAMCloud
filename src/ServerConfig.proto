@@ -94,6 +94,10 @@ message ServerConfig {
 
         /// If true, allow replication to local backup.
         required bool use_local_backup = 12;
+
+        /// Specifies whether to use masterServerId plus one with wraparound 
+        /// or random replication for backupServerId.
+        required bool use_plusonebackup = 13;
     }
 
     /// The server's MasterService configuration, if it is running one.

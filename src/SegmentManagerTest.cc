@@ -46,7 +46,7 @@ class SegmentManagerTest : public ::testing::Test {
           serverId(ServerId(57, 0)),
           serverList(&context),
           serverConfig(ServerConfig::forTesting()),
-          replicaManager(&context, &serverId, 0, false, false),
+          replicaManager(&context, &serverId, 0, false, false, false),
           masterTableMetadata(),
           allocator(&serverConfig),
           segmentManager(&context, &serverConfig, &serverId,

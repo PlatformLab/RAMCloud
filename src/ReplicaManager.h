@@ -68,6 +68,7 @@ class ReplicaManager
                    const ServerId* masterId,
                    uint32_t numReplicas,
                    bool useMinCopysets,
+                   bool usePlusOneBackup,
                    bool allowLocalBackup);
     ~ReplicaManager();
 
@@ -194,6 +195,12 @@ class ReplicaManager
      * Specifies whether to use the MinCopysets replication scheme.
      */
     bool useMinCopysets;
+
+    /**
+     * Specifies whether to use the masterServerId plus one with wraparound 
+     * replication scheme.
+     */
+    bool usePlusOneBackup;
 
     /**
      * Specifies whether to allow replication to local backup.

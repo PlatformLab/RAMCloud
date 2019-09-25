@@ -61,6 +61,7 @@ BackupSelector::BackupSelector(Context* context, const ServerId* serverId,
     , allowLocalBackup(allowLocalBackup)
     , replicationIdMap()
     , okToLogNextProblem(true)
+    , maxAttempts(100)
 {
 }
 
@@ -119,8 +120,8 @@ ServerId
 BackupSelector::selectSecondary(uint32_t numBackups,
                                 const ServerId backupIds[])
 {
-    int attempts;
-    for (attempts = 0; attempts < 100; attempts++) {
+    uint32_t attempts = 0;
+    for (attempts = 0; attempts < maxAttempts; attempts++) {
         applyTrackerChanges();
         ServerId id = tracker.getRandomServerIdWithService(
             WireFormat::BACKUP_SERVICE);
