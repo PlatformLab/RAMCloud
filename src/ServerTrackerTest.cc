@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 Stanford University
+/* Copyright (c) 2011-2019 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any purpose
  * with or without fee is hereby granted, provided that the above copyright
@@ -394,11 +394,11 @@ TEST_F(ServerTrackerTest, getServerIdAtIndexWithService) {
         1, WireFormat::BACKUP_SERVICE).isValid());
     EXPECT_TRUE(tr.getChange(server, event));
 
-    EXPECT_EQ(ServerId(1, 0),
-                  tr.getServerIdAtIndexWithService(1, WireFormat::BACKUP_SERVICE));
+    EXPECT_EQ(ServerId(1, 0), tr.getServerIdAtIndexWithService(1,
+                                                  WireFormat::BACKUP_SERVICE));
     // No host available with this service bit set.
-    EXPECT_EQ(ServerId(),
-                  tr.getServerIdAtIndexWithService(1, WireFormat::MASTER_SERVICE));
+    EXPECT_EQ(ServerId(), tr.getServerIdAtIndexWithService(1,
+                                                  WireFormat::MASTER_SERVICE));
 
     // Ensure looping over empty list terminates.
     removedEvent(ServerId(1, 0));

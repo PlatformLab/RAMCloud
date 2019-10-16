@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016 Stanford University
+/* Copyright (c) 2012-2019 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -349,7 +349,7 @@ struct ServerConfig {
         /// replication.
         bool useMinCopysets;
 
-        /// Specifies whether to use masterServerId plus one with wraparound 
+        /// Specifies whether to use masterServerId plus one with wraparound
         /// or random replication for backupServerId.
         bool usePlusOneBackup;
 

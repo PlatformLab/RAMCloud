@@ -79,9 +79,9 @@ TEST_F(PlusOneBackupSelectorTest, selectSecondary_logThrottling) {
     TestLog::reset();
     ServerId id = selector->selectSecondary(0, NULL);
     EXPECT_EQ(ServerId(), id);
-    EXPECT_EQ("selectSecondary: PlusOneBackupSelector could not find a suitable "
-            "server in 1 attempts; may need to wait for additional "
-            "servers to enlist",
+    EXPECT_EQ("selectSecondary: PlusOneBackupSelector could not find a "
+              "suitable server in 1 attempts; may need to wait for additional "
+              "servers to enlist",
             TestLog::get());
     EXPECT_FALSE(selector->okToLogNextProblem);
 

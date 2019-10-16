@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016 Stanford University
+/* Copyright (c) 2012-2019 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -400,7 +400,7 @@ class ServerTracker : public ServerTrackerInterface {
      * Deterministically obtain the ServerId at serverList[index], but only
      * if index is valid, the serverId is valid, the server is up, and it
      * has the specified service. We return invalid id otherwise.
-     * 
+     *
      * \param index
      *      The index of serverList[] we want returned.
      * \param service
@@ -412,13 +412,16 @@ class ServerTracker : public ServerTrackerInterface {
      *      criteria passes.
      */
     ServerId
-    getServerIdAtIndexWithService(uint32_t index, WireFormat::ServiceType service) {
+    getServerIdAtIndexWithService(uint32_t index,
+                                  WireFormat::ServiceType service)
+    {
         if (serverList.size() > 0 &&
             index < serverList.size() &&
             index != lastRemovedIndex &&
             serverList[index].server.serverId.isValid() &&
             serverList[index].server.status == ServerStatus::UP &&
-            serverList[index].server.services.has(service)) {
+            serverList[index].server.services.has(service))
+        {
             return serverList[index].server.serverId;
         }
         return ServerId(/* invalid id */);

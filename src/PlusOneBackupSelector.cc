@@ -44,8 +44,8 @@ PlusOneBackupSelector::PlusOneBackupSelector(Context* context,
 
 
 /**
- * Select a node that's masterServerId+1 with wraparound, or if that fails, 
- * keep moving forward one with wraparound until you either find a node or 
+ * Select a node that's masterServerId+1 with wraparound, or if that fails,
+ * keep moving forward one with wraparound until you either find a node or
  * tried them all.
  * \param numBackups
  *      The number of entries in the \a backupIds array.
@@ -62,7 +62,7 @@ PlusOneBackupSelector::selectSecondary(uint32_t numBackups,
     uint32_t totalAttempts = std::min(tracker.size(), maxAttempts);
     uint32_t attempts = 0;
     uint32_t index = serverId->indexNumber();
-    
+
     for (attempts = 0; attempts < totalAttempts; attempts++) {
         applyTrackerChanges();
         index++;
