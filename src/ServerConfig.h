@@ -238,6 +238,7 @@ struct ServerConfig {
             , numReplicas(0)
             , useHugepages(false)
             , useMinCopysets(false)
+            , usePlusOneBackup(false)
             , allowLocalBackup(false)
         {}
 
@@ -258,6 +259,7 @@ struct ServerConfig {
             , numReplicas()
             , useHugepages()
             , useMinCopysets()
+            , usePlusOneBackup()
             , allowLocalBackup()
         {}
 
@@ -278,6 +280,7 @@ struct ServerConfig {
             config.set_num_replicas(numReplicas);
             config.set_use_hugepages(useHugepages);
             config.set_use_mincopysets(useMinCopysets);
+            config.set_use_plusonebackup(usePlusOneBackup);
             config.set_use_local_backup(allowLocalBackup);
         }
 
@@ -299,6 +302,7 @@ struct ServerConfig {
             numReplicas = config.num_replicas();
             useHugepages = config.use_hugepages();
             useMinCopysets = config.use_mincopysets();
+            usePlusOneBackup = config.use_plusonebackup();
             allowLocalBackup = config.use_local_backup();
         }
 
@@ -344,6 +348,10 @@ struct ServerConfig {
         /// Specifies whether to use MinCopysets replication or random
         /// replication.
         bool useMinCopysets;
+
+        /// Specifies whether to use masterServerId plus one with wraparound 
+        /// or random replication for backupServerId.
+        bool usePlusOneBackup;
 
         /// If true, allow replication to local backup.
         bool allowLocalBackup;

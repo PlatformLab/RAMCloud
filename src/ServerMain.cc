@@ -237,6 +237,11 @@ main(int argc, char *argv[])
              ProgramOptions::value<bool>(&config.master.useMinCopysets)->
                 default_value(false),
              "Whether to use MinCopysets or random replication")
+            ("usePlusOneBackup",
+             ProgramOptions::value<bool>(&config.master.usePlusOneBackup)->
+                default_value(false),
+             "Whether to use (masterServerId+1)modulo n or random "
+             "replication for backupServerId")
             ("writeCostThreshold,w",
              ProgramOptions::value<uint32_t>(
                 &config.master.cleanerWriteCostThreshold)->default_value(8),

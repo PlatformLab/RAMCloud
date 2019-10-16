@@ -13,10 +13,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <stdexcept>
+
 #include "BackupClient.h"
 #include "CycleCounter.h"
 #include "Logger.h"
 #include "MinCopysetsBackupSelector.h"
+#include "PlusOneBackupSelector.h"
 #include "ShortMacros.h"
 #include "RawMetrics.h"
 #include "ReplicaManager.h"
@@ -39,6 +42,9 @@ namespace RAMCloud {
  * \param useMinCopysets
  *      Specifies whether to use the MinCopysets replication scheme or random
  *      replication.
+ * \param usePlusOneBackup
+ *      Specifies whether to use masterServer plus one with wraparound 
+ *      replication or random replication.
  * \param allowLocalBackup
  *      Specifies whether to allow replication to the local backup.
  */
@@ -46,6 +52,7 @@ ReplicaManager::ReplicaManager(Context* context,
                                const ServerId* masterId,
                                uint32_t numReplicas,
                                bool useMinCopysets,
+                               bool usePlusOneBackup,
                                bool allowLocalBackup)
     : context(context)
     , numReplicas(numReplicas)
@@ -61,12 +68,22 @@ ReplicaManager::ReplicaManager(Context* context,
     , failureMonitor(context, this)
     , replicationCounter()
     , useMinCopysets(useMinCopysets)
+    , usePlusOneBackup(usePlusOneBackup)
     , allowLocalBackup(allowLocalBackup)
 {
+    if (useMinCopysets && usePlusOneBackup) {
+        throw std::invalid_argument(
+            "Can only use one of min-copysets and plus-one backup strategies, "
+            "but both were specified.");
+    }
     if (useMinCopysets) {
         backupSelector.reset(new MinCopysetsBackupSelector(context, masterId,
                                                            numReplicas,
                                                            allowLocalBackup));
+    } else if (usePlusOneBackup) {
+        backupSelector.reset(new PlusOneBackupSelector(context, masterId,
+                                                       numReplicas,
+                                                       allowLocalBackup));
     } else {
         backupSelector.reset(new BackupSelector(context, masterId,
                                                 numReplicas, allowLocalBackup));

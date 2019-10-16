@@ -397,6 +397,34 @@ class ServerTracker : public ServerTrackerInterface {
     }
 
     /**
+     * Deterministically obtain the ServerId at serverList[index], but only
+     * if index is valid, the serverId is valid, the server is up, and it
+     * has the specified service. We return invalid id otherwise.
+     * 
+     * \param index
+     *      The index of serverList[] we want returned.
+     * \param service
+     *      Restricts returned ServerId to a server that was known by this tracker
+     *      to be running an instance of a specific service type.
+     * \return
+     *      The ServerId of a server that was known by this tracker to be
+     *      running an instance of the requested service type, provided the
+     *      criteria passes.
+     */
+    ServerId
+    getServerIdAtIndexWithService(uint32_t index, WireFormat::ServiceType service) {
+        if (serverList.size() > 0 &&
+            index < serverList.size() &&
+            index != lastRemovedIndex &&
+            serverList[index].server.serverId.isValid() &&
+            serverList[index].server.status == ServerStatus::UP &&
+            serverList[index].server.services.has(service)) {
+            return serverList[index].server.serverId;
+        }
+        return ServerId(/* invalid id */);
+    }
+
+    /**
      * Obtain a random ServerId stored in this tracker which is running a
      * particular service.
      * The caller should check ServerId::isValid() since this method can

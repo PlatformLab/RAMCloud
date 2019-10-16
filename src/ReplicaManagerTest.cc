@@ -60,7 +60,7 @@ struct ReplicaManagerTest : public ::testing::Test {
         // anymore.
         serverId = CoordinatorClient::enlistServer(&context, 0, {},
             {WireFormat::MASTER_SERVICE}, "", 0);
-        mgr.construct(&context, &serverId, 2, false, false);
+        mgr.construct(&context, &serverId, 2, false, false, false);
         cluster.coordinatorContext.coordinatorServerList->sync();
     }
 

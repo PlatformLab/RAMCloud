@@ -108,7 +108,7 @@ class LogCleanerTest : public ::testing::Test {
           serverList(&context),
           masterTableMetadata(),
           serverConfig(),
-          replicaManager(&context, &serverId, 0, false, false),
+          replicaManager(&context, &serverId, 0, false, false, false),
           allocator(serverConfig()),
           segmentManager(&context, serverConfig(), &serverId,
                          allocator, replicaManager, &masterTableMetadata),

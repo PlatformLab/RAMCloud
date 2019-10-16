@@ -123,6 +123,12 @@ class BackupSelector : public BaseBackupSelector {
      */
     bool okToLogNextProblem;
 
+    /**
+     * Indicates the maximum number of attempts to find a secondary 
+     * serverId.
+     */
+    const uint32_t maxAttempts;
+
   PRIVATE:
     bool conflict(const ServerId backupId,
                   const ServerId otherBackupId) const;
